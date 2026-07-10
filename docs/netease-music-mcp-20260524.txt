@@ -1,0 +1,36 @@
+# 网易云音乐 MCP 接入记录
+
+日期：2026-05-24
+
+## 目标
+
+把外部网易云音乐 MCP 作为 Cyberboss 可挂载的 project tool 接入，供 Codex / Claude Code 使用。
+
+## 当前实现
+
+Cyberboss 已新增外部 MCP 挂载位，支持通过环境变量注入音乐 MCP：
+
+- `CYBERBOSS_MUSIC_MCP_COMMAND`
+- `CYBERBOSS_MUSIC_MCP_ARGS`
+- `CYBERBOSS_MUSIC_MCP_NAME`
+
+当这些变量存在时：
+
+- Codex 侧会把音乐 MCP 作为额外 `mcp_servers` 注入
+- Claude 侧会把音乐 MCP 写入 workspace `.mcp.json`
+- 默认 server 名称为 `netease_music_mcp`
+
+## 使用方式示例
+
+```dotenv
+CYBERBOSS_MUSIC_MCP_COMMAND=/path/to/netease-music-mcp
+CYBERBOSS_MUSIC_MCP_ARGS=--stdio
+CYBERBOSS_MUSIC_MCP_NAME=netease_music_mcp
+```
+
+## 验证
+
+- `node --check src/tools/external-mcp-config.js`
+- `node --check src/adapters/runtime/codex/mcp-config.js`
+- `node --check src/adapters/runtime/claudecode/project-settings.js`
+- `node --test test/codex-approval.test.js`

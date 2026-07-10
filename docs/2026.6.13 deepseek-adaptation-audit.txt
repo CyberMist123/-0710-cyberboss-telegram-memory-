@@ -1,0 +1,365 @@
+cyberboss-deepseek 适配审计报告
+=================================
+生成时间: 2026-06-13
+审计目标: 验证从 cyberboss（Codex + Weixin）改造为 cyberboss-deepseek（Claude Code + Telegram）的适配完整性
+
+======================================================================
+一、残留 runtime 假设
+======================================================================
+
+R1  src/core/config.js:24
+    runtime: readTextEnv("CYBERBOSS_RUNTIME") || "codex"
+    默认 fallback 是 "codex"。虽然 deepseek env 设了 claudecode，
+    但如果 env 加载失败会以 codex 模式启动。
+    风险: 中
+    建议: 改为 || "claudecode"，或启动时校验并报错退出
+
+R2  src/core/config.js:86-90
+    codexEndpoint / codexCommand / codexModel / codexModelProvider / codexNativeImageInput
+    codex 专用配置项仍保留在 config 中。
+    风险: 低（不影响运行）
+    建议: 可清理但非紧急
+
+R3  src/core/app.js:9-11
+    require("../adapters/runtime/codex") / require("../adapters/runtime/codex/model-catalog")
+    即使 runtime=claudecode 也 loading codex adapter。
+    风险: 低
+    建议: 可延迟引用
+
+R4  src/core/app.js:67
+    return createCodexRuntimeAdapter(config)
+    createRuntimeAdapter 的条件: if runtime==="claudecode" 否则 fallback codex。
+    如果 env 加载异常会静默以 codex 模式启动。
+    风险: 中
+    建议: 添加校验，启动时如果 runtime!=="claudecode" 报错退出
+    是否立即修改: 是
+
+R5  scripts/shared-common.js:7-9
+    始终 require codex/mcp-config。deepseek 部署不走 shared-common 链路。
+    风险: 低
+    建议: 不影响
+
+R6  scripts/shared-open.js:17-40
+    整个 runtime==="codex" 分支（执行 codex resume）。deepseek 不执行此脚本。
+    风险: 低
+    建议: 死代码，可清理
+
+R7  scripts/open_wechat_thread.sh:123
+    exec codex resume "${THREAD_ID}" --remote
+    deepseek 未使用此脚本。
+    风险: 低
+
+======================================================================
+二、残留 channel 假设
+======================================================================
+
+C1  src/core/config.js:23
+    channel: readTextEnv("CYBERBOSS_CHANNEL") || "weixin"
+    ⚠️ 默认 fallback 是 weixin！如果 env 加载失败会尝试以 Weixin 模式运行。
+    风险: 高
+    建议: 改为 || "telegram"，或启动时校验
+    是否立即修改: 是
+
+C2  src/core/app.js:73-77
+    构造函数总是创建 createWeixinChannelAdapter(config)。即使 channel=telegram
+    也创建了 weixin adapter（可能写 weixin state 文件）。
+    风险: 中
+    建议: 条件创建，或确认不影响 deepseek state 目录
+
+C3  src/core/app.js:178
+    console.log("...waiting for WeChat messages.")
+    即使 channel=telegram，日志仍显示 "WeChat"。
+    风险: 低
+    建议: 根据 channel 动态显示
+
+C4  src/core/app.js:233-246
+    主循环 else 分支是 weixin 路径。channel=telegram 时不会执行。
+    风险: 低
+
+C5  src/core/app.js:259-260
+    isSessionExpiredError 检查 error.ret/errcode（Weixin API 字段）。
+    Telegram 的 fetch 错误不会匹配。
+    风险: 低
+
+C6  src/core/app.js:459-464
+    if (normalized.provider !== "telegram") 设置 replyTarget。
+    Telegram 单独走 dispatchTelegramPreparedInbound。
+    风险: 低
+
+C7  src/index.js:53-60
+    ensureInstructionsTemplate 写入 weixin-instructions.md，即使用户用 Telegram。
+    风险: 低
+
+C8  src/adapters/channel/weixin/ 整个目录
+    在 deepseek 部署中从未使用。
+    风险: 低
+
+======================================================================
+三、命令启动链路
+======================================================================
+
+S1  scripts/start-deepseek-telegram.sh:19
+    export CYBERBOSS_RUNTIME="${CYBERBOSS_RUNTIME:-claudecode}"     ✅
+
+S2  scripts/start-deepseek-telegram.sh:18
+    export CYBERBOSS_CHANNEL="${CYBERBOSS_CHANNEL:-telegram}"       ✅
+
+S3  scripts/start-deepseek-telegram.sh:24
+    exec npm run start:checkin >> "${LOG_FILE}" 2>&1
+    stdout/stderr 重定向到日志文件                               ✅
+
+S4  scripts/shared-start.js:35-42
+    使用了 path、fs、logDir 但既没 require 也没从 shared-common 解构。
+    deepseek 部署不调用此文件，但源码有 bug。
+    风险: 中
+    建议: 修复 require
+
+S5  scripts/switch_shared_runtime.sh
+    tmux 切换脚本，deepseek 部署不使用。
+    风险: 低
+
+======================================================================
+四、Telegram 适配完整性
+======================================================================
+
+T1  src/adapters/channel/telegram.js:25
+    token = config?.telegramBotToken（只从 env 读取）            ✅
+
+T2  src/adapters/channel/telegram.js:26
+    allowedUserIds = new Set(config?.telegramAllowedUserIds)     ✅
+
+T3  src/adapters/channel/telegram.js:87-88
+    senderId = message.from?.id，白名单检查                     ✅
+
+T4  src/adapters/channel/telegram.js:132-155
+    sendText 使用 chunkReplyTextForTelegram 拆分长消息           ✅
+
+T5  src/adapters/channel/telegram.js:265-271
+    chunkReplyTextForTelegram 实际调用 Weixin 的 chunk 逻辑。
+    纯文本不影响，但 chunk size 需验证（Telegram 4096 vs Weixin 2048）。
+    风险: 低
+
+T6  src/adapters/channel/telegram.js:132
+    chunks 循环中如果某 chunk 发送失败（throw），已发送的不回滚。
+    风险: 低（可接受）
+
+T7  src/adapters/channel/telegram.js:210-223
+    fetchJsonWithRetry 未处理 Telegram API 429 Too Many Requests。
+    Telegram 在 429 响应中返回 retry_after 字段，应用它做延迟。
+    风险: 中
+    建议: 解析 429 响应，使用 retry_after
+    是否立即修改: 是
+
+T8  src/adapters/channel/telegram.js:210-223
+    重试延迟硬编码 [1s, 3s, 6s]，无指数退避。
+    如果 429 持续，6s 后仍然重试失败。
+    风险: 中
+    建议: 指数退避 + 更长间隔
+    是否立即修改: 是
+
+T9  src/adapters/channel/telegram.js:132-155
+    sendText 未传 parse_mode，以纯文本发送，不需 Markdown 转义 ✅
+
+T10 src/adapters/channel/telegram.js:95-100
+    dedupeKey = "{chatId}:{messageId}" + seenMessageKeys Set     ✅
+
+T11 src/adapters/channel/telegram.js:157-173
+    sendTyping 使用 sendChatAction("typing")，静默 catch          ✅
+
+T12 src/adapters/channel/telegram.js:175-189
+    sendFile 用 sendDocument，文件整个读入内存。
+    风险: 低（一般文件不超过 Telegram 50MB 限制）
+
+T13 src/adapters/channel/telegram.js:273-279
+    writeTelegramLog 日志写入 telegram-poller.log               ✅
+
+T14 src/services/telegram-service.js:38-45
+    service 和 adapter 有两条并行的 Telegram 发送路径，
+    没有统一的 chunk 逻辑和错误处理。
+    风险: 中
+    建议: 统一或确认路径隔离正确
+    是否立即修改: 建议
+
+T15 src/services/telegram-service.js:121-134
+    同 T7：429 无 retry_after 解析，双重路径需统一。
+    风险: 中
+    是否立即修改: 是
+
+T16 src/core/app.js:1674-1676
+    handleTelegramMessage：channel=telegram 时允许命令            ✅
+
+T17 src/core/app.js:1711-1718
+    dispatchTelegramPreparedInbound 有 30s turn gate               ✅
+
+======================================================================
+五、Claude Code Runtime 适配完整性
+======================================================================
+
+K1  src/adapters/runtime/claudecode/index.js:138
+    command: config.claudeCommand || "claude"                    ✅
+
+K2  src/adapters/runtime/claudecode/process-client.js:66-69
+    stdio: ["pipe", "pipe", "pipe"]，子进程不会阻塞 TTY          ✅
+
+K3  src/adapters/runtime/claudecode/process-client.js:85-92
+    stderr 通过 console.error 输出到父进程 stderr。
+    父进程通过 start-deepseek-telegram.sh 启动，stderr 重定向到日志 ✅
+
+K4  src/adapters/runtime/claudecode/index.js:19-22
+    IPC socket 路径基于 ~/.deepseek，与 cyberboss 隔离          ✅
+
+K5  src/adapters/runtime/claudecode/process-client.js:46-69
+    使用 --output-format stream-json --input-format stream-json  ✅
+
+K6  src/adapters/runtime/claudecode/process-client.js:337-369
+    SIGTERM -> SIGKILL 两级 kill 优雅关闭                       ✅
+
+K7  src/adapters/runtime/claudecode/process-client.js:319-334
+    waitForSessionId 有 8s 超时                                  ✅
+
+K8  src/adapters/runtime/claudecode/process-client.js:396-426
+    参数构建正确                                                  ✅
+
+K9  src/adapters/runtime/claudecode/index.js:138
+    过滤环境变量 CLAUDECODE key                                  ✅
+
+K10 src/adapters/runtime/claudecode/process-client.js:67-69
+    shell: false，无命令注入风险                                 ✅
+
+K11 src/adapters/runtime/claudecode/project-settings.js:11
+    .mcp.json 写入项目根，但 .gitignore 已包含 .mcp.json         ✅
+
+K12 scripts/shared-open.js:15
+    runtime fallback="codex"，deepseek 不执行此脚本               ✅
+
+======================================================================
+六、路径和配置
+======================================================================
+
+P1  src/core/config.js:8
+    stateDir 默认 ~/.cyberboss，deepseek 覆盖为 ~/.deepseek      ✅
+
+P2  src/index.js:27
+    env 加载级联: cwd/.env -> ~/.cyberboss/.env -> $STATE_DIR/.env
+    ⚠️ 如果 ~/.cyberboss/.env 中的变量未被 deepseek .env 覆盖，
+    可能干扰 deepseek 的运行。
+    风险: 高
+    建议: 审核两个 env 文件的重叠变量
+    是否立即修改: 是
+
+P3  src/core/config.js:9
+    timelineStateDir -> ~/.cyberboss（共享 timeline）            ✅
+
+P4  src/core/config.js:10
+    diaryDir -> ~/.cyberboss/diary（共享日记）                   ✅
+
+P5  src/core/config.js:11
+    sourceLabel=deepseek                                           ✅
+
+P6  src/core/config.js:12
+    memoryDir -> ~/.cyberboss/memory（共享记忆）                  ✅
+
+P7  src/core/config.js:46
+    weixinConfigFile 在 ~/.deepseek 内，不会冲突                  ✅
+
+P8  src/core/config.js:112
+    sessionsFile 在 ~/.deepseek 内                                ✅
+
+P9  scripts/shared-common.js:18
+    加载 ~/.cyberboss/.env，deepseek 不走 shared-common          ✅
+
+P10 scripts/start-deepseek-telegram.sh:4-6
+    ROOT_DIR 硬编码明确                                           ✅
+
+P11 scripts/start-deepseek-telegram.sh:5
+    STATE_DIR 硬编码明确                                          ✅
+
+======================================================================
+七、安全和权限
+======================================================================
+
+A1  ~/.deepseek/.env
+    Token 明文存储，当前权限 -rw-r--r--（其他用户可读）
+    包含: CYBERBOSS_TELEGRAM_BOT_TOKEN, ANTHROPIC_AUTH_TOKEN
+    风险: 高
+    建议: chmod 600 ~/.deepseek/.env
+    是否立即修改: 是
+
+A2  ~/.cyberboss/.env
+    同样 -rw-r--r--，包含另一个 Telegram bot token
+    风险: 高
+    建议: chmod 600 ~/.cyberboss/.env
+    是否立即修改: 是
+
+A3  .gitignore
+    包含 .env 和 .mcp.json，Token 不会进 git                    ✅
+
+A4  src/adapters/channel/telegram.js:273-279
+    日志可能泄露消息内容，但用 truncateForLog(120) 截断         ✅
+
+A5  src/adapters/runtime/claudecode/process-client.js:437-438
+    SENSITIVE_KEYWORDS/SENSITIVE_PATTERNS 正则过滤敏感信息       ✅
+
+A6  src/adapters/channel/telegram.js:84-88
+    过滤 bot 消息 + userId 白名单                                ✅
+
+A7  src/core/app.js:1711-1737
+    30s turn gate 避免并发                                       ✅
+
+A8  src/adapters/channel/telegram.js:57-78
+    longPoll 方式，无 webhook 暴露面                             ✅
+
+A9  全文件审查
+    所有 Telegram API 调用通过 fetch()，无命令注入风险           ✅
+
+A10 同 C2
+    channel 意外降级到 weixin 可能写 Weixin 账户文件
+    风险: 低（env 校验可避免）
+
+A11 src/adapters/runtime/claudecode/project-settings.js:19
+    .mcp.json 中不包含 Telegram token                           ✅
+
+======================================================================
+八、Telegram 消息格式与路由
+======================================================================
+
+D1  src/adapters/channel/telegram.js:79-126
+    normalizeIncomingMessage 返回的 senderId 是 Telegram user ID。
+    在私聊中 senderId == chatId，但某些路径可能混用。
+    风险: 中
+    建议: 确认下游所有路径使用正确的值
+    是否立即修改: 建议
+
+D2  src/core/app.js:174
+    Telegram debug 日志条件性输出                                ✅
+
+D3  src/core/app.js:179-188
+    channel=telegram 时主循环 polling，不会启动额外 poller      ✅
+
+D4  src/adapters/channel/telegram.js:103
+    if (!text) return null — 非文本消息（图片/视频/贴纸）被静默丢弃。
+    风险: 中
+    建议: 至少记录日志或支持基础文件处理
+
+======================================================================
+汇总: 需立即修复项
+======================================================================
+
+优先级 P0（高/中风险，影响稳定性和安全）:
+  A1/A2 - env 文件权限设为 600
+  P2    - 审核两个 env 文件变量覆盖
+  C1    - config.js 默认 channel 改为 telegram
+  R4    - 启动时校验 runtime==="claudecode"，否则报错退出
+
+优先级 P1（中风险，影响可靠性）:
+  T7/T8/T15 - Telegram 429 retry_after 处理 + 指数退避
+  T14 - 统一 service/adapter 发送路径
+  D1  - 确认 senderId/chatId 正确使用
+  D4  - 非文本消息 fallback
+
+优先级 P2（低风险/清理）:
+  C2 - 选择性创建 channel adapter
+  S4 - shared-start.js require bug
+  R1 - config.js runtime 默认值
+
+======================================================================

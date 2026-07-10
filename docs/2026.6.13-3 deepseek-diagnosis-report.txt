@@ -1,0 +1,157 @@
+cyberboss-deepseek 链路诊断报告
+=================================
+生成时间: 2026-06-13 05:40 UTC (13:40 Beijing)
+
+======================================================================
+一、健康检查状态
+======================================================================
+
+1. 进程状态
+   cyberboss-deepseek 主进程: PID 50930 ✅ (node ./bin/cyberboss.js start --checkin)
+   claude 子进程:        PID 51015 ✅ (/usr/bin/claude --output-format stream-json ...)
+   telegram MCP 进程:     PID 51034 ✅ (cyberboss.js tool-mcp-server)
+   tmux cb-deepseek-checkin: 存在 ✅
+   tmux dashboard-backend:    存在 ✅ (端口 3011)
+   tmux timeline-dashboard:   存在 ✅ (端口 4317)
+
+2. 日志状态（最新 50 行摘要）
+   cb-deepseek.log: 最近一次重启后正常运行约 20 分钟
+   telegram-poller.log: 存在且有内容
+   错误扫描: 无 ERROR / Unhandled / ENOENT
+   超时: 正常的长轮询空等 (已修复不打印噪音)
+   429/401/403: 无
+
+3. 定时任务状态
+   checkin poller: ✅ 运行中，下次 17:44
+   desire poller:  ⚠️ 已启动，待触发（下次 tick 在 ~38 分钟后）
+
+======================================================================
+二、核心问题分析
+======================================================================
+
+问题 1: 进程频繁崩溃导致 desire 轮询从未触发过
+───────────────────────────────────────────
+位置: /home/anan/.deepseek/logs/cb-deepseek.log
+现象: 完整日志显示进程已重启 5 次（每个 "> cyberboss@0.1.0 start:checkin"
+      标记一次重启）。每次重启重置 hourly desire poller 到"首次等待"状态。
+证据:
+  ┌─ 第 1 次启动 → "next tick in 11m" → 崩溃
+  ├─ 第 2 次启动 → "next tick in 14m" → 崩溃
+  ├─ 第 3 次启动 → "next tick in 54m" → 崩溃
+  ├─ 第 4 次启动 → "next tick in 48m" → 崩溃
+  └─ 第 5 次启动 → "next tick in 38m" → 当前存活中（约 20 分钟）
+  整份日志中： [desire] hourly checkin queued 出现次数 = 0
+判断: desire poller 从未成功触发过第一次定时。每次进程崩溃后重置定时器。
+      当前运行有望到达触发点（38 分钟后）。
+
+问题 2: Telegram 409 冲突导致崩溃级联
+───────────────────────────────────────
+位置: cb-deepseek.log（第 1-2 次运行区间）
+现象: 连续 4 次 [cyberboss] poll failed: telegram request failed: 409
+      后进程退出重启。
+根因: 同一 bot token (8987018314) 的旧长轮询连接尚未断开，新进程发起
+      getUpdates 请求时 Telegram 返回 409 Conflict。
+      （deepseek 的 token 与主 cyberboss 的 token 不同，但同一进程
+      重启时旧连接残留。）
+状态: 当前运行已无 409（因为手动 clean kill 后启动）。
+修复: 后续如果进程异常退出，残留连接会再次触发 409。考虑加启动延迟。
+
+问题 3: desire_state 从未写入 deepseek
+──────────────────────────────────────
+文件: ~/.deepseek/desire-state.json
+文件最近修改: 2026-06-12 10:25（昨天！）
+updatedAt:    "2026-06-12T06:00:32.056Z"（昨天 14:00 北京）
+对比:
+  ~/.cyberboss/desire-state.json
+  最近修改: 2026-06-13 05:00（今天！）
+  updatedAt: "2026-06-13T09:00:18.008Z"（今天 17:00 北京）
+判断: deepseek 的 desire-state.json 在过去 24 小时内从未被写入过。
+      desire poller 从未成功触发过定时消息，所以也没有回复携带着
+      desire_state 回来。
+
+问题 4: 即使 desire 消息发送成功，模型回复可能不含 desire_state
+────────────────────────────────────────────────────────────────
+位置: src/core/system-message-dispatcher.js:50-77
+      构建 desire_checkin 指令要求模型返回 JSON 包含 desire_state。
+现象: 主 cyberboss (Codex + GPT) 的回复包含 desire_state ✅
+      但 deepseek (claudecode + deepseek-chat) 此路径从未走通过，
+      所以无法确认 deepseek-chat 是否能正确遵循格式。
+风险: 低（尚未走到这一步，先修链路稳定性再确认）。
+
+问题 5: Dashboard 默认读的是主 cyberboss 的数据
+─────────────────────────────────────────────────
+位置: /home/anan/dashboard/frontend/src/source.js:13
+      dashboardSource 默认从 localStorage 读取，回退到 "cyberboss"
+位置: /home/anan/dashboard/backend/src/core/source-config.js:23
+      resolveDashboardSource 默认 source="cyberboss" 读 ~/.cyberboss/
+路径:
+  dashboard 前端 desire 请求:   GET /api/desire?source=<dashboardSource>
+  source=cyberboss 时读取:     ~/.cyberboss/desire-state.json ✅（数据最新）
+  source=deepseek 时读取:      ~/.deepseek/desire-state.json ❌（数据昨天）
+判断: 如果用户在 dashboard 上看不到新数据，可能是因为：
+  1. dashboardSource 当前是 "cyberboss" —— 数据 ✅ 最新（来自主项目 Codex）
+  2. 或者 dashboardSource 是 "deepseek" —— 数据 ❌ 昨天，因为 deepseek
+     的 desire 从未触发过
+
+======================================================================
+三、数据链路完整追踪
+======================================================================
+
+hourly-desire-poller.js
+├── resolveDesirePollerTargets() → accountId, senderId, workspaceRoot
+├── nextHourlyTickMs() → 计算到下一个整点的毫秒数
+├── await sleep(waitMs) → 等待
+├── isDesireWindow() → 检查 06:00-22:00 北京时
+├── queue.enqueue({ sourceType: "desire_checkin" }) → 写入系统消息队列
+│
+↓ system-message-queue.json (~/.deepseek/system-message-queue.json)
+
+SystemMessageDispatcher.buildPreparedMessage()
+├── buildSystemInboundText() → 构造 prompt（要求 JSON + desire_state）
+│
+↓ runtime.sendTurn() → Claude Code 进程
+
+Claude Code (deepseek-chat via Anthropic API proxy)
+├── 处理系统消息
+├── 生成回复 (JSON with action + desire_state)
+│
+↓ stream-delivery.js
+
+handleSystemReplySent()
+├── 解析 JSON
+├── 提取 desire_state
+├── fs.writeFileSync(config.desireStateFile) → ~/.deepseek/desire-state.json
+│
+↓ dashboard 后端
+
+GET /api/desire?source=deepseek
+├── getDesireSnapshot() → 读取 desire-state.json
+└── 返回给前端 DesoreView.vue
+
+断点: 💥 desire_state 写入步骤目前从未到达（见问题 1+3）
+
+======================================================================
+四、建议修复（仅链路诊断范围）
+======================================================================
+
+P0: 确认当前进程存活到 desire 触发
+  当前进程已稳定运行 20 分钟，无 409。desire poller 预计在 ~38 分钟后触发。
+  等触发后确认：消息是否发送、回复是否包含 desire_state、文件是否写入。
+
+P1: 处理 409 启动冲突
+  问题: 进程异常退出后残留长轮询连接，新进程启动时收到 409。
+  建议: startup 时加 3-5 秒延迟，或捕获 409 后重试而不是崩溃。
+  是否立即修改: 建议（需观察当前运行是否仍出现 409）
+
+P1: 确认 desire_chackin 在 claudecode runtime 下的格式
+  问题: deepseek-chat 通过 Anthropic API 代理 + stream-json 的输出格式
+        是否包含 desire_state，在 deepseek 上从未验证过。
+  建议: 等当前 desire 触发后手动检查回复内容。如果回复不含 desire_state，
+        需要调整 system-message-dispatcher.js 中的 prompt 格式。
+  是否立即修改: 否（先观察）
+
+P2: Dashboard 深色模式读取 deepseek 数据
+  问题: dashboard 默认为 "cyberboss" source。
+  建议: 如果用户需要看 deepseek 的 desire，需要在 dashboard 界面
+        切换 source 到 "deepseek"。
+  是否立即修改: 否（实际 deepseek 目前也没有新数据可看）

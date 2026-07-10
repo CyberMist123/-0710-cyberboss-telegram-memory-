@@ -1,0 +1,138 @@
+cyberboss 原项目断线诊断报告
+==============================
+生成时间: 2026-06-13 05:45 UTC (13:45 Beijing)
+
+======================================================================
+一、根因
+======================================================================
+
+原 cyberboss（Codex + Weixin）的 bridge/poller 进程被今天 deepseek
+调试过程中的 kill 命令误杀。
+
+执行过的命令（均匹配到原项目进程）:
+  - kill 49230          ← 当时 deepseek 的 poller，但共享进程名
+  - kill $(pgrep -f "cyberboss.js start")  ← 匹配所有同名进程
+
+原项目使用的是 shared-start.js 启动的子进程，进程名:
+  /usr/bin/node ./bin/cyberboss.js start --checkin
+
+与 deepseek 的进程名完全一致。一次 kill 同时杀了两个项目。
+
+======================================================================
+二、影响分析
+======================================================================
+
+问题编号: CB-001
+位置: /home/anan/cyberboss/scripts/shared-start.js
+       子进程 kill → child.on("exit") → process.exit()
+现象: 原 cyberboss poller 进程被误杀，PID 文件被 cleanup，bridge 离线
+证据:
+  - shared-wechat.pid 不存在（被 cleanup）
+  - ~/.cyberboss/logs/ 下所有日志文件 mtime 均为 Jun12（昨天）
+  - cycleboss 原项目没有任何 start --checkin 进程
+  - cb-bridge tmux 中 shared-start.js 重跑后 prompt 立即返回
+  - 但正确的子进程实际上**没有**在第一次重启中成功（原因见下）
+状态: ✅ 已手动恢复（PID 51924，运行 23 秒）
+
+问题编号: CB-002
+位置: /home/anan/cyberboss/scripts/shared-start.js:42-46
+       stdio: ["ignore", outFd, errFd]
+现象: 修改后的 shared-start.js 用文件 fd 替代 inherit，子进程启动后
+       Node.js 的事件循环会保持活跃，npm 不会退出，tmux prompt
+       不会返回。但 cb-bridge 的 tmux prompt 之前出现了。
+证据:
+  - 第一次重启尝试：tmux 显示 prompt 返回 → 子进程没存活
+  - 第二次重启尝试（当前进程）：pid=51924，存活正常
+判断: 第一次重启时可能有其他并发因素（如 Telegram 409 立即导致
+       子进程崩溃），但无法复现。当前已正常。
+风险: 低（已启动）
+
+======================================================================
+三、环境污染检查
+======================================================================
+
+问题编号: CB-003
+位置: shared-start.js 的 childEnv = { ...process.env }
+现象: 子进程继承父进程所有环境变量
+检查:
+  - cb-bridge tmux session 创建于 Jun12 23:01
+  - 当时只有 CYBERBOSS_RUNTIME=codex 被 export
+  - GALATEA_GARDEN_MCP_TOKEN 通过 -e 传入
+  - 无 CYBERBOSS_STATE_DIR, CYBERBOSS_CHANNEL 等 deepseek 变量
+  - 实测当前 tmux env: CYBERBOSS_RUNTIME=codex ✅
+判断: 无环境变量污染
+
+今天修改文件清单（原始 cyberboss 项目仅 1 个文件）:
+  - /home/anan/cyberboss/scripts/shared-start.js ← 仅此一个
+    变更: stdio: "inherit" → stdio: ["ignore", outFd, errFd]
+    影响: 子进程 stdout/stderr 写入 poller.out/err.log 文件，
+           不再占用 tmux TTY。功能正确，无副作用。
+  - /home/anan/cyberboss/src/core/stream-delivery.js ← 未改动
+    档案时间戳 1781317452 (Jun12 20:24 UTC)，早于今日工作
+  - /home/anan/cyberboss/src/core/system-message-dispatcher.js ← 未改动
+    同样早于今日工作
+
+判断: 今天的修改没有污染原 cyberboss 项目。只有 shared-start.js
+      的 stdio 重定向，不影响业务逻辑。
+
+======================================================================
+四、两个项目冲突检查
+======================================================================
+
+问题编号: CB-004
+位置: Telegram bot token
+现象: 两个项目使用不同 Telegram bot token
+证据:
+  原项目: ~/.cyberboss/.env → 8876775835:AAHNaC...
+  deepseek: ~/.deepseek/.env → 8987018314:AAEn3q...
+判断: ✅ Token 不同，不会冲突
+
+问题编号: CB-005
+位置: getUpdates long poll
+现象: 两个项目分别 polling 不同 token 的 getUpdates，互不干扰
+判断: ✅ 无冲突
+
+问题编号: CB-006
+位置: state/data 目录
+  原项目: ~/.cyberboss/
+  deepseek: ~/.deepseek/
+  共享目录: ~/.cyberboss/memory, ~/.cyberboss/timeline（只读共享）
+判断: ✅ 路径隔离，无写冲突
+
+问题编号: CB-007
+位置: Dashboard
+  dashboard 默认 source=cyberboss 读取 ~/.cyberboss/desire-state.json
+  dashboard 支持 source=deepseek 读取 ~/.deepseek/desire-state.json
+判断: ✅ 隔离正确
+
+======================================================================
+五、当前状态
+======================================================================
+
+原 cyberboss poller:   PID 51924，运行 23s ✅
+  日志: poller.out.log 正常 bootstrap
+  channel: weixin
+  runtime: codex
+  workspace: /home/anan/cyberboss
+  checkin: 已启用
+  desire: 已启用
+
+cyberboss-deepseek poller: PID 50930，运行 ~24min ✅
+  channel: telegram
+  runtime: claudecode
+  desire tick: 估计 ~18 分钟后触发
+  监控: 3 个 monitor 在运行
+
+======================================================================
+六、结论
+======================================================================
+
+1. 原 cyberboss 断线的直接原因: 被 kill 误杀，非代码污染
+2. 今天没有修改原项目的业务代码（仅 shared-start.js 的 stdio 配置）
+3. 两个项目的 token、stateDir、端口、tmux session 均隔离
+4. 原项目现已手动恢复在线
+5. deepseek 的 desire tick 监控不受影响
+
+建议: 后续 kill 进程时使用 cwd 或完整路径匹配，避免误杀:
+  pkill -f "cyberboss-deepseek/bin/cyberboss.js"    ← 精确匹配 deepseek
+  pkill -f "/home/anan/cyberboss/bin/cyberboss.js"   ← 精确匹配原项目

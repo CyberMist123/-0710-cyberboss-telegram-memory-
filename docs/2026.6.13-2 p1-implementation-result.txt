@@ -1,0 +1,186 @@
+cyberboss-deepseek P1 实现结果
+=================================
+生成时间: 2026-06-13
+当前状态: 运行中（持续观察中，有异常会推送通知）
+
+======================================================================
+P1-1: Telegram 429 与重试机制 ✓
+======================================================================
+
+修改文件 1: src/adapters/channel/telegram.js
+
+1. 删除了固定重试延迟数组:
+   -  TELEGRAM_REQUEST_RETRY_DELAYS_MS = [1_000, 3_000, 6_000]
+
+   替换为指数退避常量 + TelegramRateLimitError 类:
+   +  TELEGRAM_RETRY_BASE_MS = 1_000
+   +  TELEGRAM_RETRY_MAX_MS = 30_000
+   +  TELEGRAM_RETRY_MAX_ATTEMPTS = 5
+   +  class TelegramRateLimitError extends Error {
+   +    constructor(retryAfterMs) {
+   +      super(`telegram rate limit, retry after ${retryAfterMs}ms`);
+   +      this.name = "TelegramRateLimitError";
+   +      this.retryAfterMs = retryAfterMs;
+   +    }
+   +  }
+
+2. fetchJsonWithRetry 重写:
+   - 循环: 固定 3 次 → 5 次指数退避
+   - 延迟: 固定数组取值 → Math.min(1000 * 2^attempt, 30000) + jitter(0~500ms)
+   - 重试序列: 1s → 3s → 6s → (stop)    旧
+              ~1s → ~2s → ~4s → ~8s → ~16s  新
+   - 429 处理: 无 → 检测 instanceof TelegramRateLimitError, 用 max(retryAfter, 退避延迟)
+
+3. fetchJsonWithTimeout 重写:
+   - 新增: 响应状态 429 时解析 retry_after 并抛出 TelegramRateLimitError
+   - 其他状态码保持原有行为
+
+修改文件 2: src/services/telegram-service.js
+
+同样的三处变更（同步）:
+1. 删除 TELEGRAM_REQUEST_RETRY_DELAYS_MS → 替换为指数退避常量 + TelegramRateLimitError 类
+2. fetchJsonWithRetry 重写为指数退避 + jitter + 429 retry_after 支持
+3. fetchJsonWithTimeout 新增 429 解析
+
+======================================================================
+P1-2: 统一长消息 chunk ✓
+======================================================================
+
+修改文件: src/services/telegram-service.js
+
+1. 新增导入（第 4 行）:
+   +  const { chunkReplyTextForTelegram } = require("../adapters/channel/telegram");
+
+2. sendText 方法改造（第 49-62 行）:
+   旧: 直接发送完整文本
+   新:
+   +  const chunks = chunkReplyTextForTelegram(normalizedText);
+   +  if (!chunks.length) return { userId: chatId, text: normalizedText };
+   +  for (const chunk of chunks) {
+   +    await fetchJsonWithRetry(...sendMessage with chunk...);
+   +  }
+
+   行为: 超过 Telegram 4096 限制时自动拆分发送，空文本温和返回
+
+======================================================================
+diff 汇总
+======================================================================
+
+--- a/src/adapters/channel/telegram.js
++++ b/src/adapters/channel/telegram.js
+-const TELEGRAM_REQUEST_RETRY_DELAYS_MS = [1_000, 3_000, 6_000];
++const TELEGRAM_RETRY_BASE_MS = 1_000;
++const TELEGRAM_RETRY_MAX_MS = 30_000;
++const TELEGRAM_RETRY_MAX_ATTEMPTS = 5;
++
++class TelegramRateLimitError extends Error {
++  constructor(retryAfterMs) {
++    super(`telegram rate limit, retry after ${retryAfterMs}ms`);
++    this.name = "TelegramRateLimitError";
++    this.retryAfterMs = retryAfterMs;
++  }
++}
+
+  async function fetchJsonWithRetry(...) {
+-  for (let attempt = 0; attempt < TELEGRAM_REQUEST_RETRY_DELAYS_MS.length; attempt += 1) {
++  for (let attempt = 0; attempt < TELEGRAM_RETRY_MAX_ATTEMPTS; attempt += 1) {
+      try { return await fetchJsonWithTimeout(...); }
+      catch (error) {
+        lastError = error;
+-      if (attempt < TELEGRAM_REQUEST_RETRY_DELAYS_MS.length - 1) {
+-        await sleep(TELEGRAM_REQUEST_RETRY_DELAYS_MS[attempt]);
++      if (attempt < TELEGRAM_RETRY_MAX_ATTEMPTS - 1) {
++        let delay = Math.min(TELEGRAM_RETRY_BASE_MS * Math.pow(2, attempt), TELEGRAM_RETRY_MAX_MS);
++        if (error instanceof TelegramRateLimitError && Number.isFinite(error.retryAfterMs)) {
++          delay = Math.max(error.retryAfterMs, delay);
++        }
++        delay += Math.floor(Math.random() * 500);
++        await sleep(delay);
+        }
+      }
+    }
+
+  async function fetchJsonWithTimeout(...) {
+    ...
+-  const response = await fetch(url, { ...options, signal: controller.signal });
+-  const text = await response.text();
+-  if (!response.ok) {
+-    throw new Error(`telegram request failed: ${response.status}`);
+-  }
++  const response = await fetch(url, { ...options, signal: controller.signal });
++  if (response.status === 429) {
++    let retryAfterSec = 5;
++    try {
++      const body = await response.json();
++      if (Number.isFinite(body?.retry_after) && body.retry_after > 0) {
++        retryAfterSec = body.retry_after;
++      }
++    } catch { /* ignore */ }
++    throw new TelegramRateLimitError(Math.ceil(retryAfterSec) * 1000);
++  }
++  const text = await response.text();
++  if (!response.ok) {
++    throw new Error(`telegram request failed: ${response.status}`);
++  }
+
+--- a/src/services/telegram-service.js
++++ b/src/services/telegram-service.js
+  const fs = require("fs");
+  const path = require("path");
+  const dns = require("dns");
++ const { chunkReplyTextForTelegram } = require("../adapters/channel/telegram");
+
+-const TELEGRAM_REQUEST_RETRY_DELAYS_MS = [500, 1_500, 3_000];
++const TELEGRAM_RETRY_BASE_MS = 1_000;
++const TELEGRAM_RETRY_MAX_MS = 30_000;
++const TELEGRAM_RETRY_MAX_ATTEMPTS = 5;
++
++class TelegramRateLimitError extends Error {
++  constructor(retryAfterMs) {
++    super(`telegram rate limit, retry after ${retryAfterMs}ms`);
++    this.name = "TelegramRateLimitError";
++    this.retryAfterMs = retryAfterMs;
++  }
++}
+
+  // fetchJsonWithRetry: 同上 adapter 版本指数退避 + 429 处理
+  // fetchJsonWithTimeout: 同上 adapter 版本 429 解析
+
+  async sendText(...) {
+    ...
+-  await fetchJsonWithRetry(...sendMessage with full text...);
+-  return { userId: chatId, text: normalizedText };
++  const chunks = chunkReplyTextForTelegram(normalizedText);
++  if (!chunks.length) return { userId: chatId, text: normalizedText };
++  for (const chunk of chunks) {
++    await fetchJsonWithRetry(...sendMessage with chunk...);
++  }
++  return { userId: chatId, text: normalizedText };
+  }
+
+======================================================================
+启动验证
+======================================================================
+
+启动命令:
+  cd /home/anan/cyberboss-deepseek && bash scripts/start-deepseek-telegram.sh
+
+日志确认:
+  [cyberboss] channel=telegram              ✅
+  [cyberboss] runtime=claudecode             ✅
+  [cyberboss] checkin: enabled               ✅
+  [cyberboss] bridge loop started; waiting for Telegram messages.  ✅
+
+P0 校验不触发（env 配置正确）:
+  - CYBERBOSS_CHANNEL=telegram → 通过
+  - CYBERBOSS_RUNTIME=claudecode → 通过
+
+======================================================================
+当前未修改（仅审计，后续再议）
+======================================================================
+
+- 群聊 senderId/chatId 支持
+- 图片/贴纸/视频 fallback
+- codex/weixin 死代码清理
+- shared-* 脚本整理
+- Telegram service 与 adapter 重构

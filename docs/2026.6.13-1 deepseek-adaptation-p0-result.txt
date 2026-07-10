@@ -1,0 +1,215 @@
+cyberboss-deepseek P0 修复结果 + P1 分析报告
+=============================================
+生成时间: 2026-06-13
+确认启动: ✅ 成功启动
+
+======================================================================
+P0-1: env 文件权限修复 ✓
+======================================================================
+
+执行命令:
+  chmod 600 ~/.deepseek/.env
+  chmod 600 ~/.cyberboss/.env
+
+结果:
+  -rw------- 1 anan anan  195 Jun 12 10:25 /home/anan/.cyberboss/.env
+  -rw------- 1 anan anan 1771 Jun 12 21:54 /home/anan/.deepseek/.env
+
+两文件已从 644（其他用户可读）改为 600（仅 owner 读写）。
+
+======================================================================
+P0-2: env 污染审计 ✓
+======================================================================
+
+加载顺序（src/index.js）:
+  1. cwd/.env                          ← deepseek 项目根无 .env
+  2. ~/.cyberboss/.env                 ← override: true
+  3. $STATE_DIR/.env = ~/.deepseek/.env ← override: true（最终覆盖）
+
+重复变量:
+  CYBERBOSS_TELEGRAM_BOT_TOKEN
+    ~/.cyberboss: 8876775835:AAHNaC...
+    ~/.deepseek:  8987018314:AAEn3q...
+    → 无冲突。deepseek 后加载，用自己的 token 覆盖
+
+  CYBERBOSS_TELEGRAM_ALLOWED_USER_IDS
+    两文件值相同: 8719061650
+    → 无冲突
+
+cyberboss 独有（不会影响 deepseek）:
+  GALATEA_GARDEN_MCP_TOKEN — Codex MCP 网关 token，claudecode 不读取
+
+deepseek 关键配置全部正确覆盖:
+  CYBERBOSS_RUNTIME=claudecode        ✅
+  CYBERBOSS_CHANNEL=telegram          ✅
+  CYBERBOSS_STATE_DIR=/home/anan/.deepseek  ✅
+  CYBERBOSS_MEMORY_DIR=/home/anan/.cyberboss/memory  ✅
+  CYBERBOSS_TIMELINE_STATE_DIR=/home/anan/.cyberboss  ✅
+
+结论: 当前无实际 env 污染风险。
+
+======================================================================
+P0-3: 禁止 channel 静默降级 ✓
+P0-4: 禁止 runtime 静默降级 ✓
+======================================================================
+
+修改文件: src/core/config.js（第 23-24 行）
+  -  channel: readTextEnv("CYBERBOSS_CHANNEL") || "weixin",
+  -  runtime: readTextEnv("CYBERBOSS_RUNTIME") || "codex",
+  +  channel: readTextEnv("CYBERBOSS_CHANNEL"),
+  +  runtime: readTextEnv("CYBERBOSS_RUNTIME"),
+
+config.js 不再提供隐式 fallback 默认值。channel 和 runtime 现在
+只有 env 明确设置时才有值，否则为 undefined/空字符串。
+
+修改文件: src/index.js（第 109-120 行，新增）
+  +  if (command !== "help" && "..." && "doctor") {
+  +    if (!config.channel) {
+  +      console.error("[cyberboss] FATAL: CYBERBOSS_CHANNEL is not set.");
+  +      process.exit(1);
+  +    }
+  +    if (config.runtime !== "claudecode") {
+  +      console.error("FATAL: CYBERBOSS_RUNTIME is ... expected claudecode");
+  +      process.exit(1);
+  +    }
+  +  }
+
+在 main() 中 readConfig() 之后立即校验:
+  - help / doctor 命令跳过校验（诊断用途）
+  - channel 为空 → 报错退出，提示设置 CYBERBOSS_CHANNEL
+  - runtime 不是 claudecode → 报错退出，提示设置 CYBERBOSS_RUNTIME
+
+校验不依赖 .env 文件是否存在，只依赖最终环境变量值。
+即使 env 文件加载失败，也会阻止进程以错误模式启动。
+
+启动确认日志:
+  [cyberboss] channel=telegram         ✅
+  [cyberboss] runtime=claudecode        ✅
+  [cyberboss] bridge loop started; waiting for Telegram messages.  ✅
+
+======================================================================
+P1-1: Telegram 429 retry_after 支持（方案，暂不修改）
+======================================================================
+
+问题: fetchJsonWithRetry 对所有非 200 响应统一 throw，
+      不解析 429 响应体的 retry_after 字段。
+
+涉及文件:
+  - src/adapters/channel/telegram.js:225-241 (fetchJsonWithTimeout)
+  - src/services/telegram-service.js:136-152 (同样的函数，双路径)
+
+修改方案:
+  1. 在 fetchJsonWithTimeout 中检查 response.status === 429
+  2. 解析 response.json() 的 retry_after 字段
+  3. 抛出自定义 TelegramRateLimitError(error, retryAfterMs)
+  4. 在 fetchJsonWithRetry 中检查错误类型，用 retryAfter 作为延迟
+
+伪代码:
+  const response = await fetch(url, { ...options, signal: controller.signal });
+  if (response.status === 429) {
+    const body = await response.json().catch(() => ({}));
+    throw new TelegramRateLimitError((body.retry_after || 5) * 1000);
+  }
+  if (!response.ok) {
+    throw new Error(`telegram request failed: ${response.status}`);
+  }
+
+影响范围: 两个文件的 fetchJsonWithRetry 和 fetchJsonWithTimeout 均需修改。
+
+======================================================================
+P1-2: 指数退避重试（方案，暂不修改）
+======================================================================
+
+问题: 固定延迟数组 [1s, 3s, 6s]，只有 3 次重试。
+
+涉及文件:
+  - src/adapters/channel/telegram.js:21
+  - src/services/telegram-service.js:12
+
+修改方案:
+  替换固定数组为指数退避 + jitter:
+
+  const TELEGRAM_RETRY_BASE_MS = 1000;
+  const TELEGRAM_RETRY_MAX_MS = 30000;
+  const TELEGRAM_RETRY_MAX_ATTEMPTS = 5;
+
+  for (let attempt = 0; attempt < TELEGRAM_RETRY_MAX_ATTEMPTS; attempt++) {
+    const delay = Math.min(TELEGRAM_RETRY_BASE_MS * Math.pow(2, attempt), TELEGRAM_RETRY_MAX_MS);
+    const jitter = Math.random() * 500;
+    // 如果是 429，用 max(retryAfter, delay + jitter)
+    await sleep(delay + jitter);
+  }
+
+  重试序列: ~1s → ~2s → ~4s → ~8s → ~16s
+  429 时: 至少等待 retry_after 秒
+
+======================================================================
+P1-3: senderId/chatId 在群聊场景的正确性（分析）
+======================================================================
+
+当前 Telegram adapter 第 81 行过滤了非私聊消息:
+  if (String(message.chat?.type || "") !== "private") return null;
+
+因此当前不支持群聊。senderId(user.id) 和 chatId(chat.id) 在私聊中
+永远相同，不存在混用问题。
+
+如果未来支持群聊，需调整:
+  - chat_id 用 message.chat.id（群 ID），不是 message.from.id（用户 ID）
+  - senderId 用 message.from.id 用于白名单
+  - replyTarget 用 chat.id
+  - 白名单要支持 chat_id 和 user_id 两种模式
+
+结论: 当前无风险，无需修改。
+
+======================================================================
+P1-4: 非文本消息（图片/贴纸/视频）fallback（方案，暂不修改）
+======================================================================
+
+问题: normalizeIncomingMessage 第 102-104 行直接 return null，
+      用户发图片、贴纸等非文本消息完全不可见。
+
+涉及文件: src/adapters/channel/telegram.js:102-104
+
+修改方案:
+  let text = normalizeText(message.text);
+  if (!text) {
+    if (message.photo) text = "[图片]";
+    else if (message.sticker) text = "[贴纸]";
+    else if (message.video) text = "[视频]";
+    else if (message.document) text = `[文件: ${message.document.file_name || ""}]`;
+    else if (message.voice) text = "[语音]";
+    else if (message.audio) text = "[音频]";
+    else if (message.location) text = "[位置]";
+    else if (message.contact) text = "[联系人]";
+    else return null;
+  }
+
+======================================================================
+P1-5: Telegram service 与 adapter 双发送链路（分析）
+======================================================================
+
+两条路径职责不同:
+
+  adapter (telegram.js)           service (telegram-service.js)
+  ─────────────────────           ──────────────────────────
+  主循环中 channelAdapter.send     MCP tool 调用
+  userId 参数直接传                 resolveTelegramTarget() 解析目标
+  ✅ 有 chunk 拆分                  ❌ 无 chunk 拆分
+  ❌ 无 429 处理                    ❌ 无 429 处理
+
+问题: service 路径没有长消息 chunk。
+如果 MCP tool 返回长文本（超过 4096 字符），Telegram API 返回 400。
+
+建议方案:
+  1. 将 chunkReplyTextForTelegram 抽取为公共函数
+  2. 让 service 的 sendText 也使用 chunk 循环
+  3. 或将 service 的发送委托给 adapter
+
+======================================================================
+总结
+======================================================================
+
+P0 已完成 4 项，修改了 2 个源码文件 + 2 个 env 文件权限。
+P1 已输出 5 项分析方案，暂无代码改动。
+
+等待确认后进入 P1 实现阶段。

@@ -1,0 +1,105 @@
+const { createWeixinChannelAdapter } = require("../adapters/channel/weixin");
+const { SessionStore } = require("../adapters/runtime/codex/session-store");
+const { createTimelineIntegration } = require("../integrations/timeline");
+const { ChannelFileService } = require("../services/channel-file-service");
+const { DiaryService } = require("../services/diary-service");
+const { ReminderService } = require("../services/reminder-service");
+const { createTelegramSendService } = require("../services/telegram-service");
+const { StickerService } = require("../services/sticker-service");
+const { SystemMessageService } = require("../services/system-message-service");
+const { TimelineService } = require("../services/timeline-service");
+const { createWeatherService } = require("../services/weather-service");
+const { createAmapClient } = require("../location/amap-client");
+const { LocationEventStore } = require("../location/event-store");
+const { createPlaceResolver } = require("../location/place-resolver");
+const { createLocationSentinel } = require("../location/sentinel");
+const { createLocationStateEngine, LocationStateStore } = require("../location/state-engine");
+const { RuntimeContextStore } = require("./runtime-context-store");
+const { ProjectToolHost } = require("./tool-host");
+const { WhereaboutsService } = require("whereabouts-mcp");
+
+function createProjectTooling(config, options = {}) {
+  const sessionStore = options.sessionStore || new SessionStore({
+    filePath: config.sessionsFile,
+    runtimeId: config.runtime || "codex",
+  });
+  const channelAdapter = options.channelAdapter || createWeixinChannelAdapter(config);
+  const timelineIntegration = options.timelineIntegration || createTimelineIntegration(config);
+  const runtimeContextStore = options.runtimeContextStore || new RuntimeContextStore({
+    filePath: config.projectToolContextFile,
+  });
+  const amapClient = createAmapClient({
+    key: config.amapKey,
+  });
+  const locationEventStore = new LocationEventStore({
+    filePath: config.locationEventStoreFile,
+  });
+  const locationStateStore = new LocationStateStore({
+    filePath: config.locationStateFile,
+  });
+  const channelFile = new ChannelFileService({ config, channelAdapter, sessionStore });
+  const services = {
+    diary: new DiaryService({ config }),
+    reminder: new ReminderService({ config, sessionStore }),
+    system: new SystemMessageService({ config, sessionStore }),
+    telegram: createTelegramSendService({ config, runtimeContextStore }),
+    channelFile,
+    sticker: new StickerService({ config, channelAdapter, sessionStore, channelFileService: channelFile }),
+    timeline: new TimelineService({ config, timelineIntegration, sessionStore }),
+    weather: createWeatherService({ config }),
+    locationConfig: {
+      v2Enabled: config.locationV2Enabled === true,
+    },
+    amapClient,
+    locationEventStore,
+    locationStateStore,
+    placeResolver: createPlaceResolver({
+      geocoder: amapClient,
+      knownPlaces: config.locationKnownPlaces,
+      placeRadiusMeters: config.locationKnownPlaceRadiusMeters,
+    }),
+    locationStateEngine: createLocationStateEngine({
+      longStayHours: config.locationLongStayHours,
+      batteryCriticalThreshold: config.locationBatteryCriticalThreshold,
+    }),
+    locationSentinel: createLocationSentinel({
+      eventStore: locationEventStore,
+      cooldownMinutes: config.locationEventCooldownMinutes,
+      maxEventsPerHourByType: {
+        ArrivedPlace: 8,
+        LeftPlace: 8,
+        MajorMovement: 8,
+        BatteryCritical: 2,
+        LongStay: 2,
+      },
+    }),
+    whereabouts: new WhereaboutsService({
+      config: {
+        storeFile: config.locationStoreFile,
+        host: config.locationHost,
+        port: config.locationPort,
+        token: config.locationToken,
+        historyLimit: config.locationHistoryLimit,
+        movementEventLimit: config.locationMovementEventLimit,
+        batteryHistoryLimit: config.locationBatteryHistoryLimit,
+        knownPlaces: config.locationKnownPlaces,
+        knownPlaceRadiusMeters: config.locationKnownPlaceRadiusMeters,
+        stayMergeRadiusMeters: config.locationStayMergeRadiusMeters,
+        stayBreakConfirmRadiusMeters: config.locationStayBreakConfirmRadiusMeters,
+        stayBreakConfirmSamples: config.locationStayBreakConfirmSamples,
+        majorMoveThresholdMeters: config.locationMajorMoveThresholdMeters,
+      },
+    }),
+  };
+  const toolHost = new ProjectToolHost({
+    services,
+    runtimeContextStore,
+  });
+  return {
+    services,
+    toolHost,
+    runtimeContextStore,
+  };
+}
+
+module.exports = { createProjectTooling };
