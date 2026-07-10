@@ -15,7 +15,7 @@ try {
   }
 } catch {}
 
-const TELEGRAM_REQUEST_TIMEOUT_MS = 10_000;
+const TELEGRAM_REQUEST_TIMEOUT_MS = 20_000;
 
 function createTelegramSendService({ config, runtimeContextStore }) {
   return {

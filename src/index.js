@@ -56,6 +56,78 @@ function ensureBootstrapFiles(config) {
   ensureStickerCatalogFilesSync(config);
 }
 
+function acquireSingleInstanceLock(stateDir) {
+  const normalizedStateDir = typeof stateDir === "string" ? stateDir.trim() : "";
+  if (!normalizedStateDir) {
+    return () => {};
+  }
+
+  fs.mkdirSync(normalizedStateDir, { recursive: true });
+  const lockFilePath = path.join(normalizedStateDir, "cyberboss.lock");
+  let lockFd = -1;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      lockFd = fs.openSync(lockFilePath, "wx");
+      fs.writeFileSync(lockFd, `${process.pid}\n`, "utf8");
+      break;
+    } catch (error) {
+      if (error?.code !== "EEXIST") {
+        throw error;
+      }
+      const existingPid = readLockPid(lockFilePath);
+      if (existingPid > 0 && isProcessAlive(existingPid)) {
+        throw new Error(`cyberboss is already running for stateDir ${normalizedStateDir} (pid ${existingPid})`);
+      }
+      fs.rmSync(lockFilePath, { force: true });
+    }
+  }
+
+  if (lockFd < 0) {
+    throw new Error(`failed to acquire cyberboss lock for stateDir ${normalizedStateDir}`);
+  }
+
+  let released = false;
+  return () => {
+    if (released) {
+      return;
+    }
+    released = true;
+    try {
+      if (lockFd >= 0) {
+        fs.closeSync(lockFd);
+      }
+    } catch {}
+    try {
+      if (readLockPid(lockFilePath) === process.pid) {
+        fs.rmSync(lockFilePath, { force: true });
+      }
+    } catch {}
+  };
+}
+
+function readLockPid(filePath) {
+  try {
+    const text = fs.readFileSync(filePath, "utf8").trim();
+    const parsed = Number.parseInt(text, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function isProcessAlive(pid) {
+  if (!Number.isFinite(pid) || pid <= 0) {
+    return false;
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function ensureInstructionsTemplate(config) {
   const filePath = typeof config?.weixinInstructionsFile === "string"
     ? config.weixinInstructionsFile.trim()
@@ -112,6 +184,7 @@ async function main() {
   const argv = process.argv.slice(2);
   const config = readConfig();
   const command = config.mode || "help";
+  let releaseSingleInstanceLock = () => {};
 
   if (command !== "help" && command !== "--help" && command !== "-h" && command !== "doctor") {
     if (!config.channel) {
@@ -163,6 +236,16 @@ async function main() {
   }
 
   if (command === "start") {
+    releaseSingleInstanceLock = acquireSingleInstanceLock(config.stateDir);
+    process.once("exit", releaseSingleInstanceLock);
+    process.once("SIGINT", () => {
+      releaseSingleInstanceLock();
+      process.exit(130);
+    });
+    process.once("SIGTERM", () => {
+      releaseSingleInstanceLock();
+      process.exit(143);
+    });
     await getApp().start();
     return;
   }

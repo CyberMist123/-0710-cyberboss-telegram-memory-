@@ -67,6 +67,25 @@ function buildSystemInboundText(text, createdAt = "", sourceType = "system") {
     return sections.join("\n").trim();
   }
 
+  if (normalizedType === "runtime_outage") {
+    const sections = [
+      ...(localTime ? [`[${localTime}]`, ""] : []),
+      "SYSTEM ACTION MODE: internal trigger, not user chat.",
+      "System trigger type: runtime_outage.",
+      "A service interruption happened and has now recovered.",
+      "Briefly tell the user there was a runtime/Telegram outage, that some live context may have been delayed or missed, and ask whether anything important happened during the gap.",
+      "If the trigger includes outage timing, downtime, buffered updates, or the last poll error, mention the important parts naturally in one short message.",
+      "Return exactly one JSON object after any tool calls:",
+      "{\"action\":\"send_message\",\"message\":\"<one short natural WeChat message>\"}",
+      "{\"action\":\"silent\"}",
+      "No markdown fences. No reasoning. No text outside the JSON.",
+    ];
+    if (body) {
+      sections.push("", "Trigger:", body);
+    }
+    return sections.join("\n").trim();
+  }
+
   const sections = [
     ...(localTime ? [`[${localTime}]`, ""] : []),
     "SYSTEM ACTION MODE: internal trigger, not user chat.",

@@ -38,12 +38,21 @@ function readConfig() {
     telegramBotToken: readTextEnv("CYBERBOSS_TELEGRAM_BOT_TOKEN"),
     telegramAllowedUserIds: readListEnv("CYBERBOSS_TELEGRAM_ALLOWED_USER_IDS"),
     telegramStateFile: path.join(stateDir, "telegram-state.json"),
+    // Optional HTTP(S) proxy for Telegram API requests. Accepts either a full URL
+    // (CYBERBOSS_TELEGRAM_PROXY_URL, e.g. "http://127.0.0.1:7897") or host:port.
+    // When unset, Telegram requests go direct with no proxy.
+    telegramProxyUrl: readTextEnv("CYBERBOSS_TELEGRAM_PROXY_URL"),
     sleepScheduleFile: path.join(stateDir, "sleep-schedule.json"),
     timelineScreenshotQueueFile: path.join(stateDir, "timeline-screenshot-queue.json"),
     desireStateFile: path.join(stateDir, "desire-state.json"),
+    desireHistoryFile: path.join(stateDir, "desire-history.jsonl"),
     desireThoughtsFile: path.join(stateDir, "desire-thoughts.json"),
     projectToolContextFile: path.join(stateDir, "project-tool-runtime-context.json"),
     weixinInstructionsFile: path.join(stateDir, "weixin-instructions.md"),
+    compactContextDir: path.join(stateDir, "context"),
+    compactStateFile: path.join(stateDir, "context", "compact-state.json"),
+    compactHistoryDir: path.join(stateDir, "context", "compact-history"),
+    compactPendingDir: path.join(stateDir, "context", "compact-pending"),
     memoryDir,
     memoryStateFile: path.join(memoryDir, "state.md"),
     memoryPendingPromisesFile: path.join(memoryDir, "pending-promises.md"),
@@ -117,6 +126,11 @@ function readConfig() {
     claudePermissionMode: readTextEnv("CYBERBOSS_CLAUDE_PERMISSION_MODE") || "default",
     claudeDisableVerbose: readBoolEnv("CYBERBOSS_CLAUDE_DISABLE_VERBOSE"),
     claudeExtraArgs: readListEnv("CYBERBOSS_CLAUDE_EXTRA_ARGS"),
+    autoCompactEnabled: readBoolEnv("CYBERBOSS_AUTO_COMPACT"),
+    autoCompactTokens: readIntEnv("CYBERBOSS_AUTO_COMPACT_TOKENS"),
+    autoCompactTurns: readIntEnv("CYBERBOSS_AUTO_COMPACT_TURNS"),
+    autoCompactCooldownTurns: readIntEnv("CYBERBOSS_AUTO_COMPACT_COOLDOWN_TURNS"),
+    autoCompactMaxPerThread: readIntEnv("CYBERBOSS_AUTO_COMPACT_MAX_PER_THREAD"),
     sessionsFile: path.join(stateDir, "sessions.json"),
     startWithCheckin: (mode === "start" && hasArgFlag(argv, "--checkin")) || readBoolEnv("CYBERBOSS_ENABLE_CHECKIN"),
   };

@@ -30,6 +30,7 @@
     "qrcode-terminal": "0.12.0",
     "sharp": "^0.34.5",
     "timeline-for-agent": "github:WenXiaoWendy/timeline-for-agent#main",
+    "tunnel-agent": "^0.6.0",
     "whereabouts-mcp": "github:WenXiaoWendy/whereabouts-mcp#main",
     "ws": "^8.19.0"
   }

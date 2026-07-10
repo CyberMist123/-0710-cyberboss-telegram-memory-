@@ -322,9 +322,10 @@ function createClaudeCodeRuntimeAdapter(config) {
       const attached = await attachClientToThread(workspaceRoot, threadId, model);
       return { threadId: attached.threadId };
     },
-    async compactThread({ threadId, workspaceRoot, model = "" }) {
+    async compactThread({ threadId, workspaceRoot, model = "", instructions = "" }) {
       const { client, threadId: activeThreadId } = await attachClientToThread(workspaceRoot, threadId, model);
-      await client.sendUserMessage({ text: "/compact", threadId: activeThreadId });
+      const compactCommand = buildCompactCommand(instructions);
+      await client.sendUserMessage({ text: compactCommand, threadId: activeThreadId });
       return { threadId: activeThreadId, turnId: client.pendingTurnId };
     },
     async refreshThreadInstructions({ threadId, workspaceRoot, model = "" }) {
@@ -456,6 +457,14 @@ function filterClaudeCodeEnv(env) {
 }
 
 module.exports = { createClaudeCodeRuntimeAdapter };
+
+function buildCompactCommand(instructions = "") {
+  const normalizedInstructions = normalizeText(instructions);
+  if (!normalizedInstructions) {
+    return "/compact";
+  }
+  return `/compact\n${normalizedInstructions}`;
+}
 
 function normalizeThreadId(value) {
   return typeof value === "string" ? value.replace(/\s+/g, "").trim() : "";

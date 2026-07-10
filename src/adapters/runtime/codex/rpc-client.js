@@ -12,20 +12,47 @@ const CODEX_CLIENT_INFO = {
   version: "0.1.0",
 };
 
+// Backstop so a request never hangs forever if Codex silently drops a reply.
+// app-server RPC responses (turn/start, thread/*, model/list, …) return promptly;
+// the actual turn streams back as notifications, so this bounds the ack only.
+const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
+
 class CodexRpcClient {
-  constructor({ endpoint = "", env = process.env, codexCommand = "", extraWritableRoots = [], mcpServerConfig = null }) {
+  constructor({ endpoint = "", env = process.env, codexCommand = "", extraWritableRoots = [], mcpServerConfig = null, requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS }) {
     this.endpoint = endpoint;
     this.env = env;
     this.codexCommand = codexCommand || resolveDefaultCodexCommand(env);
     this.extraWritableRoots = normalizeWritableRoots(extraWritableRoots);
     this.mcpServerConfig = mcpServerConfig;
     this.mode = endpoint ? "websocket" : "spawn";
+    this.requestTimeoutMs = Number(requestTimeoutMs) > 0 ? Number(requestTimeoutMs) : DEFAULT_REQUEST_TIMEOUT_MS;
     this.socket = null;
     this.child = null;
     this.stdoutBuffer = "";
     this.pending = new Map();
     this.isReady = false;
     this.messageListeners = new Set();
+  }
+
+  // Reject every in-flight request. Called when the transport dies so awaiting
+  // callers fail fast instead of hanging forever.
+  failAllPending(error) {
+    if (!this.pending.size) {
+      return;
+    }
+    const err = error instanceof Error ? error : new Error(String(error || "Codex transport closed"));
+    const entries = Array.from(this.pending.values());
+    this.pending.clear();
+    for (const entry of entries) {
+      if (entry.timer) {
+        clearTimeout(entry.timer);
+      }
+      try {
+        entry.reject(err);
+      } catch {
+        // best effort
+      }
+    }
   }
 
   async connect() {
@@ -75,8 +102,9 @@ class CodexRpcClient {
     }
 
     this.child = child;
-    child.on("error", () => {
+    child.on("error", (error) => {
       this.isReady = false;
+      this.failAllPending(error instanceof Error ? error : new Error("Codex app-server process error"));
     });
     child.stdout.on("data", (chunk) => {
       this.stdoutBuffer += chunk.toString("utf8");
@@ -91,6 +119,7 @@ class CodexRpcClient {
     });
     child.on("close", () => {
       this.isReady = false;
+      this.failAllPending(new Error("Codex app-server process closed"));
     });
   }
 
@@ -111,6 +140,7 @@ class CodexRpcClient {
         if (this.socket === socket) {
           this.socket = null;
         }
+        this.failAllPending(new Error("Codex websocket closed"));
       });
     });
   }
@@ -228,15 +258,35 @@ class CodexRpcClient {
       this.child = null;
     }
     this.isReady = false;
+    this.failAllPending(new Error("Codex RPC client closed"));
   }
 
   async sendRequest(method, params) {
     const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const payload = JSON.stringify({ id, method, params });
     const responsePromise = new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        if (this.pending.delete(id)) {
+          reject(new Error(`Codex RPC request timed out after ${this.requestTimeoutMs}ms: ${method}`));
+        }
+      }, this.requestTimeoutMs);
+      if (typeof timer.unref === "function") {
+        timer.unref();
+      }
+      this.pending.set(id, { resolve, reject, timer });
     });
-    this.sendRaw(payload);
+    try {
+      this.sendRaw(payload);
+    } catch (error) {
+      const entry = this.pending.get(id);
+      if (entry) {
+        this.pending.delete(id);
+        if (entry.timer) {
+          clearTimeout(entry.timer);
+        }
+      }
+      throw error;
+    }
     return responsePromise;
   }
 
@@ -274,13 +324,16 @@ class CodexRpcClient {
     }
 
     if (parsed && parsed.id != null && this.pending.has(String(parsed.id))) {
-      const { resolve, reject } = this.pending.get(String(parsed.id));
+      const entry = this.pending.get(String(parsed.id));
       this.pending.delete(String(parsed.id));
+      if (entry.timer) {
+        clearTimeout(entry.timer);
+      }
       if (parsed.error) {
-        reject(new Error(parsed.error.message || "Codex RPC request failed"));
+        entry.reject(new Error(parsed.error.message || "Codex RPC request failed"));
         return;
       }
-      resolve(parsed);
+      entry.resolve(parsed);
       return;
     }
 

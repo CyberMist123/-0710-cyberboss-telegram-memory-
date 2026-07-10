@@ -94,6 +94,13 @@ const COMMAND_GROUPS = [
         status: "active",
       },
       {
+        action: "workspace.context",
+        summary: "Show context usage, compact thresholds, and compact history for the current thread",
+        terminal: [],
+        weixin: ["/ctx"],
+        status: "active",
+      },
+      {
         action: "thread.new",
         summary: "Switch to a fresh thread draft",
         terminal: [],

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "example": {
+      "command": "<command>",
+      "args": [
+        "<args>"
+      ]
+    }
+  }
+}

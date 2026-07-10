@@ -1,0 +1,23 @@
+{
+  "chat_provider": "deepseek",
+  "chat_model": "<model>",
+  "chat_haiku_model": "<model>",
+  "chat_keys": {
+    "deepseek": "<secret>"
+  },
+  "chat_endpoints": {
+    "deepseek": "https://example.invalid/anthropic"
+  },
+  "extract_provider": "deepseek",
+  "extract_model": "<model>",
+  "extract_keys": {
+    "deepseek": "<secret>"
+  },
+  "extract_endpoints": {
+    "deepseek": "https://example.invalid"
+  },
+  "https_proxy": "",
+  "telegram_allowed_user_ids": "<id>",
+  "telegram_bot_token": "<secret>",
+  "API_TOKEN": "<generated>"
+}
