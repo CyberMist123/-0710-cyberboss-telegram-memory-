@@ -21,6 +21,8 @@
 
 旧 RFC、审计任务、调研长文和阶段性判断不再作为当前规范。索引见 [`docs/archive/20260710_DESIGN_DRAFTS.md`](docs/archive/20260710_DESIGN_DRAFTS.md)。
 
+代码目录中随实现保留的 `README.md`、`PROJECT.md`、`AUTOMATION.md` 等只解释局部工具或旧运行方式；若与上述四份文档冲突，以上述四份为准。
+
 ## 一张图看懂
 
 ```text
