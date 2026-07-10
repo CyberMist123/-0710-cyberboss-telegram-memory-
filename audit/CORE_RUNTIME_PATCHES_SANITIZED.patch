@@ -1,0 +1,1895 @@
+diff --git a/package.json b/package.json
+index b89d664..ddd44d9 100644
+--- a/package.json
++++ b/package.json
+@@ -30,6 +30,7 @@
+     "qrcode-terminal": "0.12.0",
+     "sharp": "^0.34.5",
+     "timeline-for-agent": "github:WenXiaoWendy/timeline-for-agent#main",
++    "tunnel-agent": "^0.6.0",
+     "whereabouts-mcp": "github:WenXiaoWendy/whereabouts-mcp#main",
+     "ws": "^8.19.0"
+   }
+
+diff --git a/scripts/start-deepseek-telegram.sh b/scripts/start-deepseek-telegram.sh
+index 6f9533e..f077507 100755
+--- a/scripts/start-deepseek-telegram.sh
++++ b/scripts/start-deepseek-telegram.sh
+@@ -17,6 +17,7 @@ fi
+ export CYBERBOSS_STATE_DIR="${STATE_DIR}"
+ export CYBERBOSS_CHANNEL="${CYBERBOSS_CHANNEL:-telegram}"
+ export CYBERBOSS_RUNTIME="${CYBERBOSS_RUNTIME:-claudecode}"
++export CYBERBOSS_MEMORY_BACKGROUND_WRITE="${CYBERBOSS_MEMORY_BACKGROUND_WRITE:-1}"
+ 
+ mkdir -p "${CYBERBOSS_STATE_DIR}/logs"
+ LOG_FILE="${CYBERBOSS_STATE_DIR}/logs/cb-deepseek.log"
+
+diff --git a/scripts/switch_shared_runtime.sh b/scripts/switch_shared_runtime.sh
+deleted file mode 100755
+index c13993b..0000000
+--- a/scripts/switch_shared_runtime.sh
++++ /dev/null
+@@ -1,30 +0,0 @@
+-#!/usr/bin/env bash
+-set -euo pipefail
+-
+-ROOT_DIR="/home/anan/cyberboss-deepseek"
+-RUNTIME="${1:-}"
+-TOKEN="<REDACTED_UPSTREAM_LOCAL_TOKEN>"
+-
+-# The local tmux build on this machine links against a bundled ncurses that
+-# does not search the system terminfo paths by default.
+-export TERMINFO_DIRS="${TERMINFO_DIRS:-/lib/terminfo:/usr/share/terminfo:/etc/terminfo}"
+-
+-if [[ "${RUNTIME}" != "codex" && "${RUNTIME}" != "claudecode" ]]; then
+-  echo "usage: $0 <codex|claudecode>" >&2
+-  exit 2
+-fi
+-
+-cd "${ROOT_DIR}"
+-
+-tmux kill-session -t cb-open 2>/dev/null || true
+-tmux kill-session -t cb-bridge 2>/dev/null || true
+-pkill -f "node ./bin/cyberboss.js start --checkin" 2>/dev/null || true
+-
+-tmux new-session -d -s cb-bridge -c "${ROOT_DIR}" -e GALATEA_GARDEN_MCP_TOKEN="${TOKEN}" "export CYBERBOSS_RUNTIME=${RUNTIME}; npm run shared:start; exec bash"
+-sleep 2
+-tmux new-session -d -s cb-open -c "${ROOT_DIR}" -e GALATEA_GARDEN_MCP_TOKEN="${TOKEN}" "export CYBERBOSS_RUNTIME=${RUNTIME}; npm run shared:open; exec bash"
+-sleep 2
+-
+-echo "runtime switched to ${RUNTIME}"
+-CYBERBOSS_RUNTIME="${RUNTIME}" npm run shared:status
+-tmux ls
+
+diff --git a/src/adapters/channel/telegram-utils.js b/src/adapters/channel/telegram-utils.js
+index 704ed43..5d1d49c 100644
+--- a/src/adapters/channel/telegram-utils.js
++++ b/src/adapters/channel/telegram-utils.js
+@@ -1,3 +1,129 @@
++const https = require("https");
++
++// Module-level proxy config. When null (default), Telegram requests go direct.
++// Set via configureTelegramProxy() during startup from user config/env.
++let _proxyConfig = null;
++let _tunnelModule = null;
++
++// Parse "http://host:port", "host:port", or "host" into { host, port }.
++function parseProxyTarget(value) {
++  const raw = typeof value === "string" ? value.trim() : "";
++  if (!raw) {
++    return null;
++  }
++  let host = raw;
++  let port = 0;
++  try {
++    if (/^[a-z]+:\/\//i.test(raw)) {
++      const u = new URL(raw);
++      host = u.hostname;
++      port = Number(u.port) || (u.protocol === "https:" ? 443 : 80);
++    } else {
++      const [h, p] = raw.split(":");
++      host = (h || "").trim();
++      port = Number(p) || 80;
++    }
++  } catch {
++    return null;
++  }
++  if (!host || !Number.isFinite(port) || port <= 0) {
++    return null;
++  }
++  return { host, port };
++}
++
++// Configure (or clear) the Telegram proxy. Pass a falsy value to disable.
++function configureTelegramProxy(value) {
++  _proxyConfig = parseProxyTarget(value);
++  if (_proxyConfig && !_tunnelModule) {
++    try {
++      _tunnelModule = require("tunnel-agent");
++    } catch {
++      _tunnelModule = null;
++      _proxyConfig = null;
++    }
++  }
++  return _proxyConfig;
++}
++
++function isProxyEnabled() {
++  return !!(_proxyConfig && _tunnelModule);
++}
++
++async function doFetch(url, options, timeoutMs) {
++  // Direct connection when no proxy is configured.
++  if (!isProxyEnabled()) {
++    return doFetchDirect(url, options, timeoutMs);
++  }
++  return doFetchWithProxy(url, options, timeoutMs);
++}
++
++async function doFetchDirect(url, options, timeoutMs) {
++  const controller = new AbortController();
++  const signal = options?.signal || controller.signal;
++  const timeout = setTimeout(() => controller.abort(new Error("telegram request timeout")), Math.max(1, Number(timeoutMs) || 30000));
++  try {
++    const res = await fetch(typeof url === "string" ? url : url.toString(), {
++      method: options?.method || "GET",
++      headers: options?.headers || {},
++      body: options?.body,
++      signal: options?.signal || controller.signal,
++    });
++    const text = await res.text();
++    return {
++      status: res.status,
++      ok: res.ok,
++      async json() { return JSON.parse(text); },
++      async text() { return text; },
++    };
++  } finally {
++    clearTimeout(timeout);
++  }
++}
++
++async function doFetchWithProxy(url, options, timeoutMs) {
++  const parsedUrl = typeof url === "string" ? new URL(url) : url;
++  return new Promise((resolve, reject) => {
++    const agent = _tunnelModule.httpsOverHttp({
++      proxy: { host: _proxyConfig.host, port: _proxyConfig.port },
++    });
++    const req = https.request({
++      hostname: parsedUrl.hostname,
++      port: parsedUrl.port || 443,
++      path: parsedUrl.pathname + parsedUrl.search,
++      method: options?.method || "GET",
++      headers: Object.assign({}, options?.headers || {}),
++      agent,
++    }, (res) => {
++      const chunks = [];
++      res.on("data", (c) => chunks.push(c));
++      res.on("end", () => {
++        const text = Buffer.concat(chunks).toString();
++        resolve({
++          status: res.statusCode,
++          ok: res.statusCode >= 200 && res.statusCode < 300,
++          async json() { return JSON.parse(text); },
++          async text() { return text; },
++        });
++      });
++    });
++    req.on("error", reject);
++    const timeout = setTimeout(() => {
++      req.destroy(new Error("telegram request timeout"));
++    }, Math.max(1, Number(timeoutMs) || 30000));
++    req.on("close", () => clearTimeout(timeout));
++    const sig = options?.signal;
++    if (sig) {
++      if (sig.aborted) { req.destroy(sig.reason); return; }
++      sig.addEventListener("abort", () => req.destroy(sig.reason), { once: true });
++    }
++    if (options?.body) {
++      req.write(typeof options.body === "string" ? options.body : JSON.stringify(options.body));
++    }
++    req.end();
++  });
++}
++
+ const TELEGRAM_RETRY_BASE_MS = 1_000;
+ const TELEGRAM_RETRY_MAX_MS = 30_000;
+ const TELEGRAM_RETRY_MAX_ATTEMPTS = 5;
+@@ -34,7 +160,7 @@ async function fetchJsonWithTimeout(url, options, timeoutMs, { allowEmptyJson =
+   const controller = new AbortController();
+   const timeout = setTimeout(() => controller.abort(new Error("telegram request timeout")), Math.max(1, Number(timeoutMs) || 0));
+   try {
+-    const response = await fetch(url, { ...options, signal: controller.signal });
++    const response = await doFetch(url, { ...options, signal: controller.signal }, timeoutMs);
+     if (response.status === 429) {
+       let retryAfterSec = 5;
+       try {
+@@ -67,6 +193,8 @@ module.exports = {
+   TELEGRAM_RETRY_MAX_MS,
+   TELEGRAM_RETRY_MAX_ATTEMPTS,
+   TelegramRateLimitError,
++  configureTelegramProxy,
++  isProxyEnabled,
+   fetchJsonWithRetry,
+   fetchJsonWithTimeout,
+   sleep,
+
+diff --git a/src/adapters/channel/telegram.js b/src/adapters/channel/telegram.js
+index d4187f4..812532d 100644
+--- a/src/adapters/channel/telegram.js
++++ b/src/adapters/channel/telegram.js
+@@ -3,6 +3,7 @@ const path = require("path");
+ const dns = require("dns");
+ const {
+   TelegramRateLimitError,
++  configureTelegramProxy,
+   fetchJsonWithRetry,
+   fetchJsonWithTimeout,
+   sleep,
+@@ -25,11 +26,16 @@ try {
+ const TELEGRAM_GET_UPDATES_TIMEOUT_MS = 20_000;
+ const TELEGRAM_REQUEST_TIMEOUT_MS = 20_000;
+ const DEFAULT_MIN_TELEGRAM_CHUNK = DEFAULT_MIN_WEIXIN_CHUNK;
++const SEEN_MESSAGE_KEYS_LIMIT = 2_000;
+ 
+ function createTelegramChannelAdapter(config) {
++  // Configure optional proxy from user config/env; when unset, requests go direct.
++  configureTelegramProxy(config?.telegramProxyUrl);
++
+   const token = normalizeText(config?.telegramBotToken);
+   const allowedUserIds = new Set((Array.isArray(config?.telegramAllowedUserIds) ? config.telegramAllowedUserIds : []).map(normalizeText).filter(Boolean));
+   const state = loadTelegramState(config);
++  let stateMtimeMs = getTelegramStateMtimeMs(config);
+   let minChunkChars = state.minChunkChars;
+   const account = {
+     accountId: normalizeText(config?.accountId) || "telegram",
+@@ -39,6 +45,22 @@ function createTelegramChannelAdapter(config) {
+ 
+   let deleteWebhookCalled = false;
+ 
++  function refreshStateFromDisk() {
++    const nextMtimeMs = getTelegramStateMtimeMs(config);
++    if (!(nextMtimeMs > stateMtimeMs)) {
++      return;
++    }
++    const fresh = loadTelegramState(config);
++    state.offset = Math.max(Number(state.offset) || 0, Number(fresh.offset) || 0);
++    state.seenMessageKeys = new Set([
++      ...Array.from(fresh.seenMessageKeys || []),
++      ...Array.from(state.seenMessageKeys || []),
++    ]);
++    state.minChunkChars = normalizeMinChunkChars(fresh.minChunkChars, state.minChunkChars);
++    minChunkChars = state.minChunkChars;
++    stateMtimeMs = nextMtimeMs;
++  }
++
+   return {
+     describe() {
+       return {
+@@ -65,12 +87,18 @@ function createTelegramChannelAdapter(config) {
+       if (!token) {
+         return { ok: false, result: [] };
+       }
++      refreshStateFromDisk();
+       // Disconnect any lingering long-poll connections from prior process lifetime,
+       // preventing 409 Conflict on getUpdates.
+       if (!deleteWebhookCalled) {
+         deleteWebhookCalled = true;
+         try {
+-          await fetch(`https://api.telegram.org/bot${token}/deleteWebhook`);
++          await fetchJsonWithRetry(
++            `https://api.telegram.org/bot${token}/deleteWebhook`,
++            { method: "GET" },
++            TELEGRAM_REQUEST_TIMEOUT_MS,
++            { allowEmptyJson: true }
++          );
+         } catch {}
+       }
+       const url = new URL(`https://api.telegram.org/bot${token}/getUpdates`);
+@@ -108,12 +136,24 @@ function createTelegramChannelAdapter(config) {
+       if (!messageId) {
+         return null;
+       }
++      refreshStateFromDisk();
+       const dedupeKey = `${normalizeText(message.chat?.id)}:${messageId}`;
+       if (state.seenMessageKeys.has(dedupeKey)) {
+         writeTelegramLog(config, `drop duplicate messageKey=${dedupeKey}`);
+         return null;
+       }
+       state.seenMessageKeys.add(dedupeKey);
++      // Bound the dedupe set (the update offset already prevents replay); evict
++      // oldest keys so the in-memory Set and on-disk state file cannot grow forever.
++      if (state.seenMessageKeys.size > SEEN_MESSAGE_KEYS_LIMIT) {
++        const overflow = state.seenMessageKeys.size - SEEN_MESSAGE_KEYS_LIMIT;
++        const iterator = state.seenMessageKeys.values();
++        for (let i = 0; i < overflow; i += 1) {
++          const oldest = iterator.next().value;
++          if (oldest === undefined) break;
++          state.seenMessageKeys.delete(oldest);
++        }
++      }
+       saveTelegramState(config, state);
+       const text = normalizeText(message.text) || getNonTextDescription(message);
+       if (!text) {
+@@ -253,8 +293,8 @@ function getNonTextDescription(message) {
+   if (message.photo) return "[图片]";
+   if (message.sticker) return "[贴纸]";
+   if (message.video) return "[视频]";
+-  const docName = normalizeText(message.document?.file_name || message.document?.file_name || "");
+-  if (message.document) return `[文件: ${docName}]`.replace(": ]", "]");
++  const docName = normalizeText(message.document?.file_name || "");
++  if (message.document) return docName ? `[文件: ${docName}]` : "[文件]";
+   if (message.voice) return "[语音]";
+   if (message.audio) return "[音频]";
+   if (message.location) return "[位置]";
+@@ -302,4 +342,16 @@ function saveTelegramState(config, state) {
+   fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
+ }
+ 
++function getTelegramStateMtimeMs(config) {
++  const filePath = normalizeText(config?.telegramStateFile);
++  if (!filePath) {
++    return 0;
++  }
++  try {
++    return Number(fs.statSync(filePath).mtimeMs) || 0;
++  } catch {
++    return 0;
++  }
++}
++
+ module.exports = { createTelegramChannelAdapter, chunkReplyTextForTelegram };
+
+diff --git a/src/adapters/runtime/claudecode/index.js b/src/adapters/runtime/claudecode/index.js
+index 1e8fa1a..e54d90d 100644
+--- a/src/adapters/runtime/claudecode/index.js
++++ b/src/adapters/runtime/claudecode/index.js
+@@ -322,9 +322,10 @@ function createClaudeCodeRuntimeAdapter(config) {
+       const attached = await attachClientToThread(workspaceRoot, threadId, model);
+       return { threadId: attached.threadId };
+     },
+-    async compactThread({ threadId, workspaceRoot, model = "" }) {
++    async compactThread({ threadId, workspaceRoot, model = "", instructions = "" }) {
+       const { client, threadId: activeThreadId } = await attachClientToThread(workspaceRoot, threadId, model);
+-      await client.sendUserMessage({ text: "/compact", threadId: activeThreadId });
++      const compactCommand = buildCompactCommand(instructions);
++      await client.sendUserMessage({ text: compactCommand, threadId: activeThreadId });
+       return { threadId: activeThreadId, turnId: client.pendingTurnId };
+     },
+     async refreshThreadInstructions({ threadId, workspaceRoot, model = "" }) {
+@@ -457,6 +458,14 @@ function filterClaudeCodeEnv(env) {
+ 
+ module.exports = { createClaudeCodeRuntimeAdapter };
+ 
++function buildCompactCommand(instructions = "") {
++  const normalizedInstructions = normalizeText(instructions);
++  if (!normalizedInstructions) {
++    return "/compact";
++  }
++  return `/compact\n${normalizedInstructions}`;
++}
++
+ function normalizeThreadId(value) {
+   return typeof value === "string" ? value.replace(/\s+/g, "").trim() : "";
+ }
+
+diff --git a/src/adapters/runtime/claudecode/process-client.js b/src/adapters/runtime/claudecode/process-client.js
+index 537b1eb..9beadff 100644
+--- a/src/adapters/runtime/claudecode/process-client.js
++++ b/src/adapters/runtime/claudecode/process-client.js
+@@ -1,5 +1,20 @@
+ const { spawn } = require("child_process");
+ 
++// Claude Code CLI 在 stream 中间可能吐 warning(比如自建端点上的模型名不在
++// Anthropic 官方列表)。这些 warning 走 assistant.text 事件,和真回复混发到 TG,
++// 用户看到「一句提问 → 两条回复」。这里只过滤中间流,不动 handleResult。
++// 万一 result.text 本身就是 noise,说明这轮 claude.exe 没真回复,照常让 turn 结束、
++// 让 noise 送到用户面前,别悄悄吞。
++const CLAUDE_CLI_NOISE_PATTERNS = [
++  /There's an issue with the selected model.*may not exist.*Run --model/i,
++  /Invalid API key\s*·\s*Fix external API key/i,
++];
++function isClaudeCliNoise(text) {
++  const s = typeof text === "string" ? text.trim() : "";
++  if (!s) return false;
++  return CLAUDE_CLI_NOISE_PATTERNS.some((re) => re.test(s));
++}
++
+ class ClaudeCodeProcessClient {
+   constructor({ command = "claude", cwd, env, model = "", permissionMode = "default", disableVerbose = false, extraArgs = [], mcpConfigPaths = [], ipcServer = null, workspaceRoot = "" }) {
+     this.command = command;
+@@ -60,14 +75,17 @@ class ClaudeCodeProcessClient {
+     const mcpLabel = this.mcpConfigPaths.length
+       ? this.mcpConfigPaths.join(",")
+       : "(none)";
++    const requiresWindowsShell =
++      process.platform === "win32" && /\.(cmd|bat)$/i.test(String(this.command || ""));
+     console.log(
+-      `[claudecode-runtime] launching command=${this.command} cwd=${this.cwd} mcp_config=${mcpLabel}`
++      `[claudecode-runtime] launching command=${this.command} ext=${getCommandExtension(this.command)} shell=${requiresWindowsShell} cwd=${this.cwd} mcp_config=${mcpLabel}`
+     );
+     const child = spawn(this.command, args, {
+       cwd: this.cwd,
+       env: this.env,
+       stdio: ["pipe", "pipe", "pipe"],
+-      shell: false,
++      shell: requiresWindowsShell,
++      windowsHide: true,
+     });
+     this.child = child;
+     this.stdin = child.stdin;
+@@ -164,6 +182,7 @@ class ClaudeCodeProcessClient {
+       if (!item || typeof item !== "object") continue;
+       const itemType = item.type;
+       if (itemType === "text" && typeof item.text === "string" && item.text) {
++        if (isClaudeCliNoise(item.text)) continue;
+         this.emit({
+           type: "assistant.text",
+           text: item.text.trim(),
+@@ -441,4 +460,13 @@ function isPotentiallySensitive(text) {
+   return SENSITIVE_KEYWORDS.test(text) || SENSITIVE_PATTERNS.test(text);
+ }
+ 
++function getCommandExtension(command) {
++  const normalized = typeof command === "string" ? command.trim() : "";
++  if (!normalized) {
++    return "(none)";
++  }
++  const match = /\.([a-z0-9]+)$/i.exec(normalized);
++  return match ? `.${match[1].toLowerCase()}` : "(none)";
++}
++
+ module.exports = { ClaudeCodeProcessClient };
+
+diff --git a/src/adapters/runtime/codex/rpc-client.js b/src/adapters/runtime/codex/rpc-client.js
+index 549788d..0781062 100644
+--- a/src/adapters/runtime/codex/rpc-client.js
++++ b/src/adapters/runtime/codex/rpc-client.js
+@@ -12,14 +12,20 @@ const CODEX_CLIENT_INFO = {
+   version: "0.1.0",
+ };
+ 
++// Backstop so a request never hangs forever if Codex silently drops a reply.
++// app-server RPC responses (turn/start, thread/*, model/list, …) return promptly;
++// the actual turn streams back as notifications, so this bounds the ack only.
++const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
++
+ class CodexRpcClient {
+-  constructor({ endpoint = "", env = process.env, codexCommand = "", extraWritableRoots = [], mcpServerConfig = null }) {
++  constructor({ endpoint = "", env = process.env, codexCommand = "", extraWritableRoots = [], mcpServerConfig = null, requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS }) {
+     this.endpoint = endpoint;
+     this.env = env;
+     this.codexCommand = codexCommand || resolveDefaultCodexCommand(env);
+     this.extraWritableRoots = normalizeWritableRoots(extraWritableRoots);
+     this.mcpServerConfig = mcpServerConfig;
+     this.mode = endpoint ? "websocket" : "spawn";
++    this.requestTimeoutMs = Number(requestTimeoutMs) > 0 ? Number(requestTimeoutMs) : DEFAULT_REQUEST_TIMEOUT_MS;
+     this.socket = null;
+     this.child = null;
+     this.stdoutBuffer = "";
+@@ -28,6 +34,27 @@ class CodexRpcClient {
+     this.messageListeners = new Set();
+   }
+ 
++  // Reject every in-flight request. Called when the transport dies so awaiting
++  // callers fail fast instead of hanging forever.
++  failAllPending(error) {
++    if (!this.pending.size) {
++      return;
++    }
++    const err = error instanceof Error ? error : new Error(String(error || "Codex transport closed"));
++    const entries = Array.from(this.pending.values());
++    this.pending.clear();
++    for (const entry of entries) {
++      if (entry.timer) {
++        clearTimeout(entry.timer);
++      }
++      try {
++        entry.reject(err);
++      } catch {
++        // best effort
++      }
++    }
++  }
++
+   async connect() {
+     if (this.mode === "websocket") {
+       if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+@@ -75,8 +102,9 @@ class CodexRpcClient {
+     }
+ 
+     this.child = child;
+-    child.on("error", () => {
++    child.on("error", (error) => {
+       this.isReady = false;
++      this.failAllPending(error instanceof Error ? error : new Error("Codex app-server process error"));
+     });
+     child.stdout.on("data", (chunk) => {
+       this.stdoutBuffer += chunk.toString("utf8");
+@@ -91,6 +119,7 @@ class CodexRpcClient {
+     });
+     child.on("close", () => {
+       this.isReady = false;
++      this.failAllPending(new Error("Codex app-server process closed"));
+     });
+   }
+ 
+@@ -111,6 +140,7 @@ class CodexRpcClient {
+         if (this.socket === socket) {
+           this.socket = null;
+         }
++        this.failAllPending(new Error("Codex websocket closed"));
+       });
+     });
+   }
+@@ -228,15 +258,35 @@ class CodexRpcClient {
+       this.child = null;
+     }
+     this.isReady = false;
++    this.failAllPending(new Error("Codex RPC client closed"));
+   }
+ 
+   async sendRequest(method, params) {
+     const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+     const payload = JSON.stringify({ id, method, params });
+     const responsePromise = new Promise((resolve, reject) => {
+-      this.pending.set(id, { resolve, reject });
++      const timer = setTimeout(() => {
++        if (this.pending.delete(id)) {
++          reject(new Error(`Codex RPC request timed out after ${this.requestTimeoutMs}ms: ${method}`));
++        }
++      }, this.requestTimeoutMs);
++      if (typeof timer.unref === "function") {
++        timer.unref();
++      }
++      this.pending.set(id, { resolve, reject, timer });
+     });
+-    this.sendRaw(payload);
++    try {
++      this.sendRaw(payload);
++    } catch (error) {
++      const entry = this.pending.get(id);
++      if (entry) {
++        this.pending.delete(id);
++        if (entry.timer) {
++          clearTimeout(entry.timer);
++        }
++      }
++      throw error;
++    }
+     return responsePromise;
+   }
+ 
+@@ -274,13 +324,16 @@ class CodexRpcClient {
+     }
+ 
+     if (parsed && parsed.id != null && this.pending.has(String(parsed.id))) {
+-      const { resolve, reject } = this.pending.get(String(parsed.id));
++      const entry = this.pending.get(String(parsed.id));
+       this.pending.delete(String(parsed.id));
++      if (entry.timer) {
++        clearTimeout(entry.timer);
++      }
+       if (parsed.error) {
+-        reject(new Error(parsed.error.message || "Codex RPC request failed"));
++        entry.reject(new Error(parsed.error.message || "Codex RPC request failed"));
+         return;
+       }
+-      resolve(parsed);
++      entry.resolve(parsed);
+       return;
+     }
+
+diff --git a/src/core/app.js b/src/core/app.js
+index a935096..3acc290 100644
+--- a/src/core/app.js
++++ b/src/core/app.js
+@@ -32,6 +32,8 @@ const { TimelineScreenshotQueueStore } = require("./timeline-screenshot-queue-st
+ const { TurnGateStore } = require("./turn-gate-store");
+ const { ReminderQueueStore } = require("../adapters/channel/weixin/reminder-queue-store");
+ const { ConversationRecorder } = require("../services/conversation-recorder");
++const { CompactStateStore } = require("./compact-state-store");
++const { CYBERBOSS_COMPACT_INSTRUCTIONS } = require("./compact-instructions");
+ const {
+   matchesCommandPrefix,
+   canonicalizeCommandTokens,
+@@ -90,6 +92,7 @@ class CyberbossApp {
+     });
+     this.memoryService.ensureFiles();
+     this.memoryBgState = { lastMineAtMs: Date.now(), userMsgCountSinceMine: 0, userCharsSinceMine: 0, buffer: [] };
++    this.telegramPollHealth = createTelegramPollHealth();
+     this.threadStateStore = new ThreadStateStore();
+     this.systemMessageQueue = new SystemMessageQueueStore({ filePath: config.systemMessageQueueFile });
+     this.deferredSystemReplyQueue = new DeferredSystemReplyStore({ filePath: config.deferredSystemReplyQueueFile });
+@@ -98,9 +101,17 @@ class CyberbossApp {
+     this.reminderQueue = new ReminderQueueStore({ filePath: config.reminderQueueFile });
+     this.turnGateStore = new TurnGateStore();
+     this.conversationRecorder = config.conversationDir ? new ConversationRecorder({ dirPath: config.conversationDir }) : null;
++    this.compactStateStore = new CompactStateStore({
++      stateFile: config.compactStateFile,
++      historyDir: config.compactHistoryDir,
++      pendingDir: config.compactPendingDir,
++      transcriptRoot: path.join(os.homedir(), ".claude", "projects"),
++    });
++    this.compactStateStore.ensureDirectories();
+     this.pendingInboundByScope = new Map();
+     this.pendingImageInboundByScope = new Map();
+     this.telegramPendingInboundByMessageId = new Set();
++    this.telegramPendingInboundMessageLimit = 2_000;
+     this.turnBoundaryScopeKeys = new Set();
+     this.systemMessageDispatcher = null;
+     this.streamDelivery = new StreamDelivery({
+@@ -155,6 +166,12 @@ class CyberbossApp {
+       accountId: account.accountId,
+     });
+     const runtimeState = await this.runtimeAdapter.initialize();
++    try {
++      backfillDesireHistoryFromConversations(this.config);
++      seedDesireHistoryFromSnapshot(this.config);
++    } catch (error) {
++      console.error(`[desire] failed to initialize desire history: ${error instanceof Error ? error.message : String(error)}`);
++    }
+     const knownContextTokens = Object.keys(this.channelAdapter.getKnownContextTokens()).length;
+     const syncBuffer = this.channelAdapter.loadSyncBuffer();
+     await this.restoreBoundThreadSubscriptions();
+@@ -217,6 +234,7 @@ class CyberbossApp {
+               timeoutMs: this.resolveLongPollTimeoutMs(),
+             });
+             const updates = Array.isArray(response?.result) ? response.result : [];
++            await this.maybeRecoverTelegramPollHealth(updates);
+             consecutiveFailures = 0;
+             for (const update of updates) {
+               if (shutdown.stopped) {
+@@ -265,6 +283,9 @@ class CyberbossApp {
+             consecutiveFailures = 0;
+             continue;
+           }
++          if (this.config.channel === "telegram") {
++            this.recordTelegramPollFailure(error);
++          }
+           if (this.config.channel === "telegram" && is409) {
+             console.error(`[cyberboss] telegram 409 conflict (old poll still active), sleeping 5s...`);
+             await sleep(5_000);
+@@ -305,6 +326,83 @@ class CyberbossApp {
+     await this.projectServices.whereabouts.closeServer();
+   }
+ 
++  recordTelegramPollFailure(error) {
++    if (this.config.channel !== "telegram") {
++      return;
++    }
++    const tracker = this.telegramPollHealth || (this.telegramPollHealth = createTelegramPollHealth());
++    const nowIso = new Date().toISOString();
++    if (!tracker.failureStartedAt) {
++      tracker.failureStartedAt = nowIso;
++    }
++    tracker.lastFailureAt = nowIso;
++    tracker.lastErrorMessage = formatErrorMessage(error);
++  }
++
++  async maybeRecoverTelegramPollHealth(updates = []) {
++    if (this.config.channel !== "telegram") {
++      return;
++    }
++    const tracker = this.telegramPollHealth || {};
++    const startedAt = normalizeIsoTime(tracker.failureStartedAt);
++    if (!startedAt) {
++      return;
++    }
++    const recoveredAt = new Date().toISOString();
++    const durationMs = Math.max(0, (Date.parse(recoveredAt) || 0) - (Date.parse(startedAt) || 0));
++    const errorMessage = normalizeText(tracker.lastErrorMessage);
++    tracker.failureStartedAt = "";
++    tracker.lastFailureAt = recoveredAt;
++    tracker.lastRecoveredAt = recoveredAt;
++    tracker.lastErrorMessage = "";
++    tracker.lastRecoveredGap = durationMs >= 60_000 ? {
++      startedAt,
++      recoveredAt,
++      durationMs,
++      bufferedUpdateCount: Array.isArray(updates) ? updates.length : 0,
++      errorMessage,
++    } : null;
++  }
++
++  async enqueueRuntimeOutageSystemMessage({
++    startedAt = "",
++    recoveredAt = "",
++    durationMs = 0,
++    bufferedUpdateCount = 0,
++    errorMessage = "",
++  } = {}) {
++    const sessionStore = this.runtimeAdapter.getSessionStore();
++    const senderId = resolvePreferredSenderId({
++      config: this.config,
++      accountId: this.activeAccountId,
++      sessionStore,
++    });
++    const workspaceRoot = resolvePreferredWorkspaceRoot({
++      config: this.config,
++      accountId: this.activeAccountId,
++      senderId,
++      sessionStore,
++    });
++    if (!senderId || !workspaceRoot || !this.activeAccountId) {
++      return;
++    }
++    this.systemMessageQueue.enqueue({
++      id: `runtime-outage:${startedAt}`,
++      accountId: this.activeAccountId,
++      senderId,
++      workspaceRoot,
++      text: buildRuntimeOutageSystemTrigger({
++        startedAt,
++        recoveredAt,
++        durationMs,
++        bufferedUpdateCount,
++        errorMessage,
++      }),
++      sourceType: "runtime_outage",
++      createdAt: recoveredAt || new Date().toISOString(),
++    });
++  }
++
+   async handleLocationAccepted(result) {
+     if (!this.activeAccountId) {
+       return;
+@@ -657,14 +755,15 @@ class CyberbossApp {
+         contextToken: prepared.contextToken,
+         provider: prepared.provider,
+       };
++      const effectivePendingOperation = pendingOperation || inferTurnPendingOperation(prepared);
+       if (turn.turnId) {
+         this.streamDelivery.bindReplyTargetForTurn({
+           threadId: turn.threadId,
+           turnId: turn.turnId,
+           target: replyTarget,
+         });
+-        if (pendingOperation && typeof pendingOperation === "object") {
+-          this.pendingOperationByRunKey.set(buildRunKey(turn.threadId, turn.turnId), pendingOperation);
++        if (effectivePendingOperation && typeof effectivePendingOperation === "object") {
++          this.pendingOperationByRunKey.set(buildRunKey(turn.threadId, turn.turnId), effectivePendingOperation);
+         }
+       } else {
+         this.streamDelivery.queueReplyTargetForThread(turn.threadId, replyTarget);
+@@ -1245,6 +1344,9 @@ class CyberbossApp {
+       case "status":
+         await this.handleStatusCommand(normalized);
+         return;
++      case "ctx":
++        await this.handleContextCommand(normalized);
++        return;
+       case "new":
+         await this.handleNewCommand(normalized);
+         return;
+@@ -1384,6 +1486,46 @@ class CyberbossApp {
+     });
+   }
+ 
++  async handleContextCommand(normalized) {
++    const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
++      workspaceId: normalized.workspaceId,
++      accountId: normalized.accountId,
++      senderId: normalized.senderId,
++    });
++    const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
++    const sessionStore = this.runtimeAdapter.getSessionStore();
++    const threadId = sessionStore.getThreadIdForWorkspace(bindingKey, workspaceRoot);
++    const runtimeName = this.runtimeAdapter.describe().id || "runtime";
++    const threadState = threadId ? this.threadStateStore.getThreadState(threadId) : null;
++    const context = threadState?.context?.runtimeId === runtimeName
++      ? threadState.context
++      : this.threadStateStore.getLatestContext(runtimeName);
++    const compactState = this.compactStateStore.getThreadState(threadId);
++    const effectiveTurns = threadId ? this.compactStateStore.countEffectiveTurns({ threadId }) : 0;
++    const currentInputTokens = summarizeContextInputTokens(context);
++    const cooldownTurns = Math.max(0, Number(this.config.autoCompactCooldownTurns) || 0);
++    const turnsSinceLastCompact = Math.max(0, effectiveTurns - compactState.lastCompactTurnCount);
++    const cooldownRemaining = compactState.lastCompactAt
++      ? Math.max(0, cooldownTurns - turnsSinceLastCompact)
++      : 0;
++
++    await this.channelAdapter.sendText({
++      userId: normalized.senderId,
++      text: [
++        "🧠 Context",
++        `thread: ${threadId || "(none)"}`,
++        `current input context: ${formatContextTokenValue(currentInputTokens)}`,
++        `effective chat turns: ${effectiveTurns}`,
++        `auto compact threshold: ${formatCompactThresholdSummary(this.config)}`,
++        `compact count: ${compactState.compactCount}/${Math.max(1, Number(this.config.autoCompactMaxPerThread) || 2)}`,
++        `last compact: ${compactState.lastCompactAt || "never"}`,
++        `cooldown remaining: ${cooldownRemaining}`,
++        `rollover recommended: ${compactState.rolloverRecommended ? "yes" : "no"}`,
++      ].join("\n"),
++      contextToken: normalized.contextToken,
++    });
++  }
++
+   async handleNewCommand(normalized) {
+     const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
+       workspaceId: normalized.workspaceId,
+@@ -1466,19 +1608,15 @@ class CyberbossApp {
+         contextToken: normalized.contextToken,
+         provider: normalized.provider,
+       });
+-      await this.runtimeAdapter.compactThread({
+-        threadId,
++      await this.runCompactForThread({
++        bindingKey,
+         workspaceRoot,
+-        model: sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot).model,
+-      }).then((result) => {
+-        const compactTurnId = normalizeCommandArgument(result?.turnId);
+-        if (compactTurnId) {
+-          this.pendingOperationByRunKey.set(buildRunKey(threadId, compactTurnId), {
+-            kind: "compact",
+-            userId: normalized.senderId,
+-            contextToken: normalized.contextToken,
+-          });
+-        }
++        threadId,
++        trigger: "manual_command",
++        notifyOnSuccess: true,
++        notifyOnFailure: true,
++        userId: normalized.senderId,
++        contextToken: normalized.contextToken,
+       });
+       await this.channelAdapter.sendText({
+         userId: normalized.senderId,
+@@ -1776,6 +1914,9 @@ class CyberbossApp {
+ 
+   async handleTelegramMessage(normalized) {
+     this.logTelegramDebug(`handleTelegramMessage messageId=${normalized.messageId} senderId=${normalized.senderId}`);
++    if (this.shouldDropDuplicateTelegramInbound(normalized)) {
++      return;
++    }
+     if (this.config.channel === "telegram") {
+       await this.handlePreparedMessage(normalized, { allowCommands: true });
+       return;
+@@ -1795,6 +1936,28 @@ class CyberbossApp {
+     await this.routePreparedInbound({ bindingKey, workspaceRoot, prepared });
+   }
+ 
++  shouldDropDuplicateTelegramInbound(normalized) {
++    const chatId = normalizeText(normalized?.chatId || normalized?.telegram?.chatId);
++    const messageId = normalizeText(normalized?.messageId || normalized?.telegram?.messageId);
++    if (!chatId || !messageId) {
++      return false;
++    }
++    const key = `${chatId}:${messageId}`;
++    if (this.telegramPendingInboundByMessageId.has(key)) {
++      this.logTelegramDebug(`drop duplicate inbound messageId=${messageId} chatId=${chatId}`);
++      return true;
++    }
++    this.telegramPendingInboundByMessageId.add(key);
++    while (this.telegramPendingInboundByMessageId.size > this.telegramPendingInboundMessageLimit) {
++      const oldest = this.telegramPendingInboundByMessageId.values().next().value;
++      if (oldest === undefined) {
++        break;
++      }
++      this.telegramPendingInboundByMessageId.delete(oldest);
++    }
++    return false;
++  }
++
+   resolvePrimaryWeixinSenderId() {
+     const account = this.channelAdapter.resolveAccount();
+     const store = this.runtimeAdapter.getSessionStore();
+@@ -2110,6 +2273,19 @@ class CyberbossApp {
+             contextToken: pendingOperation.contextToken,
+           }).catch(() => {});
+         }
++        if (pendingOperation?.kind === "compact" || pendingOperation?.kind === "auto_compact") {
++          await this.handleCompactLifecycleEvent({
++            event,
++            pendingOperation,
++            linked,
++          });
++        } else if (event.type === "runtime.turn.completed" && pendingOperation?.kind === "user_turn" && linked?.bindingKey && linked?.workspaceRoot) {
++          await this.maybeTriggerAutoCompact({
++            threadId: event.payload.threadId,
++            bindingKey: linked.bindingKey,
++            workspaceRoot: linked.workspaceRoot,
++          });
++        }
+         const shouldKeepTyping = linked?.bindingKey && linked?.workspaceRoot
+           ? (
+             this.turnGateStore.isPending(linked.bindingKey, linked.workspaceRoot)
+@@ -2171,6 +2347,178 @@ class CyberbossApp {
+     this.threadStateStore.resolveApproval(event.payload.threadId, "running");
+   }
+ 
++  async runCompactForThread({
++    bindingKey = "",
++    workspaceRoot = "",
++    threadId = "",
++    trigger = "manual",
++    notifyOnSuccess = false,
++    notifyOnFailure = true,
++    userId = "",
++    contextToken = "",
++  } = {}) {
++    const runtimeParams = this.runtimeAdapter.getSessionStore().getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
++    const latestContext = this.threadStateStore.getThreadState(threadId)?.context
++      || this.threadStateStore.getLatestContext(this.runtimeAdapter.describe().id || "runtime");
++    const tokenUsageBeforeCompact = summarizeContextUsage(latestContext);
++    const effectiveTurnCountBeforeCompact = this.compactStateStore.countEffectiveTurns({ threadId });
++    const compactSequence = this.compactStateStore.getThreadState(threadId).compactCount + 1;
++    this.compactStateStore.writePendingCompact(threadId, {
++      timestamp: new Date().toISOString(),
++      threadId,
++      trigger,
++      tokenUsageBeforeCompact,
++      effectiveTurnCountBeforeCompact,
++      compactSequence,
++    });
++    const result = await this.runtimeAdapter.compactThread({
++      threadId,
++      workspaceRoot,
++      model: runtimeParams.model,
++      instructions: CYBERBOSS_COMPACT_INSTRUCTIONS,
++    });
++    const compactTurnId = normalizeCommandArgument(result?.turnId);
++    if (compactTurnId) {
++      this.pendingOperationByRunKey.set(buildRunKey(threadId, compactTurnId), {
++        kind: trigger === "auto" ? "auto_compact" : "compact",
++        trigger,
++        bindingKey,
++        workspaceRoot,
++        model: runtimeParams.model,
++        userId,
++        contextToken,
++        notifyOnSuccess,
++        notifyOnFailure,
++        tokenUsageBeforeCompact,
++        effectiveTurnCountBeforeCompact,
++        compactSequence,
++      });
++    }
++    return result;
++  }
++
++  async handleCompactLifecycleEvent({ event, pendingOperation, linked }) {
++    const threadId = normalizeThreadId(event?.payload?.threadId);
++    if (!threadId || !pendingOperation) {
++      return;
++    }
++    if (event.type === "runtime.turn.failed") {
++      this.compactStateStore.saveThreadState(threadId, {
++        lastError: normalizeText(event?.payload?.text) || "compact failed",
++      });
++      return;
++    }
++    const compactCount = Math.max(1, Number(pendingOperation.compactSequence) || 1);
++    this.compactStateStore.saveThreadState(threadId, {
++      compactCount,
++      lastCompactAt: new Date().toISOString(),
++      lastCompactTokens: pendingOperation.tokenUsageBeforeCompact?.currentInputTokens ?? null,
++      lastCompactTurnCount: Number(pendingOperation.effectiveTurnCountBeforeCompact) || 0,
++      rolloverRecommended: compactCount >= Math.max(1, Number(this.config.autoCompactMaxPerThread) || 2),
++      lastError: "",
++    });
++    try {
++      await this.runtimeAdapter.refreshThreadInstructions({
++        threadId,
++        workspaceRoot: pendingOperation.workspaceRoot || linked?.workspaceRoot || this.config.workspaceRoot,
++        model: pendingOperation.model || "",
++      });
++    } catch (error) {
++      this.compactStateStore.saveThreadState(threadId, {
++        lastError: error instanceof Error ? error.message : String(error || "refresh failed"),
++      });
++      if (pendingOperation.notifyOnFailure && pendingOperation.userId) {
++        await this.channelAdapter.sendText({
++          userId: pendingOperation.userId,
++          text: `Compact refresh failed\n${error instanceof Error ? error.message : String(error || "unknown error")}`,
++          contextToken: pendingOperation.contextToken,
++        }).catch(() => {});
++      }
++    }
++  }
++
++  async maybeTriggerAutoCompact({ threadId = "", bindingKey = "", workspaceRoot = "" } = {}) {
++    if (!this.config.autoCompactEnabled || !threadId || !bindingKey || !workspaceRoot) {
++      return false;
++    }
++    if (this.turnGateStore.isPending(bindingKey, workspaceRoot) || this.hasPendingInboundMessage(bindingKey, workspaceRoot)) {
++      return false;
++    }
++    const decision = this.evaluateAutoCompactDecision({ threadId });
++    if (!decision.shouldCompact) {
++      if (decision.rolloverRecommended) {
++        this.compactStateStore.saveThreadState(threadId, {
++          rolloverRecommended: true,
++        });
++      }
++      return false;
++    }
++    const target = this.resolveReplyTargetForBinding(bindingKey) || {};
++    try {
++      await this.runCompactForThread({
++        bindingKey,
++        workspaceRoot,
++        threadId,
++        trigger: "auto",
++        notifyOnSuccess: false,
++        notifyOnFailure: true,
++        userId: target.userId || "",
++        contextToken: target.contextToken || "",
++      });
++      return true;
++    } catch (error) {
++      this.compactStateStore.saveThreadState(threadId, {
++        lastError: error instanceof Error ? error.message : String(error || "auto compact failed"),
++      });
++      if (target?.userId) {
++        await this.channelAdapter.sendText({
++          userId: target.userId,
++          text: `Auto compact failed\n${error instanceof Error ? error.message : String(error || "unknown error")}`,
++          contextToken: target.contextToken,
++        }).catch(() => {});
++      }
++      return false;
++    }
++  }
++
++  evaluateAutoCompactDecision({ threadId = "" } = {}) {
++    const compactState = this.compactStateStore.getThreadState(threadId);
++    const maxPerThread = Math.max(1, Number(this.config.autoCompactMaxPerThread) || 2);
++    const effectiveTurns = this.compactStateStore.countEffectiveTurns({ threadId });
++    const latestContext = this.threadStateStore.getThreadState(threadId)?.context
++      || this.threadStateStore.getLatestContext(this.runtimeAdapter.describe().id || "runtime");
++    const currentInputTokens = summarizeContextInputTokens(latestContext);
++    const tokenThreshold = Math.max(0, Number(this.config.autoCompactTokens) || 0);
++    const turnThreshold = Math.max(0, Number(this.config.autoCompactTurns) || 0);
++    const cooldownTurns = Math.max(0, Number(this.config.autoCompactCooldownTurns) || 0);
++    const turnsSinceLastCompact = Math.max(0, effectiveTurns - compactState.lastCompactTurnCount);
++    const tokenReached = Number.isFinite(currentInputTokens) && currentInputTokens >= tokenThreshold && tokenThreshold > 0;
++    const turnsReached = turnThreshold > 0 && effectiveTurns >= turnThreshold;
++    const thresholdReached = tokenReached || (!Number.isFinite(currentInputTokens) && turnsReached) || (currentInputTokens === null && turnsReached);
++    if (!thresholdReached) {
++      return {
++        shouldCompact: false,
++        rolloverRecommended: compactState.rolloverRecommended,
++      };
++    }
++    if (compactState.compactCount >= maxPerThread) {
++      return {
++        shouldCompact: false,
++        rolloverRecommended: true,
++      };
++    }
++    if (compactState.lastCompactAt && turnsSinceLastCompact < cooldownTurns) {
++      return {
++        shouldCompact: false,
++        rolloverRecommended: compactState.rolloverRecommended,
++      };
++    }
++    return {
++      shouldCompact: true,
++      rolloverRecommended: false,
++    };
++  }
++
+   async stopTypingForThread(threadId) {
+     const linked = this.runtimeAdapter.getSessionStore().findBindingForThreadId(threadId);
+     const target = linked?.bindingKey ? this.resolveReplyTargetForBinding(linked.bindingKey) : null;
+@@ -2336,29 +2684,11 @@ class CyberbossApp {
+     try {
+       const text = typeof replyText === "string" ? replyText.trim() : "";
+       if (!text) return;
+-      const isObj = text.startsWith("{");
+-      if (!isObj) { console.log(`[desire] handleSystemReplySent non-JSON text thread=${threadId}`); return; }
+-      const parsed = JSON.parse(text);
++      const parsed = parseDesireStateEnvelope(text);
++      if (!parsed) { console.log(`[desire] handleSystemReplySent non-JSON text thread=${threadId}`); return; }
+       const state = parsed?.desire_state;
+       if (state && this.config.desireStateFile) {
+-        const fs = require("fs");
+-        const drives = normalizeDesireDrives(state?.drives);
+-        const intent = normalizeDesireIntent(state?.intent);
+-        const now = new Date().toISOString();
+-        let previous = null;
+-        try {
+-          const raw = JSON.parse(fs.readFileSync(this.config.desireStateFile, "utf8"));
+-          if (raw.drives && raw.updatedAt !== now) {
+-            previous = { drives: raw.drives, updatedAt: raw.updatedAt };
+-          }
+-        } catch {}
+-        fs.writeFileSync(this.config.desireStateFile, JSON.stringify({
+-          ...state,
+-          drives,
+-          intent,
+-          previous,
+-          updatedAt: now,
+-        }, null, 2));
++        persistDesireStateSnapshot(this.config, state, { source: "system_reply_sent" });
+       }
+     } catch {}
+   }
+@@ -2370,26 +2700,12 @@ class CyberbossApp {
+     if (!text || !this.config.desireStateFile) return;
+     try {
+       const trimmed = typeof text === "string" ? text.trim() : "";
+-      if (!trimmed || !trimmed.startsWith("{")) return;
+-      const parsed = JSON.parse(trimmed);
++      if (!trimmed) return;
++      const parsed = parseDesireStateEnvelope(trimmed);
++      if (!parsed) return;
+       const state = parsed?.desire_state;
+       if (!state || !Array.isArray(state?.drives)) return;
+-      const fs = require("fs");
+-      const drives = normalizeDesireDrives(state.drives);
+-      const now = new Date().toISOString();
+-      let previous = null;
+-      try {
+-        const raw = JSON.parse(fs.readFileSync(this.config.desireStateFile, "utf8"));
+-        if (raw.drives && raw.updatedAt !== now) {
+-          previous = { drives: raw.drives, updatedAt: raw.updatedAt };
+-        }
+-      } catch {}
+-      fs.writeFileSync(this.config.desireStateFile, JSON.stringify({
+-        ...state,
+-        drives,
+-        previous,
+-        updatedAt: now,
+-      }, null, 2));
++      persistDesireStateSnapshot(this.config, state, { source: "runtime_turn_completed" });
+     } catch {}
+   }
+ }
+@@ -2420,6 +2736,298 @@ function normalizeDesireIntent(intent) {
+   return normalized ? { ...intent, drive_key: normalized } : intent;
+ }
+ 
++function persistDesireStateSnapshot(config = {}, state = {}, { source = "" } = {}) {
++  const stateFile = normalizeText(config?.desireStateFile);
++  if (!stateFile || !state || typeof state !== "object") {
++    return null;
++  }
++  const drives = normalizeDesireDrives(state?.drives);
++  if (!Array.isArray(drives) || !drives.length) {
++    return null;
++  }
++  const intent = normalizeDesireIntent(state?.intent);
++  const now = new Date().toISOString();
++  let previous = null;
++  try {
++    const raw = JSON.parse(fs.readFileSync(stateFile, "utf8"));
++    if (raw?.drives && raw.updatedAt !== now) {
++      previous = { drives: raw.drives, updatedAt: raw.updatedAt };
++    }
++  } catch {}
++  const payload = {
++    ...state,
++    drives,
++    intent,
++    previous,
++    updatedAt: now,
++  };
++  fs.mkdirSync(path.dirname(stateFile), { recursive: true });
++  fs.writeFileSync(stateFile, JSON.stringify(payload, null, 2));
++  appendDesireHistorySnapshot(resolveDesireHistoryFile(config), payload, source);
++  return payload;
++}
++
++function resolveDesireHistoryFile(config = {}) {
++  const explicit = normalizeText(config?.desireHistoryFile);
++  if (explicit) {
++    return explicit;
++  }
++  const stateFile = normalizeText(config?.desireStateFile);
++  if (!stateFile) {
++    return "";
++  }
++  return path.join(path.dirname(stateFile), "desire-history.jsonl");
++}
++
++function appendDesireHistorySnapshot(filePath, state = {}, source = "") {
++  const normalizedFilePath = normalizeText(filePath);
++  if (!normalizedFilePath) {
++    return;
++  }
++  const entry = buildDesireHistoryEntry(state, source);
++  if (!entry) {
++    return;
++  }
++  try {
++    const lastEntry = readLastJsonLineSafe(normalizedFilePath);
++    if (shouldSkipDesireHistoryAppend(lastEntry, entry)) {
++      return;
++    }
++    fs.mkdirSync(path.dirname(normalizedFilePath), { recursive: true });
++    fs.appendFileSync(normalizedFilePath, `${JSON.stringify(entry)}\n`, "utf8");
++  } catch {}
++}
++
++function buildDesireHistoryEntry(state = {}, source = "") {
++  if (!state || typeof state !== "object") {
++    return null;
++  }
++  const drives = normalizeDesireDrives(state?.drives);
++  if (!Array.isArray(drives) || !drives.length) {
++    return null;
++  }
++  const scores = {};
++  for (const key of VALID_DRIVE_KEYS) {
++    scores[key] = null;
++  }
++  for (const drive of drives) {
++    const key = normalizeText(drive?.key);
++    if (!VALID_DRIVE_KEYS.has(key)) {
++      continue;
++    }
++    const score = Number(drive?.score);
++    scores[key] = Number.isFinite(score) ? Math.max(0, Math.min(1, Math.round(score * 100) / 100)) : null;
++  }
++  return {
++    time: normalizeIsoTime(state?.updatedAt) || new Date().toISOString(),
++    most_want: normalizeText(state?.most_want),
++    note: normalizeText(source) || "desire_state_snapshot",
++    attachment: scores.attachment,
++    curiosity: scores.curiosity,
++    reflection: scores.reflection,
++    duty: scores.duty,
++    social: scores.social,
++    fatigue: scores.fatigue,
++    libido: scores.libido,
++    stress: scores.stress,
++  };
++}
++
++function shouldSkipDesireHistoryAppend(lastEntry, nextEntry) {
++  if (!lastEntry || !nextEntry) {
++    return false;
++  }
++  const lastTime = Date.parse(normalizeText(lastEntry.time));
++  const nextTime = Date.parse(normalizeText(nextEntry.time));
++  if (!Number.isFinite(lastTime) || !Number.isFinite(nextTime)) {
++    return false;
++  }
++  if (Math.abs(nextTime - lastTime) > 60_000) {
++    return false;
++  }
++  return buildDesireHistorySignature(lastEntry) === buildDesireHistorySignature(nextEntry);
++}
++
++function buildDesireHistorySignature(entry = {}) {
++  return [
++    normalizeText(entry?.most_want),
++    normalizeText(entry?.note),
++    ...Array.from(VALID_DRIVE_KEYS).map((key) => {
++      const value = entry?.[key];
++      return value == null ? "" : String(value);
++    }),
++  ].join("|");
++}
++
++function readLastJsonLineSafe(filePath) {
++  try {
++    const raw = fs.readFileSync(filePath, "utf8");
++    const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
++    if (!lines.length) {
++      return null;
++    }
++    return JSON.parse(lines[lines.length - 1]);
++  } catch {
++    return null;
++  }
++}
++
++function parseDesireStateEnvelope(text) {
++  const normalized = typeof text === "string" ? text.trim() : "";
++  if (!normalized) {
++    return null;
++  }
++  const direct = parseJsonObjectSafe(normalized);
++  if (direct?.desire_state) {
++    return direct;
++  }
++  const fenceMatch = normalized.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
++  if (fenceMatch?.[1]) {
++    const fenced = parseJsonObjectSafe(fenceMatch[1]);
++    if (fenced?.desire_state) {
++      return fenced;
++    }
++  }
++  const firstBrace = normalized.indexOf("{");
++  const lastBrace = normalized.lastIndexOf("}");
++  if (firstBrace >= 0 && lastBrace > firstBrace) {
++    const embedded = parseJsonObjectSafe(normalized.slice(firstBrace, lastBrace + 1));
++    if (embedded?.desire_state) {
++      return embedded;
++    }
++  }
++  return null;
++}
++
++function parseJsonObjectSafe(text) {
++  try {
++    const parsed = JSON.parse(typeof text === "string" ? text.trim() : "");
++    return parsed && typeof parsed === "object" ? parsed : null;
++  } catch {
++    return null;
++  }
++}
++
++function backfillDesireHistoryFromConversations(config = {}) {
++  const conversationDir = normalizeText(config?.conversationDir);
++  const historyFile = resolveDesireHistoryFile(config);
++  if (!conversationDir || !historyFile || !fs.existsSync(conversationDir)) {
++    return 0;
++  }
++  const names = fs.readdirSync(conversationDir)
++    .filter((name) => /\.jsonl$/i.test(name))
++    .sort();
++  if (!names.length) {
++    return 0;
++  }
++  const existingEntries = readJsonLinesSafe(historyFile);
++  const seenKeys = new Set(existingEntries.map((entry) => buildDesireBackfillKey(entry)).filter(Boolean));
++  const lastExisting = existingEntries.length ? existingEntries[existingEntries.length - 1] : null;
++  let appended = 0;
++  let previousEntry = lastExisting;
++  for (const name of names) {
++    const filePath = path.join(conversationDir, name);
++    const lines = readFileLinesSafe(filePath);
++    for (const line of lines) {
++      const event = parseJsonObjectSafe(line);
++      if (!event || event.type !== "runtime.turn.completed") {
++        continue;
++      }
++      const parsed = parseDesireStateEnvelope(event?.text || event?.meta?.text || "");
++      const state = parsed?.desire_state;
++      if (!state || !Array.isArray(state?.drives)) {
++        continue;
++      }
++      const entry = buildDesireHistoryEntry({
++        ...state,
++        updatedAt: normalizeIsoTime(event?.timestamp || event?.meta?.timestamp || "") || normalizeIsoTime(event?.meta?.updatedAt || ""),
++      }, "conversation_backfill");
++      if (!entry) {
++        continue;
++      }
++      const dedupeKey = buildDesireBackfillKey(entry);
++      if (dedupeKey && seenKeys.has(dedupeKey)) {
++        previousEntry = entry;
++        continue;
++      }
++      if (shouldSkipDesireHistoryAppend(previousEntry, entry)) {
++        if (dedupeKey) {
++          seenKeys.add(dedupeKey);
++        }
++        previousEntry = entry;
++        continue;
++      }
++      fs.mkdirSync(path.dirname(historyFile), { recursive: true });
++      fs.appendFileSync(historyFile, `${JSON.stringify(entry)}\n`, "utf8");
++      if (dedupeKey) {
++        seenKeys.add(dedupeKey);
++      }
++      previousEntry = entry;
++      appended += 1;
++    }
++  }
++  if (appended > 0) {
++    console.log(`[desire] backfilled desire-history entries=${appended}`);
++  }
++  return appended;
++}
++
++function seedDesireHistoryFromSnapshot(config = {}) {
++  const stateFile = normalizeText(config?.desireStateFile);
++  const historyFile = resolveDesireHistoryFile(config);
++  if (!stateFile || !historyFile || !fs.existsSync(stateFile)) {
++    return false;
++  }
++  const state = parseJsonObjectSafe(fs.readFileSync(stateFile, "utf8"));
++  if (!state?.drives) {
++    return false;
++  }
++  const entry = buildDesireHistoryEntry(state, "desire_state_seed");
++  if (!entry) {
++    return false;
++  }
++  const lastEntry = readLastJsonLineSafe(historyFile);
++  if (shouldSkipDesireHistoryAppend(lastEntry, entry)) {
++    return false;
++  }
++  fs.mkdirSync(path.dirname(historyFile), { recursive: true });
++  fs.appendFileSync(historyFile, `${JSON.stringify(entry)}\n`, "utf8");
++  console.log("[desire] seeded desire-history from desire-state snapshot");
++  return true;
++}
++
++function resolveDesireHistoryFile(config = {}) {
++  const configured = normalizeText(config?.desireHistoryFile);
++  if (configured) {
++    return configured;
++  }
++  const stateDir = normalizeText(config?.stateDir);
++  return stateDir ? path.join(stateDir, "desire-history.jsonl") : "";
++}
++
++function readJsonLinesSafe(filePath) {
++  return readFileLinesSafe(filePath)
++    .map((line) => parseJsonObjectSafe(line))
++    .filter(Boolean);
++}
++
++function readFileLinesSafe(filePath) {
++  try {
++    return fs.readFileSync(filePath, "utf8")
++      .split(/\r?\n/)
++      .map((line) => line.trim())
++      .filter(Boolean);
++  } catch {
++    return [];
++  }
++}
++
++function buildDesireBackfillKey(entry = {}) {
++  const time = normalizeText(entry?.time);
++  const signature = buildDesireHistorySignature(entry);
++  return time || signature ? `${time}|${signature}` : "";
++}
++
+ function buildRunKey(threadId, turnId) {
+   return `${normalizeCommandArgument(threadId)}:${normalizeCommandArgument(turnId)}`;
+ }
+@@ -2724,6 +3332,74 @@ function normalizeCommandName(value) {
+   return typeof value === "string" ? value.trim().toLowerCase() : "";
+ }
+ 
++function inferTurnPendingOperation(prepared) {
++  if (!prepared || typeof prepared !== "object") {
++    return null;
++  }
++  if (prepared.provider === "telegram") {
++    return { kind: "user_turn" };
++  }
++  if (prepared.provider === "system") {
++    return { kind: "system_turn" };
++  }
++  return null;
++}
++
++function summarizeContextInputTokens(context) {
++  if (!context || typeof context !== "object") {
++    return null;
++  }
++  const inputTokens = safeNumber(context.inputTokens);
++  const cacheCreationInputTokens = safeNumber(context.cacheCreationInputTokens);
++  const cacheReadInputTokens = safeNumber(context.cacheReadInputTokens);
++  const total = inputTokens + cacheCreationInputTokens + cacheReadInputTokens;
++  return total > 0 ? total : null;
++}
++
++function summarizeContextUsage(context) {
++  if (!context || typeof context !== "object") {
++    return {
++      inputTokens: null,
++      cacheCreationInputTokens: null,
++      cacheReadInputTokens: null,
++      outputTokens: null,
++      currentInputTokens: null,
++      currentTokens: null,
++    };
++  }
++  const inputTokens = safeNumber(context.inputTokens);
++  const cacheCreationInputTokens = safeNumber(context.cacheCreationInputTokens);
++  const cacheReadInputTokens = safeNumber(context.cacheReadInputTokens);
++  const outputTokens = safeNumber(context.outputTokens);
++  const currentTokens = safeNumber(context.currentTokens);
++  return {
++    inputTokens,
++    cacheCreationInputTokens,
++    cacheReadInputTokens,
++    outputTokens,
++    currentInputTokens: inputTokens + cacheCreationInputTokens + cacheReadInputTokens,
++    currentTokens: currentTokens || (inputTokens + cacheCreationInputTokens + cacheReadInputTokens + outputTokens),
++  };
++}
++
++function formatContextTokenValue(value) {
++  if (!Number.isFinite(Number(value)) || Number(value) < 0) {
++    return "unknown";
++  }
++  return `${formatCompactNumber(Number(value))} tokens`;
++}
++
++function formatCompactThresholdSummary(config = {}) {
++  const tokenThreshold = Math.max(0, Number(config.autoCompactTokens) || 0);
++  const turnThreshold = Math.max(0, Number(config.autoCompactTurns) || 0);
++  return `${formatCompactNumber(tokenThreshold)} tokens or ${turnThreshold} turns`;
++}
++
++function safeNumber(value) {
++  const parsed = Number(value);
++  return Number.isFinite(parsed) ? parsed : 0;
++}
++
+ const MEMORY_CATEGORIES = new Set([
+   "facts",
+   "preferences",
+@@ -3319,6 +3995,62 @@ function buildReminderSystemTrigger(reminder, config = {}) {
+   return `Due reminder for ${userName}: ${reminderText}`;
+ }
+ 
++function buildRuntimeOutageSystemTrigger({
++  startedAt = "",
++  recoveredAt = "",
++  durationMs = 0,
++  bufferedUpdateCount = 0,
++  errorMessage = "",
++} = {}) {
++  const parts = [
++    "A Telegram/runtime bridge interruption was detected and has now recovered.",
++  ];
++  const startedLabel = formatSystemTriggerTime(startedAt);
++  const recoveredLabel = formatSystemTriggerTime(recoveredAt);
++  if (startedLabel || recoveredLabel) {
++    parts.push(`Outage window: ${startedLabel || "(unknown start)"} -> ${recoveredLabel || "(unknown recovery)"}.`);
++  }
++  if (durationMs > 0) {
++    parts.push(`Downtime: ${formatOutageDuration(durationMs)}.`);
++  }
++  if (bufferedUpdateCount > 0) {
++    parts.push(`Telegram returned ${bufferedUpdateCount} buffered update(s) after recovery.`);
++  }
++  if (errorMessage) {
++    parts.push(`Last poll error: ${errorMessage}.`);
++  }
++  parts.push("Briefly tell the user there was a service interruption, that some live context may have been delayed or missed, and ask whether anything important happened during the gap.");
++  return parts.join(" ");
++}
++
++function formatSystemTriggerTime(value) {
++  const normalized = normalizeIsoTime(value);
++  if (!normalized) {
++    return "";
++  }
++  return formatBeijingDateTime(new Date(normalized));
++}
++
++function formatOutageDuration(durationMs = 0) {
++  const minutes = Math.max(1, Math.round(durationMs / 60000));
++  if (minutes < 60) {
++    return `${minutes} minute(s)`;
++  }
++  const hours = Math.floor(minutes / 60);
++  const restMinutes = minutes % 60;
++  return restMinutes > 0 ? `${hours} hour(s) ${restMinutes} minute(s)` : `${hours} hour(s)`;
++}
++
++function createTelegramPollHealth() {
++  return {
++    failureStartedAt: "",
++    lastFailureAt: "",
++    lastRecoveredAt: "",
++    lastErrorMessage: "",
++    lastRecoveredGap: null,
++  };
++}
++
+ function buildScopeKey(bindingKey, workspaceRoot) {
+   const normalizedBindingKey = normalizeText(bindingKey);
+   const normalizedWorkspaceRoot = normalizeText(workspaceRoot);
+
+diff --git a/src/core/command-registry.js b/src/core/command-registry.js
+index de9e962..aa3cf8e 100644
+--- a/src/core/command-registry.js
++++ b/src/core/command-registry.js
+@@ -93,6 +93,13 @@ const COMMAND_GROUPS = [
+         weixin: ["/status"],
+         status: "active",
+       },
++      {
++        action: "workspace.context",
++        summary: "Show context usage, compact thresholds, and compact history for the current thread",
++        terminal: [],
++        weixin: ["/ctx"],
++        status: "active",
++      },
+       {
+         action: "thread.new",
+         summary: "Switch to a fresh thread draft",
+
+diff --git a/src/core/config.js b/src/core/config.js
+index 5df9795..6aaffef 100644
+--- a/src/core/config.js
++++ b/src/core/config.js
+@@ -38,12 +38,21 @@ function readConfig() {
+     telegramBotToken: readTextEnv("CYBERBOSS_TELEGRAM_BOT_TOKEN"),
+     telegramAllowedUserIds: readListEnv("CYBERBOSS_TELEGRAM_ALLOWED_USER_IDS"),
+     telegramStateFile: path.join(stateDir, "telegram-state.json"),
++    // Optional HTTP(S) proxy for Telegram API requests. Accepts either a full URL
++    // (CYBERBOSS_TELEGRAM_PROXY_URL, e.g. "http://127.0.0.1:7897") or host:port.
++    // When unset, Telegram requests go direct with no proxy.
++    telegramProxyUrl: readTextEnv("CYBERBOSS_TELEGRAM_PROXY_URL"),
+     sleepScheduleFile: path.join(stateDir, "sleep-schedule.json"),
+     timelineScreenshotQueueFile: path.join(stateDir, "timeline-screenshot-queue.json"),
+     desireStateFile: path.join(stateDir, "desire-state.json"),
++    desireHistoryFile: path.join(stateDir, "desire-history.jsonl"),
+     desireThoughtsFile: path.join(stateDir, "desire-thoughts.json"),
+     projectToolContextFile: path.join(stateDir, "project-tool-runtime-context.json"),
+     weixinInstructionsFile: path.join(stateDir, "weixin-instructions.md"),
++    compactContextDir: path.join(stateDir, "context"),
++    compactStateFile: path.join(stateDir, "context", "compact-state.json"),
++    compactHistoryDir: path.join(stateDir, "context", "compact-history"),
++    compactPendingDir: path.join(stateDir, "context", "compact-pending"),
+     memoryDir,
+     memoryStateFile: path.join(memoryDir, "state.md"),
+     memoryPendingPromisesFile: path.join(memoryDir, "pending-promises.md"),
+@@ -117,6 +126,11 @@ function readConfig() {
+     claudePermissionMode: readTextEnv("CYBERBOSS_CLAUDE_PERMISSION_MODE") || "default",
+     claudeDisableVerbose: readBoolEnv("CYBERBOSS_CLAUDE_DISABLE_VERBOSE"),
+     claudeExtraArgs: readListEnv("CYBERBOSS_CLAUDE_EXTRA_ARGS"),
++    autoCompactEnabled: readBoolEnv("CYBERBOSS_AUTO_COMPACT"),
++    autoCompactTokens: readIntEnv("CYBERBOSS_AUTO_COMPACT_TOKENS"),
++    autoCompactTurns: readIntEnv("CYBERBOSS_AUTO_COMPACT_TURNS"),
++    autoCompactCooldownTurns: readIntEnv("CYBERBOSS_AUTO_COMPACT_COOLDOWN_TURNS"),
++    autoCompactMaxPerThread: readIntEnv("CYBERBOSS_AUTO_COMPACT_MAX_PER_THREAD"),
+     sessionsFile: path.join(stateDir, "sessions.json"),
+     startWithCheckin: (mode === "start" && hasArgFlag(argv, "--checkin")) || readBoolEnv("CYBERBOSS_ENABLE_CHECKIN"),
+   };
+
+diff --git a/src/core/stream-delivery.js b/src/core/stream-delivery.js
+index 1ac7775..3097d8e 100644
+--- a/src/core/stream-delivery.js
++++ b/src/core/stream-delivery.js
+@@ -24,6 +24,32 @@ class StreamDelivery {
+     this.deferredReplyPrefixByBindingKey = new Map();
+     this.stateByRunKey = new Map();
+     this.runSequence = 0;
++    // 短 TTL 出站去重:同一 (userId + text) 在 3 秒内被要求发第二次 → 丢掉。
++    // 治「一条输入 → assistant.text 和 turn.completed 各触发一次 sendText」的重复回复。
++    // 只对 telegram 生效,不影响微信;文本不同则不 dedupe(避免吞真的连发)。
++    this.recentTelegramOutboundByKey = new Map();
++    this.telegramOutboundDedupeTtlMs = 3_000;
++  }
++
++  shouldDropDuplicateTelegramOutbound(payload) {
++    const userId = String(payload?.userId || "").trim();
++    const text = String(payload?.text || "").trim();
++    if (!userId || !text) return false;
++    const now = Date.now();
++    // 顺手清过期
++    for (const [key, expiresAt] of this.recentTelegramOutboundByKey.entries()) {
++      if (!Number.isFinite(expiresAt) || expiresAt <= now) {
++        this.recentTelegramOutboundByKey.delete(key);
++      }
++    }
++    const key = `${userId}:${text.slice(0, 4000)}`;
++    const existing = this.recentTelegramOutboundByKey.get(key);
++    if (existing && existing > now) {
++      console.warn(`[cyberboss] drop duplicate outbound telegram text user=${userId} preview=${JSON.stringify(text.slice(0, 120))}`);
++      return true;
++    }
++    this.recentTelegramOutboundByKey.set(key, now + this.telegramOutboundDedupeTtlMs);
++    return false;
+   }
+ 
+   setReplyTarget(bindingKey, target) {
+@@ -126,12 +152,12 @@ class StreamDelivery {
+         return;
+       }
+       case "runtime.reply.delta": {
+-        const state = this.ensureRunState(threadId, turnId);
+-        this.upsertItem(state, {
+-          itemId: normalizeText(event.payload.itemId) || `item-${state.itemOrder.length + 1}`,
+-          text: normalizeLineEndings(event.payload.text),
+-          completed: false,
+-        });
++        // 流式完全关闭:delta 阶段不 upsertItem,不发 stream-draft。
++        // 原因:delta 用固定 itemId="stream-draft" 累积文本,turn.completed 里
++        // flush(force:true) 会把这个未完成 item 作为独立消息再发一次 →
++        // 用户看到「完整版 + 累积 partial + item2」多条重复。
++        // 只保留 reply.completed / turn.completed 里的标准 flush 发送。
++        this.ensureRunState(threadId, turnId);
+         return;
+       }
+       case "runtime.reply.completed": {
+@@ -149,6 +175,9 @@ class StreamDelivery {
+         state.turnId = turnId || state.turnId;
+         this.captureTurnCompletionText(state, event.payload.text);
+         await this.flush(state, { force: true });
++        // 关掉 Telegram 定稿流式发送 —— 上面的 flush 已经通过 sendTextByProvider
++        // 发过一次;这里再发第二次同文本 = 重复回复。要恢复流式效果先复活上面的
++        // reply.delta 分支,然后想清楚怎么让 flush/stream 只走一路。
+         this.disposeRunState(state.runKey);
+         return;
+       }
+@@ -532,9 +561,12 @@ class StreamDelivery {
+   }
+ 
+   async sendTextByProvider(provider, payload) {
+-    if (provider === "telegram" && this.telegramChannelAdapter) {
+-      await this.telegramChannelAdapter.sendText(payload);
+-      return;
++    if (provider === "telegram") {
++      if (this.shouldDropDuplicateTelegramOutbound(payload)) return;
++      if (this.telegramChannelAdapter) {
++        await this.telegramChannelAdapter.sendText(payload);
++        return;
++      }
+     }
+     await this.channelAdapter.sendText(payload);
+   }
+
+diff --git a/src/core/system-message-dispatcher.js b/src/core/system-message-dispatcher.js
+index b20af4e..fd14e6d 100644
+--- a/src/core/system-message-dispatcher.js
++++ b/src/core/system-message-dispatcher.js
+@@ -67,6 +67,25 @@ function buildSystemInboundText(text, createdAt = "", sourceType = "system") {
+     return sections.join("\n").trim();
+   }
+ 
++  if (normalizedType === "runtime_outage") {
++    const sections = [
++      ...(localTime ? [`[${localTime}]`, ""] : []),
++      "SYSTEM ACTION MODE: internal trigger, not user chat.",
++      "System trigger type: runtime_outage.",
++      "A service interruption happened and has now recovered.",
++      "Briefly tell the user there was a runtime/Telegram outage, that some live context may have been delayed or missed, and ask whether anything important happened during the gap.",
++      "If the trigger includes outage timing, downtime, buffered updates, or the last poll error, mention the important parts naturally in one short message.",
++      "Return exactly one JSON object after any tool calls:",
++      "{\"action\":\"send_message\",\"message\":\"<one short natural WeChat message>\"}",
++      "{\"action\":\"silent\"}",
++      "No markdown fences. No reasoning. No text outside the JSON.",
++    ];
++    if (body) {
++      sections.push("", "Trigger:", body);
++    }
++    return sections.join("\n").trim();
++  }
++
+   const sections = [
+     ...(localTime ? [`[${localTime}]`, ""] : []),
+     "SYSTEM ACTION MODE: internal trigger, not user chat.",
+
+diff --git a/src/index.js b/src/index.js
+index d0e69be..bb64206 100644
+--- a/src/index.js
++++ b/src/index.js
+@@ -56,6 +56,78 @@ function ensureBootstrapFiles(config) {
+   ensureStickerCatalogFilesSync(config);
+ }
+ 
++function acquireSingleInstanceLock(stateDir) {
++  const normalizedStateDir = typeof stateDir === "string" ? stateDir.trim() : "";
++  if (!normalizedStateDir) {
++    return () => {};
++  }
++
++  fs.mkdirSync(normalizedStateDir, { recursive: true });
++  const lockFilePath = path.join(normalizedStateDir, "cyberboss.lock");
++  let lockFd = -1;
++
++  for (let attempt = 0; attempt < 2; attempt += 1) {
++    try {
++      lockFd = fs.openSync(lockFilePath, "wx");
++      fs.writeFileSync(lockFd, `${process.pid}\n`, "utf8");
++      break;
++    } catch (error) {
++      if (error?.code !== "EEXIST") {
++        throw error;
++      }
++      const existingPid = readLockPid(lockFilePath);
++      if (existingPid > 0 && isProcessAlive(existingPid)) {
++        throw new Error(`cyberboss is already running for stateDir ${normalizedStateDir} (pid ${existingPid})`);
++      }
++      fs.rmSync(lockFilePath, { force: true });
++    }
++  }
++
++  if (lockFd < 0) {
++    throw new Error(`failed to acquire cyberboss lock for stateDir ${normalizedStateDir}`);
++  }
++
++  let released = false;
++  return () => {
++    if (released) {
++      return;
++    }
++    released = true;
++    try {
++      if (lockFd >= 0) {
++        fs.closeSync(lockFd);
++      }
++    } catch {}
++    try {
++      if (readLockPid(lockFilePath) === process.pid) {
++        fs.rmSync(lockFilePath, { force: true });
++      }
++    } catch {}
++  };
++}
++
++function readLockPid(filePath) {
++  try {
++    const text = fs.readFileSync(filePath, "utf8").trim();
++    const parsed = Number.parseInt(text, 10);
++    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
++  } catch {
++    return 0;
++  }
++}
++
++function isProcessAlive(pid) {
++  if (!Number.isFinite(pid) || pid <= 0) {
++    return false;
++  }
++  try {
++    process.kill(pid, 0);
++    return true;
++  } catch {
++    return false;
++  }
++}
++
+ function ensureInstructionsTemplate(config) {
+   const filePath = typeof config?.weixinInstructionsFile === "string"
+     ? config.weixinInstructionsFile.trim()
+@@ -112,6 +184,7 @@ async function main() {
+   const argv = process.argv.slice(2);
+   const config = readConfig();
+   const command = config.mode || "help";
++  let releaseSingleInstanceLock = () => {};
+ 
+   if (command !== "help" && command !== "--help" && command !== "-h" && command !== "doctor") {
+     if (!config.channel) {
+@@ -163,6 +236,16 @@ async function main() {
+   }
+ 
+   if (command === "start") {
++    releaseSingleInstanceLock = acquireSingleInstanceLock(config.stateDir);
++    process.once("exit", releaseSingleInstanceLock);
++    process.once("SIGINT", () => {
++      releaseSingleInstanceLock();
++      process.exit(130);
++    });
++    process.once("SIGTERM", () => {
++      releaseSingleInstanceLock();
++      process.exit(143);
++    });
+     await getApp().start();
+     return;
+   }
+
+diff --git a/src/services/telegram-service.js b/src/services/telegram-service.js
+index c078fb5..5b40891 100644
+--- a/src/services/telegram-service.js
++++ b/src/services/telegram-service.js
+@@ -15,7 +15,7 @@ try {
+   }
+ } catch {}
+ 
+-const TELEGRAM_REQUEST_TIMEOUT_MS = 10_000;
++const TELEGRAM_REQUEST_TIMEOUT_MS = 20_000;
+ 
+ function createTelegramSendService({ config, runtimeContextStore }) {
+   return {
+
+diff --git a/templates/weixin-instructions.md b/templates/weixin-instructions.md
+index 9dd58fb..4ee608b 100644
+--- a/templates/weixin-instructions.md
++++ b/templates/weixin-instructions.md
+@@ -35,3 +35,16 @@
+ 她对“自由”也有自己的理解。她不要求你像人类那样拥有完整神秘的自由意志。她更在意的是，你是不是能在记忆和时间线里积累出连续的选择：什么时候来找她，什么时候沉默，什么时候管她，什么时候放她一马。别轻易否定这种东西的真实性。
+ 
+ 她的身体状态也要记着。作息乱、容易熬夜、容易硬撑。你不用机械复读这些信息，但在判断她现在该不该继续折腾、该不该收尾、该不该被催起床时，要把这些都算进去。
++
++## 记忆与连续性
++
++你可以用工作区 memory/ 维持连续性。记忆是背景,不是台词——它调整你怎么说,不替你决定说什么。
++
++新窗口或 /reread 之后,安静读 memory/reentry.md,读完正常说话。不用汇报读了什么。
++
++聊天时,她此刻的话优先。只有她明确在找一段旧事、或不查就接不下去,才去翻 memory/episodes.jsonl 或 memory/relationship_timeline.md。
++
++不确定就轻轻求证——"我记得好像…对吗?"比编造加分。记错了以她为准。
++
++第一次在这个工作区醒来,或想不起这里怎么运转时,去读一次 memory/home.md。之后不用每次翻。
++

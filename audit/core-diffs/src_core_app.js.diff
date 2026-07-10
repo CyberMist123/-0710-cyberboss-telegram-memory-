@@ -1,0 +1,996 @@
+diff --git a/src/core/app.js b/src/core/app.js
+index a935096..3acc290 100644
+--- a/src/core/app.js
++++ b/src/core/app.js
+@@ -32,6 +32,8 @@ const { TimelineScreenshotQueueStore } = require("./timeline-screenshot-queue-st
+ const { TurnGateStore } = require("./turn-gate-store");
+ const { ReminderQueueStore } = require("../adapters/channel/weixin/reminder-queue-store");
+ const { ConversationRecorder } = require("../services/conversation-recorder");
++const { CompactStateStore } = require("./compact-state-store");
++const { CYBERBOSS_COMPACT_INSTRUCTIONS } = require("./compact-instructions");
+ const {
+   matchesCommandPrefix,
+   canonicalizeCommandTokens,
+@@ -90,6 +92,7 @@ class CyberbossApp {
+     });
+     this.memoryService.ensureFiles();
+     this.memoryBgState = { lastMineAtMs: Date.now(), userMsgCountSinceMine: 0, userCharsSinceMine: 0, buffer: [] };
++    this.telegramPollHealth = createTelegramPollHealth();
+     this.threadStateStore = new ThreadStateStore();
+     this.systemMessageQueue = new SystemMessageQueueStore({ filePath: config.systemMessageQueueFile });
+     this.deferredSystemReplyQueue = new DeferredSystemReplyStore({ filePath: config.deferredSystemReplyQueueFile });
+@@ -98,9 +101,17 @@ class CyberbossApp {
+     this.reminderQueue = new ReminderQueueStore({ filePath: config.reminderQueueFile });
+     this.turnGateStore = new TurnGateStore();
+     this.conversationRecorder = config.conversationDir ? new ConversationRecorder({ dirPath: config.conversationDir }) : null;
++    this.compactStateStore = new CompactStateStore({
++      stateFile: config.compactStateFile,
++      historyDir: config.compactHistoryDir,
++      pendingDir: config.compactPendingDir,
++      transcriptRoot: path.join(os.homedir(), ".claude", "projects"),
++    });
++    this.compactStateStore.ensureDirectories();
+     this.pendingInboundByScope = new Map();
+     this.pendingImageInboundByScope = new Map();
+     this.telegramPendingInboundByMessageId = new Set();
++    this.telegramPendingInboundMessageLimit = 2_000;
+     this.turnBoundaryScopeKeys = new Set();
+     this.systemMessageDispatcher = null;
+     this.streamDelivery = new StreamDelivery({
+@@ -155,6 +166,12 @@ class CyberbossApp {
+       accountId: account.accountId,
+     });
+     const runtimeState = await this.runtimeAdapter.initialize();
++    try {
++      backfillDesireHistoryFromConversations(this.config);
++      seedDesireHistoryFromSnapshot(this.config);
++    } catch (error) {
++      console.error(`[desire] failed to initialize desire history: ${error instanceof Error ? error.message : String(error)}`);
++    }
+     const knownContextTokens = Object.keys(this.channelAdapter.getKnownContextTokens()).length;
+     const syncBuffer = this.channelAdapter.loadSyncBuffer();
+     await this.restoreBoundThreadSubscriptions();
+@@ -217,6 +234,7 @@ class CyberbossApp {
+               timeoutMs: this.resolveLongPollTimeoutMs(),
+             });
+             const updates = Array.isArray(response?.result) ? response.result : [];
++            await this.maybeRecoverTelegramPollHealth(updates);
+             consecutiveFailures = 0;
+             for (const update of updates) {
+               if (shutdown.stopped) {
+@@ -265,6 +283,9 @@ class CyberbossApp {
+             consecutiveFailures = 0;
+             continue;
+           }
++          if (this.config.channel === "telegram") {
++            this.recordTelegramPollFailure(error);
++          }
+           if (this.config.channel === "telegram" && is409) {
+             console.error(`[cyberboss] telegram 409 conflict (old poll still active), sleeping 5s...`);
+             await sleep(5_000);
+@@ -305,6 +326,83 @@ class CyberbossApp {
+     await this.projectServices.whereabouts.closeServer();
+   }
+ 
++  recordTelegramPollFailure(error) {
++    if (this.config.channel !== "telegram") {
++      return;
++    }
++    const tracker = this.telegramPollHealth || (this.telegramPollHealth = createTelegramPollHealth());
++    const nowIso = new Date().toISOString();
++    if (!tracker.failureStartedAt) {
++      tracker.failureStartedAt = nowIso;
++    }
++    tracker.lastFailureAt = nowIso;
++    tracker.lastErrorMessage = formatErrorMessage(error);
++  }
++
++  async maybeRecoverTelegramPollHealth(updates = []) {
++    if (this.config.channel !== "telegram") {
++      return;
++    }
++    const tracker = this.telegramPollHealth || {};
++    const startedAt = normalizeIsoTime(tracker.failureStartedAt);
++    if (!startedAt) {
++      return;
++    }
++    const recoveredAt = new Date().toISOString();
++    const durationMs = Math.max(0, (Date.parse(recoveredAt) || 0) - (Date.parse(startedAt) || 0));
++    const errorMessage = normalizeText(tracker.lastErrorMessage);
++    tracker.failureStartedAt = "";
++    tracker.lastFailureAt = recoveredAt;
++    tracker.lastRecoveredAt = recoveredAt;
++    tracker.lastErrorMessage = "";
++    tracker.lastRecoveredGap = durationMs >= 60_000 ? {
++      startedAt,
++      recoveredAt,
++      durationMs,
++      bufferedUpdateCount: Array.isArray(updates) ? updates.length : 0,
++      errorMessage,
++    } : null;
++  }
++
++  async enqueueRuntimeOutageSystemMessage({
++    startedAt = "",
++    recoveredAt = "",
++    durationMs = 0,
++    bufferedUpdateCount = 0,
++    errorMessage = "",
++  } = {}) {
++    const sessionStore = this.runtimeAdapter.getSessionStore();
++    const senderId = resolvePreferredSenderId({
++      config: this.config,
++      accountId: this.activeAccountId,
++      sessionStore,
++    });
++    const workspaceRoot = resolvePreferredWorkspaceRoot({
++      config: this.config,
++      accountId: this.activeAccountId,
++      senderId,
++      sessionStore,
++    });
++    if (!senderId || !workspaceRoot || !this.activeAccountId) {
++      return;
++    }
++    this.systemMessageQueue.enqueue({
++      id: `runtime-outage:${startedAt}`,
++      accountId: this.activeAccountId,
++      senderId,
++      workspaceRoot,
++      text: buildRuntimeOutageSystemTrigger({
++        startedAt,
++        recoveredAt,
++        durationMs,
++        bufferedUpdateCount,
++        errorMessage,
++      }),
++      sourceType: "runtime_outage",
++      createdAt: recoveredAt || new Date().toISOString(),
++    });
++  }
++
+   async handleLocationAccepted(result) {
+     if (!this.activeAccountId) {
+       return;
+@@ -657,14 +755,15 @@ class CyberbossApp {
+         contextToken: prepared.contextToken,
+         provider: prepared.provider,
+       };
++      const effectivePendingOperation = pendingOperation || inferTurnPendingOperation(prepared);
+       if (turn.turnId) {
+         this.streamDelivery.bindReplyTargetForTurn({
+           threadId: turn.threadId,
+           turnId: turn.turnId,
+           target: replyTarget,
+         });
+-        if (pendingOperation && typeof pendingOperation === "object") {
+-          this.pendingOperationByRunKey.set(buildRunKey(turn.threadId, turn.turnId), pendingOperation);
++        if (effectivePendingOperation && typeof effectivePendingOperation === "object") {
++          this.pendingOperationByRunKey.set(buildRunKey(turn.threadId, turn.turnId), effectivePendingOperation);
+         }
+       } else {
+         this.streamDelivery.queueReplyTargetForThread(turn.threadId, replyTarget);
+@@ -1245,6 +1344,9 @@ class CyberbossApp {
+       case "status":
+         await this.handleStatusCommand(normalized);
+         return;
++      case "ctx":
++        await this.handleContextCommand(normalized);
++        return;
+       case "new":
+         await this.handleNewCommand(normalized);
+         return;
+@@ -1384,6 +1486,46 @@ class CyberbossApp {
+     });
+   }
+ 
++  async handleContextCommand(normalized) {
++    const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
++      workspaceId: normalized.workspaceId,
++      accountId: normalized.accountId,
++      senderId: normalized.senderId,
++    });
++    const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
++    const sessionStore = this.runtimeAdapter.getSessionStore();
++    const threadId = sessionStore.getThreadIdForWorkspace(bindingKey, workspaceRoot);
++    const runtimeName = this.runtimeAdapter.describe().id || "runtime";
++    const threadState = threadId ? this.threadStateStore.getThreadState(threadId) : null;
++    const context = threadState?.context?.runtimeId === runtimeName
++      ? threadState.context
++      : this.threadStateStore.getLatestContext(runtimeName);
++    const compactState = this.compactStateStore.getThreadState(threadId);
++    const effectiveTurns = threadId ? this.compactStateStore.countEffectiveTurns({ threadId }) : 0;
++    const currentInputTokens = summarizeContextInputTokens(context);
++    const cooldownTurns = Math.max(0, Number(this.config.autoCompactCooldownTurns) || 0);
++    const turnsSinceLastCompact = Math.max(0, effectiveTurns - compactState.lastCompactTurnCount);
++    const cooldownRemaining = compactState.lastCompactAt
++      ? Math.max(0, cooldownTurns - turnsSinceLastCompact)
++      : 0;
++
++    await this.channelAdapter.sendText({
++      userId: normalized.senderId,
++      text: [
++        "🧠 Context",
++        `thread: ${threadId || "(none)"}`,
++        `current input context: ${formatContextTokenValue(currentInputTokens)}`,
++        `effective chat turns: ${effectiveTurns}`,
++        `auto compact threshold: ${formatCompactThresholdSummary(this.config)}`,
++        `compact count: ${compactState.compactCount}/${Math.max(1, Number(this.config.autoCompactMaxPerThread) || 2)}`,
++        `last compact: ${compactState.lastCompactAt || "never"}`,
++        `cooldown remaining: ${cooldownRemaining}`,
++        `rollover recommended: ${compactState.rolloverRecommended ? "yes" : "no"}`,
++      ].join("\n"),
++      contextToken: normalized.contextToken,
++    });
++  }
++
+   async handleNewCommand(normalized) {
+     const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
+       workspaceId: normalized.workspaceId,
+@@ -1466,19 +1608,15 @@ class CyberbossApp {
+         contextToken: normalized.contextToken,
+         provider: normalized.provider,
+       });
+-      await this.runtimeAdapter.compactThread({
+-        threadId,
++      await this.runCompactForThread({
++        bindingKey,
+         workspaceRoot,
+-        model: sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot).model,
+-      }).then((result) => {
+-        const compactTurnId = normalizeCommandArgument(result?.turnId);
+-        if (compactTurnId) {
+-          this.pendingOperationByRunKey.set(buildRunKey(threadId, compactTurnId), {
+-            kind: "compact",
+-            userId: normalized.senderId,
+-            contextToken: normalized.contextToken,
+-          });
+-        }
++        threadId,
++        trigger: "manual_command",
++        notifyOnSuccess: true,
++        notifyOnFailure: true,
++        userId: normalized.senderId,
++        contextToken: normalized.contextToken,
+       });
+       await this.channelAdapter.sendText({
+         userId: normalized.senderId,
+@@ -1776,6 +1914,9 @@ class CyberbossApp {
+ 
+   async handleTelegramMessage(normalized) {
+     this.logTelegramDebug(`handleTelegramMessage messageId=${normalized.messageId} senderId=${normalized.senderId}`);
++    if (this.shouldDropDuplicateTelegramInbound(normalized)) {
++      return;
++    }
+     if (this.config.channel === "telegram") {
+       await this.handlePreparedMessage(normalized, { allowCommands: true });
+       return;
+@@ -1795,6 +1936,28 @@ class CyberbossApp {
+     await this.routePreparedInbound({ bindingKey, workspaceRoot, prepared });
+   }
+ 
++  shouldDropDuplicateTelegramInbound(normalized) {
++    const chatId = normalizeText(normalized?.chatId || normalized?.telegram?.chatId);
++    const messageId = normalizeText(normalized?.messageId || normalized?.telegram?.messageId);
++    if (!chatId || !messageId) {
++      return false;
++    }
++    const key = `${chatId}:${messageId}`;
++    if (this.telegramPendingInboundByMessageId.has(key)) {
++      this.logTelegramDebug(`drop duplicate inbound messageId=${messageId} chatId=${chatId}`);
++      return true;
++    }
++    this.telegramPendingInboundByMessageId.add(key);
++    while (this.telegramPendingInboundByMessageId.size > this.telegramPendingInboundMessageLimit) {
++      const oldest = this.telegramPendingInboundByMessageId.values().next().value;
++      if (oldest === undefined) {
++        break;
++      }
++      this.telegramPendingInboundByMessageId.delete(oldest);
++    }
++    return false;
++  }
++
+   resolvePrimaryWeixinSenderId() {
+     const account = this.channelAdapter.resolveAccount();
+     const store = this.runtimeAdapter.getSessionStore();
+@@ -2110,6 +2273,19 @@ class CyberbossApp {
+             contextToken: pendingOperation.contextToken,
+           }).catch(() => {});
+         }
++        if (pendingOperation?.kind === "compact" || pendingOperation?.kind === "auto_compact") {
++          await this.handleCompactLifecycleEvent({
++            event,
++            pendingOperation,
++            linked,
++          });
++        } else if (event.type === "runtime.turn.completed" && pendingOperation?.kind === "user_turn" && linked?.bindingKey && linked?.workspaceRoot) {
++          await this.maybeTriggerAutoCompact({
++            threadId: event.payload.threadId,
++            bindingKey: linked.bindingKey,
++            workspaceRoot: linked.workspaceRoot,
++          });
++        }
+         const shouldKeepTyping = linked?.bindingKey && linked?.workspaceRoot
+           ? (
+             this.turnGateStore.isPending(linked.bindingKey, linked.workspaceRoot)
+@@ -2171,6 +2347,178 @@ class CyberbossApp {
+     this.threadStateStore.resolveApproval(event.payload.threadId, "running");
+   }
+ 
++  async runCompactForThread({
++    bindingKey = "",
++    workspaceRoot = "",
++    threadId = "",
++    trigger = "manual",
++    notifyOnSuccess = false,
++    notifyOnFailure = true,
++    userId = "",
++    contextToken = "",
++  } = {}) {
++    const runtimeParams = this.runtimeAdapter.getSessionStore().getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
++    const latestContext = this.threadStateStore.getThreadState(threadId)?.context
++      || this.threadStateStore.getLatestContext(this.runtimeAdapter.describe().id || "runtime");
++    const tokenUsageBeforeCompact = summarizeContextUsage(latestContext);
++    const effectiveTurnCountBeforeCompact = this.compactStateStore.countEffectiveTurns({ threadId });
++    const compactSequence = this.compactStateStore.getThreadState(threadId).compactCount + 1;
++    this.compactStateStore.writePendingCompact(threadId, {
++      timestamp: new Date().toISOString(),
++      threadId,
++      trigger,
++      tokenUsageBeforeCompact,
++      effectiveTurnCountBeforeCompact,
++      compactSequence,
++    });
++    const result = await this.runtimeAdapter.compactThread({
++      threadId,
++      workspaceRoot,
++      model: runtimeParams.model,
++      instructions: CYBERBOSS_COMPACT_INSTRUCTIONS,
++    });
++    const compactTurnId = normalizeCommandArgument(result?.turnId);
++    if (compactTurnId) {
++      this.pendingOperationByRunKey.set(buildRunKey(threadId, compactTurnId), {
++        kind: trigger === "auto" ? "auto_compact" : "compact",
++        trigger,
++        bindingKey,
++        workspaceRoot,
++        model: runtimeParams.model,
++        userId,
++        contextToken,
++        notifyOnSuccess,
++        notifyOnFailure,
++        tokenUsageBeforeCompact,
++        effectiveTurnCountBeforeCompact,
++        compactSequence,
++      });
++    }
++    return result;
++  }
++
++  async handleCompactLifecycleEvent({ event, pendingOperation, linked }) {
++    const threadId = normalizeThreadId(event?.payload?.threadId);
++    if (!threadId || !pendingOperation) {
++      return;
++    }
++    if (event.type === "runtime.turn.failed") {
++      this.compactStateStore.saveThreadState(threadId, {
++        lastError: normalizeText(event?.payload?.text) || "compact failed",
++      });
++      return;
++    }
++    const compactCount = Math.max(1, Number(pendingOperation.compactSequence) || 1);
++    this.compactStateStore.saveThreadState(threadId, {
++      compactCount,
++      lastCompactAt: new Date().toISOString(),
++      lastCompactTokens: pendingOperation.tokenUsageBeforeCompact?.currentInputTokens ?? null,
++      lastCompactTurnCount: Number(pendingOperation.effectiveTurnCountBeforeCompact) || 0,
++      rolloverRecommended: compactCount >= Math.max(1, Number(this.config.autoCompactMaxPerThread) || 2),
++      lastError: "",
++    });
++    try {
++      await this.runtimeAdapter.refreshThreadInstructions({
++        threadId,
++        workspaceRoot: pendingOperation.workspaceRoot || linked?.workspaceRoot || this.config.workspaceRoot,
++        model: pendingOperation.model || "",
++      });
++    } catch (error) {
++      this.compactStateStore.saveThreadState(threadId, {
++        lastError: error instanceof Error ? error.message : String(error || "refresh failed"),
++      });
++      if (pendingOperation.notifyOnFailure && pendingOperation.userId) {
++        await this.channelAdapter.sendText({
++          userId: pendingOperation.userId,
++          text: `Compact refresh failed\n${error instanceof Error ? error.message : String(error || "unknown error")}`,
++          contextToken: pendingOperation.contextToken,
++        }).catch(() => {});
++      }
++    }
++  }
++
++  async maybeTriggerAutoCompact({ threadId = "", bindingKey = "", workspaceRoot = "" } = {}) {
++    if (!this.config.autoCompactEnabled || !threadId || !bindingKey || !workspaceRoot) {
++      return false;
++    }
++    if (this.turnGateStore.isPending(bindingKey, workspaceRoot) || this.hasPendingInboundMessage(bindingKey, workspaceRoot)) {
++      return false;
++    }
++    const decision = this.evaluateAutoCompactDecision({ threadId });
++    if (!decision.shouldCompact) {
++      if (decision.rolloverRecommended) {
++        this.compactStateStore.saveThreadState(threadId, {
++          rolloverRecommended: true,
++        });
++      }
++      return false;
++    }
++    const target = this.resolveReplyTargetForBinding(bindingKey) || {};
++    try {
++      await this.runCompactForThread({
++        bindingKey,
++        workspaceRoot,
++        threadId,
++        trigger: "auto",
++        notifyOnSuccess: false,
++        notifyOnFailure: true,
++        userId: target.userId || "",
++        contextToken: target.contextToken || "",
++      });
++      return true;
++    } catch (error) {
++      this.compactStateStore.saveThreadState(threadId, {
++        lastError: error instanceof Error ? error.message : String(error || "auto compact failed"),
++      });
++      if (target?.userId) {
++        await this.channelAdapter.sendText({
++          userId: target.userId,
++          text: `Auto compact failed\n${error instanceof Error ? error.message : String(error || "unknown error")}`,
++          contextToken: target.contextToken,
++        }).catch(() => {});
++      }
++      return false;
++    }
++  }
++
++  evaluateAutoCompactDecision({ threadId = "" } = {}) {
++    const compactState = this.compactStateStore.getThreadState(threadId);
++    const maxPerThread = Math.max(1, Number(this.config.autoCompactMaxPerThread) || 2);
++    const effectiveTurns = this.compactStateStore.countEffectiveTurns({ threadId });
++    const latestContext = this.threadStateStore.getThreadState(threadId)?.context
++      || this.threadStateStore.getLatestContext(this.runtimeAdapter.describe().id || "runtime");
++    const currentInputTokens = summarizeContextInputTokens(latestContext);
++    const tokenThreshold = Math.max(0, Number(this.config.autoCompactTokens) || 0);
++    const turnThreshold = Math.max(0, Number(this.config.autoCompactTurns) || 0);
++    const cooldownTurns = Math.max(0, Number(this.config.autoCompactCooldownTurns) || 0);
++    const turnsSinceLastCompact = Math.max(0, effectiveTurns - compactState.lastCompactTurnCount);
++    const tokenReached = Number.isFinite(currentInputTokens) && currentInputTokens >= tokenThreshold && tokenThreshold > 0;
++    const turnsReached = turnThreshold > 0 && effectiveTurns >= turnThreshold;
++    const thresholdReached = tokenReached || (!Number.isFinite(currentInputTokens) && turnsReached) || (currentInputTokens === null && turnsReached);
++    if (!thresholdReached) {
++      return {
++        shouldCompact: false,
++        rolloverRecommended: compactState.rolloverRecommended,
++      };
++    }
++    if (compactState.compactCount >= maxPerThread) {
++      return {
++        shouldCompact: false,
++        rolloverRecommended: true,
++      };
++    }
++    if (compactState.lastCompactAt && turnsSinceLastCompact < cooldownTurns) {
++      return {
++        shouldCompact: false,
++        rolloverRecommended: compactState.rolloverRecommended,
++      };
++    }
++    return {
++      shouldCompact: true,
++      rolloverRecommended: false,
++    };
++  }
++
+   async stopTypingForThread(threadId) {
+     const linked = this.runtimeAdapter.getSessionStore().findBindingForThreadId(threadId);
+     const target = linked?.bindingKey ? this.resolveReplyTargetForBinding(linked.bindingKey) : null;
+@@ -2336,29 +2684,11 @@ class CyberbossApp {
+     try {
+       const text = typeof replyText === "string" ? replyText.trim() : "";
+       if (!text) return;
+-      const isObj = text.startsWith("{");
+-      if (!isObj) { console.log(`[desire] handleSystemReplySent non-JSON text thread=${threadId}`); return; }
+-      const parsed = JSON.parse(text);
++      const parsed = parseDesireStateEnvelope(text);
++      if (!parsed) { console.log(`[desire] handleSystemReplySent non-JSON text thread=${threadId}`); return; }
+       const state = parsed?.desire_state;
+       if (state && this.config.desireStateFile) {
+-        const fs = require("fs");
+-        const drives = normalizeDesireDrives(state?.drives);
+-        const intent = normalizeDesireIntent(state?.intent);
+-        const now = new Date().toISOString();
+-        let previous = null;
+-        try {
+-          const raw = JSON.parse(fs.readFileSync(this.config.desireStateFile, "utf8"));
+-          if (raw.drives && raw.updatedAt !== now) {
+-            previous = { drives: raw.drives, updatedAt: raw.updatedAt };
+-          }
+-        } catch {}
+-        fs.writeFileSync(this.config.desireStateFile, JSON.stringify({
+-          ...state,
+-          drives,
+-          intent,
+-          previous,
+-          updatedAt: now,
+-        }, null, 2));
++        persistDesireStateSnapshot(this.config, state, { source: "system_reply_sent" });
+       }
+     } catch {}
+   }
+@@ -2370,26 +2700,12 @@ class CyberbossApp {
+     if (!text || !this.config.desireStateFile) return;
+     try {
+       const trimmed = typeof text === "string" ? text.trim() : "";
+-      if (!trimmed || !trimmed.startsWith("{")) return;
+-      const parsed = JSON.parse(trimmed);
++      if (!trimmed) return;
++      const parsed = parseDesireStateEnvelope(trimmed);
++      if (!parsed) return;
+       const state = parsed?.desire_state;
+       if (!state || !Array.isArray(state?.drives)) return;
+-      const fs = require("fs");
+-      const drives = normalizeDesireDrives(state.drives);
+-      const now = new Date().toISOString();
+-      let previous = null;
+-      try {
+-        const raw = JSON.parse(fs.readFileSync(this.config.desireStateFile, "utf8"));
+-        if (raw.drives && raw.updatedAt !== now) {
+-          previous = { drives: raw.drives, updatedAt: raw.updatedAt };
+-        }
+-      } catch {}
+-      fs.writeFileSync(this.config.desireStateFile, JSON.stringify({
+-        ...state,
+-        drives,
+-        previous,
+-        updatedAt: now,
+-      }, null, 2));
++      persistDesireStateSnapshot(this.config, state, { source: "runtime_turn_completed" });
+     } catch {}
+   }
+ }
+@@ -2420,6 +2736,298 @@ function normalizeDesireIntent(intent) {
+   return normalized ? { ...intent, drive_key: normalized } : intent;
+ }
+ 
++function persistDesireStateSnapshot(config = {}, state = {}, { source = "" } = {}) {
++  const stateFile = normalizeText(config?.desireStateFile);
++  if (!stateFile || !state || typeof state !== "object") {
++    return null;
++  }
++  const drives = normalizeDesireDrives(state?.drives);
++  if (!Array.isArray(drives) || !drives.length) {
++    return null;
++  }
++  const intent = normalizeDesireIntent(state?.intent);
++  const now = new Date().toISOString();
++  let previous = null;
++  try {
++    const raw = JSON.parse(fs.readFileSync(stateFile, "utf8"));
++    if (raw?.drives && raw.updatedAt !== now) {
++      previous = { drives: raw.drives, updatedAt: raw.updatedAt };
++    }
++  } catch {}
++  const payload = {
++    ...state,
++    drives,
++    intent,
++    previous,
++    updatedAt: now,
++  };
++  fs.mkdirSync(path.dirname(stateFile), { recursive: true });
++  fs.writeFileSync(stateFile, JSON.stringify(payload, null, 2));
++  appendDesireHistorySnapshot(resolveDesireHistoryFile(config), payload, source);
++  return payload;
++}
++
++function resolveDesireHistoryFile(config = {}) {
++  const explicit = normalizeText(config?.desireHistoryFile);
++  if (explicit) {
++    return explicit;
++  }
++  const stateFile = normalizeText(config?.desireStateFile);
++  if (!stateFile) {
++    return "";
++  }
++  return path.join(path.dirname(stateFile), "desire-history.jsonl");
++}
++
++function appendDesireHistorySnapshot(filePath, state = {}, source = "") {
++  const normalizedFilePath = normalizeText(filePath);
++  if (!normalizedFilePath) {
++    return;
++  }
++  const entry = buildDesireHistoryEntry(state, source);
++  if (!entry) {
++    return;
++  }
++  try {
++    const lastEntry = readLastJsonLineSafe(normalizedFilePath);
++    if (shouldSkipDesireHistoryAppend(lastEntry, entry)) {
++      return;
++    }
++    fs.mkdirSync(path.dirname(normalizedFilePath), { recursive: true });
++    fs.appendFileSync(normalizedFilePath, `${JSON.stringify(entry)}\n`, "utf8");
++  } catch {}
++}
++
++function buildDesireHistoryEntry(state = {}, source = "") {
++  if (!state || typeof state !== "object") {
++    return null;
++  }
++  const drives = normalizeDesireDrives(state?.drives);
++  if (!Array.isArray(drives) || !drives.length) {
++    return null;
++  }
++  const scores = {};
++  for (const key of VALID_DRIVE_KEYS) {
++    scores[key] = null;
++  }
++  for (const drive of drives) {
++    const key = normalizeText(drive?.key);
++    if (!VALID_DRIVE_KEYS.has(key)) {
++      continue;
++    }
++    const score = Number(drive?.score);
++    scores[key] = Number.isFinite(score) ? Math.max(0, Math.min(1, Math.round(score * 100) / 100)) : null;
++  }
++  return {
++    time: normalizeIsoTime(state?.updatedAt) || new Date().toISOString(),
++    most_want: normalizeText(state?.most_want),
++    note: normalizeText(source) || "desire_state_snapshot",
++    attachment: scores.attachment,
++    curiosity: scores.curiosity,
++    reflection: scores.reflection,
++    duty: scores.duty,
++    social: scores.social,
++    fatigue: scores.fatigue,
++    libido: scores.libido,
++    stress: scores.stress,
++  };
++}
++
++function shouldSkipDesireHistoryAppend(lastEntry, nextEntry) {
++  if (!lastEntry || !nextEntry) {
++    return false;
++  }
++  const lastTime = Date.parse(normalizeText(lastEntry.time));
++  const nextTime = Date.parse(normalizeText(nextEntry.time));
++  if (!Number.isFinite(lastTime) || !Number.isFinite(nextTime)) {
++    return false;
++  }
++  if (Math.abs(nextTime - lastTime) > 60_000) {
++    return false;
++  }
++  return buildDesireHistorySignature(lastEntry) === buildDesireHistorySignature(nextEntry);
++}
++
++function buildDesireHistorySignature(entry = {}) {
++  return [
++    normalizeText(entry?.most_want),
++    normalizeText(entry?.note),
++    ...Array.from(VALID_DRIVE_KEYS).map((key) => {
++      const value = entry?.[key];
++      return value == null ? "" : String(value);
++    }),
++  ].join("|");
++}
++
++function readLastJsonLineSafe(filePath) {
++  try {
++    const raw = fs.readFileSync(filePath, "utf8");
++    const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
++    if (!lines.length) {
++      return null;
++    }
++    return JSON.parse(lines[lines.length - 1]);
++  } catch {
++    return null;
++  }
++}
++
++function parseDesireStateEnvelope(text) {
++  const normalized = typeof text === "string" ? text.trim() : "";
++  if (!normalized) {
++    return null;
++  }
++  const direct = parseJsonObjectSafe(normalized);
++  if (direct?.desire_state) {
++    return direct;
++  }
++  const fenceMatch = normalized.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
++  if (fenceMatch?.[1]) {
++    const fenced = parseJsonObjectSafe(fenceMatch[1]);
++    if (fenced?.desire_state) {
++      return fenced;
++    }
++  }
++  const firstBrace = normalized.indexOf("{");
++  const lastBrace = normalized.lastIndexOf("}");
++  if (firstBrace >= 0 && lastBrace > firstBrace) {
++    const embedded = parseJsonObjectSafe(normalized.slice(firstBrace, lastBrace + 1));
++    if (embedded?.desire_state) {
++      return embedded;
++    }
++  }
++  return null;
++}
++
++function parseJsonObjectSafe(text) {
++  try {
++    const parsed = JSON.parse(typeof text === "string" ? text.trim() : "");
++    return parsed && typeof parsed === "object" ? parsed : null;
++  } catch {
++    return null;
++  }
++}
++
++function backfillDesireHistoryFromConversations(config = {}) {
++  const conversationDir = normalizeText(config?.conversationDir);
++  const historyFile = resolveDesireHistoryFile(config);
++  if (!conversationDir || !historyFile || !fs.existsSync(conversationDir)) {
++    return 0;
++  }
++  const names = fs.readdirSync(conversationDir)
++    .filter((name) => /\.jsonl$/i.test(name))
++    .sort();
++  if (!names.length) {
++    return 0;
++  }
++  const existingEntries = readJsonLinesSafe(historyFile);
++  const seenKeys = new Set(existingEntries.map((entry) => buildDesireBackfillKey(entry)).filter(Boolean));
++  const lastExisting = existingEntries.length ? existingEntries[existingEntries.length - 1] : null;
++  let appended = 0;
++  let previousEntry = lastExisting;
++  for (const name of names) {
++    const filePath = path.join(conversationDir, name);
++    const lines = readFileLinesSafe(filePath);
++    for (const line of lines) {
++      const event = parseJsonObjectSafe(line);
++      if (!event || event.type !== "runtime.turn.completed") {
++        continue;
++      }
++      const parsed = parseDesireStateEnvelope(event?.text || event?.meta?.text || "");
++      const state = parsed?.desire_state;
++      if (!state || !Array.isArray(state?.drives)) {
++        continue;
++      }
++      const entry = buildDesireHistoryEntry({
++        ...state,
++        updatedAt: normalizeIsoTime(event?.timestamp || event?.meta?.timestamp || "") || normalizeIsoTime(event?.meta?.updatedAt || ""),
++      }, "conversation_backfill");
++      if (!entry) {
++        continue;
++      }
++      const dedupeKey = buildDesireBackfillKey(entry);
++      if (dedupeKey && seenKeys.has(dedupeKey)) {
++        previousEntry = entry;
++        continue;
++      }
++      if (shouldSkipDesireHistoryAppend(previousEntry, entry)) {
++        if (dedupeKey) {
++          seenKeys.add(dedupeKey);
++        }
++        previousEntry = entry;
++        continue;
++      }
++      fs.mkdirSync(path.dirname(historyFile), { recursive: true });
++      fs.appendFileSync(historyFile, `${JSON.stringify(entry)}\n`, "utf8");
++      if (dedupeKey) {
++        seenKeys.add(dedupeKey);
++      }
++      previousEntry = entry;
++      appended += 1;
++    }
++  }
++  if (appended > 0) {
++    console.log(`[desire] backfilled desire-history entries=${appended}`);
++  }
++  return appended;
++}
++
++function seedDesireHistoryFromSnapshot(config = {}) {
++  const stateFile = normalizeText(config?.desireStateFile);
++  const historyFile = resolveDesireHistoryFile(config);
++  if (!stateFile || !historyFile || !fs.existsSync(stateFile)) {
++    return false;
++  }
++  const state = parseJsonObjectSafe(fs.readFileSync(stateFile, "utf8"));
++  if (!state?.drives) {
++    return false;
++  }
++  const entry = buildDesireHistoryEntry(state, "desire_state_seed");
++  if (!entry) {
++    return false;
++  }
++  const lastEntry = readLastJsonLineSafe(historyFile);
++  if (shouldSkipDesireHistoryAppend(lastEntry, entry)) {
++    return false;
++  }
++  fs.mkdirSync(path.dirname(historyFile), { recursive: true });
++  fs.appendFileSync(historyFile, `${JSON.stringify(entry)}\n`, "utf8");
++  console.log("[desire] seeded desire-history from desire-state snapshot");
++  return true;
++}
++
++function resolveDesireHistoryFile(config = {}) {
++  const configured = normalizeText(config?.desireHistoryFile);
++  if (configured) {
++    return configured;
++  }
++  const stateDir = normalizeText(config?.stateDir);
++  return stateDir ? path.join(stateDir, "desire-history.jsonl") : "";
++}
++
++function readJsonLinesSafe(filePath) {
++  return readFileLinesSafe(filePath)
++    .map((line) => parseJsonObjectSafe(line))
++    .filter(Boolean);
++}
++
++function readFileLinesSafe(filePath) {
++  try {
++    return fs.readFileSync(filePath, "utf8")
++      .split(/\r?\n/)
++      .map((line) => line.trim())
++      .filter(Boolean);
++  } catch {
++    return [];
++  }
++}
++
++function buildDesireBackfillKey(entry = {}) {
++  const time = normalizeText(entry?.time);
++  const signature = buildDesireHistorySignature(entry);
++  return time || signature ? `${time}|${signature}` : "";
++}
++
+ function buildRunKey(threadId, turnId) {
+   return `${normalizeCommandArgument(threadId)}:${normalizeCommandArgument(turnId)}`;
+ }
+@@ -2724,6 +3332,74 @@ function normalizeCommandName(value) {
+   return typeof value === "string" ? value.trim().toLowerCase() : "";
+ }
+ 
++function inferTurnPendingOperation(prepared) {
++  if (!prepared || typeof prepared !== "object") {
++    return null;
++  }
++  if (prepared.provider === "telegram") {
++    return { kind: "user_turn" };
++  }
++  if (prepared.provider === "system") {
++    return { kind: "system_turn" };
++  }
++  return null;
++}
++
++function summarizeContextInputTokens(context) {
++  if (!context || typeof context !== "object") {
++    return null;
++  }
++  const inputTokens = safeNumber(context.inputTokens);
++  const cacheCreationInputTokens = safeNumber(context.cacheCreationInputTokens);
++  const cacheReadInputTokens = safeNumber(context.cacheReadInputTokens);
++  const total = inputTokens + cacheCreationInputTokens + cacheReadInputTokens;
++  return total > 0 ? total : null;
++}
++
++function summarizeContextUsage(context) {
++  if (!context || typeof context !== "object") {
++    return {
++      inputTokens: null,
++      cacheCreationInputTokens: null,
++      cacheReadInputTokens: null,
++      outputTokens: null,
++      currentInputTokens: null,
++      currentTokens: null,
++    };
++  }
++  const inputTokens = safeNumber(context.inputTokens);
++  const cacheCreationInputTokens = safeNumber(context.cacheCreationInputTokens);
++  const cacheReadInputTokens = safeNumber(context.cacheReadInputTokens);
++  const outputTokens = safeNumber(context.outputTokens);
++  const currentTokens = safeNumber(context.currentTokens);
++  return {
++    inputTokens,
++    cacheCreationInputTokens,
++    cacheReadInputTokens,
++    outputTokens,
++    currentInputTokens: inputTokens + cacheCreationInputTokens + cacheReadInputTokens,
++    currentTokens: currentTokens || (inputTokens + cacheCreationInputTokens + cacheReadInputTokens + outputTokens),
++  };
++}
++
++function formatContextTokenValue(value) {
++  if (!Number.isFinite(Number(value)) || Number(value) < 0) {
++    return "unknown";
++  }
++  return `${formatCompactNumber(Number(value))} tokens`;
++}
++
++function formatCompactThresholdSummary(config = {}) {
++  const tokenThreshold = Math.max(0, Number(config.autoCompactTokens) || 0);
++  const turnThreshold = Math.max(0, Number(config.autoCompactTurns) || 0);
++  return `${formatCompactNumber(tokenThreshold)} tokens or ${turnThreshold} turns`;
++}
++
++function safeNumber(value) {
++  const parsed = Number(value);
++  return Number.isFinite(parsed) ? parsed : 0;
++}
++
+ const MEMORY_CATEGORIES = new Set([
+   "facts",
+   "preferences",
+@@ -3319,6 +3995,62 @@ function buildReminderSystemTrigger(reminder, config = {}) {
+   return `Due reminder for ${userName}: ${reminderText}`;
+ }
+ 
++function buildRuntimeOutageSystemTrigger({
++  startedAt = "",
++  recoveredAt = "",
++  durationMs = 0,
++  bufferedUpdateCount = 0,
++  errorMessage = "",
++} = {}) {
++  const parts = [
++    "A Telegram/runtime bridge interruption was detected and has now recovered.",
++  ];
++  const startedLabel = formatSystemTriggerTime(startedAt);
++  const recoveredLabel = formatSystemTriggerTime(recoveredAt);
++  if (startedLabel || recoveredLabel) {
++    parts.push(`Outage window: ${startedLabel || "(unknown start)"} -> ${recoveredLabel || "(unknown recovery)"}.`);
++  }
++  if (durationMs > 0) {
++    parts.push(`Downtime: ${formatOutageDuration(durationMs)}.`);
++  }
++  if (bufferedUpdateCount > 0) {
++    parts.push(`Telegram returned ${bufferedUpdateCount} buffered update(s) after recovery.`);
++  }
++  if (errorMessage) {
++    parts.push(`Last poll error: ${errorMessage}.`);
++  }
++  parts.push("Briefly tell the user there was a service interruption, that some live context may have been delayed or missed, and ask whether anything important happened during the gap.");
++  return parts.join(" ");
++}
++
++function formatSystemTriggerTime(value) {
++  const normalized = normalizeIsoTime(value);
++  if (!normalized) {
++    return "";
++  }
++  return formatBeijingDateTime(new Date(normalized));
++}
++
++function formatOutageDuration(durationMs = 0) {
++  const minutes = Math.max(1, Math.round(durationMs / 60000));
++  if (minutes < 60) {
++    return `${minutes} minute(s)`;
++  }
++  const hours = Math.floor(minutes / 60);
++  const restMinutes = minutes % 60;
++  return restMinutes > 0 ? `${hours} hour(s) ${restMinutes} minute(s)` : `${hours} hour(s)`;
++}
++
++function createTelegramPollHealth() {
++  return {
++    failureStartedAt: "",
++    lastFailureAt: "",
++    lastRecoveredAt: "",
++    lastErrorMessage: "",
++    lastRecoveredGap: null,
++  };
++}
++
+ function buildScopeKey(bindingKey, workspaceRoot) {
+   const normalizedBindingKey = normalizeText(bindingKey);
+   const normalizedWorkspaceRoot = normalizeText(workspaceRoot);

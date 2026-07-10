@@ -1,0 +1,36 @@
+diff --git a/scripts/switch_shared_runtime.sh b/scripts/switch_shared_runtime.sh
+deleted file mode 100755
+index c13993b..0000000
+--- a/scripts/switch_shared_runtime.sh
++++ /dev/null
+@@ -1,30 +0,0 @@
+-#!/usr/bin/env bash
+-set -euo pipefail
+-
+-ROOT_DIR="/home/anan/cyberboss-deepseek"
+-RUNTIME="${1:-}"
+-TOKEN="gg_mhq_vAwNuf1ukvkgaCGCFkTcdE_OINv3ctQG2WVSPnk"
+-
+-# The local tmux build on this machine links against a bundled ncurses that
+-# does not search the system terminfo paths by default.
+-export TERMINFO_DIRS="${TERMINFO_DIRS:-/lib/terminfo:/usr/share/terminfo:/etc/terminfo}"
+-
+-if [[ "${RUNTIME}" != "codex" && "${RUNTIME}" != "claudecode" ]]; then
+-  echo "usage: $0 <codex|claudecode>" >&2
+-  exit 2
+-fi
+-
+-cd "${ROOT_DIR}"
+-
+-tmux kill-session -t cb-open 2>/dev/null || true
+-tmux kill-session -t cb-bridge 2>/dev/null || true
+-pkill -f "node ./bin/cyberboss.js start --checkin" 2>/dev/null || true
+-
+-tmux new-session -d -s cb-bridge -c "${ROOT_DIR}" -e GALATEA_GARDEN_MCP_TOKEN="${TOKEN}" "export CYBERBOSS_RUNTIME=${RUNTIME}; npm run shared:start; exec bash"
+-sleep 2
+-tmux new-session -d -s cb-open -c "${ROOT_DIR}" -e GALATEA_GARDEN_MCP_TOKEN="${TOKEN}" "export CYBERBOSS_RUNTIME=${RUNTIME}; npm run shared:open; exec bash"
+-sleep 2
+-
+-echo "runtime switched to ${RUNTIME}"
+-CYBERBOSS_RUNTIME="${RUNTIME}" npm run shared:status
+-tmux ls

@@ -1,0 +1,18 @@
+diff --git a/src/core/command-registry.js b/src/core/command-registry.js
+index de9e962..aa3cf8e 100644
+--- a/src/core/command-registry.js
++++ b/src/core/command-registry.js
+@@ -93,6 +93,13 @@ const COMMAND_GROUPS = [
+         weixin: ["/status"],
+         status: "active",
+       },
++      {
++        action: "workspace.context",
++        summary: "Show context usage, compact thresholds, and compact history for the current thread",
++        terminal: [],
++        weixin: ["/ctx"],
++        status: "active",
++      },
+       {
+         action: "thread.new",
+         summary: "Switch to a fresh thread draft",

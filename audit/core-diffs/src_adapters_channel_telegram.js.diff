@@ -1,0 +1,125 @@
+diff --git a/src/adapters/channel/telegram.js b/src/adapters/channel/telegram.js
+index d4187f4..812532d 100644
+--- a/src/adapters/channel/telegram.js
++++ b/src/adapters/channel/telegram.js
+@@ -3,6 +3,7 @@ const path = require("path");
+ const dns = require("dns");
+ const {
+   TelegramRateLimitError,
++  configureTelegramProxy,
+   fetchJsonWithRetry,
+   fetchJsonWithTimeout,
+   sleep,
+@@ -25,11 +26,16 @@ try {
+ const TELEGRAM_GET_UPDATES_TIMEOUT_MS = 20_000;
+ const TELEGRAM_REQUEST_TIMEOUT_MS = 20_000;
+ const DEFAULT_MIN_TELEGRAM_CHUNK = DEFAULT_MIN_WEIXIN_CHUNK;
++const SEEN_MESSAGE_KEYS_LIMIT = 2_000;
+ 
+ function createTelegramChannelAdapter(config) {
++  // Configure optional proxy from user config/env; when unset, requests go direct.
++  configureTelegramProxy(config?.telegramProxyUrl);
++
+   const token = normalizeText(config?.telegramBotToken);
+   const allowedUserIds = new Set((Array.isArray(config?.telegramAllowedUserIds) ? config.telegramAllowedUserIds : []).map(normalizeText).filter(Boolean));
+   const state = loadTelegramState(config);
++  let stateMtimeMs = getTelegramStateMtimeMs(config);
+   let minChunkChars = state.minChunkChars;
+   const account = {
+     accountId: normalizeText(config?.accountId) || "telegram",
+@@ -39,6 +45,22 @@ function createTelegramChannelAdapter(config) {
+ 
+   let deleteWebhookCalled = false;
+ 
++  function refreshStateFromDisk() {
++    const nextMtimeMs = getTelegramStateMtimeMs(config);
++    if (!(nextMtimeMs > stateMtimeMs)) {
++      return;
++    }
++    const fresh = loadTelegramState(config);
++    state.offset = Math.max(Number(state.offset) || 0, Number(fresh.offset) || 0);
++    state.seenMessageKeys = new Set([
++      ...Array.from(fresh.seenMessageKeys || []),
++      ...Array.from(state.seenMessageKeys || []),
++    ]);
++    state.minChunkChars = normalizeMinChunkChars(fresh.minChunkChars, state.minChunkChars);
++    minChunkChars = state.minChunkChars;
++    stateMtimeMs = nextMtimeMs;
++  }
++
+   return {
+     describe() {
+       return {
+@@ -65,12 +87,18 @@ function createTelegramChannelAdapter(config) {
+       if (!token) {
+         return { ok: false, result: [] };
+       }
++      refreshStateFromDisk();
+       // Disconnect any lingering long-poll connections from prior process lifetime,
+       // preventing 409 Conflict on getUpdates.
+       if (!deleteWebhookCalled) {
+         deleteWebhookCalled = true;
+         try {
+-          await fetch(`https://api.telegram.org/bot${token}/deleteWebhook`);
++          await fetchJsonWithRetry(
++            `https://api.telegram.org/bot${token}/deleteWebhook`,
++            { method: "GET" },
++            TELEGRAM_REQUEST_TIMEOUT_MS,
++            { allowEmptyJson: true }
++          );
+         } catch {}
+       }
+       const url = new URL(`https://api.telegram.org/bot${token}/getUpdates`);
+@@ -108,12 +136,24 @@ function createTelegramChannelAdapter(config) {
+       if (!messageId) {
+         return null;
+       }
++      refreshStateFromDisk();
+       const dedupeKey = `${normalizeText(message.chat?.id)}:${messageId}`;
+       if (state.seenMessageKeys.has(dedupeKey)) {
+         writeTelegramLog(config, `drop duplicate messageKey=${dedupeKey}`);
+         return null;
+       }
+       state.seenMessageKeys.add(dedupeKey);
++      // Bound the dedupe set (the update offset already prevents replay); evict
++      // oldest keys so the in-memory Set and on-disk state file cannot grow forever.
++      if (state.seenMessageKeys.size > SEEN_MESSAGE_KEYS_LIMIT) {
++        const overflow = state.seenMessageKeys.size - SEEN_MESSAGE_KEYS_LIMIT;
++        const iterator = state.seenMessageKeys.values();
++        for (let i = 0; i < overflow; i += 1) {
++          const oldest = iterator.next().value;
++          if (oldest === undefined) break;
++          state.seenMessageKeys.delete(oldest);
++        }
++      }
+       saveTelegramState(config, state);
+       const text = normalizeText(message.text) || getNonTextDescription(message);
+       if (!text) {
+@@ -253,8 +293,8 @@ function getNonTextDescription(message) {
+   if (message.photo) return "[图片]";
+   if (message.sticker) return "[贴纸]";
+   if (message.video) return "[视频]";
+-  const docName = normalizeText(message.document?.file_name || message.document?.file_name || "");
+-  if (message.document) return `[文件: ${docName}]`.replace(": ]", "]");
++  const docName = normalizeText(message.document?.file_name || "");
++  if (message.document) return docName ? `[文件: ${docName}]` : "[文件]";
+   if (message.voice) return "[语音]";
+   if (message.audio) return "[音频]";
+   if (message.location) return "[位置]";
+@@ -302,4 +342,16 @@ function saveTelegramState(config, state) {
+   fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
+ }
+ 
++function getTelegramStateMtimeMs(config) {
++  const filePath = normalizeText(config?.telegramStateFile);
++  if (!filePath) {
++    return 0;
++  }
++  try {
++    return Number(fs.statSync(filePath).mtimeMs) || 0;
++  } catch {
++    return 0;
++  }
++}
++
+ module.exports = { createTelegramChannelAdapter, chunkReplyTextForTelegram };

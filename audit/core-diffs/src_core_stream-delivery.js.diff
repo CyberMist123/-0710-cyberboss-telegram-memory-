@@ -1,0 +1,82 @@
+diff --git a/src/core/stream-delivery.js b/src/core/stream-delivery.js
+index 1ac7775..3097d8e 100644
+--- a/src/core/stream-delivery.js
++++ b/src/core/stream-delivery.js
+@@ -24,6 +24,32 @@ class StreamDelivery {
+     this.deferredReplyPrefixByBindingKey = new Map();
+     this.stateByRunKey = new Map();
+     this.runSequence = 0;
++    // 短 TTL 出站去重:同一 (userId + text) 在 3 秒内被要求发第二次 → 丢掉。
++    // 治「一条输入 → assistant.text 和 turn.completed 各触发一次 sendText」的重复回复。
++    // 只对 telegram 生效,不影响微信;文本不同则不 dedupe(避免吞真的连发)。
++    this.recentTelegramOutboundByKey = new Map();
++    this.telegramOutboundDedupeTtlMs = 3_000;
++  }
++
++  shouldDropDuplicateTelegramOutbound(payload) {
++    const userId = String(payload?.userId || "").trim();
++    const text = String(payload?.text || "").trim();
++    if (!userId || !text) return false;
++    const now = Date.now();
++    // 顺手清过期
++    for (const [key, expiresAt] of this.recentTelegramOutboundByKey.entries()) {
++      if (!Number.isFinite(expiresAt) || expiresAt <= now) {
++        this.recentTelegramOutboundByKey.delete(key);
++      }
++    }
++    const key = `${userId}:${text.slice(0, 4000)}`;
++    const existing = this.recentTelegramOutboundByKey.get(key);
++    if (existing && existing > now) {
++      console.warn(`[cyberboss] drop duplicate outbound telegram text user=${userId} preview=${JSON.stringify(text.slice(0, 120))}`);
++      return true;
++    }
++    this.recentTelegramOutboundByKey.set(key, now + this.telegramOutboundDedupeTtlMs);
++    return false;
+   }
+ 
+   setReplyTarget(bindingKey, target) {
+@@ -126,12 +152,12 @@ class StreamDelivery {
+         return;
+       }
+       case "runtime.reply.delta": {
+-        const state = this.ensureRunState(threadId, turnId);
+-        this.upsertItem(state, {
+-          itemId: normalizeText(event.payload.itemId) || `item-${state.itemOrder.length + 1}`,
+-          text: normalizeLineEndings(event.payload.text),
+-          completed: false,
+-        });
++        // 流式完全关闭:delta 阶段不 upsertItem,不发 stream-draft。
++        // 原因:delta 用固定 itemId="stream-draft" 累积文本,turn.completed 里
++        // flush(force:true) 会把这个未完成 item 作为独立消息再发一次 →
++        // 用户看到「完整版 + 累积 partial + item2」多条重复。
++        // 只保留 reply.completed / turn.completed 里的标准 flush 发送。
++        this.ensureRunState(threadId, turnId);
+         return;
+       }
+       case "runtime.reply.completed": {
+@@ -149,6 +175,9 @@ class StreamDelivery {
+         state.turnId = turnId || state.turnId;
+         this.captureTurnCompletionText(state, event.payload.text);
+         await this.flush(state, { force: true });
++        // 关掉 Telegram 定稿流式发送 —— 上面的 flush 已经通过 sendTextByProvider
++        // 发过一次;这里再发第二次同文本 = 重复回复。要恢复流式效果先复活上面的
++        // reply.delta 分支,然后想清楚怎么让 flush/stream 只走一路。
+         this.disposeRunState(state.runKey);
+         return;
+       }
+@@ -532,9 +561,12 @@ class StreamDelivery {
+   }
+ 
+   async sendTextByProvider(provider, payload) {
+-    if (provider === "telegram" && this.telegramChannelAdapter) {
+-      await this.telegramChannelAdapter.sendText(payload);
+-      return;
++    if (provider === "telegram") {
++      if (this.shouldDropDuplicateTelegramOutbound(payload)) return;
++      if (this.telegramChannelAdapter) {
++        await this.telegramChannelAdapter.sendText(payload);
++        return;
++      }
+     }
+     await this.channelAdapter.sendText(payload);
+   }
