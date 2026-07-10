@@ -1,0 +1,69 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.token
+
+# Dependencies and caches
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.cache/
+.pytest_cache/
+
+# Runtime state
+.cyberboss/
+.cyberboss-*/
+runtime-state/
+sessions/
+conversations/
+logs/
+log/
+*.log
+*.pid
+*.lock
+telegram-state*.json
+telegram-offset*.json
+compact-state.json
+compact-history/
+compact-pending/
+desire-state.json
+desire-history.jsonl
+
+# Private memory content
+memory/private/
+memory/live/
+memory/episodes.jsonl
+memory/state_log.jsonl
+memory/candidates/*.jsonl
+memory/candidates/*.md
+memory/reentry.md
+memory/user_portrait.md
+memory/ai_self_portrait.md
+memory/ai_self_notes.md
+memory/relationship_timeline.md
+memory/rereadings.md
+
+# Keep templates and examples
+!memory/examples/
+!memory/**/*.example.*
+!memory/**/*.template.*
+
+# Local backups and generated files
+*.bak
+*.bak.*
+patch-backups/
+backups/
+*.zip
+*.bundle
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
