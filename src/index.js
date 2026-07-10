@@ -1,9 +1,9 @@
 const fs = require("fs");
-const os = require("os");
 const path = require("path");
 const dotenv = require("dotenv");
 
 const { readConfig } = require("./core/config");
+const { validateStartupPreflight } = require("./core/startup-preflight");
 const { renderInstructionTemplate } = require("./core/instructions-template");
 const { CyberbossApp } = require("./core/app");
 const { runSystemCheckinPoller } = require("./app/system-checkin-poller");
@@ -13,35 +13,28 @@ const { ensureStickerCatalogFilesSync } = require("./services/sticker-service");
 const { createProjectTooling } = require("./tools/create-project-tooling");
 const { runToolMcpServer } = require("./tools/mcp-stdio-server");
 
-// Archive builder — 独立项目，处理 Cyberboss / DeepSeek conversation 脱水
-const ARCHIVE_BUILDER_PATH = path.join(os.homedir(), "archive", "src", "archive-builder");
+// Archive builder — optional external project, configured explicitly when used.
+const ARCHIVE_BUILDER_PATH = process.env.CYBERBOSS_ARCHIVE_BUILDER_PATH
+  ? path.resolve(process.env.CYBERBOSS_ARCHIVE_BUILDER_PATH)
+  : "";
 let archiveBuilderModule = null;
-try {
-  archiveBuilderModule = require(ARCHIVE_BUILDER_PATH);
-} catch {} // allow missing
-
-function ensureDefaultStateDirectory() {
-  fs.mkdirSync(path.join(os.homedir(), ".cyberboss"), { recursive: true });
+if (ARCHIVE_BUILDER_PATH) {
+  try {
+    archiveBuilderModule = require(ARCHIVE_BUILDER_PATH);
+  } catch {} // allow missing until archive commands are used
 }
 
 function loadEnv() {
-  ensureDefaultStateDirectory();
-  const configuredStateDir = process.env.CYBERBOSS_STATE_DIR
-    ? path.resolve(process.env.CYBERBOSS_STATE_DIR)
-    : path.join(os.homedir(), ".cyberboss");
-  const baseCandidates = [
-    path.join(process.cwd(), ".env"),
-    path.join(os.homedir(), ".cyberboss", ".env"),
-  ];
-  for (const envPath of baseCandidates) {
+  const candidates = [
+    process.env.CYBERBOSS_ENV_FILE ? path.resolve(process.env.CYBERBOSS_ENV_FILE) : "",
+    process.env.CYBERBOSS_CONFIG_DIR ? path.join(path.resolve(process.env.CYBERBOSS_CONFIG_DIR), ".env") : "",
+    process.env.CYBERBOSS_STATE_DIR ? path.join(path.resolve(process.env.CYBERBOSS_STATE_DIR), ".env") : "",
+  ].filter(Boolean);
+  for (const envPath of uniqueValues(candidates)) {
     if (!fs.existsSync(envPath)) {
       continue;
     }
     dotenv.config({ path: envPath, override: true });
-  }
-  const stateEnvPath = path.join(configuredStateDir, ".env");
-  if (fs.existsSync(stateEnvPath)) {
-    dotenv.config({ path: stateEnvPath, override: true });
   }
 }
 
@@ -112,6 +105,9 @@ async function main() {
   const argv = process.argv.slice(2);
   const config = readConfig();
   const command = config.mode || "help";
+  if (requiresStartupPreflight(command)) {
+    validateStartupPreflight(config);
+  }
 
   if (command !== "help" && command !== "--help" && command !== "-h" && command !== "doctor") {
     if (!config.channel) {
@@ -169,18 +165,21 @@ async function main() {
 
   if (command === "tool-mcp-server") {
     const runtimeId = readFlagValue(argv.slice(1), "--runtime-id") || "";
-    const workspaceRoot = readFlagValue(argv.slice(1), "--workspace-root") || process.cwd();
+    const workspaceRoot = readFlagValue(argv.slice(1), "--workspace-root") || config.workspaceRoot;
+    if (!workspaceRoot) {
+      throw new Error("workspaceRoot is required. Set --workspace-root or CYBERBOSS_WORKSPACE.");
+    }
     const { toolHost } = createProjectTooling(config);
     runToolMcpServer({ toolHost, runtimeId, workspaceRoot });
     return;
   }
 
   const archiveOpts = () => ({
-    sourceDir: path.join(os.homedir(), ".deepseek", "conversations"),
+    sourceDir: requireEnvPath("CYBERBOSS_ARCHIVE_SOURCE_DIR"),
     sourceName: "deepseek",
     aiName: "程言",
     userName: "安安",
-    archiveDir: process.env.ARCHIVE_DIR || path.join(os.homedir(), "archive", "output"),
+    archiveDir: requireEnvPath("CYBERBOSS_ARCHIVE_DIR"),
   });
 
   if (command === "build-archive") {
@@ -212,6 +211,14 @@ async function main() {
 
 module.exports = { main };
 
+function requiresStartupPreflight(command) {
+  const normalized = String(command || "").trim();
+  return Boolean(normalized)
+    && normalized !== "help"
+    && normalized !== "--help"
+    && normalized !== "-h";
+}
+
 function readFlagValue(args, flag) {
   if (!Array.isArray(args)) {
     return "";
@@ -222,4 +229,16 @@ function readFlagValue(args, flag) {
     }
   }
   return "";
+}
+
+function uniqueValues(values) {
+  return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+function requireEnvPath(name) {
+  const value = String(process.env[name] || "").trim();
+  if (!value) {
+    throw new Error(`${name} is required for archive commands.`);
+  }
+  return path.resolve(value);
 }

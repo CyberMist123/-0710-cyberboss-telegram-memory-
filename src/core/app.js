@@ -84,11 +84,15 @@ class CyberbossApp {
     this.runtimeContextStore = projectTooling.runtimeContextStore;
     this.runtimeAdapter = createRuntimeAdapter(config);
     this.embeddingService = new EmbeddingService();
-    this.memoryService = new (require("../services/memory-service").MemoryService)({
-      memoryDir: config.memoryDir,
-      vectorFile: config.memoryVectorFile,
-    });
-    this.memoryService.ensureFiles();
+    this.memoryService = config.memoryDir
+      ? new (require("../services/memory-service").MemoryService)({
+        memoryDir: config.memoryDir,
+        vectorFile: config.memoryVectorFile,
+      })
+      : null;
+    if (this.memoryService) {
+      this.memoryService.ensureFiles();
+    }
     this.memoryBgState = { lastMineAtMs: Date.now(), userMsgCountSinceMine: 0, userCharsSinceMine: 0, buffer: [] };
     this.threadStateStore = new ThreadStateStore();
     this.systemMessageQueue = new SystemMessageQueueStore({ filePath: config.systemMessageQueueFile });
@@ -109,7 +113,9 @@ class CyberbossApp {
       sessionStore: this.runtimeAdapter.getSessionStore(),
       runtimeId: this.runtimeAdapter.describe().id,
       onDeferredSystemReply: (payload) => this.deferSystemReply(payload),
-      transformReplyDelivery: (payload) => this.transformReplyDelivery(payload),
+      transformReplyDelivery: config.legacyMemoryReplyTransform
+        ? (payload) => this.transformReplyDelivery(payload)
+        : null,
       onSystemReplySent: (threadId, turnId, replyText) => this.handleSystemReplySent(threadId, turnId, replyText),
     });
     this.pendingOperationByRunKey = new Map();
@@ -588,15 +594,7 @@ class CyberbossApp {
     }
 
     await this.routePreparedInbound({ bindingKey, workspaceRoot, prepared });
-    void runMemoryPostResponsePipeline({
-      memoryService: this.memoryService,
-      embeddingService: this.embeddingService,
-      normalized,
-      bgState: this.memoryBgState,
-    }).catch((error) => {
-      const msg = error instanceof Error ? error.message : String(error || "unknown");
-      console.warn(`[memory] post-response pipeline failed: ${msg}`);
-    });
+    this.maybeRunLegacyMemoryBackgroundPipeline(normalized, "post-response");
   }
 
   isTurnDispatchBlocked(bindingKey, workspaceRoot, { ignoreBoundary = false } = {}) {
@@ -684,8 +682,22 @@ class CyberbossApp {
 
   async resolveMemoryContextForPrepared(prepared) {
     const text = String(prepared?.originalText || prepared?.text || "").trim();
-    if (!text || !this.embeddingService || !this.memoryService) {
+    if (!text || !this.embeddingService) {
       return { lines: [] };
+    }
+    const locationLines = this.resolveRecentLocationStateMemoryLines();
+    this.projectServices?.locationStateStore?.recordMemoryInjection?.({
+      lines: locationLines,
+      source: "location_v2",
+      used: this.config.locationV2Enabled,
+      text,
+    });
+    if (!this.config.legacyMemoryRetrieval || !this.memoryService) {
+      return {
+        lines: dedupeMemoryContextLines(locationLines),
+        slots: [],
+        mode: "disabled",
+      };
     }
     const retrievalPlan = resolveMemoryRetrievalPlan(text);
     const recentMemoryLines = retrievalPlan.mode === "targeted"
@@ -698,13 +710,6 @@ class CyberbossApp {
     const pendingPromiseLines = retrievalPlan.includePendingPromises
       ? formatPendingPromiseContextLines(this.memoryService.readPendingPromises({ status: "pending", limit: 10 }), 1)
       : [];
-    const locationLines = this.resolveRecentLocationStateMemoryLines();
-    this.projectServices?.locationStateStore?.recordMemoryInjection?.({
-      lines: locationLines,
-      source: "location_v2",
-      used: this.config.locationV2Enabled,
-      text,
-    });
     if (retrievalPlan.mode !== "targeted") {
       return {
         lines: locationLines,
@@ -2027,18 +2032,25 @@ class CyberbossApp {
     if (!candidate) {
       return;
     }
+    this.maybeRunLegacyMemoryBackgroundPipeline({
+      text: candidate,
+      role: "assistant",
+      receivedAt: new Date().toISOString(),
+    }, "assistant reply");
+  }
+
+  maybeRunLegacyMemoryBackgroundPipeline(normalized, label = "post-response") {
+    if (!this.config.legacyMemoryBackgroundWrite) {
+      return;
+    }
     void runMemoryPostResponsePipeline({
       memoryService: this.memoryService,
       embeddingService: this.embeddingService,
-      normalized: {
-        text: candidate,
-        role: "assistant",
-        receivedAt: new Date().toISOString(),
-      },
+      normalized,
       bgState: this.memoryBgState,
     }).catch((error) => {
       const msg = error instanceof Error ? error.message : String(error || "unknown");
-      console.warn(`[memory] assistant reply pipeline failed: ${msg}`);
+      console.warn(`[memory] ${label} pipeline failed: ${msg}`);
     });
   }
 

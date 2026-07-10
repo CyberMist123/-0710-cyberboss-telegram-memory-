@@ -311,22 +311,26 @@ function resolveSevenDayPromotionCategory(entry = {}, options = {}) {
 }
 
 class MemoryService {
-  constructor({ memoryDir = path.join(process.env.HOME || '/home/anan', '.cyberboss', 'memory'), vectorFile = '' } = {}) {
-    this.memoryDir = memoryDir;
-    this.indexFile = path.join(memoryDir, 'index.jsonl');
-    this.sevenDayFile = path.join(memoryDir, '7-day-memory.md');
-    this.opsFile = path.join(memoryDir, 'ops.jsonl');
-    this.vectorFile = vectorFile || path.join(memoryDir, 'vectors.jsonl');
-    this.markdownEmbeddingFile = path.join(memoryDir, 'markdown-embeddings.json');
+  constructor({ memoryDir = '', vectorFile = '' } = {}) {
+    const normalizedMemoryDir = String(memoryDir || '').trim();
+    if (!normalizedMemoryDir) {
+      throw new Error("memoryDir is required");
+    }
+    this.memoryDir = normalizedMemoryDir;
+    this.indexFile = path.join(this.memoryDir, 'index.jsonl');
+    this.sevenDayFile = path.join(this.memoryDir, '7-day-memory.md');
+    this.opsFile = path.join(this.memoryDir, 'ops.jsonl');
+    this.vectorFile = vectorFile || path.join(this.memoryDir, 'vectors.jsonl');
+    this.markdownEmbeddingFile = path.join(this.memoryDir, 'markdown-embeddings.json');
     this.categoryFiles = {
-      facts: path.join(memoryDir, 'facts.md'),
-      preferences: path.join(memoryDir, 'preferences.md'),
-      patterns: path.join(memoryDir, 'patterns.md'),
-      projects: path.join(memoryDir, 'projects.md'),
-      pending_promises: path.join(memoryDir, 'pending-promises.md'),
-      open_loops: path.join(memoryDir, 'open_loops.md'),
-      relationships: path.join(memoryDir, 'relationships.md'),
-      profile: path.join(memoryDir, 'profile.md'),
+      facts: path.join(this.memoryDir, 'facts.md'),
+      preferences: path.join(this.memoryDir, 'preferences.md'),
+      patterns: path.join(this.memoryDir, 'patterns.md'),
+      projects: path.join(this.memoryDir, 'projects.md'),
+      pending_promises: path.join(this.memoryDir, 'pending-promises.md'),
+      open_loops: path.join(this.memoryDir, 'open_loops.md'),
+      relationships: path.join(this.memoryDir, 'relationships.md'),
+      profile: path.join(this.memoryDir, 'profile.md'),
     };
   }
 

@@ -39,9 +39,11 @@ function buildInstructionRefreshText(config) {
 
 function loadWechatInstructions(config = {}) {
   const persona = loadInstructionFile(config.weixinInstructionsFile, config);
-  const operations = loadInstructionFile(config.weixinOperationsFile, config);
-  const stateRelay = loadStateRelay(config);
-  const pendingPromisesRelay = loadPendingPromisesRelay(config);
+  const operations = config.includeOperationsPrompt
+    ? loadInstructionFile(config.weixinOperationsFile, config)
+    : "";
+  const stateRelay = config.includeLegacyMemoryRelays ? loadStateRelay(config) : "";
+  const pendingPromisesRelay = config.includeLegacyMemoryRelays ? loadPendingPromisesRelay(config) : "";
   const sections = [];
   if (persona) {
     sections.push(persona);
