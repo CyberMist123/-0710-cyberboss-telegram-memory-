@@ -15,14 +15,14 @@
 | 模块 | 状态 | 当前事实 |
 |---|---|---|
 | Telegram → Cyberboss → Claude Code / DeepSeek | 已跑通过 | legacy 本地曾实际运行；main 仍需干净目录 smoke test |
-| System Prompt / 人格来源 | 未收敛 | runtime、仓库模板与本地 live 内容需要选唯一来源 |
+| System Prompt / 人格来源 | 未收敛 | runtime、仓库模板与本地 live 内容需要选唯一来源(以上游仓库为准，copy到本地唯一来源） |
 | Re-entry | 已有 / 待验证 | 文件与旧循环存在；需确认 TG 读取正确 state-dir 和正确版本 |
 | Episodes | 已有 | 本地有正式内容；Git 只保留脱敏结构，暂不重写 |
 | Timeline / Portrait / Self-notes | 已有 | 内容和结构存在；以后作为当前视图与自我手记继续整理 |
 | Janitor → candidates | 已跑通过 | 有增量、幂等、dry-run 和候选输出；默认调度与路径仍需收敛 |
 | Candidate Review → canon | 未完成 | 缺去重、合并、证据预览、接受/拒绝/延后与唯一 writer |
 | Closeout | 有模板 / 未闭环 | 需要稳定触发、允许 0 产出、只写 candidates |
-| Desire 当前状态 | 已有 / 边界混乱 | runtime 已写状态；history、旧 state_log 与 520 数据源尚未统一 |
+| Desire 当前状态 | 已有 / 边界混乱 | runtime 已写状态；history、旧 state_log 与 520 数据源尚未统一，需要确定唯一历史记录，后续网页调用，网页默认显示最新八条 |
 | 520 | 已有 / 职责过重 | 页面可打开并查看多类数据，但同时承担编辑、写状态和调度 |
 | Windows 启动 | 已有 / 待精简 | 入口和历史补丁过多，需保留最小 Claude 启动兼容 |
 | Soft Retrieval | 暂缓 | 今晚不做，单独记录在 `SOFT_RETRIEVAL.md` |
@@ -46,7 +46,7 @@
 
 - 从 `main` 新目录 clone；
 - 显式配置 state-dir、workspace、prompt 来源；
-- 保留上游 Telegram 收发与流式；
+- 保留上游 Telegram 收发与流式（及其他程序-如有且不冲突，如冲突则标记）；
 - 只提取真正必要的 Windows Claude 启动兼容；
 - 关闭旧 Cyberboss MemoryService 的后台双写与回复改写能力。
 
@@ -82,7 +82,8 @@
 - 自动改写 Timeline / Portrait / Re-entry；
 - 主动消息、天气、经期、语音、剧场；
 - 一次性重写旧 `dashboard.py`；
-- 把 legacy 的代理、offset 热刷新、文本去重、关流式等补丁带回 main。
+- 把 legacy 的代理、offset 热刷新、文本去重、关流式等补丁带回 main；
+- 导入用量统计。
 
 ## 当前验收标准
 
@@ -99,7 +100,8 @@
 - 能显示本轮实际加载的模块、来源、版本和字数；
 - 新线程只加载一次 Re-entry；
 - 不把 Timeline、Portrait、完整 Episodes 每轮硬塞入；
-- Builder 失败时回退到原始消息。
+- Builder 失败时回退到原始消息；
+- server中断再恢复后，user消息可被ai接受并回复（断点续传）。
 
 ### Memory
 
