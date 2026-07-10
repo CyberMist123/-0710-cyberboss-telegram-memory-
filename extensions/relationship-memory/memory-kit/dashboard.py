@@ -51,9 +51,10 @@ ROOT = KIT_DIR.parent / "memory"
 BACKUPS = ROOT / ".backups"
 WORKSPACE_ROOT = KIT_DIR.parent
 CYBERLINK_ROOT = WORKSPACE_ROOT.parent
-HOST, PORT = "127.0.0.1", 520
+HOST = os.environ.get("CYBERBOSS_DASHBOARD_HOST", "127.0.0.1")
+PORT = int(os.environ.get("CYBERBOSS_DASHBOARD_PORT", "520"))
 
-REENTRY_BUDGET = 800
+REENTRY_BUDGET = int(os.environ.get("CYBERBOSS_REENTRY_BUDGET", "300"))
 
 PID_FILE = KIT_DIR / ".panel.pid"
 
@@ -115,8 +116,8 @@ def ensure_api_token():
 
 API_TOKEN, _KEYS = ensure_api_token()
 # AUTO_JANITOR_HOURS:自动补记间隔小时数。0 = 关闭自动定时(手动「立即补记」仍可用)。
-# 未设置该键(不是 0,而是缺省/非法值)时默认 6 小时。
-AUTO_JANITOR_HOURS = 6
+# 阶段 1 默认关闭;只有明确配置后才会运行 janitor。
+AUTO_JANITOR_HOURS = 0
 try:
     if "AUTO_JANITOR_HOURS" in _KEYS:
         AUTO_JANITOR_HOURS = float(_KEYS.get("AUTO_JANITOR_HOURS"))
@@ -175,8 +176,12 @@ def _run_janitor_once():
         JANITOR_STATE["running"] = True
     try:
         try:
+            transcript_dir = os.environ.get("CYBERBOSS_CLAUDE_TRANSCRIPT_DIR", "").strip()
+            memory_dir = os.environ.get("CYBERBOSS_MEMORY_DIR", "").strip()
+            if not transcript_dir or not memory_dir:
+                raise RuntimeError("CYBERBOSS_CLAUDE_TRANSCRIPT_DIR and CYBERBOSS_MEMORY_DIR are required.")
             proc = subprocess.run(
-                [sys.executable, "janitor.py"],
+                [sys.executable, "janitor.py", "--input", transcript_dir, "--outdir", memory_dir],
                 cwd=str(KIT_DIR),
                 capture_output=True,
                 text=True,
@@ -383,19 +388,10 @@ def resolve_desire_state_file():
     explicit = os.environ.get("CYBERBOSS_DESIRE_STATE")
     if explicit:
         return Path(explicit)
-    candidates = []
     state_dir = os.environ.get("CYBERBOSS_STATE_DIR")
     if state_dir:
-        candidates.append(Path(state_dir) / "desire-state.json")
-    candidates.extend([
-        Path.home() / ".cyberboss" / "desire-state.json",
-        Path.home() / ".cyberboss-deepseek-test" / "desire-state.json",
-        Path.home() / ".deepseek" / "desire-state.json",
-    ])
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return candidates[0]
+        return Path(state_dir) / "desire-state.json"
+    raise RuntimeError("CYBERBOSS_STATE_DIR or CYBERBOSS_DESIRE_STATE is required.")
 
 
 def get_file_status(path, preview_chars=0):
@@ -884,33 +880,14 @@ def resolve_runtime_state_dir():
     explicit = os.environ.get("CYBERBOSS_STATE_DIR")
     if explicit:
         return Path(explicit)
-    desire_state_file = resolve_desire_state_file()
-    if desire_state_file and desire_state_file.parent.exists():
-        return desire_state_file.parent
-    candidates = [
-        Path.home() / ".cyberboss-deepseek-test",
-        Path.home() / ".cyberboss",
-        Path.home() / ".deepseek",
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return candidates[0]
+    raise RuntimeError("CYBERBOSS_STATE_DIR is required.")
 
 
 def resolve_cyberboss_project_dir():
     explicit = os.environ.get("CYBERBOSS_PROJECT_ROOT")
-    candidates = []
     if explicit:
-        candidates.append(Path(explicit))
-    candidates.extend([
-        CYBERLINK_ROOT / "cyberboss-deepseek-test",
-        CYBERLINK_ROOT / "cyberboss",
-    ])
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return candidates[0]
+        return Path(explicit)
+    raise RuntimeError("CYBERBOSS_PROJECT_ROOT is required.")
 
 
 def strip_md_comments(text):

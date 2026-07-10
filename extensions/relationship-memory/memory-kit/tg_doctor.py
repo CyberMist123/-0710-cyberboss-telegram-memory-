@@ -21,7 +21,10 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from config_loader import load_keys, chat_config, telegram_config  # noqa: E402
 
-TG_STATE = Path(r"C:\Users\18717\.cyberboss-deepseek-test")
+TG_STATE_ENV = os.environ.get("CYBERBOSS_STATE_DIR") or ""
+if not TG_STATE_ENV.strip():
+    raise SystemExit("CYBERBOSS_STATE_DIR is required.")
+TG_STATE = Path(TG_STATE_ENV)
 
 
 def check_dns(host: str) -> str:

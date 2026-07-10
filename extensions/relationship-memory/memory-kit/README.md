@@ -38,7 +38,7 @@ memory/
 
 ```
 pip install requests
-python extract_memory.py --input "C:/Users/18717/.claude/projects/C--Users-18717-Documents-cyberlink-cyberboss-deepseek-workspace" --dry-run
+python extract_memory.py --input "<CLAUDE_TRANSCRIPT_DIR>" --dry-run
 ```
 
 dry-run 只统计规模不花钱。合理就去掉 `--dry-run`;想先试水加 `--limit 20`。断了直接重跑,已完成的块有缓存不重复计费。
@@ -46,8 +46,8 @@ dry-run 只统计规模不花钱。合理就去掉 `--dry-run`;想先试水加 `
 **1.5 断档补记(janitor,平时就用这个)**
 
 ```
-python memory-kit/janitor.py --dry-run
-python memory-kit/janitor.py
+python memory-kit/janitor.py --input "<CLAUDE_TRANSCRIPT_DIR>" --outdir "<MEMORY_DIR>" --dry-run
+python memory-kit/janitor.py --input "<CLAUDE_TRANSCRIPT_DIR>" --outdir "<MEMORY_DIR>"
 ```
 
 白天 /new、崩窗漏掉的 session 补进 `episodes.candidates.jsonl` 和 `reentry.extracted.md`,不直接改手工文件。位点在 `.janitor_state.json`,幂等。

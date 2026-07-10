@@ -28,9 +28,11 @@ PID_FILE = HERE / "watchdog.pid"
 CHECK_INTERVAL = 60          # 秒
 RESTART_QUOTA_PER_HOUR = 4   # 每条线每小时最多拉几次,防疯狂重启
 
-TG_STATE_DIR = Path(r"C:\Users\18717\.cyberboss-deepseek-test")
-WECHAT_STATE_DIR = Path(r"C:\Users\18717\.cyberboss")
-DASHBOARD_KIT_DIR = Path(r"C:\Users\18717\Documents\cyberlink\cyberboss-deepseek-workspace\memory-kit")
+TG_STATE_DIR = Path(os.environ["CYBERBOSS_STATE_DIR"]).expanduser()
+WECHAT_STATE_DIR = Path(os.environ["CYBERBOSS_WECHAT_STATE_DIR"]).expanduser()
+DASHBOARD_KIT_DIR = Path(os.environ.get("CYBERBOSS_MEMORY_KIT_DIR", HERE.parent / "memory-kit")).expanduser()
+WECHAT_PORT = int(os.environ.get("CYBERBOSS_WECHAT_PORT", "8785"))
+DASHBOARD_PORT = int(os.environ.get("CYBERBOSS_DASHBOARD_PORT", "520"))
 
 TARGETS = [
     {
@@ -43,13 +45,13 @@ TARGETS = [
         "name": "wechat",
         "pid_file": WECHAT_STATE_DIR / "logs" / "shared-wechat.pid",
         "launcher": HERE / "wechat-hidden.vbs",
-        "port_probe": ("127.0.0.1", 8785),
+        "port_probe": ("127.0.0.1", WECHAT_PORT),
     },
     {
         "name": "dashboard",
         "pid_file": DASHBOARD_KIT_DIR / ".panel.pid",
         "launcher": HERE / "dashboard-hidden.vbs",
-        "port_probe": ("127.0.0.1", 520),
+        "port_probe": ("127.0.0.1", DASHBOARD_PORT),
     },
 ]
 

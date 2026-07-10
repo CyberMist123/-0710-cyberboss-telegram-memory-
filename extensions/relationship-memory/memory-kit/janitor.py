@@ -18,8 +18,8 @@ closeout 依赖每晚 pass;白天 /new、崩窗、忘了收尾,session 会静默
 连跑两次第二次零 API 调用;中途断掉重跑也不重复计费。
 
 用法:
-  python janitor.py --dry-run            只报告断档规模,不调 API,不动任何文件
-  python janitor.py                      正式补记
+  python janitor.py --input <CLAUDE_TRANSCRIPT_DIR> --outdir <MEMORY_DIR> --dry-run
+  python janitor.py --input <CLAUDE_TRANSCRIPT_DIR> --outdir <MEMORY_DIR>
   set JANITOR_MOCK=1                     测试用:不打真 API,返回固定 JSON
 
 环境变量:DS_API_KEY / DS_BASE_URL / DS_MODEL 同 extract_memory.py;
@@ -42,9 +42,8 @@ except Exception:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import extract_memory as em
 
-DEFAULT_INPUT = ("C:/Users/18717/.claude/projects/"
-                 "C--Users-18717-Documents-cyberlink-cyberboss-deepseek-workspace")
-DEFAULT_OUTDIR = Path(__file__).resolve().parent.parent / "memory"
+DEFAULT_INPUT = os.environ.get("CYBERBOSS_CLAUDE_TRANSCRIPT_DIR", "")
+DEFAULT_OUTDIR = os.environ.get("CYBERBOSS_MEMORY_DIR", "")
 
 MOCK = os.environ.get("JANITOR_MOCK") == "1"
 
@@ -222,15 +221,21 @@ def main():
     ap = argparse.ArgumentParser(description="断档补记:增量提取,只写候选文件")
     ap.add_argument("--input", default=DEFAULT_INPUT,
                     help="会话 jsonl 目录(.claude/projects/ 下那个)")
-    ap.add_argument("--outdir", default=str(DEFAULT_OUTDIR),
+    ap.add_argument("--outdir", default=DEFAULT_OUTDIR,
                     help="memory 目录(位点/缓存/候选文件都在这里)")
     ap.add_argument("--dry-run", action="store_true",
                     help="只报告断档规模,不调 API,不写任何文件")
     args = ap.parse_args()
 
+    if not str(args.input or "").strip():
+        print("缺少 --input 或 CYBERBOSS_CLAUDE_TRANSCRIPT_DIR,拒绝猜测会话目录。")
+        sys.exit(1)
     input_dir = Path(args.input)
     if not input_dir.is_dir():
         print(f"输入目录不存在:{input_dir}")
+        sys.exit(1)
+    if not str(args.outdir or "").strip():
+        print("缺少 --outdir 或 CYBERBOSS_MEMORY_DIR,拒绝猜测 memory 目录。")
         sys.exit(1)
     outdir = Path(args.outdir)
     state_path = outdir / ".janitor_state.json"

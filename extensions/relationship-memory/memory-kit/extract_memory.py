@@ -9,13 +9,13 @@ extract_memory.py — 从 Claude Code 会话记录(JSONL)本地提取关系记�
   set DS_API_KEY=sk-xxxx          (Windows cmd;PowerShell 用 $env:DS_API_KEY="sk-xxxx")
 
   先看规模,不花钱:
-  python extract_memory.py --input "C:/Users/18717/.claude/projects/C--Users-18717-Documents-cyberlink-cyberboss-deepseek-workspace" --dry-run
+  python extract_memory.py --input "<CLAUDE_TRANSCRIPT_DIR>" --dry-run
 
   正式跑:
-  python extract_memory.py --input "上面那个路径" --outdir ./memory
+  python extract_memory.py --input "<CLAUDE_TRANSCRIPT_DIR>" --outdir "<MEMORY_DIR>"
 
   以后增量(只处理某日期之后的内容):
-  python extract_memory.py --input "..." --outdir ./memory --since 2026-07-01
+  python extract_memory.py --input "<CLAUDE_TRANSCRIPT_DIR>" --outdir "<MEMORY_DIR>" --since 2026-07-01
 
 配置(优先级:环境变量 > memory-kit/keys.local.json > 默认值):
   MEM_PROVIDER 选 "glm" 或 "deepseek";不设则有 GLM key 就用 GLM
@@ -276,12 +276,15 @@ def parse_json(s):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True, help="JSONL 会话目录(.claude/projects/ 下那个)")
-    ap.add_argument("--outdir", default="./memory")
+    ap.add_argument("--outdir", default=os.environ.get("CYBERBOSS_MEMORY_DIR", ""))
     ap.add_argument("--since", default=None, help="只处理该 ISO 日期之后,如 2026-07-01")
     ap.add_argument("--limit", type=int, default=0, help="只处理最后 N 块(控制花费)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
+    if not str(args.outdir or "").strip():
+        print("缺少 --outdir 或 CYBERBOSS_MEMORY_DIR,拒绝猜测 memory 目录。")
+        sys.exit(1)
     sessions = load_turns(args.input, args.since)
     chunks = make_chunks(sessions)
     if args.limit:

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """把 keys.local.json 的聊天配置刷到 TG 线的 .env,让 claudecode runtime 拿到新 key/模型。
 
-方向:keys.local.json → C:\\Users\\18717\\.cyberboss-deepseek-test\\.env
+方向:keys.local.json → $CYBERBOSS_STATE_DIR/.env
 只改带 [managed by keys.local.json] 标记的行,其余行(用户手工注释、无关字段)保留原样。
 
 面板保存 or /model 指令写完 keys.local.json 后,调用此脚本,再由看门狗/用户重启 TG。
@@ -16,7 +16,10 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from config_loader import load_keys, chat_config, telegram_config  # noqa: E402
 
-TG_STATE_DIR = Path(os.environ.get("CYBERBOSS_DEEPSEEK_STATE") or r"C:\Users\18717\.cyberboss-deepseek-test")
+TG_STATE_DIR_ENV = os.environ.get("CYBERBOSS_STATE_DIR") or os.environ.get("CYBERBOSS_DEEPSEEK_STATE") or ""
+if not TG_STATE_DIR_ENV.strip():
+    raise SystemExit("[apply_keys] CYBERBOSS_STATE_DIR is required.")
+TG_STATE_DIR = Path(TG_STATE_DIR_ENV)
 ENV_FILE = TG_STATE_DIR / ".env"
 
 MANAGED_TAG = "# [managed by keys.local.json]"
