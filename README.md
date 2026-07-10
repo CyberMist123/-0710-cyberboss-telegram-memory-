@@ -10,9 +10,17 @@ A private Telegram and relationship-memory extension built on top of [`AngeliaSa
 </div>
 
 > [!IMPORTANT]
-> 仓库化与冻结现场已经完成。当前阶段是：**只读审计 → 决定保留/回退边界 → 新目录验证**。  
-> `main` 仍不是可以直接覆盖现有本地部署的稳定版。不要删除旧目录，不要直接部署。  
-> Repository import and snapshotting are complete. The current phase is **read-only audit → retention/revert decisions → clean-directory validation**.
+> 仓库化与冻结现场已经完成。当前阶段是：**只读审计 → 最小接线 → 新目录验证**。  
+> `main` 仍不是可以直接覆盖现有本地部署的稳定版。不要删除旧目录，不要直接部署。
+
+## 先看这里 / Start here
+
+| 文档 | 适合什么时候看 |
+|---|---|
+| [`PROJECT_INTRO_FOR_HUMANS.md`](./PROJECT_INTRO_FOR_HUMANS.md) | **第一次了解项目。** 用人话解释核心功能、你会看到什么、背后怎么实现、现在做到哪一步。 |
+| [`PROJECT_OVERVIEW.md`](./PROJECT_OVERVIEW.md) | **确认完成度。** 区分已跑通、已收敛、半成品、外壳、计划和已放弃功能。 |
+| [`MEMORY_520_MAP.md`](./MEMORY_520_MAP.md) | **专门理解记忆和 520。** 包含结构图、读写链路、已知 bug、数据权威来源和修复顺序。 |
+| [`docs/custom/CORE_PATCH_REVIEW_20260710.md`](./docs/custom/CORE_PATCH_REVIEW_20260710.md) | 给代码审查模型看的核心补丁清单。 |
 
 ---
 
@@ -20,278 +28,236 @@ A private Telegram and relationship-memory extension built on top of [`AngeliaSa
 
 ### 这个项目是什么
 
-Cyberboss 原仓库负责稳定的运行时、Telegram/微信桥接和 Claude Code / Codex 调用。本仓库尽量不改动它的核心行为，只维护后装扩展：
+Cyberboss 原仓库负责稳定运行时、Telegram/微信桥接和 Claude Code / Codex 调用。本仓库尽量不改动它的核心行为，只维护外挂能力：
 
-- Telegram + DeepSeek / Claude Code 的本地部署配置；
+- Telegram + DeepSeek / Claude Code 本地部署；
 - 关系连续性记忆 `memory/` 与 `memory-kit/`；
-- candidate → closeout → canon 的审核链；
-- 520 记忆面板和状态展示；
-- Windows 快捷启动、隐藏启动、诊断和 watchdog；
-- 对本地历史补丁的逐文件审计与最小回退。
+- candidate → review/closeout → canon；
+- 520 本地记忆维护面板；
+- Windows 启动、隐藏启动与诊断；
+- 对历史核心补丁的可审计回退路径。
 
-项目原则：**原版 Cyberboss 是基线，新增能力尽量作为外挂层存在。**
+核心原则：
 
-### 当前节点
+> **原版 Cyberboss 是运行基线；记忆、面板和启动器是外挂层。**
 
-仓库已经完成四条核心分支与基线 tag 的建立：
+记忆的目标不是让模型背诵旧事，而是让换窗口、`/new` 或换模型之后，关系史不会完全清零。
+
+### 当前真实状态
 
 ```text
-upstream-baseline
-  上游 ecc98cd 的脱敏基线，用来回答“原版是什么”
+本地 legacy-current
+  曾实际运行过：Telegram → Claude Code → DeepSeek
+  包含完整关系记忆、520、Janitor、Windows 启动器
+  也包含后来叠加的代理/去重/offset/单实例等补丁
 
-legacy-current
-  当前本地定制版的脱敏冻结现场，用来回答“后来改了什么”
+GitHub main
+  原版 Cyberboss 核心
+  + extensions/relationship-memory
+  + extensions/windows-launcher
+  + docs / audit rules
+  结构更干净，但尚未在全新目录完成端到端验证
 
-main
-  原版核心 + 已整理的外挂结构，暂不部署
-
-audit/core-patches-20260710
-  给 Fable / Codex / 其他代码模型的审计材料
-
-tag: baseline-ecc98cd-sanitized
-  固定上游比较基准
+私密 live state（不进 Git）
+  ~/.cyberboss-deepseek-test/
+  包含 .env、token、sessions、offsets、logs、真实私密 memory
 ```
-
-现在不再卡在“上传和备份”。真正进入的是下一道决策门：
-
-> **哪些历史补丁恢复上游，哪些产品功能保留，哪些功能应移出核心。**
 
 ### 当前架构
 
 ```text
 Telegram
    ↓
-Cyberboss runtime（以上游原仓库为基线）
+Cyberboss runtime（以上游为基线）
    ↓
-Claude Code / DeepSeek Anthropic endpoint
+Claude Code / DeepSeek endpoint
    ↓
 Workspace
-   ├─ memory/                 关系正史、reentry、episodes、timeline
-   ├─ memory-kit/             candidate、janitor、closeout、审核工具
-   ├─ dashboard / 520 panel   可视化与人工审核
-   └─ launcher / scripts      Windows 本地启动与诊断
-
-Live state（不进 Git）
-   └─ ~/.cyberboss-deepseek-test/
-      ├─ .env / token
-      ├─ sessions / offsets
-      ├─ conversations / logs
-      └─ private memory / desire state
+   ├─ memory/                 reentry、episodes、timeline、portraits
+   ├─ memory-kit/             Janitor、candidate、提取和维护工具
+   ├─ dashboard.py            520 本地控制台
+   └─ launcher / scripts      Windows 启动与诊断
 ```
 
-### 项目结构
+### 目前已经跑通过
 
-```text
-.
-├─ src/                       上游 Cyberboss 运行时源码
-├─ bin/                       CLI 入口
-├─ scripts/                   上游与通用脚本
-├─ templates/                 运行时提示词模板
-├─ extensions/
-│  ├─ memory-workspace/       脱敏后的关系记忆结构与模板
-│  ├─ memory-kit/             提取、候选、审核、closeout
-│  ├─ dashboard/              520 面板与展示工具
-│  └─ windows-launcher/       快捷启动、隐藏启动、诊断脚本
-├─ docs/
-│  ├─ custom/                 当前架构、核心补丁审计、仓库规则
-│  └─ ...                     上游文档
-├─ .agents/skills/            给 Codex/Fable/其他代理的项目级约束
-├─ UPSTREAM_BASELINE.md       上游基线说明
-└─ README*.md                 上游 README 与本项目说明
-```
+- Telegram → Cyberboss → Claude Code → DeepSeek → 回复；
+- 关系记忆文件层；
+- Janitor 增量扫描与 candidate 输出；
+- Janitor 幂等、缓存和 dry-run；
+- 520 面板打开、文件查看、timeline、健康度和 Janitor 触发；
+- Windows 本地启动与隐藏启动；
+- GitHub 三个主要对照分支和基线 tag。
 
-> 目录会在审计过程中继续收敛，但不会为了“整洁”大改能跑的核心。
+### 已实现但尚未收敛
+
+- TG 实际使用的 prompt / state-dir；
+- 旧 Cyberboss memory 与新关系 memory 的读写边界；
+- 520 从 `state_log` 向 `desire-state` 的迁移；
+- 520 普通查看与维护写入权限；
+- Windows 启动路径、入口和 watchdog；
+- auto compact / `/ctx`；
+- desire history / backfill。
+
+### 目前只有外壳或计划
+
+- Candidate 去重、合并、证据预览、接受/拒绝/晋升和回滚；
+- 自动 closeout；
+- 完整证据链；
+- memory-vault 风格流转；
+- 关怀模块完整链路；
+- RPG 剧场运行；
+- 语音转文字；
+- topic index；
+- 语义检索；
+- 主动消息；
+- 端到端自动 smoke tests。
+
+### 已放弃或默认不带回主线
+
+- Ombre Brain / Haven 主线；
+- AI 手写 `state_log.jsonl`；
+- Telegram 自建代理层；
+- 额外 offset/state 热刷新；
+- 入站/出站文本 TTL 去重；
+- stateDir 单实例锁补丁；
+- 关闭原版 delta 流式；
+- 无有效调用链的 runtime outage 逻辑。
+
+### 当前最重要的 bug / 冲突
+
+1. `sync_memory_block.py` 和 `memory_toggle.py` 可能默认写到 `~/.cyberboss`，而 TG 实际使用 `~/.cyberboss-deepseek-test`。
+2. `main` 已移动目录，但 prompt 同步脚本仍按旧 cyberlink 相对路径找模板。
+3. 旧启动脚本可能默认 `CYBERBOSS_MEMORY_BACKGROUND_WRITE=1`，导致两套 memory 同时写。
+4. v2.1 设计要求 reentry 约 300 字，但 dashboard 仍按 800 字检查。
+5. `state_log.jsonl` 已宣布冻结，但 520 仍暴露写 API。
+6. 520 名义上是“外显”，实际同时承担查看、编辑、配置和调度。
+
+详见 [`MEMORY_520_MAP.md`](./MEMORY_520_MAP.md)。
 
 ### 分支约定
 
 | 分支 | 用途 | 是否部署 |
 |---|---|---|
-| `upstream-baseline` | 上游 `ecc98cd` 的脱敏基线快照 | 否，只作比较 |
-| `main` | 原版核心 + 审核通过的外挂扩展 | 暂未稳定 |
+| `upstream-baseline` | 上游 `ecc98cd` 的脱敏基线 | 否，只作比较 |
+| `main` | 原版核心 + 外挂扩展目标结构 | 暂未稳定 |
 | `legacy-current` | 当前本地定制版的脱敏冻结现场 | 否，只作救援与对照 |
-| `audit/core-patches-20260710` | Fable/代码模型审计材料 | 否 |
+| `audit/core-patches-20260710` | 核心补丁和审计材料 | 否 |
 | `fix/*` | 一个问题一个小修复 | 新目录验证后再合并 |
 
 ### 核心需求
 
-1. **保住原版行为**：不对 `src/core/app.js` 等核心文件做宽泛重构。
-2. **关系连续性**：换窗口、`/new` 或换模型后，关系史不清零。
-3. **正史可控**：自动流程只写 candidates；canon 由 closeout 或用户确认。
-4. **记忆不抢话**：记忆改变下一句话的姿态，不直接决定内容。
-5. **可审计与可回退**：每个核心改动必须有原因、smoke test 和 rollback。
-6. **隐私隔离**：真实 token、聊天、session、日志和私人记忆永不提交。
-7. **Windows 友好**：脚本必须避免 PowerShell 5.1 编码坑，并可被普通用户直接运行。
-
-### 下一道决策门
-
-#### 倾向恢复上游并重新测试
-
-这些是后续修 Telegram 问题时叠加的补丁，不再默认保留：
-
-- Telegram 自建代理层；
-- state/offset 从磁盘额外刷新；
-- inbound/outbound 文本去重；
-- stateDir 单实例锁；
-- 重复回复抑制；
-- runtime outage 通知；
-- Telegram timeout 修改；
-- 为“治重复”而关闭原版 delta 流式。
-
-#### 需要单独审计，不能和上面一起删
-
-- auto compact 与 `/ctx`；
-- desire-state history / backfill；
-- Windows Claude Code `.cmd/.bat` 启动与隐藏窗口；
-- Codex RPC timeout 与 pending reject；
-- `src/core/app.js` 中混杂的各个功能块。
-
-#### 明确想保留
-
-- `memory/` 与 `memory-kit/`；
-- candidate → closeout → canon；
-- 520 dashboard；
-- Windows 本地快捷启动与诊断；
-- 极小的关系记忆 prompt 入口；
-- 上游核心与本地扩展之间的清晰边界。
+1. 不宽泛重构 `src/core/app.js` 等上游核心。
+2. 换窗口、`/new` 或换模型后关系史不清零。
+3. 自动流程只写 candidates；canon 必须经过 closeout 或确认。
+4. 记忆改变下一句话的姿态，不直接规定内容。
+5. 每个核心改动都有原因、smoke test 和 rollback。
+6. 真实 token、会话、日志和私人记忆永不提交。
+7. Windows 脚本必须避免 PowerShell 5.1 编码坑。
 
 ### 当前任务 / Tasks
 
-- [x] 冻结三个时间点的本地项目和私密冷备份。
+- [x] 冻结本地项目与私密冷备份。
 - [x] 建立 private GitHub 仓库与安全规则。
-- [x] 上传并验证 `upstream-baseline`、`main`、`legacy-current`。
-- [x] 合并为唯一的 `audit/core-patches-20260710` 审计分支。
-- [x] 推送 `baseline-ecc98cd-sanitized` 基线 tag。
-- [x] 标出 16 个真正修改过逻辑的核心文件。
-- [x] 生成 Fable 审计提示词、全文对照和脱敏 patch。
+- [x] 上传 `upstream-baseline`、`main`、`legacy-current`。
+- [x] 建立唯一 audit 分支和基线 tag。
+- [x] 标出真正修改过逻辑的核心文件。
 - [x] 添加 Windows 脚本编码 Skill。
-- [ ] 让 Fable 只做第一轮只读审计，不直接改代码。
-- [ ] 为 `src/core/app.js` 建立功能块地图、调用链和死代码清单。
-- [ ] 对历史 Telegram 补丁逐项给出 restore / keep / move / reproduce 判断。
-- [ ] 统一 TG 实际使用的 prompt/state 目录。
-- [ ] 明确停用或隔离 Cyberboss 旧内置 memory，避免与关系 memory 双写。
-- [ ] 修复 520 面板与 desire-state / state_log 的半迁移状态。
-- [ ] 在全新目录完成端到端 smoke test，再决定是否切换部署。
+- [x] 写出人话项目介绍、功能状态表、记忆/520 结构图。
+- [ ] 修正 state-dir 与 prompt/template-root。
+- [ ] 默认关闭旧 memory background write。
+- [ ] 提取最小 Windows Claude 启动兼容。
+- [ ] 把 520 收成默认只读版。
+- [ ] 在全新目录完成 TG + memory smoke test。
+- [ ] 建立 Candidate review → canon 闭环。
 
-### 当前已知卡点
-
-1. **审计尚未完成**：知道哪些文件被改过，但还没有逐功能确认调用链和真实必要性。
-2. **`src/core/app.js` 功能混杂**：Telegram 健康/去重、compact、desire history 等逻辑叠在同一文件。
-3. **TG prompt/state 路径可能错位**：模板已是 v2，历史运行态可能仍吃到 v1。
-4. **两套 memory 并存**：Cyberboss 旧内置 memory 与新关系 memory 尚未正式划清读写边界。
-5. **候选有生产、无稳定晋升闭环**：提取不是瓶颈，审核、合并、晋升才是。
-6. **520 面板半迁移**：reentry 预算、state_log 与 desire-state 的设计和实现尚未完全一致。
-7. **Windows 启动入口过多**：历史 409/重复 poller 更可能来自多个 OS 进程和旧入口，需要在新部署中只保留一个入口。
-8. **旧日志中的代理故障需重新复现**：快照曾出现 `127.0.0.1:7897` 连接失败，但不能直接假设它仍是当前故障。
-
-### 待新增功能 / Planned features
-
-- [ ] Candidate 审核、去重、合并与晋升界面；
-- [ ] 每日 0–1 条关系 episode 的 closeout 流程；
-- [ ] reentry / timeline / portrait 的可追溯证据链接；
-- [ ] memory-vault 风格的 inbox → canon → archive 文件流转；
-- [ ] 语义检索作为按需工具，而非每轮强制注入；
-- [ ] Git 变更审计、自动备份和一键回滚；
-- [ ] 更可靠的 Windows 单入口启动与健康检查；
-- [ ] 面板中的运行状态、候选记忆、正史和任务统一视图；
-- [ ] 使用虚构测试数据的自动 smoke tests。
-
-### 明确不做
-
-- 不重新设计上游 Cyberboss；
-- 不为了代码漂亮删除未知但能跑的行为；
-- 不让 AI 自动直接写入关系正史；
-- 不把真实记忆库、聊天记录或密钥放进 GitHub；
-- 不在未经测试的情况下覆盖当前本地部署。
-
-### 给代码审查模型
-
-第一轮请从以下文件开始：
+### 下一版最小目标
 
 ```text
-docs/custom/CORE_PATCH_REVIEW_20260710.md
-docs/custom/CURRENT_PROJECT_AUDIT_20260710.md
-docs/custom/REPO_POLICY.md
+原版 Cyberboss
++ 最小 Windows Claude 启动兼容
++ 显式 state-dir
++ 正确的 v2 relationship-memory prompt
++ 旧 memory 后台写入关闭
++ Janitor 只写 candidates
++ 520 默认只读
++ 一个启动入口
 ```
 
-审查目标：比较 `upstream-baseline` 与 `legacy-current`，逐文件判断：
+### Definition of Done
+
+- [ ] 从 `main` 在全新目录 clone；
+- [ ] Telegram 连续发送 10 条消息，每条只回复一次；
+- [ ] 原版流式行为正常；
+- [ ] `/new` / resume 正常；
+- [ ] TG 实际读取 v2 prompt 与正确的 `reentry.md`；
+- [ ] 旧 Cyberboss memory 不后台双写；
+- [ ] Janitor 只生成 candidate；
+- [ ] 520 默认只读可用；
+- [ ] 关闭后无残留 poller；
+- [ ] 所有变更都有 diff、测试和 rollback。
+
+### 隐私边界
+
+绝不提交：
 
 ```text
-restore upstream
-keep as minimal patch
-move to extension/service
-needs reproduction before deciding
+.env
+API keys / Telegram token
+sessions / offsets
+conversations / logs
+真实私人 memory
+desire live state
+PID / lock / cache
 ```
-
-不要整文件重写 `src/core/app.js`。所有建议必须附 smoke test 与 rollback。
-
-### 环境要求
-
-- Windows 10/11；
-- Node.js `>= 22`；
-- Git for Windows；
-- Claude Code CLI 或 Codex CLI；
-- Python 3（用于 `memory-kit` / dashboard）；
-- Telegram Bot token；
-- DeepSeek 或其他 Anthropic-compatible endpoint；
-- 私密配置放在本地 `.env`，不要提交。
 
 ---
 
-## English
+## English summary
 
-### Overview
+This repository separates a previously running but heavily patched deployment (`legacy-current`) from a cleaner upstream-first target (`main`).
 
-This private repository keeps the stable upstream Cyberboss runtime as the baseline and layers local extensions around it:
+### Core functions
 
-- Telegram + DeepSeek / Claude Code deployment;
-- relationship continuity memory and `memory-kit`;
-- candidate → closeout → canon review flow;
-- the 520 memory dashboard;
-- Windows launch, hidden-process and diagnostic scripts;
-- a file-by-file audit of accumulated local core patches.
+- Telegram → Cyberboss → Claude Code → DeepSeek chat flow;
+- relationship continuity through reentry, episodes, timeline and portraits;
+- Janitor extraction from conversation logs into candidates;
+- a local 520 dashboard for viewing and maintaining memory;
+- Windows launch and diagnostic helpers;
+- auditable comparison against a trusted upstream baseline.
 
-**Upstream behavior is the default source of truth.** Core changes are kept only when a concrete local requirement and a reproducible test justify them.
+### Current status
 
-### Current phase
+Already running locally:
 
-Repository import, branch setup and baseline tagging are complete. The project is now at the decision gate between **read-only audit** and **minimal implementation changes**.
+- Telegram chat flow;
+- relationship-memory files;
+- Janitor candidate extraction;
+- the 520 dashboard;
+- Windows launch helpers.
 
-Do not deploy `main` over the current installation yet. Keep the existing deployment frozen while Fable or another review model maps the call paths and classifies every core modification as:
+Converged boundaries:
 
-```text
-restore upstream
-keep as minimal patch
-move to extension/service
-needs reproduction before deciding
-```
+- upstream Cyberboss remains the runtime baseline;
+- memory is an additive plugin, not the personality engine;
+- automation writes candidates, never canon;
+- private live state stays outside Git.
 
-### Architecture
+Not yet complete:
 
-```text
-Telegram
-  → upstream-first Cyberboss runtime
-  → Claude Code / DeepSeek endpoint
-  → workspace memory + memory-kit + dashboard + launcher
+- clean deployment from `main`;
+- prompt/state-dir alignment;
+- old-memory isolation;
+- candidate review and promotion;
+- dashboard migration from `state_log` to the desire runtime;
+- portable single-entry Windows startup;
+- care, theater, speech-to-text, semantic retrieval and proactive messaging.
 
-Private live state remains outside Git:
-  ~/.cyberboss-deepseek-test/
-```
+Read first:
 
-### Immediate blockers
-
-- core audit is not complete;
-- `src/core/app.js` contains several unrelated feature islands;
-- runtime prompt/state paths may still point to an older memory prompt;
-- old built-in memory and new relationship memory can both remain active;
-- candidate extraction works, but review and promotion are not closed-loop;
-- the dashboard is only partially migrated from `state_log` to `desire-state`;
-- historical proxy failures must be reproduced before being treated as current.
-
-### Privacy
-
-Never commit live `.env` files, API keys, Telegram tokens, sessions, offsets, conversations, logs, private memory content, PID/lock files, or cached runtime state.
-
----
+- [`PROJECT_INTRO_FOR_HUMANS.md`](./PROJECT_INTRO_FOR_HUMANS.md)
+- [`PROJECT_OVERVIEW.md`](./PROJECT_OVERVIEW.md)
+- [`MEMORY_520_MAP.md`](./MEMORY_520_MAP.md)
 
 ## License and upstream
 
