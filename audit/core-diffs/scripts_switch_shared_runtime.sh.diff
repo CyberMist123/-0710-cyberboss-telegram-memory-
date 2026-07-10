@@ -9,7 +9,7 @@ index c13993b..0000000
 -
 -ROOT_DIR="/home/anan/cyberboss-deepseek"
 -RUNTIME="${1:-}"
--TOKEN="gg_mhq_vAwNuf1ukvkgaCGCFkTcdE_OINv3ctQG2WVSPnk"
+-TOKEN="<REDACTED_UPSTREAM_TOKEN>"
 -
 -# The local tmux build on this machine links against a bundled ncurses that
 -# does not search the system terminfo paths by default.
