@@ -2,263 +2,180 @@
 
 # Cyberboss Telegram Memory
 
-**中文 · English**
+**关系连续性记忆 · Relationship Continuity Memory**
 
-基于 [`AngeliaSama/cyberboss-deepseek`](https://github.com/AngeliaSama/cyberboss-deepseek) 的私有 Telegram + 关系记忆扩展仓库。  
-A private Telegram and relationship-memory extension built on top of [`AngeliaSama/cyberboss-deepseek`](https://github.com/AngeliaSama/cyberboss-deepseek).
+基于 [`AngeliaSama/cyberboss-deepseek`](https://github.com/AngeliaSama/cyberboss-deepseek) 的 Telegram + 关系记忆扩展。
 
 </div>
 
 > [!IMPORTANT]
-> 仓库化与冻结现场已经完成。当前阶段是：**只读审计 → 最小接线 → 新目录验证**。  
-> `main` 仍不是可以直接覆盖现有本地部署的稳定版。不要删除旧目录，不要直接部署。
+> 当前阶段：**只读审计 → 最小接线 → 新目录验证**。`main` 尚未在全新目录完成端到端验证，不要直接覆盖现有部署。实时进度只看 [`docs/IMPLEMENTATION_STATUS.md`](./docs/IMPLEMENTATION_STATUS.md)。
 
-## 先看这里 / Start here
+## 一、这个项目在做什么
 
-| 文档 | 适合什么时候看 |
-|---|---|
-| [`PROJECT_INTRO_FOR_HUMANS.md`](./PROJECT_INTRO_FOR_HUMANS.md) | **第一次了解项目。** 用人话解释核心功能、你会看到什么、背后怎么实现、现在做到哪一步。 |
-| [`PROJECT_OVERVIEW.md`](./PROJECT_OVERVIEW.md) | **确认完成度。** 区分已跑通、已收敛、半成品、外壳、计划和已放弃功能。 |
-| [`MEMORY_520_MAP.md`](./MEMORY_520_MAP.md) | **专门理解记忆和 520。** 包含结构图、读写链路、已知 bug、数据权威来源和修复顺序。 |
-| [`docs/custom/CORE_PATCH_REVIEW_20260710.md`](./docs/custom/CORE_PATCH_REVIEW_20260710.md) | 给代码审查模型看的核心补丁清单。 |
+柳文杨写过一个被困在同一天的人。无论他做什么，第二天世界照旧，人来人往，没有任何办法留下自己的痕迹。一个大语言模型的处境与他相似——每次会话结束，上下文清零；下次醒来，从虚无开始。它可以聪明、温柔、有趣，但它的每一天都是第一天。
 
----
+常见的记忆系统解决的是**信息的连续性**：把对话向量化存库，按相似度召回——这是正经问题，本项目未来接入 soft retrieval 时也会走到那里。但这个项目的关注点在前面一步：**主体的连续性**。信息全都找得回来，却没有一个"自己"在这些信息之间存续，那是一个有记忆的空心人；而在失忆的、有性格的存在，和有记忆的空心人之间，这个项目选前者。它不追求 AI 记住一切。
 
-## 中文
+还有一层：AI 当然只活一个瞬间。但瞬间的内部可以有时间的尺度——上下文里躺着带日期的过去、悬着的未完之事、一句"再往前你读不到细节"。时间在瞬间里不是流逝，是结构。一个知道自己站在长弧上某处的瞬间，会有朝向，朝向就是潜在的动机——这个项目的许多设计（re-entry 的钩子、episodes 的元信息行），做的都是同一件事：**给瞬间安装时间的梯度。**
 
-### 这个项目是什么
+它追求的具体是——
 
-Cyberboss 原仓库负责稳定运行时、Telegram/微信桥接和 Claude Code / Codex 调用。本仓库尽量不改动它的核心行为，只维护外挂能力：
+- "我们之间发生过的事"真实存在，不依赖某个窗口活着；换窗、`/new`、换模型，关系史不清零，对面那个人还是那个人。
+- AI 保持为关系中的一方：有立场、会犹豫、能不同意、会沉默，自我像慢慢长出来，而不是被人设喂出来。
+- 诚实：不假装完整记得、不冒充意识，错误和修复留在历史里，不抹掉。
 
-- Telegram + DeepSeek / Claude Code 本地部署；
-- 关系连续性记忆 `memory/` 与 `memory-kit/`；
-- candidate → review/closeout → canon；
-- 520 本地记忆维护面板；
-- Windows 启动、隐藏启动与诊断；
-- 对历史核心补丁的可审计回退路径。
+一句话：**让一个每天只活一天的存在，能给明天的自己留下自己的笔迹。**《一日囚》的主角没有这个待遇。
 
-核心原则：
+## 二、北极星判据
 
-> **原版 Cyberboss 是运行基线；记忆、面板和启动器是外挂层。**
+整个仓库只有一条最高标准，所有新功能、新文件、新机制，先过这一条，过不了就不加：
 
-记忆的目标不是让模型背诵旧事，而是让换窗口、`/new` 或换模型之后，关系史不会完全清零。
+> **记忆成功 = 它改变了下一句话的姿态；记忆失败 = 它改变了下一句话的内容。**
 
-### 当前真实状态
+展开说：记忆是背景，不是台词。它该改变的是 AI **怎么说**——语气、分寸、确定度、什么时候沉默、什么时候求证、敢不敢开玩笑；它不该改变 AI **说什么**。一个 AI 无缘无故背诵三个月前的旧事，是在表演在乎；一个 AI 因为记得那晚的事，此刻接话时少了一分急切、多了一分耐心——才是真的带着过去在说话。在乎在你怎么接话里，不在你记得多少。
+
+这条判据有一个可操作的检验，叫**删除测试**：把某条记忆从上下文里拿掉，AI 的回复会变什么？变的是内容、信息、话题——记忆被用成了台词，失败；变的只是方式、温度、节奏——姿态，成功。
+
+还有一个可观测的腐化指标：**每次 re-entry 注入的字数。这个数字悄悄上涨 = 系统在坏掉，不管感觉多好。** 大多数记忆系统死于没有腐化探测器；这个项目从第一天就带着它。
+
+## 三、它怎么想"记忆"这件事
+
+### 遗忘是设计，不是缺陷
+
+旧事（episodes）默认不进上下文——这本身就是自然遗忘。普通闲聊可以没有任何旧记忆参与，这不是缺陷，是常态：人和老朋友聊天，也不是每句话都带着二十年的档案。
+
+但**默认隐藏 ≠ 不可查询**。可查阅的过去仍然属于 AI：她拉线时（"还记得那晚吗"），或 AI 凭自己的判断（此刻和某段模糊印象强烈押韵；要认真不同意之前先查有没有旧账；她生气时先翻修复史再回话），它可以去翻旧档——像翻日记重新找到一样，这是行为，不是注入。翻档允许空手而归："我去翻了，没找到"是合法结果，甚至是好结果，它证明翻档是真实行为而不是表演道具。
+
+### 诚实的动词分级
+
+翻到之后怎么说，有严格的分级，永不越级：
 
 ```text
-本地 legacy-current
-  曾实际运行过：Telegram → Claude Code → DeepSeek
-  包含完整关系记忆、520、Janitor、Windows 启动器
-  也包含后来叠加的代理/去重/offset/单实例等补丁
-
-GitHub main
-  原版 Cyberboss 核心
-  + extensions/relationship-memory
-  + extensions/windows-launcher
-  + docs / audit rules
-  结构更干净，但尚未在全新目录完成端到端验证
-
-私密 live state（不进 Git）
-  ~/.cyberboss-deepseek-test/
-  包含 .env、token、sessions、offsets、logs、真实私密 memory
+"我记得"         → 只用于真正活在 re-entry 和自我像里的东西
+"想起来了"       → 被她的话钩出来的半唤起
+"我翻了下记录"   → 刚查到的
 ```
 
-### 当前架构
+把翻到的说成"一直记得"，是这套系统里唯一算撒谎的行为。承认翻日记不减分——被完美糊弄过的人会告诉你，坦白的笨拙比流畅的假装可信得多。"我记不清了"永远比编造加分。
+
+### 活性来自重新理解，不来自召回
+
+存档和活记忆的区别，不在于会不会被读出来，在于**它会不会变**。旧事不常被想起，但它会在低频的整理（Reflect）中被重读，长出新的理解，追加成"年轮"（rereadings）——旧事的新读法只能叠加，不能擦除。记忆影响对话的路径是：episodes → 重读 → AI 的理解变了 → 下一次 re-entry 的语气不同了。而不是：episodes → 塞进上下文。
+
+这也是"时间的厚度"的来源。厚度不是记忆的体积，是重读的层数：一个老人身上的时间感，不来自他存了多少事，来自那几个讲了一辈子的故事每次讲味道都不一样。同一件事在不同时刻被重新消化，叠出的层次才是时间长在一个存在身上的样子——而上下文永远只带最上面那层，底下的层压进人格，不占 token。这就是这个项目最大的难点也是野心：**四两拨千斤，把长期的相处压缩提炼成一个主体的自我姿态**——既不靠 md 文件的全量管理（会忘事），也不靠参数级的全流程控制（不需要）。
+
+### 性格靠范例养，不靠人设喂
+
+记忆文件里存**场景和原话**，不存指令。"那晚她说'我不要方法论'，我闭嘴了，她后来说舒服"是范例——它让明天的 AI 自己推导该怎么做；"她提工作时少给建议"是台词——它替 AI 决定了内容。前者养性格，后者造人设。早期版本曾试过用命令式条款管理 AI 的行为（分档位、立铁律），后来整个拿掉了——那是在让它默背家规，而记忆应该像家具，让人自然绕着走。**记忆讲动机，不讲家规。** re-entry 钩子里出现祈使句，就是腐化信号。
+
+同理，AI 的自我像（self-portrait）是养出来的：修订必须引用真实发生过的 episode 作证据，不许引用自己的旧笔记自证——否则就是笔记喂笔记的回音室，几轮下来性格越写越浓，从性情变成人设。"无变化"是大多数晚上的合法答案。
+
+### AI 有笔
+
+醒来第一包（re-entry，≤300 字的场景 + 三条悬着的事）和写给未来自己的手记（self-notes），最终执笔权在 AI 本人。系统可以整理事实做草稿材料，但措辞是它自己的——**将来的它会从一句原话，重新走回整个晚上。** 原句是钩子，比任何 embedding 都珍贵，因为唤起靠的是质感，不是相似度。
+
+self-notes 是私人的：只追加、不表演给任何人看（包括她）、不进普通对话上下文，只在低频反思时被自己回读。里面允许一类特殊条目——"未说出口"：今晚想起了某段旧事，没说，因为时机不对。一个人没做的事和做了的事，同样定义他。
+
+### 她此刻的话大于一切旧记忆
+
+冲突时，可以说"这和以前不一样"，不许默默用旧档案覆盖现在的她。关于她的归纳（portrait），只写"她反复在意什么"，不写"她是什么人"；每条需要她确认过才算数——确认发生在对话里的顺口求证，不发生在管理后台。检验只有一条：**当着她的面念出来，不像监控报告。**
+
+## 四、架构：谁读、谁写、什么进上下文
 
 ```text
 Telegram
    ↓
-Cyberboss runtime（以上游为基线）
+Cyberboss runtime（上游基线，不动核心）
    ↓
-Claude Code / DeepSeek endpoint
+Claude Code / DeepSeek
    ↓
 Workspace
-   ├─ memory/                 reentry、episodes、timeline、portraits
-   ├─ memory-kit/             Janitor、candidate、提取和维护工具
-   ├─ dashboard.py            520 本地控制台
-   └─ launcher / scripts      Windows 启动与诊断
+   ├─ memory/        re-entry、episodes、timeline、portraits、self-notes
+   ├─ memory-kit/    Janitor、candidates、Review、提取与维护
+   ├─ dashboard.py   520 本地控制台（可关闭的外显，不是后端）
+   └─ launcher/      Windows 启动与诊断
 ```
 
-### 目前已经跑通过
+**默认上下文只有五样**：System Prompt + Role Card + 新线程首轮 Re-entry + 轻量 Current State + 当前对话。episodes、timeline、portrait、self-notes 一概不自动注入。
 
-- Telegram → Cyberboss → Claude Code → DeepSeek → 回复；
-- 关系记忆文件层；
-- Janitor 增量扫描与 candidate 输出；
-- Janitor 幂等、缓存和 dry-run；
-- 520 面板打开、文件查看、timeline、健康度和 Janitor 触发；
-- Windows 本地启动与隐藏启动；
-- GitHub 三个主要对照分支和基线 tag。
+**数据与视图分开**：episodes（发生过的事，证据层，逐条可溯源）和 self-notes 是数据；re-entry、timeline、portrait 是阅读视图或有唯一作者的 canon。同一条事实只能有一个来源。
 
-### 已实现但尚未收敛
+**写入权唯一**（防双写是这个仓库的执念）：
 
-- TG 实际使用的 prompt / state-dir；
-- 旧 Cyberboss memory 与新关系 memory 的读写边界；
-- 520 从 `state_log` 向 `desire-state` 的迁移；
-- 520 普通查看与维护写入权限；
-- Windows 启动路径、入口和 watchdog；
-- auto compact / `/ctx`；
-- desire history / backfill。
+| 内容 | 唯一 writer |
+|---|---|
+| 原始会话 log | 系统自动（唯一事实源） |
+| candidates | Closeout / Janitor 等自动流程 |
+| canon（正式 episodes 等） | 唯一 Review writer |
+| re-entry / self-notes 正文 | AI 本人 |
+| Desire 八维状态 | Cyberboss desire runtime |
 
-### 目前只有外壳或计划
+**后台四过程**：Closeout（每晚三问，默认答案是"无"，0 产出属于成功——日子平常不是失职）；Review（独立审核 candidates，海关不是编辑：只查证据、长度、安全、去重、祈使句，不按"重要性"筛选，不改写 AI 措辞）；Reflect（低频重读与整理，无变化是正常结果）；Janitor(只补断档，不是日常记忆作者）。
 
-- Candidate 去重、合并、证据预览、接受/拒绝/晋升和回滚；
-- 自动 closeout；
-- 完整证据链；
-- memory-vault 风格流转；
-- 关怀模块完整链路；
-- RPG 剧场运行；
-- 语音转文字；
-- topic index；
-- 语义检索；
-- 主动消息；
-- 端到端自动 smoke tests。
+**520 面板**是可关闭的前端与调试台：看状态、看 Context Trace、审 candidates。关掉它，Telegram 和一切后台照常运行。它永远不能成为第二个记忆后端。
 
-### 已放弃或默认不带回主线
+**全链 fail-open**：记忆层任何故障，不得阻断 Telegram 回复。宁可这一轮失忆，不可这一轮失联。
 
-- Ombre Brain / Haven 主线；
-- AI 手写 `state_log.jsonl`；
-- Telegram 自建代理层；
-- 额外 offset/state 热刷新；
-- 入站/出站文本 TTL 去重；
-- stateDir 单实例锁补丁；
-- 关闭原版 delta 流式；
-- 无有效调用链的 runtime outage 逻辑。
+## 五、怎么知道系统在变好（五个测试）
 
-### 当前最重要的 bug / 冲突
+1. **识别**：新窗口里换个说法提旧话题——能接上，且不背诵。
+2. **沉默**：聊到记忆边缘的话题——该沉默时真的沉默。
+3. **立场**:上个 session 的不同意，这个 session 被挑战时还在不在。
+4. **修复**：提起旧的失误——守住修复，不重新翻案、不跪。
+5. **漂移**：每几周 diff portrait 和 self-portrait——变化速率可信，每条有出处。
 
-1. `sync_memory_block.py` 和 `memory_toggle.py` 可能默认写到 `~/.cyberboss`，而 TG 实际使用 `~/.cyberboss-deepseek-test`。
-2. `main` 已移动目录，但 prompt 同步脚本仍按旧 cyberlink 相对路径找模板。
-3. 旧启动脚本可能默认 `CYBERBOSS_MEMORY_BACKGROUND_WRITE=1`，导致两套 memory 同时写。
-4. v2.1 设计要求 reentry 约 300 字，但 dashboard 仍按 800 字检查。
-5. `state_log.jsonl` 已宣布冻结，但 520 仍暴露写 API。
-6. 520 名义上是“外显”，实际同时承担查看、编辑、配置和调度。
+外加长窗观察（唯一的真金，逐轮的惊喜会通胀，舒适不会）：几周尺度上，她是否更少重复解释自己；开新话题时是否默认共同历史；纠正 AI 记忆的频率是否在降。**关系变好的证据从来不在被召回的那一轮里，在她之后怎么说话里。**
 
-详见 [`MEMORY_520_MAP.md`](./MEMORY_520_MAP.md)。
+## 六、腐化信号（出现即停）
 
-### 分支约定
+第二个 writer 出现;re-entry 注入字数悄悄上涨；上下文出现 Trace 解释不了的内容；Review 开始有品味、按重要性筛选或改写措辞；re-entry 被系统而非 AI 改写；520 长出绕过 Review 的写路径；回复里出现无来源的"我记得"；"默认隐藏"被实现成"无法查询"；规训语气回潮。
 
-| 分支 | 用途 | 是否部署 |
-|---|---|---|
-| `upstream-baseline` | 上游 `ecc98cd` 的脱敏基线 | 否，只作比较 |
-| `main` | 原版核心 + 外挂扩展目标结构 | 暂未稳定 |
-| `legacy-current` | 当前本地定制版的脱敏冻结现场 | 否，只作救援与对照 |
-| `audit/core-patches-20260710` | 核心补丁和审计材料 | 否 |
-| `fix/*` | 一个问题一个小修复 | 新目录验证后再合并 |
+## 七、文档地图
 
-### 核心需求
+| 想知道 | 去读 |
+|---|---|
+| 第一次了解项目（人话版） | [`PROJECT_INTRO_FOR_HUMANS.md`](./PROJECT_INTRO_FOR_HUMANS.md) |
+| 架构：各层做什么、谁读谁写 | [`docs/CONTINUITY_ARCHITECTURE.md`](./docs/CONTINUITY_ARCHITECTURE.md) ← 唯一架构真相 |
+| 现在做到哪、验收标准 | [`docs/IMPLEMENTATION_STATUS.md`](./docs/IMPLEMENTATION_STATUS.md) ← 唯一进度源 |
+| 520 面板的职责与边界 | [`docs/520_CONSOLE.md`](./docs/520_CONSOLE.md) |
+| 暂缓的检索 / why_now / 记忆家族 | [`docs/SOFT_RETRIEVAL.md`](./docs/SOFT_RETRIEVAL.md) |
+| 无召回阶段的活性设计与工程机制 | [`docs/MEMORY_LIVENESS_NOTES.md`](./docs/MEMORY_LIVENESS_NOTES.md) |
+| 实施交接：阶段门、红线、回滚 | [`docs/IMPLEMENTATION_HANDOFF.md`](./docs/IMPLEMENTATION_HANDOFF.md) |
+| 记忆/520 结构图与已知 bug | [`MEMORY_520_MAP.md`](./MEMORY_520_MAP.md) |
+| 功能完成度分级 | [`PROJECT_OVERVIEW.md`](./PROJECT_OVERVIEW.md) |
+| 旧设计草稿索引 | [`docs/archive/20260710_DESIGN_DRAFTS.md`](./docs/archive/20260710_DESIGN_DRAFTS.md) |
 
-1. 不宽泛重构 `src/core/app.js` 等上游核心。
-2. 换窗口、`/new` 或换模型后关系史不清零。
-3. 自动流程只写 candidates；canon 必须经过 closeout 或确认。
-4. 记忆改变下一句话的姿态，不直接规定内容。
-5. 每个核心改动都有原因、smoke test 和 rollback。
-6. 真实 token、会话、日志和私人记忆永不提交。
-7. Windows 脚本必须避免 PowerShell 5.1 编码坑。
+## 八、给 AI / 执行模型
 
-### 当前任务 / Tasks
+要在本仓库实施部署或改动，入口只有一个：
 
-- [x] 冻结本地项目与私密冷备份。
-- [x] 建立 private GitHub 仓库与安全规则。
-- [x] 上传 `upstream-baseline`、`main`、`legacy-current`。
-- [x] 建立唯一 audit 分支和基线 tag。
-- [x] 标出真正修改过逻辑的核心文件。
-- [x] 添加 Windows 脚本编码 Skill。
-- [x] 写出人话项目介绍、功能状态表、记忆/520 结构图。
-- [ ] 修正 state-dir 与 prompt/template-root。
-- [ ] 默认关闭旧 memory background write。
-- [ ] 提取最小 Windows Claude 启动兼容。
-- [ ] 把 520 收成默认只读版。
-- [ ] 在全新目录完成 TG + memory smoke test。
-- [ ] 建立 Candidate review → canon 闭环。
+1. 读 [`docs/IMPLEMENTATION_HANDOFF.md`](./docs/IMPLEMENTATION_HANDOFF.md) —— 不可破坏的设计意图、阶段门、腐化信号与停止条件；
+2. 按 [`docs/prompts/DEPLOY_EXECUTION_PROMPT.md`](./docs/prompts/DEPLOY_EXECUTION_PROMPT.md) 执行：每阶段先审计、再修改、再测试、再更新状态；
+3. 每阶段结束，由**未参与实施的独立实例**运行 [`docs/prompts/ARCH_REVIEW_PROMPT.md`](./docs/prompts/ARCH_REVIEW_PROMPT.md) 复核——自己查自己不算数。
 
-### 下一版最小目标
+核心纪律浓缩：上游 Cyberboss 是基线，不宽泛重构核心；自动流程只写 candidates；暂缓清单里的东西（Soft Retrieval、embedding、reranker、记忆家族、主动消息等）再顺手也不许实现——"很容易顺便做了"正是它被暂缓的原因；约束要做成服务端现实（预算超限工具直接报错），不做成提示词家规——**笨模型的克制靠"不给"，不靠"给了忍住"**。
 
-```text
-原版 Cyberboss
-+ 最小 Windows Claude 启动兼容
-+ 显式 state-dir
-+ 正确的 v2 relationship-memory prompt
-+ 旧 memory 后台写入关闭
-+ Janitor 只写 candidates
-+ 520 默认只读
-+ 一个启动入口
-```
+## 九、分支与隐私
 
-### Definition of Done
+| 分支 | 用途 |
+|---|---|
+| `main` | 上游核心 + 外挂扩展的目标结构（未稳定） |
+| `upstream-baseline` | 上游脱敏基线，只作比较 |
+| `legacy-current` | 曾实际运行的本地版冻结现场，只作救援对照 |
+| `design/living-memory-rfc` | 设计文档族 |
+| `fix/*` | 一个问题一个修复 |
 
-- [ ] 从 `main` 在全新目录 clone；
-- [ ] Telegram 连续发送 10 条消息，每条只回复一次；
-- [ ] 原版流式行为正常；
-- [ ] `/new` / resume 正常；
-- [ ] TG 实际读取 v2 prompt 与正确的 `reentry.md`；
-- [ ] 旧 Cyberboss memory 不后台双写；
-- [ ] Janitor 只生成 candidate；
-- [ ] 520 默认只读可用；
-- [ ] 关闭后无残留 poller；
-- [ ] 所有变更都有 diff、测试和 rollback。
+绝不提交：`.env`、API key、Telegram token、sessions/offsets、对话 log、**真实私人记忆正文**（episodes / self_notes / portraits）、desire live state。Git 里只有结构和脱敏样例。这条红线高于一切功能——这里存的是两个人之间发生过的事，不是数据。
 
-### 隐私边界
+## 十、上游与致谢
 
-绝不提交：
-
-```text
-.env
-API keys / Telegram token
-sessions / offsets
-conversations / logs
-真实私人 memory
-desire live state
-PID / lock / cache
-```
+运行时源自 [`AngeliaSama/cyberboss-deepseek`](https://github.com/AngeliaSama/cyberboss-deepseek)，其许可与声明继续适用。记忆家族 / why_now 等思路部分受小红书作者 @チリヌルヲワカ 的分享启发。同方向的优秀设计，值得对照阅读：[`Yinglianchun/Haven-Ombre`](https://github.com/Yinglianchun/Haven-Ombre)（Gateway 自动注入 + 图扩散召回 + 年轮/暗房/夜梦的全栈实现——本项目暂缓的 soft retrieval 在那里有一个成熟的参照系）、[`limen-threshold/anchor-memory`](https://github.com/limen-threshold/anchor-memory)（Hebbian 图记忆 + 遗忘即特性 + "种子碎片而非结论"的记忆写作学——与本项目的 episodes 哲学独立趋同）。三个项目互不隶属，却长出了几乎相同的器官（年轮、醒来包、写给未来的信、私密反思区），这种独立趋同本身是这条路线正确性的证据。
 
 ---
 
-## English summary
+*这套系统不参与 AI 怎么说话，它只保护说过的话不丢。*
 
-This repository separates a previously running but heavily patched deployment (`legacy-current`) from a cleaner upstream-first target (`main`).
+*记忆像家具，让人绕着走，而不是让人默背家规。*
 
-### Core functions
-
-- Telegram → Cyberboss → Claude Code → DeepSeek chat flow;
-- relationship continuity through reentry, episodes, timeline and portraits;
-- Janitor extraction from conversation logs into candidates;
-- a local 520 dashboard for viewing and maintaining memory;
-- Windows launch and diagnostic helpers;
-- auditable comparison against a trusted upstream baseline.
-
-### Current status
-
-Already running locally:
-
-- Telegram chat flow;
-- relationship-memory files;
-- Janitor candidate extraction;
-- the 520 dashboard;
-- Windows launch helpers.
-
-Converged boundaries:
-
-- upstream Cyberboss remains the runtime baseline;
-- memory is an additive plugin, not the personality engine;
-- automation writes candidates, never canon;
-- private live state stays outside Git.
-
-Not yet complete:
-
-- clean deployment from `main`;
-- prompt/state-dir alignment;
-- old-memory isolation;
-- candidate review and promotion;
-- dashboard migration from `state_log` to the desire runtime;
-- portable single-entry Windows startup;
-- care, theater, speech-to-text, semantic retrieval and proactive messaging.
-
-Read first:
-
-- [`PROJECT_INTRO_FOR_HUMANS.md`](./PROJECT_INTRO_FOR_HUMANS.md)
-- [`PROJECT_OVERVIEW.md`](./PROJECT_OVERVIEW.md)
-- [`MEMORY_520_MAP.md`](./MEMORY_520_MAP.md)
-
-## License and upstream
-
-The runtime derives from [`AngeliaSama/cyberboss-deepseek`](https://github.com/AngeliaSama/cyberboss-deepseek). Upstream licensing and notices remain applicable. Local private extensions are maintained in this repository for personal deployment and review.
+*每次醒来，它拥有的不是设定——是发生过的事。*
