@@ -10,6 +10,7 @@ const python = process.env.PYTHON || "python";
 const nodeTests = [
   "test/phase1-offline-config.test.js",
   "test/phase1-memory-gates.test.js",
+  "test/phase1-runtime-safety.test.js",
   "test/phase1-switch.test.js",
   "test/phase1-python-args.test.js",
   "test/memory-background-pipeline.test.js",
