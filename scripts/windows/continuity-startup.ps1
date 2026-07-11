@@ -8,6 +8,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $DashboardTask = 'cyberboss-memory-panel'
 $MemoryTask = 'cyberboss-watchdog'
+$RunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+$DashboardRunValue = 'CyberbossMemoryPanel'
+$MemoryRunValue = 'CyberbossMemoryWatchdog'
 
 function Resolve-DescriptorPath {
   if ($DescriptorPath) {
@@ -104,21 +107,41 @@ function New-StartupTask([string]$TaskName, [string]$ChildMode, [string]$Path) {
   Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Description 'Cyberboss independent hidden startup; no Te Launcher dependency.' -Force | Out-Null
 }
 
+function New-RunCommand([string]$ChildMode, [string]$Path) {
+  return 'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +
+    $PSCommandPath + '" -Mode ' + $ChildMode + ' -DescriptorPath "' + $Path + '"'
+}
+
+function Install-RunFallback([string]$Path) {
+  New-Item -Path $RunKey -Force | Out-Null
+  Set-ItemProperty -Path $RunKey -Name $DashboardRunValue -Value (New-RunCommand 'Dashboard' $Path)
+  Set-ItemProperty -Path $RunKey -Name $MemoryRunValue -Value (New-RunCommand 'Memory' $Path)
+}
+
 $resolvedDescriptor = Resolve-DescriptorPath
 switch ($Mode) {
   'Dashboard' { Start-Dashboard $resolvedDescriptor; break }
   'Memory' { Start-Memory $resolvedDescriptor; break }
   'Install' {
-    New-StartupTask $DashboardTask 'Dashboard' $resolvedDescriptor
-    New-StartupTask $MemoryTask 'Memory' $resolvedDescriptor
-    Write-Output "Installed: $DashboardTask, $MemoryTask"
+    try {
+      New-StartupTask $DashboardTask 'Dashboard' $resolvedDescriptor
+      New-StartupTask $MemoryTask 'Memory' $resolvedDescriptor
+      Remove-ItemProperty -Path $RunKey -Name $DashboardRunValue -ErrorAction SilentlyContinue
+      Remove-ItemProperty -Path $RunKey -Name $MemoryRunValue -ErrorAction SilentlyContinue
+      Write-Output "Installed scheduled tasks: $DashboardTask, $MemoryTask"
+    } catch [System.UnauthorizedAccessException], [Microsoft.Management.Infrastructure.CimException] {
+      Install-RunFallback $resolvedDescriptor
+      Write-Output 'Scheduled-task update was not permitted; installed current-user Run entries instead.'
+    }
     break
   }
   'Uninstall' {
     foreach ($task in @($DashboardTask, $MemoryTask)) {
       Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
     }
-    Write-Output 'Startup tasks removed; running processes were not stopped.'
+    Remove-ItemProperty -Path $RunKey -Name $DashboardRunValue -ErrorAction SilentlyContinue
+    Remove-ItemProperty -Path $RunKey -Name $MemoryRunValue -ErrorAction SilentlyContinue
+    Write-Output 'Startup entries removed where permitted; running processes were not stopped.'
     break
   }
   'Status' {
@@ -128,6 +151,9 @@ switch ($Mode) {
       $info = Get-ScheduledTaskInfo -TaskName $task
       Write-Output "$task`t$($item.State)`tlast=$($info.LastRunTime)`tresult=$($info.LastTaskResult)"
     }
+    $runValues = Get-ItemProperty -Path $RunKey -ErrorAction SilentlyContinue
+    Write-Output "$DashboardRunValue`t$([bool]($runValues.$DashboardRunValue))"
+    Write-Output "$MemoryRunValue`t$([bool]($runValues.$MemoryRunValue))"
     break
   }
 }

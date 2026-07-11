@@ -27,3 +27,5 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script -Mode Uninstall
 ```
 
 任务动作使用 `powershell.exe -WindowStyle Hidden`，子进程优先使用 `pythonw.exe`。`Dashboard` 与 `Memory` 模式都会先核对各自 PID 文件和命令行，避免重复启动。安装或取消任务不会读取 memory 正文，也不会停止任何已运行进程。
+
+如果现有计划任务由更高权限创建、当前用户无权更新，`Install` 会自动退回到 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 的两个当前用户启动项。它们仍直接调用同一个独立 PS1，仍然静默且不依赖 Te Launcher。此时应把无法修改的旧 VBS action 保持 inert，避免两个启动 owner 竞争。
