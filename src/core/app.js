@@ -45,7 +45,6 @@ const { runHourlyDesirePoller } = require("../app/hourly-desire-poller");
 const { createProjectTooling } = require("../tools/create-project-tooling");
 const { formatBeijingDateTime } = require("../utils/beijing-time");
 const { runMemoryPostResponsePipeline } = require("./memory-background-pipeline");
-const { EmbeddingService } = require("../services/embedding-service");
 const { resolveMemoryRetrievalPlan } = require("./memory-resolver");
 const { parseMemoryCommand } = require("./memory-command-router");
 const { validateDraftAgainstMemory, rewriteDraftToMatchMemory } = require("./memory-validator");
@@ -66,9 +65,19 @@ function createRuntimeAdapter(config) {
   return require("../adapters/runtime/codex").createCodexRuntimeAdapter(config);
 }
 
+function hasLegacyMemoryPipelineEnabled(config = {}) {
+  return Boolean(
+    config.legacyMemoryRetrieval
+    || config.legacyMemoryBackgroundWrite
+    || config.legacyMemoryReplyTransform
+    || config.includeLegacyMemoryRelays
+  );
+}
+
 class CyberbossApp {
   constructor(config) {
     this.config = config;
+    this.legacyMemoryPipelineEnabled = hasLegacyMemoryPipelineEnabled(config);
     this.telegramChannelAdapter = createTelegramChannelAdapter(config);
     this.weixinChannelAdapter = config.channel !== "telegram" ? createWeixinChannelAdapter(config) : null;
     this.channelAdapter = config.channel === "telegram"
@@ -83,15 +92,11 @@ class CyberbossApp {
     this.projectToolHost = projectTooling.toolHost;
     this.runtimeContextStore = projectTooling.runtimeContextStore;
     this.runtimeAdapter = createRuntimeAdapter(config);
-    this.embeddingService = new EmbeddingService();
-    this.memoryService = config.memoryDir
-      ? new (require("../services/memory-service").MemoryService)({
-        memoryDir: config.memoryDir,
-        vectorFile: config.memoryVectorFile,
-      })
-      : null;
-    if (this.memoryService) {
-      this.memoryService.ensureFiles();
+    this.embeddingService = null;
+    this.memoryService = null;
+    if (this.legacyMemoryPipelineEnabled) {
+      this.createEmbeddingService();
+      this.createMemoryService({ ensureFiles: true });
     }
     this.memoryBgState = { lastMineAtMs: Date.now(), userMsgCountSinceMine: 0, userCharsSinceMine: 0, buffer: [] };
     this.threadStateStore = new ThreadStateStore();
@@ -131,6 +136,35 @@ class CyberbossApp {
           console.error(`[cyberboss] runtime event handling failed type=${event?.type || "(unknown)"} ${message}`);
         });
     });
+  }
+
+  createEmbeddingService() {
+    if (!this.embeddingService) {
+      const { EmbeddingService } = require("../services/embedding-service");
+      this.embeddingService = new EmbeddingService();
+    }
+    return this.embeddingService;
+  }
+
+  createMemoryService({ ensureFiles = false } = {}) {
+    if (!this.memoryService) {
+      if (!this.config.memoryDir) {
+        throw new Error("CYBERBOSS_MEMORY_DIR or CYBERBOSS_STATE_DIR is required before using memory commands.");
+      }
+      const { MemoryService } = require("../services/memory-service");
+      this.memoryService = new MemoryService({
+        memoryDir: this.config.memoryDir,
+        vectorFile: this.config.memoryVectorFile,
+      });
+    }
+    if (ensureFiles) {
+      this.memoryService.ensureFiles();
+    }
+    return this.memoryService;
+  }
+
+  getMemoryServiceForCommand() {
+    return this.createMemoryService({ ensureFiles: true });
   }
 
   printDoctor() {
@@ -682,7 +716,7 @@ class CyberbossApp {
 
   async resolveMemoryContextForPrepared(prepared) {
     const text = String(prepared?.originalText || prepared?.text || "").trim();
-    if (!text || !this.embeddingService) {
+    if (!text) {
       return { lines: [] };
     }
     const locationLines = this.resolveRecentLocationStateMemoryLines();
@@ -692,23 +726,25 @@ class CyberbossApp {
       used: this.config.locationV2Enabled,
       text,
     });
-    if (!this.config.legacyMemoryRetrieval || !this.memoryService) {
+    if (!this.config.legacyMemoryRetrieval) {
       return {
         lines: dedupeMemoryContextLines(locationLines),
         slots: [],
         mode: "disabled",
       };
     }
+    const memoryService = this.memoryService || this.createMemoryService({ ensureFiles: true });
+    const embeddingService = this.embeddingService || this.createEmbeddingService();
     const retrievalPlan = resolveMemoryRetrievalPlan(text);
     const recentMemoryLines = retrievalPlan.mode === "targeted"
       ? formatSevenDayContextLines(
-        this.memoryService.readSevenDayMemory({ status: "active", limit: 20 }),
+        memoryService.readSevenDayMemory({ status: "active", limit: 20 }),
         text,
         1,
       )
       : [];
     const pendingPromiseLines = retrievalPlan.includePendingPromises
-      ? formatPendingPromiseContextLines(this.memoryService.readPendingPromises({ status: "pending", limit: 10 }), 1)
+      ? formatPendingPromiseContextLines(memoryService.readPendingPromises({ status: "pending", limit: 10 }), 1)
       : [];
     if (retrievalPlan.mode !== "targeted") {
       return {
@@ -724,10 +760,10 @@ class CyberbossApp {
         mode: retrievalPlan.mode,
       };
     }
-    const memoryQuery = this.memoryService.resolvePreResponseMemory({ slots: retrievalPlan.retrievalSlots });
+    const memoryQuery = memoryService.resolvePreResponseMemory({ slots: retrievalPlan.retrievalSlots });
     const curated = await selectCuratedMemoryLines(memoryQuery.markdownLines, text, 1, {
-      embeddingService: this.embeddingService,
-      memoryService: this.memoryService,
+      embeddingService,
+      memoryService,
     });
     return {
       lines: dedupeMemoryContextLines([...pendingPromiseLines, ...curated, ...recentMemoryLines, ...locationLines]),
@@ -1849,8 +1885,7 @@ class CyberbossApp {
 
   async handleMemoryCommand(normalized) {
     const parsed = parseMemoryCommand(normalized.text);
-    const memoryService = this.memoryService;
-    if (!parsed || !memoryService) {
+    if (!parsed) {
       return;
     }
     const reply = await this.executeMemoryCommand(parsed).catch((error) =>
@@ -1868,6 +1903,9 @@ class CyberbossApp {
     const action = String(parsed?.action || "help").toLowerCase();
     const args = Array.isArray(parsed?.args) ? parsed.args : [];
     const options = parsed?.options && typeof parsed.options === "object" ? parsed.options : {};
+    const memoryService = action === "help"
+      ? null
+      : (typeof this.getMemoryServiceForCommand === "function" ? this.getMemoryServiceForCommand() : this.memoryService);
     switch (action) {
       case "help":
         return buildMemoryHelpText();
@@ -1876,15 +1914,15 @@ class CyberbossApp {
         const category = normalizeMemoryCategory(args[1] || options.category);
         const limit = normalizeMemoryLimit(options.limit, 20);
         const rows = status === "pending"
-          ? this.memoryService.readPending({ limit })
-          : this.memoryService.readIndex({ status, categories: category ? [category] : [], limit });
+          ? memoryService.readPending({ limit })
+          : memoryService.readIndex({ status, categories: category ? [category] : [], limit });
         if (options.json) return JSON.stringify(rows, null, 2);
         return formatMemoryRows(status === "pending" ? "7-Day memory" : `Memories (${status})`, rows);
       }
       case "review": {
         const category = normalizeMemoryCategory(args[0] || options.category);
         const limit = normalizeMemoryLimit(options.limit, 20);
-        const rows = this.memoryService.readPending({ limit: Math.max(limit * 2, limit) })
+        const rows = memoryService.readPending({ limit: Math.max(limit * 2, limit) })
           .filter((item) => !category || item.category === category)
           .slice(0, limit);
         if (options.json) return JSON.stringify(rows.map((item) => ({ ...item, suggestion: buildPendingRewriteSuggestion(item) })), null, 2);
@@ -1893,7 +1931,7 @@ class CyberbossApp {
       case "suggest": {
         const id = args[0] || "";
         if (!id) return "💡 Usage: /memory suggest <entryId>";
-        const pending = findPendingMemoryById(this.memoryService, id);
+        const pending = findPendingMemoryById(memoryService, id);
         if (!pending) return `❌ 7-Day entry not found\n${id}`;
         const suggestion = buildPendingRewriteSuggestion(pending);
         return [
@@ -1905,16 +1943,16 @@ class CyberbossApp {
       case "apply-suggestion": {
         const id = args[0] || "";
         if (!id) return "💡 Usage: /memory apply-suggestion <entryId>";
-        const pending = findPendingMemoryById(this.memoryService, id);
+        const pending = findPendingMemoryById(memoryService, id);
         if (!pending) return `❌ 7-Day entry not found\n${id}`;
         const suggestion = buildPendingRewriteSuggestion(pending);
-        const approved = this.memoryService.approvePending(id, { text: suggestion });
+        const approved = memoryService.approvePending(id, { text: suggestion });
         return approved ? `✅ 7-Day entry promoted with suggestion\n${formatMemoryRow({ ...approved, text: suggestion || approved.text || approved.value, tier: 'stable', status: 'active' })}` : `❌ 7-Day entry not found\n${id}`;
       }
       case "search": {
         const query = args.join(" ").trim();
         if (!query) return "💡 Usage: /memory search <query>";
-        const rows = this.memoryService.searchMemory(query);
+        const rows = memoryService.searchMemory(query);
         if (options.json) return JSON.stringify(rows, null, 2);
         return formatMemoryRows(`Memory search: ${query}`, rows);
       }
@@ -1935,15 +1973,15 @@ class CyberbossApp {
           updatedAt: new Date().toISOString(),
           status: "active",
         };
-        const dup = this.memoryService.findDuplicate(candidate);
+        const dup = memoryService.findDuplicate(candidate);
         if (dup) return `⚠️ Memory already exists\n${formatMemoryRow(dup)}`;
-        const saved = this.memoryService.saveFormalMemory(candidate, { markdownText: text });
+        const saved = memoryService.saveFormalMemory(candidate, { markdownText: text });
         return `✅ Memory saved\n${formatMemoryRow(saved)}`;
       }
       case "delete": {
         const reference = args[0] || "";
         if (!reference) return "💡 Usage: /memory delete <id|key>";
-        return this.memoryService.markDeleted(reference)
+        return memoryService.markDeleted(reference)
           ? `✅ Memory deleted\n${reference}`
           : `❌ Memory not found\n${reference}`;
       }
@@ -1951,37 +1989,37 @@ class CyberbossApp {
         const reference = args[0] || "";
         const value = args.slice(1).join(" ").trim();
         if (!reference || !value) return "💡 Usage: /memory update <id|key> <text>";
-        const updated = this.memoryService.updateMemoryReference(reference, value);
+        const updated = memoryService.updateMemoryReference(reference, value);
         return updated
           ? `✅ Memory updated\n${formatMemoryRow(updated)}`
           : `❌ Active memory not found\n${reference}`;
       }
       case "undo":
-        return this.memoryService.undoLastWrite() ? "✅ Last memory write was reverted" : "❌ No memory write to undo";
+        return memoryService.undoLastWrite() ? "✅ Last memory write was reverted" : "❌ No memory write to undo";
       case "pending":
         return this.executeMemoryCommand({ action: "review", args, options });
       case "approve": {
         const id = args[0] || "";
         const text = args.slice(1).join(" ").trim();
         if (!id) return "💡 Usage: /memory approve <entryId> [rewrite text]";
-        const approved = this.memoryService.approvePending(id, { text });
+        const approved = memoryService.approvePending(id, { text });
         return approved ? `✅ 7-Day entry promoted into formal memory\n${formatMemoryRow({ ...approved, text: text || approved.text || approved.value, tier: 'stable', status: 'active' })}` : `❌ 7-Day entry not found\n${id}`;
       }
       case "reject": {
         const id = args[0] || "";
         if (!id) return "💡 Usage: /memory reject <entryId>";
-        return this.memoryService.rejectPending(id) ? `✅ 7-Day entry rejected\n${id}` : `❌ 7-Day entry not found\n${id}`;
+        return memoryService.rejectPending(id) ? `✅ 7-Day entry rejected\n${id}` : `❌ 7-Day entry not found\n${id}`;
       }
       case "prune": {
         const category = normalizeMemoryCategory(args[0]);
         if (!category) return "💡 Usage: /memory prune <category>";
-        const result = this.memoryService.pruneCategory(category);
+        const result = memoryService.pruneCategory(category);
         return result
           ? `✅ Memory category pruned\ncategory: ${category}\nbefore: ${result.before}\nafter: ${result.after}`
           : `❌ Unknown memory category\n${args[0] || ""}`;
       }
       case "cleanup": {
-        const result = this.memoryService.cleanupHistoricalMemories();
+        const result = memoryService.cleanupHistoricalMemories();
         return [
           "✅ Memory cleanup finished",
           `deleted: ${result.deleted}`,
@@ -2043,9 +2081,11 @@ class CyberbossApp {
     if (!this.config.legacyMemoryBackgroundWrite) {
       return;
     }
+    const memoryService = this.memoryService || this.createMemoryService({ ensureFiles: true });
+    const embeddingService = this.embeddingService || this.createEmbeddingService();
     void runMemoryPostResponsePipeline({
-      memoryService: this.memoryService,
-      embeddingService: this.embeddingService,
+      memoryService,
+      embeddingService,
       normalized,
       bgState: this.memoryBgState,
     }).catch((error) => {
