@@ -190,7 +190,7 @@ def main():
                   or p.startswith(".cache/") for p in produced)
     check("没有越界写入其他文件", allowed, str(produced))
 
-    print(f"\n结果:{PASS} 通过,{FAIL} 失败(fixture 目录:{tmp})")
+    print(f"\n结果:{PASS} 通过,{FAIL} 失败(fixture 目录:<TMPDIR>)")
     sys.exit(1 if FAIL else 0)
 
 
