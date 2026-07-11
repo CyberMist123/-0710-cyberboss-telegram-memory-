@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-11
 
-Phase 1 engineering and the minimum orchestration foundation are live verified.
+Phase 1 engineering and the minimum orchestration foundation are live verified. Phase 2 hard-context engineering is offline verified and has not been cut over to live yet.
 
 ## Verified Evidence
 
@@ -22,8 +22,20 @@ Phase 1 engineering and the minimum orchestration foundation are live verified.
 
 ## Current Scope
 
-- Phase 2 through Phase 5 are still incomplete.
+- Phase 2 now provides first-turn-only Re-entry, opening/refresh Current State, Context Trace, explicit resume-origin handling, and four-gate legacy-memory enforcement.
+- Phase 3 through Phase 5 are still incomplete.
 - Soft Retrieval remains off.
+
+## Phase 2 Offline Gate
+
+- `CYBERBOSS_CONTINUITY_DIR` is an explicit external root. The adjudicated operational target is outside the Git worktree, state-dir, and legacy memory directory, and Janitor scans only its separately supplied transcript input.
+- Re-entry is read as canon bytes without persona template substitution, truncation, or rewriting. Files over 300 non-whitespace characters are skipped with a warning.
+- A successful injection is persisted by runtime thread ID in `sessions.json`; `/new` gets a new thread budget, existing `/switch` and `/reread` paths never load Re-entry, and implicit runtime loss rebuilds with `thread_recreated` evidence.
+- Current State uses the Desire service's read-only state interface and is loaded only for opening or instruction refresh.
+- Context Trace uses a single-process asynchronous append queue, stores hashes/counts/reasons only, and records Episodes, Timeline, Portrait, Self-note, and Rereadings as default-hidden.
+- `npm run check`, `npm run test:phase2` (9/9), and `npm run test:phase1` (61 Node + 18 Janitor + 3 Dashboard, portability and PowerShell checks) passed.
+- Writer change: no canon writer changed. The existing session-store writer now owns only the per-thread Re-entry injection marker; Context Trace is a new append-only evidence writer.
+- Rollback: revert the Phase 2 commit and restore the previous external orchestrator `last_green_sha`. Offline fixtures used temporary directories, so no live continuity data rollback is required before cutover.
 
 ## Notes
 

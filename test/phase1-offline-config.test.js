@@ -25,6 +25,7 @@ const ENV_KEYS = [
   "CYBERBOSS_MEMORY_REPLY_TRANSFORM",
   "CYBERBOSS_INCLUDE_OPERATIONS_PROMPT",
   "CYBERBOSS_INCLUDE_LEGACY_MEMORY_RELAYS",
+  "CYBERBOSS_CONTINUITY_DIR",
 ];
 
 test("phase 1 config requires explicit fixture paths and keeps legacy memory gates off", () => {
@@ -34,6 +35,7 @@ test("phase 1 config requires explicit fixture paths and keeps legacy memory gat
     const configDir = path.join(root, "config");
     const workspace = path.join(root, "workspace");
     const promptFile = path.join(root, "prompt.md");
+    const continuityDir = path.join(root, "continuity");
     fs.mkdirSync(stateDir);
     fs.mkdirSync(configDir);
     fs.mkdirSync(workspace);
@@ -43,6 +45,7 @@ test("phase 1 config requires explicit fixture paths and keeps legacy memory gat
     process.env.CYBERBOSS_STATE_DIR = stateDir;
     process.env.CYBERBOSS_WORKSPACE = workspace;
     process.env.CYBERBOSS_PROMPT_FILE = promptFile;
+    process.env.CYBERBOSS_CONTINUITY_DIR = continuityDir;
     process.env.CYBERBOSS_CHANNEL = "telegram";
     process.env.CYBERBOSS_RUNTIME = "claudecode";
     process.env.CYBERBOSS_TELEGRAM_BOT_TOKEN = "FAKE_OFFLINE_TOKEN";
@@ -54,6 +57,7 @@ test("phase 1 config requires explicit fixture paths and keeps legacy memory gat
     assert.equal(config.configDir, configDir);
     assert.equal(config.workspaceRoot, workspace);
     assert.equal(config.promptFile, promptFile);
+    assert.equal(config.continuityDir, continuityDir);
     assert.equal(config.weixinInstructionsFile, promptFile);
     assert.equal(config.legacyMemoryRetrieval, false);
     assert.equal(config.legacyMemoryBackgroundWrite, false);

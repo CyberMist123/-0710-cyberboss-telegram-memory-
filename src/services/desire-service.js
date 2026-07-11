@@ -452,6 +452,15 @@ function loadStateFile(filePath) {
   }
 }
 
+function readDesireRuntimeState(filePath) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function loadThoughtsFile(filePath) {
   try {
     const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -878,4 +887,5 @@ module.exports = {
   generateThoughtFromMemory,
   generateThoughtFromSelfReflection,
   generateThoughtFromWorldObservation,
+  readDesireRuntimeState,
 };

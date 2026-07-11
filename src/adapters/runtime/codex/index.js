@@ -13,6 +13,12 @@ const {
 const { findModelByQuery } = require("./model-catalog");
 const { SessionStore } = require("./session-store");
 const { resolveCodexProjectToolMcpServerConfig } = require("./mcp-config");
+const {
+  finalizeOpeningContext,
+  prepareOpeningContext,
+  prepareOrdinaryContext,
+  prepareRefreshContext,
+} = require("../../../core/hard-context");
 
 function createCodexRuntimeAdapter(config) {
   const sessionStore = new SessionStore({ filePath: config.sessionsFile, runtimeId: "codex" });
@@ -142,24 +148,26 @@ function createCodexRuntimeAdapter(config) {
       await runtimeClient.cancelTurn({ threadId, turnId });
       return { threadId, turnId };
     },
-    async resumeThread({ threadId }) {
+    async resumeThread({ threadId, resumeOrigin = "implicit_restore" }) {
       const runtimeClient = ensureClient();
       await this.initialize();
-      return runtimeClient.resumeThread({
+      const response = await runtimeClient.resumeThread({
         threadId,
         model: configuredModel,
         modelProvider: configuredModelProvider,
       });
+      return { threadId, resumed: true, resumeOrigin, empty: isEmptyResumeResponse(response) };
     },
     async compactThread({ threadId }) {
       const runtimeClient = ensureClient();
       await this.initialize();
       return runtimeClient.compactThread({ threadId });
     },
-    async refreshThreadInstructions({ threadId, workspaceRoot, model = "", modelProvider = "" }) {
+    async refreshThreadInstructions({ threadId, workspaceRoot, model = "", modelProvider = "", reason = "refresh" }) {
       const runtimeClient = ensureClient();
       await this.initialize();
-      const refreshText = buildInstructionRefreshText(config);
+      const continuity = prepareRefreshContext({ config, reason });
+      const refreshText = buildInstructionRefreshText(config, continuity);
       const desiredModel = resolveModel(model, { modelProvider });
       await runtimeClient.resumeThread({
         threadId,
@@ -175,7 +183,7 @@ function createCodexRuntimeAdapter(config) {
         workspaceRoot,
       });
       const result = await completion;
-      return { threadId, ...result };
+      return { threadId, ...result, continuity: { ...continuity, total_chars: countVisibleChars(refreshText) } };
     },
     async sendTextTurn(args) {
       return this.sendTurn(args);
@@ -200,6 +208,7 @@ function createCodexRuntimeAdapter(config) {
         modelProvider: desiredModelProvider,
       });
       let outboundText = text;
+      let continuity = prepareOrdinaryContext(text);
       if (!threadId) {
         const response = await runtimeClient.startThread({
           cwd: workspaceRoot,
@@ -211,7 +220,16 @@ function createCodexRuntimeAdapter(config) {
           throw new Error("thread/start did not return a thread id");
         }
         sessionStore.setThreadIdForWorkspace(bindingKey, workspaceRoot, threadId, metadata);
-        outboundText = buildOpeningTurnText(config, text);
+        const openingContext = prepareOpeningContext({ config, sessionStore, threadId, reason: "new_thread" });
+        let fallback = false;
+        try {
+          outboundText = buildOpeningTurnText(config, text, openingContext);
+        } catch (error) {
+          fallback = true;
+          outboundText = text;
+          console.warn(`[continuity] opening builder failed: ${error.message || String(error)}`);
+        }
+        continuity = finalizeOpeningContext(openingContext, { sessionStore, threadId, outboundText, fallback });
       } else {
         await runtimeClient.resumeThread({
           threadId,
@@ -233,7 +251,16 @@ function createCodexRuntimeAdapter(config) {
             model: desiredModel,
             modelProvider: desiredModelProvider,
           });
-          outboundText = buildOpeningTurnText(config, text);
+          const openingContext = prepareOpeningContext({ config, sessionStore, threadId, reason: "thread_recreated" });
+          let fallback = false;
+          try {
+            outboundText = buildOpeningTurnText(config, text, openingContext);
+          } catch (error) {
+            fallback = true;
+            outboundText = text;
+            console.warn(`[continuity] opening builder failed: ${error.message || String(error)}`);
+          }
+          continuity = finalizeOpeningContext(openingContext, { sessionStore, threadId, outboundText, fallback });
         });
       }
 
@@ -248,6 +275,7 @@ function createCodexRuntimeAdapter(config) {
       return {
         threadId,
         turnId: extractTurnId(response),
+        continuity,
       };
     },
   };
@@ -262,6 +290,16 @@ function normalizeText(value) {
 function runtimeParamsMatch(storedParams, desiredParams) {
   return normalizeText(storedParams?.model) === normalizeText(desiredParams?.model)
     && normalizeText(storedParams?.modelProvider) === normalizeText(desiredParams?.modelProvider);
+}
+
+function isEmptyResumeResponse(response) {
+  const value = response?.result || response;
+  if (value?.empty === true) return true;
+  return Array.isArray(value?.thread?.turns) && value.thread.turns.length === 0;
+}
+
+function countVisibleChars(value) {
+  return Array.from(String(value || "").replace(/\s/gu, "")).length;
 }
 
 function hasImageInputModality(model) {

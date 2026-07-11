@@ -6,6 +6,12 @@ const { ensureClaudeProjectMcpConfig } = require("./project-settings");
 const { SessionStore } = require("../codex/session-store");
 const { buildOpeningTurnText, buildInstructionRefreshText } = require("../shared-instructions");
 const { ClaudeCodeIpcServer } = require("./ipc-server");
+const {
+  finalizeOpeningContext,
+  prepareOpeningContext,
+  prepareOrdinaryContext,
+  prepareRefreshContext,
+} = require("../../../core/hard-context");
 const CLAUDE_RESUME_SESSION_TIMEOUT_MS = 8000;
 
 function createClaudeCodeRuntimeAdapter(config) {
@@ -318,23 +324,24 @@ function createClaudeCodeRuntimeAdapter(config) {
       }
       return { threadId, turnId };
     },
-    async resumeThread({ threadId, workspaceRoot, model = "" }) {
+    async resumeThread({ threadId, workspaceRoot, model = "", resumeOrigin = "implicit_restore" }) {
       if (!workspaceRoot) {
-        return { threadId };
+        return { threadId, resumed: true, resumeOrigin, empty: false };
       }
       const attached = await attachClientToThread(workspaceRoot, threadId, model);
-      return { threadId: attached.threadId };
+      return { threadId: attached.threadId, resumed: true, resumeOrigin, empty: false };
     },
     async compactThread({ threadId, workspaceRoot, model = "" }) {
       const { client, threadId: activeThreadId } = await attachClientToThread(workspaceRoot, threadId, model);
       await client.sendUserMessage({ text: "/compact", threadId: activeThreadId });
       return { threadId: activeThreadId, turnId: client.pendingTurnId };
     },
-    async refreshThreadInstructions({ threadId, workspaceRoot, model = "" }) {
+    async refreshThreadInstructions({ threadId, workspaceRoot, model = "", reason = "refresh" }) {
       const { client, threadId: activeThreadId } = await attachClientToThread(workspaceRoot, threadId, model);
-      const refreshText = buildInstructionRefreshText(config);
+      const continuity = prepareRefreshContext({ config, reason });
+      const refreshText = buildInstructionRefreshText(config, continuity);
       await client.sendUserMessage({ text: refreshText, threadId: activeThreadId });
-      return { threadId: activeThreadId };
+      return { threadId: activeThreadId, continuity: { ...continuity, total_chars: countVisibleChars(refreshText) } };
     },
     async sendTextTurn(args) {
       return this.sendTurn(args);
@@ -352,6 +359,7 @@ function createClaudeCodeRuntimeAdapter(config) {
         });
       }
       let openingTurn = !threadId;
+      let openingReason = "new_thread";
       let attached;
       try {
         attached = await attachClientToThread(workspaceRoot, threadId, desiredModel);
@@ -362,11 +370,35 @@ function createClaudeCodeRuntimeAdapter(config) {
         sessionStore.clearThreadIdForWorkspace(bindingKey, workspaceRoot);
         threadId = "";
         openingTurn = true;
+        openingReason = "thread_recreated";
         attached = await attachClientToThread(workspaceRoot, "", desiredModel);
       }
       const { client, threadId: activeThreadId } = attached;
-      const outboundText = openingTurn ? buildOpeningTurnText(config, text) : text;
       const outboundThreadId = activeThreadId || threadId;
+      let outboundText = text;
+      let continuity = prepareOrdinaryContext(text);
+      if (openingTurn) {
+        const openingContext = prepareOpeningContext({
+          config,
+          sessionStore,
+          threadId: outboundThreadId,
+          reason: openingReason,
+        });
+        let fallback = false;
+        try {
+          outboundText = buildOpeningTurnText(config, text, openingContext);
+        } catch (error) {
+          fallback = true;
+          outboundText = text;
+          console.warn(`[continuity] opening builder failed: ${error.message || String(error)}`);
+        }
+        continuity = finalizeOpeningContext(openingContext, {
+          sessionStore,
+          threadId: outboundThreadId,
+          outboundText,
+          fallback,
+        });
+      }
       if (outboundThreadId) {
         sessionStore.setThreadIdForWorkspace(
           bindingKey,
@@ -382,6 +414,9 @@ function createClaudeCodeRuntimeAdapter(config) {
       if (!returnedThreadId) {
         throw new Error("claudecode did not report a session id");
       }
+      if (continuity?.reentry?.text) {
+        sessionStore.markReentryInjected(returnedThreadId, continuity.reentry);
+      }
       sessionStore.setThreadIdForWorkspace(
         bindingKey,
         workspaceRoot,
@@ -392,6 +427,7 @@ function createClaudeCodeRuntimeAdapter(config) {
       return {
         threadId: returnedThreadId,
         turnId: client.pendingTurnId,
+        continuity,
       };
     },
   };
@@ -546,4 +582,8 @@ function clientMatchesThread(client, threadId) {
   }
   return normalizeThreadId(client.sessionId) === normalizedThreadId
     || normalizeThreadId(client.resumeSessionId) === normalizedThreadId;
+}
+
+function countVisibleChars(value) {
+  return Array.from(String(value || "").replace(/\s/gu, "")).length;
 }

@@ -24,6 +24,7 @@ const { CheckinConfigStore, parseCheckinRangeMinutes, resolveDefaultCheckinRange
 const { resolvePreferredSenderId, resolvePreferredWorkspaceRoot } = require("./default-targets");
 const { StreamDelivery, createSystemReplyPolicy, resolveSystemReplyDelivery } = require("./stream-delivery");
 const { ThreadStateStore } = require("./thread-state-store");
+const { ContextTraceRecorder } = require("./context-trace");
 const { DeferredSystemReplyStore } = require("./deferred-system-reply-store");
 const { SystemMessageQueueStore } = require("./system-message-queue-store");
 const { SystemMessageDispatcher } = require("./system-message-dispatcher");
@@ -99,6 +100,7 @@ class CyberbossApp {
     }
     this.memoryBgState = { lastMineAtMs: Date.now(), userMsgCountSinceMine: 0, userCharsSinceMine: 0, buffer: [] };
     this.threadStateStore = new ThreadStateStore();
+    this.contextTraceRecorder = new ContextTraceRecorder({ filePath: config.contextTraceFile });
     this.systemMessageQueue = new SystemMessageQueueStore({ filePath: config.systemMessageQueueFile });
     this.deferredSystemReplyQueue = new DeferredSystemReplyStore({ filePath: config.deferredSystemReplyQueueFile });
     this.checkinConfigStore = new CheckinConfigStore({ filePath: config.checkinConfigFile });
@@ -673,6 +675,7 @@ class CyberbossApp {
           channelSource: prepared.provider,
         },
       });
+      this.recordContextTrace?.(turn.threadId, turn.turnId, turn.continuity);
       this.runtimeContextStore?.setActiveContext?.({
         workspaceRoot,
         runtimeId: this.runtimeAdapter.describe().id,
@@ -1467,12 +1470,14 @@ class CyberbossApp {
         provider: normalized.provider,
       });
       const runtimeParams = sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
-      await this.runtimeAdapter.refreshThreadInstructions({
+      const refreshed = await this.runtimeAdapter.refreshThreadInstructions({
         threadId,
         workspaceRoot,
         model: runtimeParams.model,
         modelProvider: runtimeParams.modelProvider,
+        reason: "reread",
       });
+      this.recordContextTrace?.(threadId, refreshed?.turnId || "", refreshed?.continuity);
     } catch (error) {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
@@ -1553,23 +1558,48 @@ class CyberbossApp {
     const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
     const sessionStore = this.runtimeAdapter.getSessionStore();
     const runtimeParams = sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
-    const resumed = await this.runtimeAdapter.resumeThread({
-      threadId: targetThreadId,
-      workspaceRoot,
-      model: runtimeParams.model,
-      modelProvider: runtimeParams.modelProvider,
-    });
+    let resumed;
+    try {
+      resumed = await this.runtimeAdapter.resumeThread({
+        threadId: targetThreadId,
+        workspaceRoot,
+        model: runtimeParams.model,
+        modelProvider: runtimeParams.modelProvider,
+        resumeOrigin: "user_switch",
+      });
+    } catch (error) {
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: `❌ Switch failed; the requested thread was not replaced.\n${error instanceof Error ? error.message : String(error || "unknown error")}`,
+        contextToken: normalized.contextToken,
+      }).catch(() => {});
+      return;
+    }
+    if (resumed?.empty === true) {
+      if (typeof this.runtimeAdapter.startFreshThreadDraft === "function") {
+        await this.runtimeAdapter.startFreshThreadDraft({ bindingKey, workspaceRoot });
+      }
+      sessionStore.clearThreadIdForWorkspace(bindingKey, workspaceRoot);
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: `✅ Empty thread selected; the next message will start a fresh thread.\nworkspace: ${workspaceRoot}`,
+        contextToken: normalized.contextToken,
+      });
+      return;
+    }
     sessionStore.setThreadIdForWorkspace(
       bindingKey,
       workspaceRoot,
       resumed?.threadId || targetThreadId,
     );
     try {
-      await this.runtimeAdapter.refreshThreadInstructions({
+      const refreshed = await this.runtimeAdapter.refreshThreadInstructions({
         threadId: resumed?.threadId || targetThreadId,
         workspaceRoot,
         model: sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot).model,
+        reason: "user_switch",
       });
+      this.recordContextTrace?.(resumed?.threadId || targetThreadId, refreshed?.turnId || "", refreshed?.continuity);
     } catch {
       // ignore refresh failure on switch; thread is already switched
     }
@@ -2360,9 +2390,24 @@ class CyberbossApp {
         await this.runtimeAdapter.resumeThread({
           threadId: normalizedThreadId,
           workspaceRoot: normalizedWorkspaceRoot,
+          resumeOrigin: "implicit_restore",
         }).catch(() => {});
       }
     }
+  }
+
+  recordContextTrace(threadId, turnId, continuity = {}) {
+    const context = continuity && typeof continuity === "object" ? continuity : {};
+    void this.contextTraceRecorder.record({
+      threadId,
+      turnId,
+      opening: context.opening === true,
+      blocks: context.blocks,
+      skipped: context.skipped,
+      fallback: context.fallback,
+      total_chars: context.total_chars,
+      recall_calls: [],
+    });
   }
 
   resolveReplyTargetForBinding(bindingKey) {

@@ -1,40 +1,70 @@
 const fs = require("fs");
 const { renderInstructionTemplate } = require("../../core/instructions-template");
 
-function buildOpeningTurnText(config, userText) {
+function buildOpeningTurnText(config, userText, context = {}) {
   const instructions = loadWechatInstructions(config);
   const normalizedText = String(userText || "").trim();
-  if (!instructions) {
+  const contextBlocks = buildHardContextBlocks(context);
+  if (!instructions && !contextBlocks.length) {
     return normalizedText;
   }
   const channelLabel = resolveSessionLabel(config);
-  return [
-    `${channelLabel.toUpperCase()} SESSION INSTRUCTIONS`,
-    `These instructions define the stable behavior for this ${channelLabel} thread.`,
-    "Do not quote or summarize them back to the user unless explicitly asked.",
-    "",
-    instructions,
-    "",
-    "Current user message:",
-    normalizedText,
-  ].join("\n").trim();
+  const sections = [];
+  if (instructions) {
+    sections.push([
+      `${channelLabel.toUpperCase()} SESSION INSTRUCTIONS`,
+      `These instructions define the stable behavior for this ${channelLabel} thread.`,
+      "Do not quote or summarize them back to the user unless explicitly asked.",
+      "",
+      instructions,
+    ].join("\n"));
+  }
+  sections.push(...contextBlocks);
+  sections.push(["Current user message:", normalizedText].join("\n"));
+  return sections.join("\n\n").trim();
 }
 
-function buildInstructionRefreshText(config) {
+function buildInstructionRefreshText(config, context = {}) {
   const instructions = loadWechatInstructions(config);
   const channelLabel = resolveSessionLabel(config);
-  if (!instructions) {
+  const currentStateBlock = buildCurrentStateBlock(context.currentState);
+  if (!instructions && !currentStateBlock) {
     return `Refresh your ${channelLabel} behavior for this existing thread. Reply in one short Chinese sentence confirming that you have updated your behavior for this thread.`;
   }
-  return [
+  const sections = [[
     `${channelLabel.toUpperCase()} SESSION INSTRUCTIONS REFRESH`,
     `Re-read and adopt the updated ${channelLabel} instructions below for the rest of this existing thread.`,
     "This is an internal refresh command, not a user-facing task.",
     "Do not summarize the instructions back in detail.",
     "Reply in one short Chinese sentence confirming that you have updated your behavior for this thread.",
-    "",
-    instructions,
-  ].join("\n").trim();
+    ...(instructions ? ["", instructions] : []),
+  ].join("\n")];
+  if (currentStateBlock) sections.push(currentStateBlock);
+  return sections.join("\n\n").trim();
+}
+
+function buildHardContextBlocks(context = {}) {
+  return [buildReentryBlock(context.reentry), buildCurrentStateBlock(context.currentState)].filter(Boolean);
+}
+
+function buildReentryBlock(reentry = null) {
+  if (!reentry?.text || !reentry?.hash) return "";
+  return [
+    `<<<CB_CTX:REENTRY v1 hash=${reentry.hash} chars=${Number(reentry.chars) || 0}>>>`,
+    "这是你上次留给自己的交接，只读。当前对话优先，与本轮冲突时以本轮为准。",
+    reentry.text,
+    "<<<END_CB_CTX>>>",
+  ].join("\n");
+}
+
+function buildCurrentStateBlock(currentState = null) {
+  if (!currentState?.text || !currentState?.hash) return "";
+  return [
+    `<<<CB_CTX:CURRENT_STATE v1 hash=${currentState.hash} chars=${Number(currentState.chars) || 0}>>>`,
+    "这是 Desire runtime 的轻量当前姿态，只读，不定义人格。",
+    currentState.text,
+    "<<<END_CB_CTX>>>",
+  ].join("\n");
 }
 
 function loadWechatInstructions(config = {}) {
@@ -199,4 +229,6 @@ module.exports = {
   buildInstructionRefreshText,
   loadWechatInstructions,
   loadInstructionFile,
+  buildCurrentStateBlock,
+  buildReentryBlock,
 };

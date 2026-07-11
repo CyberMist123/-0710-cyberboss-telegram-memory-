@@ -17,6 +17,7 @@ function readConfig() {
   const sourceLabel = readTextEnv("CYBERBOSS_SOURCE_LABEL");
   const memoryDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_MEMORY_DIR") || joinIfBase(stateDir, "memory"));
   const operationsFile = resolveConfiguredPath(readTextEnv("CYBERBOSS_OPERATIONS_FILE"));
+  const continuityDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_CONTINUITY_DIR"));
 
   return {
     mode,
@@ -54,6 +55,9 @@ function readConfig() {
     projectToolContextFile: joinIfBase(stateDir, "project-tool-runtime-context.json"),
     weixinInstructionsFile: promptFile,
     memoryDir,
+    continuityDir,
+    reentryFile: joinIfBase(continuityDir, "reentry.md"),
+    contextTraceFile: joinIfBase(continuityDir, "trace", "context_trace.jsonl"),
     memoryStateFile: joinIfBase(memoryDir, "state.md"),
     memoryPendingPromisesFile: joinIfBase(memoryDir, "pending-promises.md"),
     memoryVectorFile: joinIfBase(memoryDir, "vectors.jsonl"),

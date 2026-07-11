@@ -27,6 +27,7 @@ class SessionStore {
           bindings: parsed.bindings || {},
           approvalCommandAllowlistByWorkspaceRoot: parsed.approvalCommandAllowlistByWorkspaceRoot || {},
           approvalPromptStateByThreadId: parsed.approvalPromptStateByThreadId || {},
+          continuityByThreadId: parsed.continuityByThreadId || {},
           availableModelCatalog: parsed.availableModelCatalog || {
             models: [],
             updatedAt: "",
@@ -196,6 +197,31 @@ class SessionStore {
     return this.updateBinding(bindingKey, nextBinding);
   }
 
+  getReentryInjection(threadId) {
+    const normalizedThreadId = normalizeThreadValue(threadId);
+    if (!normalizedThreadId) return null;
+    const record = this.state.continuityByThreadId?.[normalizedThreadId];
+    return record && typeof record === "object" ? { ...record } : null;
+  }
+
+  markReentryInjected(threadId, record = {}) {
+    const normalizedThreadId = normalizeThreadValue(threadId);
+    if (!normalizedThreadId) return null;
+    const current = this.getReentryInjection(normalizedThreadId);
+    if (current?.reentry_injected === true) return current;
+    this.state.continuityByThreadId = {
+      ...(this.state.continuityByThreadId || {}),
+      [normalizedThreadId]: {
+        reentry_injected: true,
+        hash: normalizeValue(record.hash),
+        chars: Math.max(0, Number(record.chars) || 0),
+        ts: normalizeValue(record.ts) || new Date().toISOString(),
+      },
+    };
+    this.save();
+    return this.getReentryInjection(normalizedThreadId);
+  }
+
   setActiveWorkspaceRoot(bindingKey, workspaceRoot) {
     const normalizedWorkspaceRoot = normalizeValue(workspaceRoot);
     if (!normalizedWorkspaceRoot) {
@@ -347,6 +373,7 @@ function createEmptyState() {
     bindings: {},
     approvalCommandAllowlistByWorkspaceRoot: {},
     approvalPromptStateByThreadId: {},
+    continuityByThreadId: {},
     availableModelCatalog: {
       models: [],
       updatedAt: "",
