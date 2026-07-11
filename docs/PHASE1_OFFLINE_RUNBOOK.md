@@ -20,8 +20,8 @@ This runbook is intentionally placeholder-only. Do not paste real tokens, live m
 1. Record the old Telegram poller PID and set `CYBERBOSS_LEGACY_PID_FILE` when a reliable PID file is available.
 2. Verify the old Telegram poller has been stopped by the operator.
 3. Keep the old dashboard/520 process unchanged.
-4. Set `CYBERBOSS_CONFIG_DIR`, `CYBERBOSS_STATE_DIR`, `CYBERBOSS_WORKSPACE`, `CYBERBOSS_PROMPT_FILE`, `CYBERBOSS_TELEGRAM_BOT_TOKEN`, and `CYBERBOSS_TELEGRAM_ALLOWED_USER_IDS` in the shell or private `.env`.
-5. When another non-Telegram Cyberboss process must remain running, set `CYBERBOSS_NON_TELEGRAM_PID_ALLOWLIST` to its current PID or comma-separated PIDs. Only explicitly verified non-Telegram processes belong in this list. Never add the old Telegram PID.
+4. Set `CYBERBOSS_CONFIG_DIR`, `CYBERBOSS_STATE_DIR`, `CYBERBOSS_WORKSPACE`, `CYBERBOSS_PROMPT_FILE`, `CYBERBOSS_TELEGRAM_BOT_TOKEN`, and `CYBERBOSS_TELEGRAM_ALLOWED_USER_IDS` in the current PowerShell process before running the switch preflight.
+5. When another non-Telegram Cyberboss process must remain running, set `$env:CYBERBOSS_NON_TELEGRAM_PID_ALLOWLIST` in that same PowerShell process to its current PID or comma-separated PIDs. Only explicitly verified non-Telegram processes belong in this list. Never add the old Telegram PID.
 6. Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/phase1-switch.ps1` to preflight only.
 7. Read the reported allowlist and process scan output. If any PID is unexpected, stop and correct the environment instead of bypassing it.
 8. Run the same script with `-ConfirmSwitch` only after the operator has confirmed the live Telegram poller is no longer active.
