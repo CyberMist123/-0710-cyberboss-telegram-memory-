@@ -12,6 +12,7 @@ This runbook is intentionally placeholder-only. Do not paste real tokens, live m
 - Keep `CYBERBOSS_MEMORY_RETRIEVAL=0`, `CYBERBOSS_MEMORY_BACKGROUND_WRITE=0`, `CYBERBOSS_MEMORY_REPLY_TRANSFORM=0`, and `CYBERBOSS_INCLUDE_LEGACY_MEMORY_RELAYS=0` unless a later phase explicitly re-enables them.
 - Keep `CYBERBOSS_DESIRE_DRIVEN=0` during the Phase 1 Telegram-only smoke test.
 - Runtime configuration comes from exactly one source: explicit `CYBERBOSS_ENV_FILE`, or `<CONFIG_DIR>/.env` when no explicit env file is set. `<STATE_DIR>/.env` is not loaded.
+- Run `.github/workflows/phase1-offline.yml` or `npm run test:phase1` before any live switch.
 - Do not start 520 or Janitor during Phase 1 acceptance.
 
 ## Manual Switch Checklist
