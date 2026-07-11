@@ -60,6 +60,27 @@ function Test-PidAlive {
   }
 }
 
+function Get-ExplicitNonTelegramPidAllowlist {
+  $result = [System.Collections.Generic.HashSet[int]]::new()
+  $raw = Get-EnvText 'CYBERBOSS_NON_TELEGRAM_PID_ALLOWLIST'
+  if ([string]::IsNullOrWhiteSpace($raw)) {
+    return ,$result
+  }
+
+  foreach ($token in ($raw -split ',')) {
+    $text = ([string]$token).Trim()
+    if ([string]::IsNullOrWhiteSpace($text)) {
+      continue
+    }
+    $pidValue = 0
+    if (-not [int]::TryParse($text, [ref]$pidValue) -or $pidValue -le 0) {
+      throw "CYBERBOSS_NON_TELEGRAM_PID_ALLOWLIST contains an invalid PID: $text"
+    }
+    $null = $result.Add($pidValue)
+  }
+  return ,$result
+}
+
 function Convert-MockProcessEntry {
   param([object]$Entry)
   if ($null -eq $Entry) {
@@ -150,7 +171,16 @@ function Assert-NoRunningTelegramPoller {
     }
   }
 
-  $running = @(Get-CyberbossProcessRows | Where-Object { Test-CyberbossStartCommand $_.CommandLine })
+  $allowedNonTelegramPids = Get-ExplicitNonTelegramPidAllowlist
+  if ($allowedNonTelegramPids.Count -gt 0) {
+    $summary = @($allowedNonTelegramPids | Sort-Object) -join ','
+    Write-Host "Explicit non-Telegram PID allowlist active: $summary"
+  }
+
+  $running = @(Get-CyberbossProcessRows | Where-Object {
+    $processId = [int]$_.ProcessId
+    (Test-CyberbossStartCommand $_.CommandLine) -and -not $allowedNonTelegramPids.Contains($processId)
+  })
   if ($running.Count -gt 0) {
     $summary = ($running | Select-Object -First 5 | ForEach-Object {
       "PID=$($_.ProcessId) CMD=$($_.CommandLine)"
