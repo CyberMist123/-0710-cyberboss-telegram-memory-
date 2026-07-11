@@ -57,6 +57,54 @@ test("phase1 switch refuses a poller from a different repo path", () => {
   assert.match(result.stderr + result.stdout, /D:\\other\\repo/i);
 });
 
+test("phase1 switch permits an explicitly allowlisted non-Telegram Cyberboss PID", () => {
+  const fixture = createFixture();
+  const processList = path.join(fixture.root, "wechat-processes.json");
+  fs.writeFileSync(processList, JSON.stringify([
+    {
+      ProcessId: 8800,
+      CommandLine: "node D:\\wechat\\cyberboss\\bin\\cyberboss.js start", // PORTABILITY_FIXTURE
+    },
+  ]), "utf8");
+
+  const result = runSwitch(fixture, {
+    CYBERBOSS_SWITCH_MOCK_ALIVE_PIDS: "0",
+    CYBERBOSS_SWITCH_MOCK_PROCESS_LIST: processList,
+    CYBERBOSS_NON_TELEGRAM_PID_ALLOWLIST: "8800",
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /non-Telegram PID allowlist active: 8800/i);
+  assert.match(result.stdout, /preflight passed/i);
+});
+
+test("phase1 switch fails closed on an invalid non-Telegram PID allowlist", () => {
+  const fixture = createFixture();
+  const result = runSwitch(fixture, {
+    CYBERBOSS_SWITCH_MOCK_ALIVE_PIDS: "0",
+    CYBERBOSS_SWITCH_MOCK_PROCESS_LIST: fixture.emptyProcessList,
+    CYBERBOSS_NON_TELEGRAM_PID_ALLOWLIST: "not-a-pid",
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr + result.stdout, /invalid PID/i);
+});
+
+test("legacy Telegram PID cannot be bypassed by the non-Telegram allowlist", () => {
+  const fixture = createFixture();
+  fs.writeFileSync(fixture.legacyPidFile, "4242\n", "utf8");
+
+  const result = runSwitch(fixture, {
+    CYBERBOSS_LEGACY_PID_FILE: fixture.legacyPidFile,
+    CYBERBOSS_SWITCH_MOCK_ALIVE_PIDS: "4242",
+    CYBERBOSS_SWITCH_MOCK_PROCESS_LIST: fixture.emptyProcessList,
+    CYBERBOSS_NON_TELEGRAM_PID_ALLOWLIST: "4242",
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr + result.stdout, /still alive|refusing to start a second poller/i);
+});
+
 test("phase1 switch reaches the configured start script boundary when no poller is present", () => {
   const fixture = createFixture();
   const result = runSwitch(fixture, {
