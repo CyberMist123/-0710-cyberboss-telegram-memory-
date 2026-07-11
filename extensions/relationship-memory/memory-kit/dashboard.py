@@ -46,6 +46,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, unquote
 
+from janitor_config import resolve_auto_janitor_hours_from_keys
+
 KIT_DIR = Path(__file__).resolve().parent
 ROOT = KIT_DIR.parent / "memory"
 BACKUPS = ROOT / ".backups"
@@ -115,16 +117,10 @@ def ensure_api_token():
 
 
 API_TOKEN, _KEYS = ensure_api_token()
+AUTO_JANITOR_HOURS = resolve_auto_janitor_hours_from_keys(_KEYS)
 # AUTO_JANITOR_HOURS:自动补记间隔小时数。0 = 关闭自动定时(手动「立即补记」仍可用)。
 # 阶段 1 默认关闭;只有明确配置后才会运行 janitor。
 AUTO_JANITOR_HOURS = 0
-try:
-    if "AUTO_JANITOR_HOURS" in _KEYS:
-        AUTO_JANITOR_HOURS = float(_KEYS.get("AUTO_JANITOR_HOURS"))
-        if AUTO_JANITOR_HOURS < 0:
-            AUTO_JANITOR_HOURS = 6
-except Exception:
-    AUTO_JANITOR_HOURS = 6
 
 
 # ---------- 自动 janitor 状态(内存,进程重启即丢,健康度页会显示) ----------
