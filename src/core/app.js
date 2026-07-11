@@ -49,6 +49,7 @@ const { resolveMemoryRetrievalPlan } = require("./memory-resolver");
 const { parseMemoryCommand } = require("./memory-command-router");
 const { validateDraftAgainstMemory, rewriteDraftToMatchMemory } = require("./memory-validator");
 const { buildRecentStateMemoryLines } = require("../location/recent-state-memory");
+const { recordCanaryReceipt } = require("../orchestration/canary-receipt");
 const DEFAULT_LONG_POLL_TIMEOUT_MS = 35_000;
 const MIN_LONG_POLL_TIMEOUT_MS = 2_000;
 const SESSION_EXPIRED_ERRCODE = -14;
@@ -269,6 +270,17 @@ class CyberbossApp {
                 continue;
               }
               this.logTelegramDebug(`inbound messageId=${normalized.messageId} chatId=${normalized.chatId} senderId=${normalized.senderId} workspace=${normalized.workspaceId}`);
+              try {
+                recordCanaryReceipt({
+                  stateDir: this.config.stateDir,
+                  text: normalized.text,
+                  updateId: update?.update_id,
+                  messageId: normalized.messageId,
+                  threadKey: normalized.threadKey,
+                });
+              } catch (error) {
+                this.logTelegramDebug(`canary receipt write failed error=${error instanceof Error ? error.message : String(error)}`);
+              }
               await this.handleTelegramMessage(normalized);
             }
           } else {
@@ -1833,6 +1845,17 @@ class CyberbossApp {
             continue;
           }
           this.logTelegramDebug(`inbound messageId=${normalized.messageId} chatId=${normalized.chatId} senderId=${normalized.senderId} workspace=${normalized.workspaceId}`);
+          try {
+            recordCanaryReceipt({
+              stateDir: this.config.stateDir,
+              text: normalized.text,
+              updateId: update?.update_id,
+              messageId: normalized.messageId,
+              threadKey: normalized.threadKey,
+            });
+          } catch (error) {
+            this.logTelegramDebug(`canary receipt write failed error=${error instanceof Error ? error.message : String(error)}`);
+          }
           await this.handleTelegramMessage(normalized);
         }
         failureCount = 0;

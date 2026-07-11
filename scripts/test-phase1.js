@@ -21,6 +21,7 @@ const nodeTests = [
   "test/writer-lease.test.js",
   "test/orchestrator-resume.test.js",
   "test/canary-runner.test.js",
+  "test/canary-receipt.test.js",
 ];
 
 const steps = [

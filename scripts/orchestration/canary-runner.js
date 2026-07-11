@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const path = require("path");
 const { runCanary } = require("../../src/orchestration/canary-runner");
+const { defaultLocalCanarySources } = require("../../src/orchestration/canary-receipt");
 
 const values = process.argv.slice(2);
 const get = (name, fallback = "") => {
@@ -8,7 +9,18 @@ const get = (name, fallback = "") => {
   const item = values.find((value) => value.startsWith(prefix));
   return item ? item.slice(prefix.length) : fallback;
 };
-const sources = values.filter((value) => value.startsWith("--source=")).map((value) => value.slice(9));
+const explicitSources = values.filter((value) => value.startsWith("--source=")).map((value) => value.slice(9));
+const stateDirArg = get("state-dir", "");
+const defaultSources = stateDirArg ? defaultLocalCanarySources({ stateDir: stateDirArg }) : [];
+const seen = new Set(explicitSources.map((item) => path.resolve(item)));
+const sources = [...explicitSources];
+for (const candidate of defaultSources) {
+  const resolved = path.resolve(candidate);
+  if (!seen.has(resolved)) {
+    seen.add(resolved);
+    sources.push(candidate);
+  }
+}
 runCanary({
   statePath: path.resolve(get("state", path.join(__dirname, "..", "..", "..", "MEMORY_CANARY_STATE.json"))),
   sources,
