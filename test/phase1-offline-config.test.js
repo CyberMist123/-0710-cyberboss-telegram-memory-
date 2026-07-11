@@ -45,7 +45,7 @@ test("phase 1 config requires explicit fixture paths and keeps legacy memory gat
     process.env.CYBERBOSS_PROMPT_FILE = promptFile;
     process.env.CYBERBOSS_CHANNEL = "telegram";
     process.env.CYBERBOSS_RUNTIME = "claudecode";
-    process.env.CYBERBOSS_TELEGRAM_BOT_TOKEN = "000000000:FAKE_OFFLINE_TOKEN";
+    process.env.CYBERBOSS_TELEGRAM_BOT_TOKEN = "FAKE_OFFLINE_TOKEN";
     process.env.CYBERBOSS_TELEGRAM_ALLOWED_USER_IDS = "12345";
     process.argv = ["node", "cyberboss", "start"];
 
@@ -71,7 +71,7 @@ test("startup preflight reports missing keys without exposing configured secret 
       workspaceRoot: "",
       configDir: "",
       promptFile: "",
-      telegramBotToken: "000000000:FAKE_OFFLINE_TOKEN",
+      telegramBotToken: "FAKE_OFFLINE_TOKEN",
       telegramAllowedUserIds: [],
     });
   } catch (caught) {

@@ -14,20 +14,30 @@ const currentUsername = String(process.env.USERNAME || process.env.USER || "").t
 const legacyProjectName = "cyberboss-" + "deepseek-test";
 const legacyWorkspaceName = "cyberboss-" + "deepseek-workspace";
 const legacyStateName = "." + "cyberboss-" + "deepseek-test";
+const knownPrivateNames = ["程言", "安安", "绋嬭", "瀹夊畨"];
+const knownOldUsernames = ["anan"];
 
 const checks = [
-  { name: "windows-user-path", pattern: new RegExp("C:[\\\\/]+Users[\\\\/]+", "i") },
+  { name: "windows-user-path", pattern: /[A-Za-z]:[\\/]+Users[\\/]+/i },
+  { name: "windows-drive-path", pattern: /\b[A-Za-z]:[\\/](?![\\/])/ },
+  { name: "unix-home-path", pattern: /\/home\/(?!<USER>|<HOME>)[A-Za-z0-9_.-]+/ },
   { name: "legacy-project-dir", pattern: new RegExp(escapeRegExp(legacyProjectName), "i") },
   { name: "legacy-workspace-dir", pattern: new RegExp(escapeRegExp(legacyWorkspaceName), "i") },
   { name: "legacy-state-dir", pattern: new RegExp(escapeRegExp(legacyStateName), "i") },
+  { name: "os-homedir-fallback", pattern: /os\.homedir\(\)/ },
+  { name: "process-cwd-fallback", pattern: /process\.cwd\(\)/ },
+  { name: "private-role-name", pattern: new RegExp(knownPrivateNames.map(escapeRegExp).join("|")) },
+  { name: "old-username", pattern: new RegExp(`\\b(?:${knownOldUsernames.map(escapeRegExp).join("|")})\\b`, "i") },
 ];
+
 if (currentUsername) {
   checks.push({ name: "current-username", pattern: new RegExp(escapeRegExp(currentUsername), "i") });
 }
 
 const findings = [];
 for (const relativePath of trackedFiles) {
-  if (isProbablyBinary(relativePath)) {
+  const normalizedPath = relativePath.replace(/\\/g, "/");
+  if (isProbablyBinary(normalizedPath)) {
     continue;
   }
   const absolutePath = path.join(repoRoot, relativePath);
@@ -40,11 +50,14 @@ for (const relativePath of trackedFiles) {
   const lines = content.split(/\r?\n/);
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
+    if (isAllowedPortabilityFixture(normalizedPath, line) || isPortabilityCheckDefinition(normalizedPath)) {
+      continue;
+    }
     for (const check of checks) {
       if (check.pattern.test(line)) {
         findings.push({
           check: check.name,
-          path: relativePath.replace(/\\/g, "/"),
+          path: normalizedPath,
           line: index + 1,
           text: line.trim().slice(0, 180),
         });
@@ -68,5 +81,13 @@ function escapeRegExp(value) {
 }
 
 function isProbablyBinary(relativePath) {
-  return /\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|tgz)$/i.test(relativePath);
+  return /\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|tgz|pyc)$/i.test(relativePath);
+}
+
+function isAllowedPortabilityFixture(relativePath, line) {
+  return relativePath.startsWith("test/") && /PORTABILITY_FIXTURE/.test(line);
+}
+
+function isPortabilityCheckDefinition(relativePath) {
+  return relativePath === "scripts/portability-check.js";
 }

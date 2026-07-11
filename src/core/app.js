@@ -1,4 +1,3 @@
-const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
 const fs = require("fs");
@@ -1353,10 +1352,10 @@ class CyberbossApp {
       return;
     }
 
-    if (!isPathWithinAllowedDirectories(workspaceRoot)) {
+    if (!isPathWithinAllowedDirectories(workspaceRoot, this.config)) {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
-        text: "⚠️ The path must be within your home directory or the current working directory.",
+        text: "⚠️ The path must be within CYBERBOSS_WORKSPACE.",
         contextToken: normalized.contextToken,
       });
       return;
@@ -1870,7 +1869,10 @@ class CyberbossApp {
   logTelegramDebug(message) {
     const logFile = this.config.telegramStateFile
       ? path.join(path.dirname(this.config.telegramStateFile), "telegram-poller.log")
-      : path.join(os.homedir(), ".cyberboss", "logs", "telegram-poller.log");
+      : "";
+    if (!logFile) {
+      throw new Error("CYBERBOSS_STATE_DIR is required before writing telegram poller logs.");
+    }
     fs.mkdirSync(path.dirname(logFile), { recursive: true });
     fs.appendFileSync(logFile, `${new Date().toISOString()} ${message}\n`, "utf8");
   }
@@ -3144,13 +3146,11 @@ function extractPathFromFileUri(value) {
   }
 }
 
-function isPathWithinAllowedDirectories(rawPath) {
+function isPathWithinAllowedDirectories(rawPath, config = {}) {
   const resolved = path.resolve(rawPath);
   const normalized = resolved.replace(/\\/g, "/") + "/";
   const allowedDirs = [
-    os.homedir(),
-    process.cwd(),
-    this?.config?.workspaceRoot,
+    config?.workspaceRoot,
   ]
     .filter(Boolean)
     .map((dir) => path.resolve(dir).replace(/\\/g, "/") + "/");

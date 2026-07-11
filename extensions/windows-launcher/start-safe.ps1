@@ -87,25 +87,6 @@ $envMap['CYBERBOSS_WORKSPACE'] = $workspaceRoot
 $envMap['CYBERBOSS_WORKSPACE_ROOT'] = $workspaceRoot
 $envMap['CYBERBOSS_CONFIG_DIR'] = $configDir
 
-function Test-DirectTelegramReachable {
-  try {
-    $res = Test-NetConnection api.telegram.org -Port 443 -WarningAction SilentlyContinue
-    return [bool]$res.TcpTestSucceeded
-  } catch {
-    return $false
-  }
-}
-
-if ($envMap.ContainsKey('CYBERBOSS_TELEGRAM_PROXY_URL')) {
-  $proxyValue = [string]$envMap['CYBERBOSS_TELEGRAM_PROXY_URL']
-  if (-not [string]::IsNullOrWhiteSpace($proxyValue) -and (Test-DirectTelegramReachable)) {
-    $envMap['CYBERBOSS_TELEGRAM_PROXY_URL'] = ''
-    $envMap['HTTP_PROXY'] = ''
-    $envMap['HTTPS_PROXY'] = ''
-    $envMap['ALL_PROXY'] = ''
-  }
-}
-
 function Resolve-ClaudeCommand {
   param([hashtable]$Config)
 

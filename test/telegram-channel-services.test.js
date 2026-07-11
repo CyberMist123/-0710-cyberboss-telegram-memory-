@@ -35,13 +35,13 @@ test("channel file service sends files on telegram without WeChat account files"
 
   const result = await service.sendToCurrentChat({
     filePath,
-    userId: "8719061650",
+    userId: "12345",
   }, {});
 
-  assert.equal(result.userId, "8719061650");
+  assert.equal(result.userId, "12345");
   assert.equal(result.filePath, filePath);
-  assert.deepEqual(sent[0], ["typing", { userId: "8719061650", status: 1, contextToken: "telegram:8719061650" }]);
-  assert.deepEqual(sent[1], ["file", { userId: "8719061650", filePath, contextToken: "telegram:8719061650" }]);
+  assert.deepEqual(sent[0], ["typing", { userId: "12345", status: 1, contextToken: "telegram:12345" }]);
+  assert.deepEqual(sent[1], ["file", { userId: "12345", filePath, contextToken: "telegram:12345" }]);
 });
 
 test("sticker service sends context text on telegram without WeChat account files", async () => {
@@ -71,14 +71,14 @@ test("sticker service sends context text on telegram without WeChat account file
 
   const ok = await service.sendContextText({
     text: "saved",
-    userId: "8719061650",
+    userId: "12345",
   }, {});
 
   assert.equal(ok, true);
   assert.deepEqual(sentTexts, [{
-    userId: "8719061650",
+    userId: "12345",
     text: "saved",
-    contextToken: "telegram:8719061650",
+    contextToken: "telegram:12345",
     preserveBlock: true,
   }]);
 });

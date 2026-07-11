@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="/home/anan/cyberboss-deepseek"
-STATE_DIR="/home/anan/.deepseek"
-ENV_FILE="${STATE_DIR}/.env"
+ROOT_DIR="${CYBERBOSS_REPO_ROOT:?Set CYBERBOSS_REPO_ROOT to the repository root.}"
+STATE_DIR="${CYBERBOSS_STATE_DIR:?Set CYBERBOSS_STATE_DIR to the state directory.}"
+CONFIG_DIR="${CYBERBOSS_CONFIG_DIR:-${STATE_DIR}}"
+ENV_FILE="${CYBERBOSS_ENV_FILE:-${CONFIG_DIR}/.env}"
 
 if [[ -f "${ENV_FILE}" ]]; then
   set -a

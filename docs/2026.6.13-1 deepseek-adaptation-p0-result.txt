@@ -12,8 +12,8 @@ P0-1: env 文件权限修复 ✓
   chmod 600 ~/.cyberboss/.env
 
 结果:
-  -rw------- 1 anan anan  195 Jun 12 10:25 /home/anan/.cyberboss/.env
-  -rw------- 1 anan anan 1771 Jun 12 21:54 /home/anan/.deepseek/.env
+  -rw------- 1 <USER> <USER>  195 Jun 12 10:25 <HOME>/.cyberboss/.env
+  -rw------- 1 <USER> <USER> 1771 Jun 12 21:54 <HOME>/.deepseek/.env
 
 两文件已从 644（其他用户可读）改为 600（仅 owner 读写）。
 
@@ -28,12 +28,12 @@ P0-2: env 污染审计 ✓
 
 重复变量:
   CYBERBOSS_TELEGRAM_BOT_TOKEN
-    ~/.cyberboss: 8876775835:AAHNaC...
-    ~/.deepseek:  8987018314:AAEn3q...
+    ~/.cyberboss: <REDACTED_TELEGRAM_TOKEN>
+    ~/.deepseek:  <REDACTED_TELEGRAM_TOKEN>
     → 无冲突。deepseek 后加载，用自己的 token 覆盖
 
   CYBERBOSS_TELEGRAM_ALLOWED_USER_IDS
-    两文件值相同: 8719061650
+    两文件值相同: <REDACTED_USER_ID>
     → 无冲突
 
 cyberboss 独有（不会影响 deepseek）:
@@ -42,9 +42,9 @@ cyberboss 独有（不会影响 deepseek）:
 deepseek 关键配置全部正确覆盖:
   CYBERBOSS_RUNTIME=claudecode        ✅
   CYBERBOSS_CHANNEL=telegram          ✅
-  CYBERBOSS_STATE_DIR=/home/anan/.deepseek  ✅
-  CYBERBOSS_MEMORY_DIR=/home/anan/.cyberboss/memory  ✅
-  CYBERBOSS_TIMELINE_STATE_DIR=/home/anan/.cyberboss  ✅
+  CYBERBOSS_STATE_DIR=<STATE_DIR>  ✅
+  CYBERBOSS_MEMORY_DIR=<MEMORY_DIR>  ✅
+  CYBERBOSS_TIMELINE_STATE_DIR=<TIMELINE_STATE_DIR>  ✅
 
 结论: 当前无实际 env 污染风险。
 

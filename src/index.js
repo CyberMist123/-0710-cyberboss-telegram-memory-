@@ -177,8 +177,8 @@ async function main() {
   const archiveOpts = () => ({
     sourceDir: requireEnvPath("CYBERBOSS_ARCHIVE_SOURCE_DIR"),
     sourceName: "deepseek",
-    aiName: "程言",
-    userName: "安安",
+    aiName: process.env.CYBERBOSS_ARCHIVE_AI_NAME || "AI",
+    userName: process.env.CYBERBOSS_ARCHIVE_USER_NAME || "User",
     archiveDir: requireEnvPath("CYBERBOSS_ARCHIVE_DIR"),
   });
 

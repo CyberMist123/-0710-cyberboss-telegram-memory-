@@ -1,6 +1,5 @@
 const fs = require("fs");
 const path = require("path");
-const os = require("os");
 const { ClaudeCodeProcessClient } = require("./process-client");
 const { mapClaudeCodeMessageToRuntimeEvent } = require("./events");
 const { ensureClaudeProjectMcpConfig } = require("./project-settings");
@@ -10,6 +9,10 @@ const { ClaudeCodeIpcServer } = require("./ipc-server");
 const CLAUDE_RESUME_SESSION_TIMEOUT_MS = 8000;
 
 function createClaudeCodeRuntimeAdapter(config) {
+  const stateDir = normalizeText(config.stateDir);
+  if (!stateDir) {
+    throw new Error("CYBERBOSS_STATE_DIR is required for the Claude runtime adapter.");
+  }
   const sessionStore = new SessionStore({ filePath: config.sessionsFile, runtimeId: "claudecode" });
   const clientsByWorkspace = new Map();
   const pendingApprovals = new Map();
@@ -17,11 +20,11 @@ function createClaudeCodeRuntimeAdapter(config) {
   const configuredModel = normalizeText(config.claudeModel);
   let globalListener = null;
   const ipcSocketPath = path.join(
-    config.stateDir || path.join(os.homedir(), ".cyberboss"),
+    stateDir,
     "claudecode-runtime.sock",
   );
   const ipcServer = new ClaudeCodeIpcServer({
-    stateDir: config.stateDir || path.join(os.homedir(), ".cyberboss"),
+    stateDir,
   });
 
   hydrateRuntimeModelsFromClaudeProjects();
@@ -513,7 +516,10 @@ function resolveClaudeProjectTranscriptPath({ claudeConfigDir = "", workspaceRoo
   if (!normalizedWorkspaceRoot || !normalizedThreadId) {
     return "";
   }
-  const baseDir = normalizeText(claudeConfigDir) || path.join(os.homedir(), ".claude");
+  const baseDir = normalizeText(claudeConfigDir);
+  if (!baseDir) {
+    return "";
+  }
   return path.join(baseDir, "projects", encodeClaudeProjectPath(normalizedWorkspaceRoot), `${normalizedThreadId}.jsonl`);
 }
 
