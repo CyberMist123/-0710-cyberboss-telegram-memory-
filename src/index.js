@@ -25,17 +25,18 @@ if (ARCHIVE_BUILDER_PATH) {
 }
 
 function loadEnv() {
-  const candidates = [
-    process.env.CYBERBOSS_ENV_FILE ? path.resolve(process.env.CYBERBOSS_ENV_FILE) : "",
-    process.env.CYBERBOSS_CONFIG_DIR ? path.join(path.resolve(process.env.CYBERBOSS_CONFIG_DIR), ".env") : "",
-    process.env.CYBERBOSS_STATE_DIR ? path.join(path.resolve(process.env.CYBERBOSS_STATE_DIR), ".env") : "",
-  ].filter(Boolean);
-  for (const envPath of uniqueValues(candidates)) {
-    if (!fs.existsSync(envPath)) {
-      continue;
-    }
-    dotenv.config({ path: envPath, override: true });
+  const explicitEnvFile = process.env.CYBERBOSS_ENV_FILE
+    ? path.resolve(process.env.CYBERBOSS_ENV_FILE)
+    : "";
+  const configEnvFile = process.env.CYBERBOSS_CONFIG_DIR
+    ? path.join(path.resolve(process.env.CYBERBOSS_CONFIG_DIR), ".env")
+    : "";
+  const envPath = explicitEnvFile || configEnvFile;
+  if (!envPath || !fs.existsSync(envPath)) {
+    return "";
   }
+  dotenv.config({ path: envPath, override: true });
+  return envPath;
 }
 
 function ensureRuntimeEnv() {
@@ -209,7 +210,7 @@ async function main() {
   throw new Error(`Unknown command: ${command}`);
 }
 
-module.exports = { main };
+module.exports = { main, loadEnv };
 
 function requiresStartupPreflight(command) {
   const normalized = String(command || "").trim();
@@ -229,10 +230,6 @@ function readFlagValue(args, flag) {
     }
   }
   return "";
-}
-
-function uniqueValues(values) {
-  return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
 }
 
 function requireEnvPath(name) {
