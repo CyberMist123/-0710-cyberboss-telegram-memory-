@@ -17,6 +17,10 @@ const nodeTests = [
   "test/stream-delivery.test.js",
   "test/telegram-channel-services.test.js",
   "test/telegram-service-compat.test.js",
+  "test/orchestration-release-watchdog.test.js",
+  "test/writer-lease.test.js",
+  "test/orchestrator-resume.test.js",
+  "test/canary-runner.test.js",
 ];
 
 const steps = [

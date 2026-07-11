@@ -1,20 +1,8 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""cyberboss 三线看门狗:TG + WeChat + 520 面板。
-
-策略:
-- 每 CHECK_INTERVAL 秒扫一遍三条线的存活证据(pid file / TCP 端口 / 进程)。
-- 死了 → 用对应 VBS 隐藏拉起;限流:每条线最多 RESTART_QUOTA_PER_HOUR 次/小时。
-- 日志写 launcher/watchdog.log(按小时切分,保留 24 份)。
-- 全程 try/except,自身崩了会被计划任务 15 分钟内重启一次(计划任务另配)。
-- 不写 memory/,不改配置,只做拉起。
-
-启动:pythonw watchdog.py(隐藏)/ 计划任务 onlogon。
-停止:任务管理器杀 python 进程 或 launcher/stop-watchdog.bat。
-"""
+"""Single-owner Telegram watchdog driven only by deployment/current.json."""
+import argparse
 import json
 import os
-import socket
 import subprocess
 import sys
 import time
@@ -22,161 +10,167 @@ from datetime import datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+DEFAULT_DESCRIPTOR = next(
+    (parent / "deployment" / "current.json" for parent in HERE.parents
+     if (parent / "deployment" / "current.json").exists()),
+    Path.cwd() / "deployment" / "current.json",
+)
 LOG_FILE = HERE / "watchdog.log"
 PID_FILE = HERE / "watchdog.pid"
-
-CHECK_INTERVAL = 60          # 秒
-RESTART_QUOTA_PER_HOUR = 4   # 每条线每小时最多拉几次,防疯狂重启
-
-TG_STATE_DIR = Path(os.environ["CYBERBOSS_STATE_DIR"]).expanduser()
-WECHAT_STATE_DIR = Path(os.environ["CYBERBOSS_WECHAT_STATE_DIR"]).expanduser()
-DASHBOARD_KIT_DIR = Path(os.environ.get("CYBERBOSS_MEMORY_KIT_DIR", HERE.parent / "memory-kit")).expanduser()
-WECHAT_PORT = int(os.environ.get("CYBERBOSS_WECHAT_PORT", "8785"))
-DASHBOARD_PORT = int(os.environ.get("CYBERBOSS_DASHBOARD_PORT", "520"))
-
-TARGETS = [
-    {
-        "name": "tg",
-        "pid_file": TG_STATE_DIR / "cyberboss.pid",
-        "launcher": HERE / "tg-hidden.vbs",
-        "port_probe": None,
-    },
-    {
-        "name": "wechat",
-        "pid_file": WECHAT_STATE_DIR / "logs" / "shared-wechat.pid",
-        "launcher": HERE / "wechat-hidden.vbs",
-        "port_probe": ("127.0.0.1", WECHAT_PORT),
-    },
-    {
-        "name": "dashboard",
-        "pid_file": DASHBOARD_KIT_DIR / ".panel.pid",
-        "launcher": HERE / "dashboard-hidden.vbs",
-        "port_probe": ("127.0.0.1", DASHBOARD_PORT),
-    },
-]
+REQUIRED = (
+    "active_release_id", "telegram_entry", "config_dir", "state_dir", "log_dir",
+    "pid_file", "watchdog_target", "rollback_release", "last_verified_sha",
+)
 
 
-def log(msg: str) -> None:
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    line = f"[{ts}] {msg}\n"
+def log(message: str) -> None:
+    line = f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {message}\n"
     try:
-        with LOG_FILE.open("a", encoding="utf-8") as f:
-            f.write(line)
-        if LOG_FILE.stat().st_size > 2_000_000:
-            LOG_FILE.replace(LOG_FILE.with_suffix(".log.old"))
-    except Exception:
+        with LOG_FILE.open("a", encoding="utf-8") as handle:
+            handle.write(line)
+    except OSError:
         pass
 
 
-def pid_alive(pid: int) -> bool:
+def load_descriptor(file_path: Path) -> dict:
+    value = json.loads(file_path.read_text(encoding="utf-8"))
+    missing = [field for field in REQUIRED if field not in value]
+    if missing:
+        raise ValueError(f"release descriptor missing: {', '.join(missing)}")
+    for field in REQUIRED:
+        if field == "rollback_release":
+            continue
+        if not isinstance(value[field], str) or not value[field].strip():
+            raise ValueError(f"release descriptor field is empty: {field}")
+    state_dir = Path(value["state_dir"]).resolve()
+    pid_file = Path(value["pid_file"]).resolve()
+    try:
+        pid_file.relative_to(state_dir)
+    except ValueError as error:
+        raise ValueError("pid_file must belong to active release state_dir") from error
+    return value
+
+
+def read_pid(pid_file: Path) -> int:
+    try:
+        pid = int(pid_file.read_text(encoding="utf-8").strip())
+        return pid if pid > 0 else 0
+    except (OSError, ValueError):
+        return 0
+
+
+def process_row(pid: int) -> dict | None:
     if pid <= 0:
-        return False
-    try:
-        out = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
-            capture_output=True, text=True, timeout=8,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        return str(pid) in out.stdout
-    except Exception:
-        return False
-
-
-def port_open(host: str, port: int) -> bool:
-    try:
-        with socket.create_connection((host, port), timeout=2):
-            return True
-    except Exception:
-        return False
-
-
-def target_alive(target: dict) -> bool:
-    pid_file = target["pid_file"]
-    probe = target.get("port_probe")
-    if probe:
-        alive = port_open(*probe)
-        if not alive and pid_file.exists():
-            try:
-                pid = int(pid_file.read_text(encoding="utf-8").strip() or "0")
-            except Exception:
-                pid = 0
-            if not pid_alive(pid):
-                try:
-                    pid_file.unlink()
-                except Exception:
-                    pass
-        return alive
-    if pid_file.exists():
+        return None
+    if os.name != "nt":
         try:
-            pid = int(pid_file.read_text(encoding="utf-8").strip() or "0")
-            if pid_alive(pid):
-                return True
-        except Exception:
-            pid = 0
-        if not pid_alive(pid):
-            try:
-                pid_file.unlink()
-            except Exception:
-                pass
+            os.kill(pid, 0)
+            return {"ProcessId": pid, "ExecutablePath": "", "CommandLine": ""}
+        except OSError:
+            return None
+    escaped = str(pid)
+    script = (
+        f"$p=Get-CimInstance Win32_Process -Filter 'ProcessId={escaped}' -ErrorAction SilentlyContinue;"
+        "if($p){$p|Select-Object ProcessId,ExecutablePath,CommandLine|ConvertTo-Json -Compress}"
+    )
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True, text=True, timeout=10,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return json.loads(result.stdout)
+
+
+def normalize(value: str) -> str:
+    return os.path.normcase(os.path.abspath(value)).replace("/", "\\")
+
+
+def active_release_alive(descriptor: dict) -> tuple[bool, str]:
+    pid = read_pid(Path(descriptor["pid_file"]))
+    if not pid:
+        return False, "pid file missing or invalid"
+    row = process_row(pid)
+    if not row:
+        return False, f"pid {pid} is not alive"
+    command = str(row.get("CommandLine") or "")
+    executable = str(row.get("ExecutablePath") or "")
+    if not executable or not Path(executable).is_absolute():
+        return False, f"pid {pid} executable path is unavailable"
+    expected = normalize(descriptor["telegram_entry"])
+    normalized_command = os.path.normcase(command).replace("/", "\\")
+    if expected not in normalized_command or " start" not in f" {normalized_command} ":
+        return False, f"pid {pid} command does not match active release entry"
+    return True, f"pid {pid} matches {expected}"
+
+
+def launch_active_release(descriptor: dict) -> None:
+    target = Path(descriptor["watchdog_target"]).resolve()
+    if not target.exists():
+        raise FileNotFoundError(f"watchdog target missing: {target}")
+    environment = os.environ.copy()
+    environment.update({
+        "CYBERBOSS_CONFIG_DIR": descriptor["config_dir"],
+        "CYBERBOSS_STATE_DIR": descriptor["state_dir"],
+        "CYBERBOSS_LOG_DIR": descriptor["log_dir"],
+    })
+    if descriptor.get("workspace_dir"):
+        environment["CYBERBOSS_WORKSPACE"] = descriptor["workspace_dir"]
+    subprocess.Popen(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(target)],
+        cwd=str(target.parent), env=environment,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    log(f"launched active release {descriptor['active_release_id']} via {target}")
+
+
+def verify_watchdog_owner() -> None:
+    existing = read_pid(PID_FILE)
+    if existing and existing != os.getpid():
+        row = process_row(existing)
+        command = str((row or {}).get("CommandLine") or "").lower()
+        if row and "watchdog.py" in command:
+            raise RuntimeError(f"watchdog already running with verified pid {existing}")
+    PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
+
+
+def check_once(descriptor_path: Path) -> bool:
+    descriptor = load_descriptor(descriptor_path)
+    alive, evidence = active_release_alive(descriptor)
+    if alive:
+        log(f"healthy active release {descriptor['active_release_id']}: {evidence}")
+        return True
+    log(f"active release {descriptor['active_release_id']} unavailable: {evidence}")
+    launch_active_release(descriptor)
     return False
 
 
-def start_target(target: dict) -> None:
-    launcher = target["launcher"]
-    if not launcher.exists():
-        log(f"launcher missing: {launcher}")
-        return
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--descriptor", type=Path, default=DEFAULT_DESCRIPTOR)
+    parser.add_argument("--interval", type=float, default=60.0)
+    parser.add_argument("--once", action="store_true")
+    args = parser.parse_args()
+    verify_watchdog_owner()
     try:
-        subprocess.Popen(
-            ["wscript.exe", str(launcher)],
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        log(f"[{target['name']}] launched via {launcher.name}")
-    except Exception as e:
-        log(f"[{target['name']}] launch failed: {e}")
-
-
-def loop() -> None:
-    quotas: dict[str, list[float]] = {t["name"]: [] for t in TARGETS}
-    while True:
-        for t in TARGETS:
+        while True:
             try:
-                if target_alive(t):
-                    continue
-            except Exception as e:
-                log(f"[{t['name']}] alive check failed: {e}")
-                continue
-            now = time.time()
-            recent = [ts for ts in quotas[t["name"]] if now - ts < 3600]
-            quotas[t["name"]] = recent
-            if len(recent) >= RESTART_QUOTA_PER_HOUR:
-                log(f"[{t['name']}] dead but quota exhausted ({len(recent)}/h), skip")
-                continue
-            log(f"[{t['name']}] dead, launching")
-            start_target(t)
-            quotas[t["name"]].append(now)
-        time.sleep(CHECK_INTERVAL)
-
-
-def main() -> None:
-    try:
-        PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
-    except Exception:
-        pass
-    log(f"watchdog starting, pid={os.getpid()}")
-    try:
-        loop()
-    except KeyboardInterrupt:
-        pass
-    except Exception as e:
-        log(f"watchdog crashed: {e}")
-        raise
+                check_once(args.descriptor.resolve())
+            except Exception as error:
+                log(f"check failed: {error}")
+                if args.once:
+                    raise
+            if args.once:
+                return 0
+            time.sleep(max(1.0, args.interval))
     finally:
-        try:
-            PID_FILE.unlink()
-        except Exception:
-            pass
+        if read_pid(PID_FILE) == os.getpid():
+            try:
+                PID_FILE.unlink()
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

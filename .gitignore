@@ -31,3 +31,9 @@ deepseek-stable-before-p1-cleanup.patch
 **/runtime-state/
 **/node_modules/
 **/keys.json
+
+# Live orchestration state is external/local only.
+deployment/current.json
+MEMORY_WRITER_LEASE.json
+MEMORY_ORCHESTRATOR_STATE.json
+MEMORY_CANARY_STATE.json

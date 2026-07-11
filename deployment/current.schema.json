@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cyberboss current release descriptor",
+  "type": "object",
+  "required": ["active_release_id", "telegram_entry", "config_dir", "state_dir", "log_dir", "pid_file", "watchdog_target", "rollback_release", "last_verified_sha"],
+  "properties": {
+    "active_release_id": { "type": "string", "minLength": 1 },
+    "telegram_entry": { "type": "string", "minLength": 1 },
+    "config_dir": { "type": "string", "minLength": 1 },
+    "state_dir": { "type": "string", "minLength": 1 },
+    "log_dir": { "type": "string", "minLength": 1 },
+    "pid_file": { "type": "string", "minLength": 1 },
+    "watchdog_target": { "type": "string", "minLength": 1 },
+    "workspace_dir": { "type": "string" },
+    "watchdog_owner_dir": { "type": "string" },
+    "last_verified_sha": { "type": "string", "pattern": "^[0-9a-fA-F]{40}$" },
+    "rollback_release": {
+      "type": "object",
+      "required": ["release_id", "telegram_entry", "config_dir", "state_dir", "log_dir", "pid_file", "watchdog_target", "last_verified_sha"]
+    }
+  }
+}

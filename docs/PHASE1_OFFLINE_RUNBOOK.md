@@ -30,9 +30,9 @@ This runbook is intentionally placeholder-only. Do not paste real tokens, live m
 ## One-Command Rollback
 
 1. Set `CYBERBOSS_STATE_DIR` to the Phase 1 state directory.
-2. Optionally set `CYBERBOSS_LEGACY_START_COMMAND` to the operator-approved legacy start command.
+2. Validate the external `deployment/current.json` release descriptor.
 3. Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/phase1-rollback.ps1` to preflight only.
-4. Run the same script with `-ConfirmRollback` to stop the configured Phase 1 service and optionally launch the approved legacy command.
+4. Run the same script with `-ConfirmRollback` to atomically switch the descriptor, stop the verified current process, and let the sole watchdog restore the rollback release.
 
 ## Writer Declaration
 
