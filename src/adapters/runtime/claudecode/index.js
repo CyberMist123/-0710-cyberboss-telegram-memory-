@@ -331,6 +331,34 @@ function createClaudeCodeRuntimeAdapter(config) {
       const attached = await attachClientToThread(workspaceRoot, threadId, model);
       return { threadId: attached.threadId, resumed: true, resumeOrigin, empty: false };
     },
+    async runBackgroundTurn({ workspaceRoot, text, model = "" }) {
+      const normalizedWorkspaceRoot = normalizeText(workspaceRoot);
+      if (!normalizedWorkspaceRoot) throw new Error("workspaceRoot is required");
+      const projectSettings = ensureClaudeProjectMcpConfig({
+        workspaceRoot: normalizedWorkspaceRoot,
+        cyberbossHome: process.env.CYBERBOSS_HOME || path.resolve(__dirname, "..", "..", "..", ".."),
+      });
+      const client = new ClaudeCodeProcessClient({
+        command: config.claudeCommand || "claude",
+        cwd: normalizedWorkspaceRoot,
+        env: filterClaudeCodeEnv(process.env),
+        model: resolveModel(model),
+        permissionMode: config.claudePermissionMode || "default",
+        disableVerbose: Boolean(config.claudeDisableVerbose),
+        extraArgs: config.claudeExtraArgs || [],
+        mcpConfigPaths: [projectSettings.configPath],
+        ipcServer: null,
+        workspaceRoot: normalizedWorkspaceRoot,
+      });
+      try {
+        await client.connect("");
+        const completion = waitForIsolatedCompletion(client);
+        await client.sendUserMessage({ text, threadId: "" });
+        return await completion;
+      } finally {
+        await client.close().catch(() => {});
+      }
+    },
     async compactThread({ threadId, workspaceRoot, model = "" }) {
       const { client, threadId: activeThreadId } = await attachClientToThread(workspaceRoot, threadId, model);
       await client.sendUserMessage({ text: "/compact", threadId: activeThreadId });
@@ -586,4 +614,24 @@ function clientMatchesThread(client, threadId) {
 
 function countVisibleChars(value) {
   return Array.from(String(value || "").replace(/\s/gu, "")).length;
+}
+
+function waitForIsolatedCompletion(client, timeoutMs = 120_000) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error, text = "") => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      unsubscribe();
+      if (error) reject(error);
+      else resolve(text);
+    };
+    const unsubscribe = client.onMessage((event) => {
+      if (event?.type === "turn.completed") finish(null, event.text || "");
+      if (event?.type === "process.error") finish(new Error(event.error || "background runtime failed"));
+      if (event?.type === "process.close") finish(new Error("background runtime closed before completion"));
+    });
+    const timer = setTimeout(() => finish(new Error("background runtime timed out")), timeoutMs);
+  });
 }

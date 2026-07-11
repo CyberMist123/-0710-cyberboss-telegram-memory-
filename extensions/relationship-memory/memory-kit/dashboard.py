@@ -89,7 +89,7 @@ def remove_pid_file():
 
 # ---------- keys.local.json:读配置 + 补写 API_TOKEN(只增键,不丢键) ----------
 
-KEYS_FILE = KIT_DIR / "keys.local.json"
+KEYS_FILE = Path(os.environ.get("CYBERBOSS_DASHBOARD_KEYS_FILE") or (KIT_DIR / "keys.local.json"))
 
 
 def load_keys():
@@ -137,6 +137,16 @@ JANITOR_STATE = {
 _janitor_lock = threading.Lock()
 
 AUTO_JANITOR_LOG = KIT_DIR / "auto_janitor.log"
+
+FROZEN_WRITE_ENDPOINTS = {
+    "/api/save",
+    "/api/state_log",
+    "/api/episode_candidate",
+    "/api/janitor/run",
+    "/api/care/config",
+    "/api/care/cycle",
+    "/api/config",
+}
 AUTO_JANITOR_LOG_MAX_BYTES = 500 * 1024  # 500KB,超过就从中点截半(只保留后半段)
 
 
@@ -3343,6 +3353,14 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
+
+        if u.path in FROZEN_WRITE_ENDPOINTS:
+            self._send(403, json.dumps({
+                "ok": False,
+                "error": "write_frozen",
+                "path": u.path,
+            }, ensure_ascii=False))
+            return
 
         if u.path == "/api/save":
             if not self._check_token():

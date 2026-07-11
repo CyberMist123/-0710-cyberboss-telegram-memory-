@@ -7,9 +7,8 @@ closeout 依赖每晚 pass;白天 /new、崩窗、忘了收尾,session 会静默
 本脚本在醒来前(或手动)跑一次:扫会话 jsonl,对比上次处理位点,
 把断档内容增量提取成**候选文件**,绝不直接改 memory/ 下任何手工文件。
 
-产出(只有这两个):
-  memory/episodes.candidates.jsonl   追加式,格式同 episodes.jsonl,id 前缀 cand-
-  memory/reentry.extracted.md        覆盖式,给 AI/人参考的补记摘要
+产出:
+  continuity/candidates/episodes.candidates.jsonl   追加式 Phase 3 candidate schema
 
 位点:memory/.janitor_state.json 记录每个 session 文件已处理的行数
 (会话 jsonl 只追加,行数单调递增;若发现文件变短则视为重写,从头重处理)。
@@ -167,7 +166,8 @@ def load_existing_candidate_ids(path: Path):
             if not line:
                 continue
             try:
-                ids.add(json.loads(line).get("id", ""))
+                item = json.loads(line)
+                ids.add(item.get("candidate_id") or item.get("id", ""))
             except Exception:
                 continue
     return ids
@@ -179,40 +179,47 @@ def append_candidates(path: Path, episodes):
     added = 0
     with open(path, "a", encoding="utf-8") as f:
         for e in episodes:
-            if e["id"] in existing:
+            candidate_id = e.get("candidate_id") or e.get("id", "")
+            if candidate_id in existing:
                 continue
             f.write(json.dumps(e, ensure_ascii=False) + "\n")
-            existing.add(e["id"])
+            existing.add(candidate_id)
             added += 1
     return added
 
 
-def write_reentry_extracted(path: Path, new_eps, ai_states, gap_report):
-    recent = sorted(new_eps, key=lambda e: (e.get("importance", 0), str(e.get("time", ""))))[-8:]
-    eps_md = "\n".join(
-        f"- [{e['id']}] {e.get('title')}({e.get('time','?')}):{e.get('future_effect','')}"
-        for e in recent) or "(本次没有新增候选片段)"
-    states_md = "\n".join(f"- {s.get('time','?')}:{s.get('state','')}" for s in ai_states[-5:]) \
-        or "(无)"
-    gaps_md = "\n".join(f"- {g['name']}:补了 {g['new_lines']} 行 / {len(g['turns'])} 轮"
-                        for g in gap_report if g["new_lines"] > 0) or "(无断档)"
-    md = f"""# Reentry(janitor 补记稿)— 参考件,不注入
-生成:{time.strftime('%Y-%m-%d %H:%M')}
+def episode_body(entry):
+    parts = []
+    anchor = str(entry.get("time") or "").strip()
+    title = str(entry.get("title") or "").strip()
+    happened = str(entry.get("what_happened") or "").strip()
+    if anchor or title:
+        parts.append(f"{anchor} {title}".strip() + "。")
+    if happened:
+        parts.append(happened.rstrip("。") + "。")
+    quotes = [str(q).strip() for q in (entry.get("anchor_quotes") or []) if str(q).strip()]
+    if quotes:
+        parts.append("转折处的原话是：“" + "”“".join(quotes[:2]) + "”。")
+    shift = str(entry.get("shift") or entry.get("misread_repair") or "").strip()
+    if shift:
+        parts.append(shift.rstrip("。") + "。")
+    return "".join(parts).strip()
 
-这是 janitor 从断档 session 补提取的**候选材料**,不是 reentry.md 本体。
-reentry.md 归每晚 closeout 管;这里的内容要不要吸收、怎么措辞,由 AI 在
-closeout 时自己决定。逐条候选见 episodes.candidates.jsonl(cand- 前缀)。
 
-## 本次补记范围
-{gaps_md}
-
-## 新增候选片段(按重要度)
-{eps_md}
-
-## 断档期间的 AI 状态素材
-{states_md}
-"""
-    path.write_text(md, encoding="utf-8")
+def make_candidate(entry, source_name, source_window, chunk_hash, index):
+    body = episode_body(entry)
+    source_ref = {"file": source_name, "window": source_window}
+    idem_seed = f"{entry.get('time','')}\n{source_name}:{source_window}\n{' '.join(body.split())}"
+    idem = hashlib.sha256(idem_seed.encode("utf-8")).hexdigest()
+    return {
+        "candidate_id": f"cand-{chunk_hash[:8]}-{index}",
+        "ts": str(entry.get("time") or time.strftime("%Y-%m-%d")),
+        "type": "episode",
+        "author": "janitor",
+        "body": body,
+        "source_ref": source_ref,
+        "idempotency_key": idem,
+    }
 
 
 # ---------------- 主流程 ----------------
@@ -240,8 +247,7 @@ def main():
     outdir = Path(args.outdir)
     state_path = outdir / ".janitor_state.json"
     cache_dir = outdir / ".cache"
-    cand_path = outdir / "episodes.candidates.jsonl"
-    reentry_ex_path = outdir / "reentry.extracted.md"
+    cand_path = outdir / "candidates" / "episodes.candidates.jsonl"
 
     state = load_state(state_path)
     gaps = find_gaps(input_dir, state)
@@ -264,12 +270,17 @@ def main():
         print(f"[janitor] dry-run,不调 API,不写文件。api_calls={API_CALLS}")
         return
 
+    if not MOCK and os.environ.get("CYBERBOSS_WRITER_LEASE_HELD") != "1":
+        print("缺少受控 writer lease;请通过 continuity:phase3 janitor 入口运行。")
+        sys.exit(1)
+
     if not MOCK and chunks and not em.API_KEY:
         print(f"请先配置 API key(当前 provider={em.PROVIDER};GLM_API_KEY / DS_API_KEY 或 memory-kit/keys.local.json;或用 JANITOR_MOCK=1 测试)")
         sys.exit(1)
 
     outdir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
+    cand_path.parent.mkdir(parents=True, exist_ok=True)
 
     new_eps, ai_states = [], []
     per_file_ok = {g["name"]: True for g in dirty}
@@ -281,15 +292,15 @@ def main():
             print(f"  [error] 该块提取失败:{e};此文件位点不推进,下次重试")
             per_file_ok[name] = False
             continue
+        gap = next((item for item in gaps if item["name"] == name), None) or {}
+        source_window = f"{int(gap.get('lines_done', 0)) + 1}-{int(gap.get('total_lines', 0))}"
         for j, e in enumerate(data.get("episodes", []) or []):
-            e["id"] = f"cand-{key[:8]}-{j}"
-            e["source"] = name
-            e["extracted_by"] = "janitor"
-            new_eps.append(e)
+            candidate = make_candidate(e, str(input_dir / name), source_window, key, j)
+            if candidate["body"]:
+                new_eps.append(candidate)
         ai_states += data.get("ai_state", []) or []
 
     added = append_candidates(cand_path, new_eps)
-    write_reentry_extracted(reentry_ex_path, new_eps, ai_states, gaps)
 
     # 推进位点:只推进本次全部块都成功的文件
     for g in gaps:
@@ -303,8 +314,7 @@ def main():
         }
     save_state(state_path, state)
 
-    print(f"[janitor] 完成:候选片段新增 {added} 条 → {cand_path.name};"
-          f"补记稿已覆盖 → {reentry_ex_path.name}")
+    print(f"[janitor] 完成:候选片段新增 {added} 条 → {cand_path}")
     print(f"[janitor] api_calls={API_CALLS}")
 
 

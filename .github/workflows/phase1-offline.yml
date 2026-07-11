@@ -44,5 +44,8 @@ jobs:
       - name: Phase 2 hard-context tests
         run: npm run test:phase2
 
+      - name: Phase 3 continuity-pipeline tests
+        run: npm run test:phase3
+
       - name: Diff hygiene
         run: git diff --check

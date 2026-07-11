@@ -2801,7 +2801,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-module.exports = { CyberbossApp };
+module.exports = { CyberbossApp, createRuntimeAdapter };
 
 function parseChannelCommand(text) {
   const normalized = typeof text === "string" ? text.trim() : "";

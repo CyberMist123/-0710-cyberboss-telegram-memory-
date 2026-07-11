@@ -158,6 +158,28 @@ function createCodexRuntimeAdapter(config) {
       });
       return { threadId, resumed: true, resumeOrigin, empty: isEmptyResumeResponse(response) };
     },
+    async runBackgroundTurn({ workspaceRoot, text, model = "", modelProvider = "" }) {
+      const runtimeClient = ensureClient();
+      await this.initialize();
+      const desiredModel = resolveModel(model, { modelProvider });
+      const started = await runtimeClient.startThread({
+        cwd: workspaceRoot,
+        model: desiredModel,
+        modelProvider: configuredModelProvider,
+      });
+      const threadId = extractThreadId(started);
+      if (!threadId) throw new Error("background thread/start did not return a thread id");
+      const completion = waitForTurnCompletion(runtimeClient, threadId);
+      await runtimeClient.sendUserMessage({
+        threadId,
+        text,
+        model: desiredModel,
+        modelProvider: configuredModelProvider,
+        workspaceRoot,
+      });
+      const result = await completion;
+      return result.text || "";
+    },
     async compactThread({ threadId }) {
       const runtimeClient = ensureClient();
       await this.initialize();

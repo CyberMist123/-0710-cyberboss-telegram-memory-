@@ -24,6 +24,8 @@ from pathlib import Path
 
 KIT = Path(__file__).resolve().parent.parent
 JANITOR = KIT / "janitor.py"
+sys.path.insert(0, str(KIT))
+import extract_memory as em
 
 PASS = 0
 FAIL = 0
@@ -114,7 +116,7 @@ def main():
     manual.write_text("手工 reentry,谁都不许动\n", encoding="utf-8")
     write_fixtures(input_dir)
     base = [f"--input={input_dir}", f"--outdir={outdir}"]
-    cand = outdir / "episodes.candidates.jsonl"
+    cand = outdir / "candidates" / "episodes.candidates.jsonl"
     state_path = outdir / ".janitor_state.json"
 
     print("== 1. dry-run:报告断档,零调用零写入 ==")
@@ -131,21 +133,20 @@ def main():
     check("候选文件已生成", cand.exists())
     ids = set()
     fmt_ok = True
-    required = {"id", "title", "what_happened", "importance", "source"}
+    required = {"candidate_id", "ts", "type", "author", "body", "source_ref", "idempotency_key"}
     for line in cand.read_text(encoding="utf-8").splitlines():
         try:
             e = json.loads(line)
         except Exception:
             fmt_ok = False
             break
-        if not e["id"].startswith("cand-") or not required <= set(e):
+        if not e["candidate_id"].startswith("cand-") or not required <= set(e):
             fmt_ok = False
             break
-        ids.add(e["id"])
+        ids.add(e["candidate_id"])
     check("候选每行合法 JSON、cand- 前缀、字段齐全", fmt_ok and len(ids) == 2,
           f"ids={ids}")
-    check("reentry.extracted.md 已生成且标明是参考件",
-          "候选" in (outdir / "reentry.extracted.md").read_text(encoding="utf-8"))
+    check("janitor 不生成或改写 reentry 草稿", not (outdir / "reentry.extracted.md").exists())
     st = json.loads(state_path.read_text(encoding="utf-8"))
     lines_aaa = len((input_dir / "session-aaa.jsonl").read_text(encoding="utf-8").splitlines())
     check("位点=文件实际行数(aaa)",
@@ -174,7 +175,7 @@ def main():
     check("只为新增内容调用(2 个断档 → 2 块)", calls3 == 2, f"calls={calls3}")
     new_ids = set()
     for line in cand.read_text(encoding="utf-8").splitlines():
-        new_ids.add(json.loads(line)["id"])
+        new_ids.add(json.loads(line)["candidate_id"])
     check("候选追加而非覆盖", ids < new_ids and len(new_ids) == 4, f"ids={new_ids}")
     st = json.loads(state_path.read_text(encoding="utf-8"))
     lines_aaa2 = len((input_dir / "session-aaa.jsonl").read_text(encoding="utf-8").splitlines())
@@ -185,10 +186,29 @@ def main():
 
     print("== 5. 产物白名单:memory 下只多了候选/位点/缓存 ==")
     produced = set(snapshot(outdir)) - set(before)
-    allowed = all(p in ("episodes.candidates.jsonl", "reentry.extracted.md",
-                        ".janitor_state.json")
+    allowed = all(p in ("candidates/episodes.candidates.jsonl", ".janitor_state.json")
                   or p.startswith(".cache/") for p in produced)
     check("没有越界写入其他文件", allowed, str(produced))
+
+    print("== 6. 消费边界纯度:注入块/附件/旧 Episode 回显被剥除 ==")
+    polluted = """TELEGRAM SESSION INSTRUCTIONS
+persona
+
+<<<CB_CTX:REENTRY v1 hash=x chars=4>>>
+旧回声
+<<<END_CB_CTX>>>
+
+Current user message:
+此刻原话
+
+Saved attachments:
+- secret.png
+
+Old Episode echo:
+- 旧 Episode 正文"""
+    cleaned = em.strip_prompt_artifacts(polluted)
+    check("保留当前用户原话", "此刻原话" in cleaned, cleaned)
+    check("剥除注入/附件/旧 Episode", all(x not in cleaned for x in ("旧回声", "secret.png", "旧 Episode 正文")), cleaned)
 
     print(f"\n结果:{PASS} 通过,{FAIL} 失败(fixture 目录:<TMPDIR>)")
     sys.exit(1 if FAIL else 0)

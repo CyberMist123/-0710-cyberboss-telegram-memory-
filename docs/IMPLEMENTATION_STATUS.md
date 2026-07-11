@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-11
 
-Phase 1 engineering and the minimum orchestration foundation are live verified. Phase 2 hard-context engineering is offline verified and has not been cut over to live yet.
+Phase 1 engineering and the minimum orchestration foundation are live verified. Phase 2 and Phase 3 engineering are offline verified and have not been cut over to live yet.
 
 ## Verified Evidence
 
@@ -23,7 +23,8 @@ Phase 1 engineering and the minimum orchestration foundation are live verified. 
 ## Current Scope
 
 - Phase 2 now provides first-turn-only Re-entry, opening/refresh Current State, Context Trace, explicit resume-origin handling, and four-gate legacy-memory enforcement.
-- Phase 3 through Phase 5 are still incomplete.
+- Phase 3 now provides the leased Closeout/Janitor candidate path, independent Auto Review decisions, and the unique History writer publication path.
+- Phase 4 through Phase 5 are still incomplete.
 - Soft Retrieval remains off.
 
 ## Phase 2 Offline Gate
@@ -36,6 +37,17 @@ Phase 1 engineering and the minimum orchestration foundation are live verified. 
 - `npm run check`, `npm run test:phase2` (9/9), and `npm run test:phase1` (61 Node + 18 Janitor + 3 Dashboard, portability and PowerShell checks) passed.
 - Writer change: no canon writer changed. The existing session-store writer now owns only the per-thread Re-entry injection marker; Context Trace is a new append-only evidence writer.
 - Rollback: revert the Phase 2 commit and restore the previous external orchestrator `last_green_sha`. Offline fixtures used temporary directories, so no live continuity data rollback is required before cutover.
+
+## Phase 3 Offline Gate
+
+- Dashboard POST routes that could write memory, Desire/care state, candidates, configuration, or trigger Janitor are hard-frozen with HTTP 403 before the new data chain is used.
+- Closeout runs at most once per date, allows `no_output`, calls the configured subject runtime in an isolated background thread, and emits only the frozen candidate schema.
+- Janitor is gap-only, uses the same consumer-side purity filter, writes only candidates plus its operational cursor/cache, and requires the controlled writer-lease wrapper outside mock fixtures.
+- Auto Review runs through the existing Python memory-kit model configuration. Missing or failed Review defers candidates; decisions never contain rewritten body text; imperative language warns without automatic rejection.
+- History writer is the only canon publisher. It executes accepted primary decisions, keeps merged duplicates single, appends corrections, backs up changed canon files, atomically replaces Re-entry, and appends Self-notes.
+- Same-day Closeout → Review → History replay is byte-identical. Candidate-to-Episode body equality, Dashboard 403 behavior, source-window lookup, boundary push rules, lease contention, over-budget Re-entry deferral, and `state_log.jsonl` immutability are covered by fixtures.
+- Writer change: `closeout-writer` and `janitor-writer` may append candidates; `review-writer` appends decisions; `history-writer` alone publishes Episode/Re-entry/Self-note canon. The subject runtime remains the sole author of Re-entry/Self-note body text.
+- Rollback: revert the Phase 3 commit. Before live use, restore changed canon from the continuity `.backups` directory and verify file hashes; offline fixtures require no data rollback.
 
 ## Notes
 

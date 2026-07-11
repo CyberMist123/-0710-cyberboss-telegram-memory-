@@ -183,7 +183,7 @@ def turn_from_line(line):
     if t not in ("user", "assistant"):
         return None
     msg = obj.get("message") or {}
-    text = extract_text(msg.get("content")).strip()
+    text = strip_prompt_artifacts(extract_text(msg.get("content"))).strip()
     if not text:
         return None
     if text.startswith("/") or text.startswith("<command"):
@@ -193,6 +193,25 @@ def turn_from_line(line):
     ts = obj.get("timestamp", "")
     role = "她" if t == "user" else "AI"
     return (ts, role, text)
+
+
+def strip_prompt_artifacts(text):
+    """Closeout/Janitor consumer boundary: keep raw recorder intact, remove injected echoes."""
+    value = str(text or "").replace("\r\n", "\n")
+    value = re.sub(r"<<<CB_CTX:[\s\S]*?<<<END_CB_CTX>>>\s*", "", value)
+    if re.search(r"^(?:TELEGRAM|WECHAT) SESSION INSTRUCTIONS(?:\s|$)", value, re.M):
+        marker = "Current user message:"
+        value = value.split(marker, 1)[1] if marker in value else ""
+    value = re.sub(r"^\[[^\]\n]{4,80}\]\s*\n?", "", value)
+    for header in (
+        "Retrieved memory context:", "Saved attachments:",
+        "Visual context from attachments:", "Attachment intake errors:",
+        "Tool result:", "Builder metadata:", "Old Episode echo:",
+    ):
+        value = re.sub(rf"^{re.escape(header)}\n[\s\S]*?(?=\n\n|$)", "", value, flags=re.M)
+    value = re.sub(r"^(?:STATE RELAY|PENDING PROMISES)[^\n]*\n[\s\S]*?(?=\n\n|$)", "", value, flags=re.M)
+    value = re.sub(r"^To save reusable stickers,[\s\S]*?(?=\n\n|$)", "", value, flags=re.M)
+    return re.sub(r"\n{3,}", "\n\n", value).strip()
 
 
 def load_turns(input_dir, since=None):
