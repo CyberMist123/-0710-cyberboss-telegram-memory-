@@ -58,6 +58,7 @@ function readConfig() {
     continuityDir,
     reentryFile: joinIfBase(continuityDir, "reentry.md"),
     contextTraceFile: joinIfBase(continuityDir, "trace", "context_trace.jsonl"),
+    recallLogFile: joinIfBase(continuityDir, "recall_log.jsonl"),
     writerLeaseFile: resolveConfiguredPath(readTextEnv("CYBERBOSS_WRITER_LEASE_FILE")),
     continuityBranch: readTextEnv("CYBERBOSS_CONTINUITY_BRANCH"),
     continuityWorktree: resolveConfiguredPath(readTextEnv("CYBERBOSS_CONTINUITY_WORKTREE")),

@@ -1,7 +1,7 @@
 # Soft Retrieval
 
-> 状态：暂缓 / 未接运行链  
-> 当前决定：今晚不实现，也不为了展示而做假的 preview。
+> 状态：Phase 5A 仅实现用户明确拉线后的 `user_pull` 字符串查询；自动 Soft Retrieval 仍暂缓
+> 当前决定：不实现自动调用、embedding、BM25、reranker 或 5B 主动翻档，也不为了展示而做假的 preview。
 
 ## 为什么单独留这份
 

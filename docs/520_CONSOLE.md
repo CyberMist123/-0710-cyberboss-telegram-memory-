@@ -18,6 +18,8 @@
 
 Prompt 版本管理、撤回、评测实验室等仍是后续能力；本阶段不伪装为已实现。
 
+Phase 5A 落地后，`memory_lookup` 模块可显示为 `available`；出现真实 `recall_log` 后显示为 `on`。这只表示用户拉线查询可用，不表示自动 Soft Retrieval 已开启。
+
 ## 首页要让人一眼看懂
 
 首页只用人话回答：

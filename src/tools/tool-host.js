@@ -51,6 +51,7 @@ class ProjectToolHost {
   resolveContext(context = {}) {
     const explicitWorkspaceRoot = normalizeText(context.workspaceRoot);
     const explicitRuntimeId = normalizeText(context.runtimeId);
+    this.runtimeContextStore.load?.();
     const active = this.runtimeContextStore.resolveActiveContext({
       workspaceRoot: explicitWorkspaceRoot,
       runtimeId: explicitRuntimeId,
@@ -62,6 +63,7 @@ class ProjectToolHost {
       bindingKey: normalizeText(context.bindingKey) || normalizeText(active.bindingKey),
       accountId: normalizeText(context.accountId) || normalizeText(active.accountId),
       senderId: normalizeText(context.senderId) || normalizeText(active.senderId),
+      provider: normalizeText(context.provider) || normalizeText(active.provider),
     };
   }
 }
@@ -176,6 +178,31 @@ const PROJECT_TOOLS = [
           memoryInjectionStats: debugState.memoryInjectionStats || {},
           recentMemoryInjections: debugState.recentMemoryInjections || [],
         },
+      };
+    },
+  },
+  {
+    name: "memory_lookup",
+    description: "Call memory.lookup only when the user explicitly pulls on an earlier event. This is a user_pull string lookup, not automatic retrieval. Say that you checked the record; never present a lookup-only hit as something you continuously remembered.",
+    shortHint: "Look up old episodes only after an explicit user_pull; never call for ordinary chat.",
+    topics: ["memory", "continuity"],
+    inputSchema: {
+      type: "object",
+      required: ["query", "trigger", "reason"],
+      properties: {
+        query: { type: "string", description: "Literal text to search in episodes." },
+        trigger: { type: "string", enum: ["user_pull"], description: "Must be user_pull in Phase 5A." },
+        reason: { type: "string", description: "Why the current user message explicitly calls for looking back." },
+      },
+      additionalProperties: false,
+    },
+    async handler({ services, args, context }) {
+      const result = services.memoryLookup?.lookup(args, context) || { hits: [], error: "lookup_failed" };
+      return {
+        text: result.error
+          ? `Memory lookup ${result.error}.`
+          : (result.empty ? "Memory lookup completed with no matching record." : `Memory lookup returned ${result.hits.length} record(s).`),
+        data: result,
       };
     },
   },
@@ -852,6 +879,7 @@ function createExtraToolHosts(services = {}) {
 }
 
 const TOOL_ALIASES = {
+  "memory.lookup": { name: "memory_lookup" },
   cyberboss_sleep_schedule: { name: "cyberboss_sleep_mode" },
   cyberboss_reminder_create: { name: "cyberboss_reminder", command: "create" },
   cyberboss_sleep_schedule_enable: { name: "cyberboss_sleep_mode", command: "enable" },

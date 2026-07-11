@@ -31,6 +31,43 @@ class ContextTraceRecorder {
   flush() {
     return this.queue.catch(() => false);
   }
+
+  mergeRecallCalls({ threadId, turnId, recallCalls } = {}) {
+    if (!this.filePath || !Array.isArray(recallCalls) || !recallCalls.length) return Promise.resolve(false);
+    const thread = hashThreadId(threadId);
+    const turn = normalizeText(turnId);
+    const calls = recallCalls.map(sanitizeRecallCall);
+    this.queue = this.queue
+      .catch(() => false)
+      .then(async () => {
+        let temp = "";
+        try {
+          const raw = await fs.promises.readFile(this.filePath, "utf8");
+          const lines = raw.split(/\r?\n/u);
+          for (let index = lines.length - 1; index >= 0; index -= 1) {
+            if (!lines[index].trim()) continue;
+            let row;
+            try { row = JSON.parse(lines[index]); } catch { continue; }
+            if (row.thread !== thread || normalizeText(row.turn) !== turn) continue;
+            row.recall_calls = calls;
+            lines[index] = JSON.stringify(row);
+            const next = `${lines.filter((line, lineIndex) => line || lineIndex < lines.length - 1).join("\n")}\n`;
+            temp = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
+            await fs.promises.writeFile(temp, next, { encoding: "utf8", mode: 0o600 });
+            await fs.promises.rename(temp, this.filePath);
+            temp = "";
+            return true;
+          }
+          return false;
+        } catch (error) {
+          console.warn(`[continuity] context trace recall sync failed: ${error.message || String(error)}`);
+          return false;
+        } finally {
+          if (temp) await fs.promises.unlink(temp).catch(() => {});
+        }
+      });
+    return this.queue;
+  }
 }
 
 function sanitizeTraceEntry(entry = {}) {

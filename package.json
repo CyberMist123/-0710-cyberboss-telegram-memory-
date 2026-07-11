@@ -13,6 +13,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "precheck": "node --check ./src/services/memory-lookup-service.js",
     "start": "node ./bin/cyberboss.js start",
     "start:checkin": "node ./bin/cyberboss.js start --checkin",
     "login": "node ./bin/cyberboss.js login",
@@ -28,6 +29,7 @@
     "test:phase2": "node --test test/phase2-hard-context.test.js",
     "test:phase3": "node --test test/phase3-continuity-pipeline.test.js && python extensions/relationship-memory/memory-kit/tests/test_dashboard_write_freeze.py",
     "test:phase4": "node --test test/phase4-dashboard.test.js && python extensions/relationship-memory/memory-kit/tests/test_dashboard_phase4.py && npm run test:orchestration",
+    "test:phase5a": "node --test test/phase5a-memory-lookup.test.js",
     "continuity:phase3": "node ./scripts/continuity/run-phase3.js"
   },
   "dependencies": {

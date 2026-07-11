@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-11
 
-Phase 1 engineering and the minimum orchestration foundation are live verified. Phase 2, Phase 3, and Phase 4 engineering are offline verified and have not been cut over to live yet.
+Phase 1 engineering and the minimum orchestration foundation are live verified. Phase 2 through Phase 5A engineering are offline verified and have not been cut over to live yet.
 
 ## Verified Evidence
 
@@ -25,7 +25,8 @@ Phase 1 engineering and the minimum orchestration foundation are live verified. 
 - Phase 2 now provides first-turn-only Re-entry, opening/refresh Current State, Context Trace, explicit resume-origin handling, and four-gate legacy-memory enforcement.
 - Phase 3 now provides the leased Closeout/Janitor candidate path, independent Auto Review decisions, and the unique History writer publication path.
 - Phase 4 now provides the independent 520 read-only observation console, module state, Trace/candidate/decision views, and controlled exceptional re-review.
-- Phase 5 remains incomplete.
+- Phase 5A now provides explicit `user_pull` string lookup with server-enforced budgets, supersession visibility, and recall evidence.
+- Phase 5B remains incomplete.
 - Soft Retrieval remains off.
 
 ## Phase 2 Offline Gate
@@ -60,6 +61,18 @@ Phase 1 engineering and the minimum orchestration foundation are live verified. 
 - `npm run check`, `npm run test:phase4` (one targeted Re-review test, the HTTP/UI/process fixture, and 10 orchestration tests), and the earlier Phase gates pass without touching live processes or real memory.
 - Writer change: none. Phase 4 adds no canon or Desire writer; Re-review delegates to the existing `review-writer` lease.
 - Rollback: revert the Phase 4 commit. No continuity or memory data restoration is required because the Phase 4 fixtures use temporary directories.
+
+## Phase 5A Offline Gate
+
+- `memory_lookup` exposes the frozen `memory.lookup(query, trigger="user_pull", reason)` contract through the project tool host and MCP server. The dotted name remains a direct host alias; the MCP-safe name is auto-approved.
+- Any trigger other than `user_pull` returns `invalid_trigger`. Context builders and ordinary chat contain no automatic lookup call path, and Phase 5B/Soft Retrieval remains off.
+- Lookup is literal string search over continuity `episodes.jsonl`: at most three hits, at most 500 non-whitespace characters per body, and honest empty or `lookup_failed` results.
+- The five-call fault-loop guard is persisted per channel + account + thread and survives tool-server restarts. It is an operational guard, not a posture budget.
+- Superseded hits include their correction without deleting or mutating the original Episode.
+- `recall_log.jsonl` stores query, hit IDs, session hash, trigger, timestamp, and remaining budget but no hit body. The same turn's Context Trace receives only trigger and result count.
+- `npm run check` and `npm run test:phase5a` (6/6) pass; Phase 1 through Phase 4 remain separate regression gates.
+- Writer change: `memory-lookup` writes only operational budget/lock state and append-only recall evidence; it cannot write canon, candidates, decisions, Desire, or `state_log.jsonl`.
+- Rollback: revert the Phase 5A commit and remove only Phase 5A operational recall/budget artifacts if a data rollback is explicitly required. Canon needs no restoration.
 
 ## Notes
 

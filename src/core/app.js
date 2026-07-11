@@ -24,7 +24,7 @@ const { CheckinConfigStore, parseCheckinRangeMinutes, resolveDefaultCheckinRange
 const { resolvePreferredSenderId, resolvePreferredWorkspaceRoot } = require("./default-targets");
 const { StreamDelivery, createSystemReplyPolicy, resolveSystemReplyDelivery } = require("./stream-delivery");
 const { ThreadStateStore } = require("./thread-state-store");
-const { ContextTraceRecorder } = require("./context-trace");
+const { ContextTraceRecorder, hashThreadId } = require("./context-trace");
 const { DeferredSystemReplyStore } = require("./deferred-system-reply-store");
 const { SystemMessageQueueStore } = require("./system-message-queue-store");
 const { SystemMessageDispatcher } = require("./system-message-dispatcher");
@@ -101,6 +101,7 @@ class CyberbossApp {
     this.memoryBgState = { lastMineAtMs: Date.now(), userMsgCountSinceMine: 0, userCharsSinceMine: 0, buffer: [] };
     this.threadStateStore = new ThreadStateStore();
     this.contextTraceRecorder = new ContextTraceRecorder({ filePath: config.contextTraceFile });
+    this.contextTraceRunState = new Map();
     this.systemMessageQueue = new SystemMessageQueueStore({ filePath: config.systemMessageQueueFile });
     this.deferredSystemReplyQueue = new DeferredSystemReplyStore({ filePath: config.deferredSystemReplyQueueFile });
     this.checkinConfigStore = new CheckinConfigStore({ filePath: config.checkinConfigFile });
@@ -2149,6 +2150,7 @@ class CyberbossApp {
       return;
     }
     if (event.type === "runtime.turn.completed" || event.type === "runtime.turn.failed") {
+      await this.synchronizeRecallTrace(event.payload.threadId, event.payload.turnId);
       const completedRunKey = buildRunKey(event.payload.threadId, event.payload.turnId);
       const pendingOperations = this.pendingOperationByRunKey;
       const pendingOperation = pendingOperations?.get?.(completedRunKey) || null;
@@ -2398,7 +2400,11 @@ class CyberbossApp {
 
   recordContextTrace(threadId, turnId, continuity = {}) {
     const context = continuity && typeof continuity === "object" ? continuity : {};
+    const ts = new Date().toISOString();
+    const runKey = buildRunKey(threadId, turnId);
+    if (runKey) this.contextTraceRunState.set(runKey, { ts });
     void this.contextTraceRecorder.record({
+      ts,
       threadId,
       turnId,
       opening: context.opening === true,
@@ -2408,6 +2414,21 @@ class CyberbossApp {
       total_chars: context.total_chars,
       recall_calls: [],
     });
+  }
+
+  async synchronizeRecallTrace(threadId, turnId) {
+    const runKey = buildRunKey(threadId, turnId);
+    const state = this.contextTraceRunState.get(runKey);
+    if (!state) return false;
+    this.contextTraceRunState.delete(runKey);
+    const rows = readJsonlSafe(this.config.recallLogFile);
+    const threadHash = hashThreadId(threadId);
+    const startedAt = Date.parse(state.ts) || 0;
+    const recallCalls = rows
+      .filter((row) => row?.session === threadHash && row?.trigger === "user_pull" && (Date.parse(row.ts) || 0) > startedAt)
+      .map((row) => ({ trigger: "user_pull", results_count: Array.isArray(row.hit_ids) ? row.hit_ids.length : 0 }));
+    if (!recallCalls.length) return false;
+    return await this.contextTraceRecorder.mergeRecallCalls({ threadId, turnId, recallCalls });
   }
 
   resolveReplyTargetForBinding(bindingKey) {
@@ -3571,4 +3592,15 @@ function stringifyRpcId(value) {
 
 function hasRpcId(value) {
   return stringifyRpcId(value) !== "";
+}
+
+function readJsonlSafe(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return [];
+  try {
+    return fs.readFileSync(filePath, "utf8").split(/\r?\n/u).filter(Boolean).flatMap((line) => {
+      try { return [JSON.parse(line)]; } catch { return []; }
+    });
+  } catch {
+    return [];
+  }
 }

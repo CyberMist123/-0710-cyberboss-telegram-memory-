@@ -50,5 +50,8 @@ jobs:
       - name: Phase 4 read-only console tests
         run: npm run test:phase4
 
+      - name: Phase 5A user-pull lookup tests
+        run: npm run test:phase5a
+
       - name: Diff hygiene
         run: git diff --check

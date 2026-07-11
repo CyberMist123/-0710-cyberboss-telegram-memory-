@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import HTTPServer
@@ -38,14 +39,20 @@ def request(port, endpoint, method="GET", body=None, token=None):
     headers = {"Content-Type": "application/json"}
     if token:
         headers["X-Api-Token"] = token
-    req = urllib.request.Request(f"http://127.0.0.1:{port}{endpoint}", data=data, method=method, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=3) as response:
-            raw = response.read().decode("utf-8")
-            return response.status, json.loads(raw) if raw.startswith(("{", "[")) else raw
-    except urllib.error.HTTPError as error:
-        raw = error.read().decode("utf-8")
-        return error.code, json.loads(raw) if raw.startswith(("{", "[")) else raw
+    last_error = None
+    for _ in range(3):
+        req = urllib.request.Request(f"http://127.0.0.1:{port}{endpoint}", data=data, method=method, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=3) as response:
+                raw = response.read().decode("utf-8")
+                return response.status, json.loads(raw) if raw.startswith(("{", "[")) else raw
+        except urllib.error.HTTPError as error:
+            raw = error.read().decode("utf-8")
+            return error.code, json.loads(raw) if raw.startswith(("{", "[")) else raw
+        except (ConnectionResetError, TimeoutError, OSError) as error:
+            last_error = error
+            time.sleep(0.05)
+    raise last_error
 
 
 def test_http_contract():
@@ -60,7 +67,7 @@ def test_http_contract():
         assert code == 200
         assert modules["write_mode"] == "read_only"
         assert modules["modules"] and set(modules["modules"].values()) <= ALLOWED_STATES
-        assert modules["modules"]["memory_lookup"] == "not_implemented"
+        assert modules["modules"]["memory_lookup"] in ("available", "on")
         assert modules["modules"]["soft_retrieval"] == "not_implemented"
 
         for endpoint, expected_kind in (

@@ -163,6 +163,7 @@ def continuity_paths():
         "self_notes": CONTINUITY_DIR / "ai_self_notes.md",
         "jobs": CONTINUITY_DIR / ".jobs",
         "writer_state": CONTINUITY_DIR / ".jobs" / "history-writer-state.json",
+        "recall_log": CONTINUITY_DIR / "recall_log.jsonl",
     }
 
 
@@ -185,7 +186,7 @@ def compute_module_state():
         "auto_review": available_or("on" if decisions else ("preview" if candidates else "available")),
         "history_writer": available_or("on" if paths["writer_state"].exists() else ("preview" if decisions else "available")),
         "dashboard": "on",
-        "memory_lookup": "not_implemented",
+        "memory_lookup": available_or("on" if paths["recall_log"].exists() else "available"),
         "soft_retrieval": "not_implemented",
     }
 
