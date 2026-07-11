@@ -49,7 +49,7 @@ from urllib.parse import urlparse, parse_qs, unquote
 from janitor_config import resolve_auto_janitor_hours_from_keys
 
 KIT_DIR = Path(__file__).resolve().parent
-ROOT = KIT_DIR.parent / "memory"
+ROOT = Path(os.environ.get("CYBERBOSS_MEMORY_DIR") or (KIT_DIR.parent / "memory"))
 BACKUPS = ROOT / ".backups"
 WORKSPACE_ROOT = KIT_DIR.parent
 CYBERLINK_ROOT = WORKSPACE_ROOT.parent
@@ -507,6 +507,12 @@ def load_desire_state():
         info["error"] = str(e)
         return info
     info["data"] = data
+    info["dimensions"] = extract_desire_dimensions(data)
+    info["dimension_count"] = len(info["dimensions"])
+    info["missing_dimensions"] = [
+        label for label in DESIRE_HISTORY_DIM_TO_LABEL.values()
+        if label not in info["dimensions"]
+    ]
     if isinstance(data, dict):
         for key in ("updatedAt", "lastUpdated", "lastUpdate", "updated_at", "last_updated", "last_update", "timestamp", "time", "ts"):
             value = data.get(key)
@@ -521,6 +527,35 @@ def load_desire_state():
                 info["updated_at"] = value
             break
     return info
+
+
+def extract_desire_dimensions(data):
+    if not isinstance(data, dict):
+        return {}
+    result = {}
+    drives = data.get("drives")
+    if isinstance(drives, list):
+        for drive in drives:
+            if not isinstance(drive, dict):
+                continue
+            key = str(drive.get("key") or "").strip()
+            label = DESIRE_HISTORY_DIM_TO_LABEL.get(key) or str(drive.get("label") or "").strip()
+            score = normalize_octant_score(drive.get("score"))
+            if label in DESIRE_HISTORY_DIM_TO_LABEL.values() and score is not None:
+                result[label] = score
+    for container_key in ("drive", "scores"):
+        container = data.get(container_key)
+        if not isinstance(container, dict):
+            continue
+        for key, label in DESIRE_HISTORY_DIM_TO_LABEL.items():
+            score = normalize_octant_score(container.get(key))
+            if score is not None:
+                result[label] = score
+    for key, label in DESIRE_HISTORY_DIM_TO_LABEL.items():
+        score = normalize_octant_score(data.get(key))
+        if score is not None:
+            result[label] = score
+    return result
 
 
 def resolve_desire_history_file():
@@ -552,6 +587,10 @@ def normalize_desire_history_row(row):
     }
     for key, label in DESIRE_HISTORY_DIM_TO_LABEL.items():
         score = row.get(key)
+        if score is None and isinstance(row.get("drive"), dict):
+            score = row["drive"].get(key)
+        if score is None and isinstance(row.get("scores"), dict):
+            score = row["scores"].get(key)
         if score is None:
             drives = row.get("drives")
             if isinstance(drives, list):
@@ -593,6 +632,8 @@ def load_octant_history_rows(limit=None):
             "rows": rows,
             "source": "desire_history",
             "path": str(desire_history_file),
+            "row_count": len(desire_rows),
+            "fallback": False,
         }
     rows = annotate_octant_gaps(read_jsonl(ROOT / "state_log.jsonl"))
     if limit:
@@ -601,6 +642,8 @@ def load_octant_history_rows(limit=None):
         "rows": rows,
         "source": "state_log",
         "path": str(ROOT / "state_log.jsonl"),
+        "row_count": len(rows),
+        "fallback": True,
     }
 
 
@@ -897,6 +940,8 @@ def compute_health():
         "importance_dist": importance_dist,
         "octant_history_source": octant_history["source"],
         "octant_history_path": octant_history["path"],
+        "octant_history_rows": octant_history["row_count"],
+        "octant_history_fallback": octant_history["fallback"],
         "last_state_time": last_state_time,
         "hours_since_state": round(hours_since_state, 1) if hours_since_state is not None else None,
         "gaps_7d": gaps,
@@ -1909,6 +1954,12 @@ PAGE = r"""<!doctype html>
   #octant-live .item strong { display:block; font-size:12px; color:#fff; margin-bottom:4px; }
   #octant-live .item .score { font-size:18px; color:#c9b458; margin-bottom:4px; }
   #octant-live .item .cause { font-size:11px; color:#8f96a8; line-height:1.5; }
+  #octant-source { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:8px; margin-bottom:14px; }
+  #octant-source .source-card { background:#171923; border:1px solid #2d3140; border-radius:8px; padding:10px 12px; }
+  #octant-source .source-card strong { display:block; color:#f2f3f7; font-size:12px; margin-bottom:4px; }
+  #octant-source .source-card span { color:#8f96a8; font-size:11px; line-height:1.5; word-break:break-all; }
+  .octant-bar { height:5px; background:#11131a; border-radius:999px; overflow:hidden; margin-top:5px; }
+  .octant-bar > i { display:block; height:100%; border-radius:999px; }
   #curve-box { background: linear-gradient(180deg, var(--surface-2), #1b1d26);
                border:1px solid var(--line); border-radius:10px;
                padding:14px 16px; margin-bottom:14px; box-shadow: var(--shadow-soft); }
@@ -2115,6 +2166,7 @@ PAGE = r"""<!doctype html>
     <!-- 3 八维 -->
     <div class="view" id="view-octant">
       <div id="octant-notice">AI 自报状态,非关系测量。这页用来看写入断档,不用来读心。</div>
+      <div id="octant-source"></div>
       <div id="octant-live"></div>
       <div id="octant-archive-note" class="notice"></div>
       <div id="curve-box">
@@ -2685,6 +2737,7 @@ async function loadOctant() {
   const liveRow = buildOctantRealtimeRow(d.realtime || {}, historyLastTime, historySource);
   octRows = liveRow ? historyRows.concat([liveRow]) : historyRows;
   renderOctantRealtime(d.realtime || {}, historyLastTime, historySource);
+  renderOctantSource(d, historyRows, liveRow);
   const archiveNote = document.getElementById('octant-archive-note');
   if (historySource === 'desire_history') {
     archiveNote.textContent =
@@ -2737,33 +2790,40 @@ async function loadOctant() {
   table.innerHTML = head + body;
 }
 
+function renderOctantSource(payload, historyRows, liveRow) {
+  const box = document.getElementById('octant-source');
+  if (!box) return;
+  const ds = payload.realtime || {};
+  const count = Number(ds.dimension_count || Object.keys(ds.dimensions || {}).length || 0);
+  const missing = Array.isArray(ds.missing_dimensions) ? ds.missing_dimensions.join('、') : '';
+  const age = ds.hours_since_update == null ? '时间未知' : ('距今 ' + ds.hours_since_update + ' 小时');
+  const sourceName = payload.history_source === 'desire_history' ? '连续历史（权威）' : '冻结归档（回退）';
+  box.innerHTML =
+    '<div class="source-card"><strong>520 数据入口</strong><span>http://' + esc(location.host) + ' · 每 20 秒只读刷新</span></div>' +
+    '<div class="source-card"><strong>实时八维 ' + count + '/8</strong><span>' + esc(age) +
+      (missing ? ' · 缺少 ' + esc(missing) : ' · 维度完整') + '</span></div>' +
+    '<div class="source-card"><strong>' + esc(sourceName) + ' · ' + historyRows.length + ' 条</strong><span>' +
+      esc(payload.history_path || '') + '</span></div>' +
+    '<div class="source-card"><strong>曲线末端</strong><span>' +
+      (liveRow ? '已接入最新实时快照' : '未追加重复或无效快照') + '</span></div>';
+}
+
 function buildOctantRealtimeRow(ds, historyLastTime, historySource) {
   if (!ds || !ds.exists || ds.error) return null;
   const data = ds.data || {};
-  const drives = Array.isArray(data.drives) ? data.drives : [];
-  const labelByKey = {
-    attachment: '依恋',
-    curiosity: '好奇',
-    reflection: '沉思',
-    duty: '责任',
-    social: '社交',
-    fatigue: '疲惫',
-    libido: '性欲',
-    stress: '压力',
-  };
+  const dimensions = ds.dimensions || {};
   const row = {
     time: ds.updated_at || '',
-    most_want: data.most_want || '',
+    most_want: data.most_want || (data.intent || {}).want_action || '',
     note: '实时快照(desire-state.json)',
     _gap: false,
     _gap_hours: null,
     _realtime: true,
   };
   let found = false;
-  for (const drive of drives) {
-    const label = labelByKey[String(drive.key || '')] || String(drive.label || '').trim();
-    if (!label || !OCT_DIMS.includes(label)) continue;
-    const score = Number(drive.score);
+  for (const label of OCT_DIMS) {
+    const score = Number(dimensions[label]);
+    if (!Number.isFinite(score)) continue;
     row[label] = Number.isFinite(score) ? Number(score.toFixed(2)) : '';
     found = true;
   }
@@ -2797,21 +2857,25 @@ function renderOctantRealtime(ds, historyLastTime, historySource) {
   }
   const data = ds.data || {};
   const drives = Array.isArray(data.drives) ? data.drives : [];
-  const driveHtml = drives.length
-    ? '<div class="grid">' + drives.map(d => {
-        const label = d.label || d.key || '(unknown)';
-        const score = d.score == null ? '' : Number(d.score).toFixed(2);
-        const cause = d.cause ? '<div class="cause">' + esc(d.cause) + '</div>' : '';
-        return '<div class="item"><strong>' + esc(label) + '</strong><div class="score">' + esc(score) + '</div>' + cause + '</div>';
+  const dimensions = ds.dimensions || {};
+  const driveByLabel = Object.fromEntries(drives.map(d => [d.label || d.key, d]));
+  const driveHtml = Object.keys(dimensions).length
+    ? '<div class="grid">' + OCT_DIMS.filter(label => dimensions[label] != null).map(label => {
+        const score = Number(dimensions[label]);
+        const detail = driveByLabel[label] || {};
+        const cause = detail.cause ? '<div class="cause">' + esc(detail.cause) + '</div>' : '';
+        const pct = Math.max(0, Math.min(100, score * 100));
+        return '<div class="item"><strong>' + esc(label) + '</strong><div class="score">' + esc(score.toFixed(2)) + '</div>' + cause +
+          '<div class="octant-bar"><i style="width:' + pct + '%;background:' + OCT_COLORS[label] + '"></i></div></div>';
       }).join('') + '</div>'
-    : '<div class="meta">desire-state.json 里暂未找到 drives。</div>';
+    : '<div class="meta">desire-state.json 里暂未找到可识别的八维值。</div>';
   const metaParts = [];
   if (ds.updated_at) metaParts.push('最新时间: ' + esc(ds.updated_at));
   if (ds.hours_since_update != null) metaParts.push('距今 ' + ds.hours_since_update + ' 小时');
   if (historyLastTime) metaParts.push((historySource === 'desire_history' ? '历史 desire-history 最后记录: ' : '历史 state_log 最后记录: ') + esc(historyLastTime));
   box.innerHTML = '<h3>实时八维(desire-state.json)</h3>' +
     '<div class="meta">' + metaParts.join(' | ') + '</div>' +
-    '<div class="most"><strong>most_want:</strong> ' + esc(data.most_want || '(空)') +
+    '<div class="most"><strong>most_want:</strong> ' + esc(data.most_want || (data.intent || {}).want_action || '(空)') +
       '<br><span class="meta">' + (historySource === 'desire_history'
         ? '下方曲线和表格主体已经切到 desire-history.jsonl 连续记录。'
         : '下方曲线和表格会把最新 realtime 快照挂在末尾，但主体仍是 state_log.jsonl 旧归档。') + '</span></div>' +
@@ -3303,6 +3367,8 @@ class H(BaseHTTPRequestHandler):
                     "rows": history["rows"],
                     "history_source": history["source"],
                     "history_path": history["path"],
+                    "history_row_count": history["row_count"],
+                    "history_fallback": history["fallback"],
                     "realtime": load_desire_state(),
                 }, ensure_ascii=False))
             except Exception as e:

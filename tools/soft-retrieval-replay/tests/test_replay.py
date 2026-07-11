@@ -198,7 +198,7 @@ class ReplayTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             guard_episodes_path("extensions/relationship-memory/memory/episodes.jsonl")
         with self.assertRaises(SystemExit):
-            guard_episodes_path("D:/somewhere/episodes.jsonl")
+            guard_episodes_path("/somewhere/episodes.jsonl")
         guard_episodes_path(str(EPISODES))  # 快照允许，不抛
 
     # 附加：superseded 守卫（SPEC R10）

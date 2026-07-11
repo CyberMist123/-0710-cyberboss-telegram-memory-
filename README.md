@@ -9,20 +9,40 @@
 </div>
 
 > [!IMPORTANT]
-> 当前阶段：**只读审计 → 最小接线 → 新目录验证**。`main` 尚未在全新目录完成端到端验证，不要直接覆盖现有部署。实时进度只看 [`docs/IMPLEMENTATION_STATUS.md`](./docs/IMPLEMENTATION_STATUS.md)。
+> 当前阶段：**Phase 1–5A 已实现，当前发布临时标绿**。用户已明确放弃本轮 Telegram canary；离线门、进程矩阵与 watchdog 周期通过，但这不等于 canary 通过。实时进度只看 [`docs/IMPLEMENTATION_STATUS.md`](./docs/IMPLEMENTATION_STATUS.md)。
+
+## 当前实现状态（2026-07-12）
+
+| 模块 | 状态 | 已实现边界 |
+|---|---|---|
+| Phase 1 runtime / orchestration | 已上线 | 唯一 TG poller、release descriptor、watchdog、回滚与 CI |
+| Phase 2 hard context | 已实现 | 首轮 Re-entry、Current State、Context Trace、旧档四门禁 |
+| Phase 3 continuity pipeline | 已实现 | Closeout / Janitor candidates、Auto Review decisions、唯一 History writer |
+| Phase 4 / 520 | 已实现并继续优化 | 独立只读控制台、Trace/candidate/decision、八维实时态与连续历史 |
+| Phase 5A memory lookup | 已实现 | 仅 `user_pull`、字面查询、预算/熔断与 recall evidence |
+| Phase 5B / 自动 Soft Retrieval | **未实现** | 自动召回、embedding、BM25、reranker、GraphRAG 仍关闭 |
+
+当前 520 的八维页直接读取 runtime 的 `desire-state.json`，并优先读取由 Desire 唯一 writer 追加的 `desire-history.jsonl`；只有连续历史不存在时才只读回退到冻结的 `state_log.jsonl`。页面显示数据源、路径、新鲜度、维度完整度与回退状态，不写 Desire 或 canon。
+
+本机运行路径模板（`CYBERLINK_ROOT` 在当前机器指向用户文档目录下的 `cyberlink`；实际活动值以 descriptor 为准）：
+
+- 开发 worktree：`<CYBERLINK_ROOT>/cyberboss-codex-cheap-prework-20260711-170034`
+- 当前不可变 release：`<CYBERLINK_ROOT>/releases/<ACTIVE_RELEASE>`
+- release descriptor：`<CYBERLINK_ROOT>/deployment/current.json`
+- continuity / legacy memory workspace：`<CYBERLINK_ROOT>/<WORKSPACE_DIR>`
+- 外部证据：`<CYBERLINK_ROOT>/PHASE2_5A_EVIDENCE_20260711`
+
+Windows 上的 520 与 memory watchdog 使用仓库内独立 PowerShell 计划任务接线，不依赖 Te Launcher。见 [`docs/WINDOWS_SILENT_STARTUP.md`](./docs/WINDOWS_SILENT_STARTUP.md)。
 
 ## 先看：还没实现 / 当前不要做
 
 下面是进入仓库后最容易误判的地方。详细状态仍以 `IMPLEMENTATION_STATUS.md` 为准。
 
-**当前尚未收敛：**
+**当前仍未收敛：**
 
-- 唯一 Prompt、workspace 与 state-dir；
-- Re-entry 首轮加载、AI 最终执笔与长度告警；
-- Closeout → Auto Review decision → History writer 的完整闭环；
-- Self-note 的低频回读闭环；
-- 520 退回可关闭的查看、模式切换与评测前端；
-- 用户明确拉线后的受控 Episode 查询；
+- Self-note 的生产级低频回读调度；
+- 520 的 Prompt 版本管理、撤回与 Memory Access Lab；
+- Phase 5B 自动 Soft Retrieval；
 - 从干净 `main` clone 开始的端到端验证。
 
 **明确暂缓，不得顺手实现：**
@@ -193,6 +213,7 @@ Auto Review 是海关，不是编辑。它核对来源、冲突、重复、长�
 
 - [`docs/MEMORY_LIVENESS_NOTES.md`](./docs/MEMORY_LIVENESS_NOTES.md)：非权威设计笔记；
 - [`docs/IMPLEMENTATION_HANDOFF.md`](./docs/IMPLEMENTATION_HANDOFF.md)：部署期临时交接，首次端到端跑通后应被吸收或作废；
+- [`docs/WINDOWS_SILENT_STARTUP.md`](./docs/WINDOWS_SILENT_STARTUP.md)：独立 PS1 静默自启、状态与取消；
 - [`docs/prompts/DEPLOY_EXECUTION_PROMPT.md`](./docs/prompts/DEPLOY_EXECUTION_PROMPT.md)：实施入口；
 - [`docs/prompts/ARCH_REVIEW_PROMPT.md`](./docs/prompts/ARCH_REVIEW_PROMPT.md)：阶段复核；
 - [`docs/archive/20260710_DESIGN_DRAFTS.md`](./docs/archive/20260710_DESIGN_DRAFTS.md)：旧设计草稿索引。

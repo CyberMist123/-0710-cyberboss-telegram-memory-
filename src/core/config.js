@@ -51,6 +51,7 @@ function readConfig() {
     sleepScheduleFile: joinIfBase(stateDir, "sleep-schedule.json"),
     timelineScreenshotQueueFile: joinIfBase(stateDir, "timeline-screenshot-queue.json"),
     desireStateFile: joinIfBase(stateDir, "desire-state.json"),
+    desireHistoryFile: joinIfBase(stateDir, "desire-history.jsonl"),
     desireThoughtsFile: joinIfBase(stateDir, "desire-thoughts.json"),
     projectToolContextFile: joinIfBase(stateDir, "project-tool-runtime-context.json"),
     weixinInstructionsFile: promptFile,

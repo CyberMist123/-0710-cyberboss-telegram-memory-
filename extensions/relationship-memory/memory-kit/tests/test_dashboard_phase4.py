@@ -17,8 +17,10 @@ KIT = Path(__file__).resolve().parent.parent
 REPO = KIT.parents[2]
 TEMP = Path(tempfile.mkdtemp(prefix="dashboard-phase4-"))
 CONTINUITY = TEMP / "continuity"
+STATE = TEMP / "state"
 os.environ["CYBERBOSS_DASHBOARD_KEYS_FILE"] = str(TEMP / "keys.local.json")
 os.environ["CYBERBOSS_CONTINUITY_DIR"] = str(CONTINUITY)
+os.environ["CYBERBOSS_STATE_DIR"] = str(STATE)
 os.environ["CYBERBOSS_HOME"] = str(REPO)
 sys.path.insert(0, str(KIT))
 spec = importlib.util.spec_from_file_location("dashboard_phase4", KIT / "dashboard.py")
@@ -56,6 +58,20 @@ def request(port, endpoint, method="GET", body=None, token=None):
 
 
 def test_http_contract():
+    STATE.mkdir(parents=True, exist_ok=True)
+    (STATE / "desire-state.json").write_text(json.dumps({
+        "updatedAt": "2026-07-12T01:00:00+08:00",
+        "drive": {
+            "attachment": 0.81, "curiosity": 0.62, "reflection": 0.44, "duty": 0.73,
+            "social": 0.31, "fatigue": 0.28, "libido": 0.19, "stress": 0.37,
+        },
+        "intent": {"want_action": "co_read"},
+    }), encoding="utf-8")
+    write_jsonl("../state/desire-history.jsonl", [{
+        "time": "2026-07-12T01:00:00+08:00",
+        "attachment": 0.81, "curiosity": 0.62, "reflection": 0.44, "duty": 0.73,
+        "social": 0.31, "fatigue": 0.28, "libido": 0.19, "stress": 0.37,
+    }])
     write_jsonl("trace/context_trace.jsonl", [{"trace_entry_id": "t1"}, {"trace_entry_id": "t2"}])
     write_jsonl("candidates/episodes.candidates.jsonl", [{"candidate_id": "c1"}])
     write_jsonl("decisions/decisions.jsonl", [{"candidate_id": "c1", "action": "deferred"}])
@@ -69,6 +85,14 @@ def test_http_contract():
         assert modules["modules"] and set(modules["modules"].values()) <= ALLOWED_STATES
         assert modules["modules"]["memory_lookup"] in ("available", "on")
         assert modules["modules"]["soft_retrieval"] == "not_implemented"
+
+        code, octant = request(server.server_port, "/api/state_rows?n=20")
+        assert code == 200
+        assert octant["history_source"] == "desire_history"
+        assert octant["history_fallback"] is False
+        assert octant["realtime"]["dimension_count"] == 8
+        assert octant["realtime"]["missing_dimensions"] == []
+        assert octant["realtime"]["dimensions"]["依恋"] == 0.81
 
         for endpoint, expected_kind in (
             ("/api/context-trace?limit=1", "trace"),
@@ -105,6 +129,8 @@ def test_http_contract():
 
 def test_ui_and_process_isolation():
     assert 'data-view="continuity"' in dashboard.PAGE
+    assert 'id="octant-source"' in dashboard.PAGE
+    assert "renderOctantSource" in dashboard.PAGE
     assert "run-janitor-btn" not in dashboard.PAGE
     assert "method: 'POST',\n      headers: { 'Content-Type': 'application/json', 'X-Api-Token': getApiToken()" not in dashboard.PAGE
     watchdog = (REPO / "extensions" / "relationship-memory" / "launcher" / "watchdog.py").read_text(encoding="utf-8")

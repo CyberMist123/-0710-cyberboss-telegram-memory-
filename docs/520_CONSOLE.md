@@ -1,6 +1,6 @@
 # 520 Console
 
-> 状态：Phase 4 只读观察边界已离线实现；后续交互能力仍按本文分阶段开放
+> 状态：Phase 4 只读观察边界已实现；八维实时/历史数据接线已补齐，后续交互能力仍按本文分阶段开放
 > 520 是查看、调试、模式切换与评测前端，不是记忆后端。
 
 ## 一句话
@@ -19,6 +19,13 @@
 Prompt 版本管理、撤回、评测实验室等仍是后续能力；本阶段不伪装为已实现。
 
 Phase 5A 落地后，`memory_lookup` 模块可显示为 `available`；出现真实 `recall_log` 后显示为 `on`。这只表示用户拉线查询可用，不表示自动 Soft Retrieval 已开启。
+
+八维数据契约：
+
+- realtime：`CYBERBOSS_STATE_DIR/desire-state.json`，兼容当前 `drive/scores` 与旧 `drives[]`；
+- history：优先 `CYBERBOSS_STATE_DIR/desire-history.jsonl`，由 Desire runtime 唯一 writer 追加；
+- fallback：只有 history 尚不存在时，才读取冻结的 `memory/state_log.jsonl`；
+- 520 只显示 URL、来源路径、记录数、新鲜度、8/8 完整度、缺失维度和回退状态，不写上述文件。
 
 ## 首页要让人一眼看懂
 
