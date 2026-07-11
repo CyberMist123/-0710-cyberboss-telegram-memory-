@@ -24,6 +24,7 @@ Phase 5A 落地后，`memory_lookup` 模块可显示为 `available`；出现真�
 
 - realtime：`CYBERBOSS_STATE_DIR/desire-state.json`，兼容当前 `drive/scores` 与旧 `drives[]`；
 - history：优先 `CYBERBOSS_STATE_DIR/desire-history.jsonl`，由 Desire runtime 唯一 writer 追加；
+- Claude runtime 的 `turn.completed` 八维报告与发送回调共用同一个持久化入口；同一报告只追加一条 history；
 - fallback：只有 history 尚不存在时，才读取冻结的 `memory/state_log.jsonl`；
 - 520 只显示 URL、来源路径、记录数、新鲜度、8/8 完整度、缺失维度和回退状态，不写上述文件。
 

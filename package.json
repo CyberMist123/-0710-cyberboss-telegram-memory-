@@ -13,7 +13,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "precheck": "node --check ./src/services/memory-lookup-service.js",
+    "precheck": "node --check ./src/services/memory-lookup-service.js && node --check ./src/core/desire-state-persistence.js",
     "start": "node ./bin/cyberboss.js start",
     "start:checkin": "node ./bin/cyberboss.js start --checkin",
     "login": "node ./bin/cyberboss.js login",

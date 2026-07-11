@@ -42,6 +42,7 @@ const {
 } = require("../adapters/runtime/shared/approval-command");
 const { runSystemCheckinPoller } = require("../app/system-checkin-poller");
 const { runHourlyDesirePoller } = require("../app/hourly-desire-poller");
+const { persistReportedDesireState } = require("./desire-state-persistence");
 const { createProjectTooling } = require("../tools/create-project-tooling");
 const { formatBeijingDateTime } = require("../utils/beijing-time");
 const { runMemoryPostResponsePipeline } = require("./memory-background-pipeline");
@@ -2484,24 +2485,13 @@ class CyberbossApp {
       const parsed = JSON.parse(text);
       const state = parsed?.desire_state;
       if (state && this.config.desireStateFile) {
-        const fs = require("fs");
         const drives = normalizeDesireDrives(state?.drives);
         const intent = normalizeDesireIntent(state?.intent);
-        const now = new Date().toISOString();
-        let previous = null;
-        try {
-          const raw = JSON.parse(fs.readFileSync(this.config.desireStateFile, "utf8"));
-          if (raw.drives && raw.updatedAt !== now) {
-            previous = { drives: raw.drives, updatedAt: raw.updatedAt };
-          }
-        } catch {}
-        fs.writeFileSync(this.config.desireStateFile, JSON.stringify({
-          ...state,
-          drives,
-          intent,
-          previous,
-          updatedAt: now,
-        }, null, 2));
+        persistReportedDesireState({
+          state: { ...state, drives, intent },
+          stateFile: this.config.desireStateFile,
+          historyFile: this.config.desireHistoryFile,
+        });
       }
     } catch {}
   }
@@ -2517,22 +2507,13 @@ class CyberbossApp {
       const parsed = JSON.parse(trimmed);
       const state = parsed?.desire_state;
       if (!state || !Array.isArray(state?.drives)) return;
-      const fs = require("fs");
       const drives = normalizeDesireDrives(state.drives);
-      const now = new Date().toISOString();
-      let previous = null;
-      try {
-        const raw = JSON.parse(fs.readFileSync(this.config.desireStateFile, "utf8"));
-        if (raw.drives && raw.updatedAt !== now) {
-          previous = { drives: raw.drives, updatedAt: raw.updatedAt };
-        }
-      } catch {}
-      fs.writeFileSync(this.config.desireStateFile, JSON.stringify({
-        ...state,
-        drives,
-        previous,
-        updatedAt: now,
-      }, null, 2));
+      const intent = normalizeDesireIntent(state?.intent);
+      persistReportedDesireState({
+        state: { ...state, drives, intent },
+        stateFile: this.config.desireStateFile,
+        historyFile: this.config.desireHistoryFile,
+      });
     } catch {}
   }
 }

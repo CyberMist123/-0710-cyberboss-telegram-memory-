@@ -27,6 +27,7 @@ Phase 1 through Phase 5A are present in the selected immutable live release. The
 - Phase 3 now provides the leased Closeout/Janitor candidate path, independent Auto Review decisions, and the unique History writer publication path.
 - Phase 4 now provides the independent 520 read-only observation console, module state, Trace/candidate/decision views, and controlled exceptional re-review.
 - The 520 octant view now consumes current DesireService `drive/scores` as well as the legacy `drives[]` shape, reports source/freshness/completeness, and prefers Desire-owned `desire-history.jsonl` over frozen `state_log.jsonl`.
+- Upstream `AngeliaSama/cyberboss-deepseek@ecc98cd` was compared semantically because the imported Git histories have no merge base. Claude runtime already contained upstream's turn-completed Desire recovery; the live gap was `CYBERBOSS_DESIRE_DRIVEN=0`. The gate is now enabled while coupling, baseline drift, heartbeat autonomy, and self-drive remain off, and Claude-reported octants atomically update realtime state plus a deduplicated history row.
 - Windows silent startup is defined by one independent repository PS1 which registers separate 520 and memory-watchdog tasks; it has no Te Launcher dependency and preserves process-tree isolation.
 - Phase 5A now provides explicit `user_pull` string lookup with server-enforced budgets, supersession visibility, and recall evidence.
 - Phase 5B remains incomplete.
