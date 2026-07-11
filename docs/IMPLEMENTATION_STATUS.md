@@ -1,8 +1,8 @@
 # Implementation Status
 
-Last updated: 2026-07-11
+Last updated: 2026-07-12
 
-Phase 1 engineering and the minimum orchestration foundation are live verified. Phase 2 through Phase 5A engineering are offline verified and have not been cut over to live yet.
+Phase 1 through Phase 5A are present in the selected immutable live release. The user explicitly waived the pending Telegram canary on 2026-07-12, so the release is temporarily green based on offline gates, the live process matrix, and a healthy watchdog cycle; this is not recorded as a passed canary.
 
 ## Verified Evidence
 
@@ -19,15 +19,22 @@ Phase 1 engineering and the minimum orchestration foundation are live verified. 
 - Final local verification passed: 61 Node tests, 18 janitor fixtures, 3 dashboard fixtures, portability, PowerShell parsing, and syntax checks.
 - Live verification after the recovery drill: new TG `1`, old TG `0`, WeChat `1`, Telegram poller `1`, watchdog `1`, dashboard `0`, port 520 listeners `0`, and Telegram 409 conflicts `0`.
 - Real memory remained 118 files with no added, removed, or modified files; `state_log.jsonl` was unchanged.
+- The live release descriptor and remote implementation branch both selected `ba5efce3621d8874f09a0c2ccab9c28535c426e6` before the current 520 follow-up work began.
 
 ## Current Scope
 
 - Phase 2 now provides first-turn-only Re-entry, opening/refresh Current State, Context Trace, explicit resume-origin handling, and four-gate legacy-memory enforcement.
 - Phase 3 now provides the leased Closeout/Janitor candidate path, independent Auto Review decisions, and the unique History writer publication path.
 - Phase 4 now provides the independent 520 read-only observation console, module state, Trace/candidate/decision views, and controlled exceptional re-review.
+- The 520 octant view now consumes current DesireService `drive/scores` as well as the legacy `drives[]` shape, reports source/freshness/completeness, and prefers Desire-owned `desire-history.jsonl` over frozen `state_log.jsonl`.
+- Windows silent startup is defined by one independent repository PS1 which registers separate 520 and memory-watchdog tasks; it has no Te Launcher dependency and preserves process-tree isolation.
 - Phase 5A now provides explicit `user_pull` string lookup with server-enforced budgets, supersession visibility, and recall evidence.
 - Phase 5B remains incomplete.
-- Soft Retrieval remains off.
+- Soft Retrieval：离线 replay harness 已实现并完成本机测试；尚未接入 SHADOW、Telegram 或真实回复链。
+  - 位置：`tools/soft-retrieval-replay/`（纯 Python，依赖 numpy + pyyaml；规范见 `docs/soft-retrieval/SPEC.md` 与 `REPLAY_HARNESS.md`）。
+  - 测试：`cd tools/soft-retrieval-replay && python -m unittest discover -s tests` — 15/15 通过（HARNESS §8 十三条清单 + 2 条附加）。
+  - 真实 API smoke：`python smoke_real_apis.py`（读本目录 .env，勿提交）。沙箱内因网络出口 403（请求未到达 API）未能验证 Gemini/DeepSeek 适配器——属环境限制而非适配器缺陷；须在本机跑通一次后方可用于真实回放。
+  - 限制：仅 mock/fixture provider 经过验证；检索链只读、无 TG 引用、无常驻进程；独立证据/模式治理仅埋 schema 字段，算法按 SPEC 禁令未实现。
 
 ## Phase 2 Offline Gate
 

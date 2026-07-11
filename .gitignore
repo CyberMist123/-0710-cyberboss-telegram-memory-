@@ -37,3 +37,16 @@ deployment/current.json
 MEMORY_WRITER_LEASE.json
 MEMORY_ORCHESTRATOR_STATE.json
 MEMORY_CANARY_STATE.json
+
+# Soft Retrieval 回放器：运行产物与私有数据，禁止提交（SPEC R9）
+tools/soft-retrieval-replay/var/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.npy
+**/trace/
+**/eval/
+tools/soft-retrieval-replay/.env
+**/__pycache__/
+*.pyc
+extensions/relationship-memory/memory-kit/keys.local.json
