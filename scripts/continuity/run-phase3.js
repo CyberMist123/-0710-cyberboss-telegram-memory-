@@ -29,7 +29,7 @@ async function main() {
     }
   }
   if (command === "janitor" || command === "all") output.janitor = pipeline.runJanitor();
-  if (command === "review" || command === "all") output.review = pipeline.runReview();
+  if (command === "review" || command === "all") output.review = pipeline.runReview({ retryCandidateId: readFlag("--candidate-id") });
   if (command === "write" || command === "all") output.history = pipeline.runHistoryWriter();
   if (!Object.keys(output).length) throw new Error("Usage: run-phase3.js <closeout|janitor|review|write|all> [--date=YYYY-MM-DD]");
   console.log(JSON.stringify(output, null, 2));

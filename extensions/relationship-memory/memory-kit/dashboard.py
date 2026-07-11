@@ -55,6 +55,10 @@ WORKSPACE_ROOT = KIT_DIR.parent
 CYBERLINK_ROOT = WORKSPACE_ROOT.parent
 HOST = os.environ.get("CYBERBOSS_DASHBOARD_HOST", "127.0.0.1")
 PORT = int(os.environ.get("CYBERBOSS_DASHBOARD_PORT", "520"))
+CONTINUITY_DIR = Path(os.environ.get("CYBERBOSS_CONTINUITY_DIR") or (WORKSPACE_ROOT / "continuity"))
+CYBERBOSS_HOME_TEXT = os.environ.get("CYBERBOSS_HOME", "").strip()
+CYBERBOSS_HOME = Path(CYBERBOSS_HOME_TEXT) if CYBERBOSS_HOME_TEXT else None
+NODE_COMMAND = os.environ.get("CYBERBOSS_NODE_COMMAND", "node")
 
 REENTRY_BUDGET = int(os.environ.get("CYBERBOSS_REENTRY_BUDGET", "300"))
 
@@ -147,6 +151,72 @@ FROZEN_WRITE_ENDPOINTS = {
     "/api/care/cycle",
     "/api/config",
 }
+
+
+def continuity_paths():
+    return {
+        "trace": CONTINUITY_DIR / "trace" / "context_trace.jsonl",
+        "candidates": CONTINUITY_DIR / "candidates" / "episodes.candidates.jsonl",
+        "decisions": CONTINUITY_DIR / "decisions" / "decisions.jsonl",
+        "episodes": CONTINUITY_DIR / "episodes.jsonl",
+        "reentry": CONTINUITY_DIR / "reentry.md",
+        "self_notes": CONTINUITY_DIR / "ai_self_notes.md",
+        "jobs": CONTINUITY_DIR / ".jobs",
+        "writer_state": CONTINUITY_DIR / ".jobs" / "history-writer-state.json",
+    }
+
+
+def compute_module_state():
+    paths = continuity_paths()
+    configured = bool(str(CONTINUITY_DIR))
+    candidates = read_jsonl(paths["candidates"])
+    decisions = read_jsonl(paths["decisions"])
+    jobs = list(paths["jobs"].glob("closeout-*.json")) if paths["jobs"].is_dir() else []
+
+    def available_or(state):
+        return state if configured else "not_implemented"
+
+    return {
+        "hard_context": available_or("on" if paths["trace"].exists() else "available"),
+        "context_trace": available_or("on" if paths["trace"].exists() else "available"),
+        "reentry": available_or("on" if paths["reentry"].exists() else "available"),
+        "closeout": available_or("on" if jobs else "available"),
+        "janitor": available_or("preview" if candidates else "available"),
+        "auto_review": available_or("on" if decisions else ("preview" if candidates else "available")),
+        "history_writer": available_or("on" if paths["writer_state"].exists() else ("preview" if decisions else "available")),
+        "dashboard": "on",
+        "memory_lookup": "not_implemented",
+        "soft_retrieval": "not_implemented",
+    }
+
+
+def get_continuity_rows(kind, limit=50):
+    paths = continuity_paths()
+    if kind not in ("trace", "candidates", "decisions"):
+        raise ValueError("invalid continuity row kind")
+    rows = read_jsonl(paths[kind])
+    return rows[-max(1, min(int(limit), 200)):]
+
+
+def run_review_retry(candidate_id):
+    candidate_id = str(candidate_id or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", candidate_id):
+        return {"ok": False, "error": "invalid_candidate_id"}, 400
+    if CYBERBOSS_HOME is None:
+        return {"ok": False, "error": "review_service_unavailable"}, 503
+    script = CYBERBOSS_HOME / "scripts" / "continuity" / "run-phase3.js"
+    if not CYBERBOSS_HOME.is_dir() or not script.is_file():
+        return {"ok": False, "error": "review_service_unavailable"}, 503
+    try:
+        proc = subprocess.run(
+            [NODE_COMMAND, str(script), "review", f"--candidate-id={candidate_id}"],
+            cwd=str(CYBERBOSS_HOME), capture_output=True, text=True, timeout=120,
+        )
+    except Exception:
+        return {"ok": False, "error": "review_service_failed"}, 503
+    if proc.returncode != 0:
+        return {"ok": False, "error": "review_service_failed", "exit_code": proc.returncode}, 503
+    return {"ok": True, "candidate_id": candidate_id, "status": "review_requested"}, 200
 AUTO_JANITOR_LOG_MAX_BYTES = 500 * 1024  # 500KB,超过就从中点截半(只保留后半段)
 
 
@@ -1929,6 +1999,13 @@ PAGE = r"""<!doctype html>
              resize:none; outline:none; transition: border-color .15s var(--ease), box-shadow .15s var(--ease); }
   textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(122,134,194,.16); }
   textarea[readonly] { color:#9aa0b0; background:#15161b; }
+  #editbtn, #savebtn, #cancelbtn { display:none !important; }
+  .continuity-row { background:var(--surface-2); border:1px solid var(--line); border-radius:8px;
+                    padding:10px 12px; margin-bottom:8px; font-size:12px; overflow-wrap:anywhere; }
+  .module-state { display:inline-block; margin:3px 6px 3px 0; padding:5px 8px;
+                  border:1px solid var(--line); border-radius:6px; font-size:12px; }
+  .module-state.on { border-color:#4f7658; color:#9be3ab; }
+  .module-state.failed { border-color:#7a3f48; color:#ffb4bd; }
 
   /* diff 弹层 */
   #modal-mask { position:fixed; inset:0; background:rgba(0,0,0,0.6); display:none;
@@ -1949,6 +2026,7 @@ PAGE = r"""<!doctype html>
 <div id="app">
   <div id="tabs">
     <div class="tab on" data-view="health">健康度</div>
+    <div class="tab" data-view="continuity">Continuity</div>
     <div class="tab" data-view="injection">注入</div>
     <div class="tab" data-view="memorymap">记忆</div>
     <div class="tab" data-view="timeline">时间线</div>
@@ -1966,6 +2044,16 @@ PAGE = r"""<!doctype html>
     <div class="view on" id="view-health">
       <div id="alertbar"></div>
       <div class="cardgrid" id="health-cards"></div>
+    </div>
+
+    <div class="view" id="view-continuity">
+      <div class="notice">Phase 4 read-only console. Canon and Desire writes remain frozen; re-review only invokes the controlled review service.</div>
+      <div class="view-stack">
+        <div><div class="section-head">Module state</div><div id="continuity-modules"></div></div>
+        <div><div class="section-head">Context Trace</div><div id="continuity-trace"></div></div>
+        <div><div class="section-head">Candidates</div><div id="continuity-candidates"></div></div>
+        <div><div class="section-head">Decisions</div><div id="continuity-decisions"></div></div>
+      </div>
     </div>
 
     <!-- 注入 -->
@@ -2044,20 +2132,20 @@ PAGE = r"""<!doctype html>
       <div class="cardgrid">
         <div class="hcard">
           <h3>关怀设置(care/config.json)</h3>
-          <div class="form-row"><label>城市(天气用)</label><input type="text" id="care-city" placeholder="如 Shanghai;留空 = 不取天气"></div>
-          <div class="form-row"><label>天气轻触</label><input type="checkbox" id="care-weather"></div>
-          <div class="form-row"><label>经期·沉默档</label><input type="checkbox" id="care-silent"></div>
-          <div class="form-row"><label>经期·轻触档</label><input type="checkbox" id="care-touch"></div>
-          <div class="form-row"><label>每天轻触上限</label><input type="number" id="care-max" min="0" max="10" step="1"></div>
-          <div class="form-row"><label>https 代理(可选)</label><input type="text" id="care-proxy" placeholder="wttr.in 直连不通再填,如 http://127.0.0.1:7890"></div>
-          <div style="margin-top:12px;"><button onclick="saveCareConfig()">保存设置</button><span id="care-status" class="form-status"></span></div>
+          <div class="form-row"><label>城市(天气用)</label><input disabled type="text" id="care-city" placeholder="如 Shanghai;留空 = 不取天气"></div>
+          <div class="form-row"><label>天气轻触</label><input disabled type="checkbox" id="care-weather"></div>
+          <div class="form-row"><label>经期·沉默档</label><input disabled type="checkbox" id="care-silent"></div>
+          <div class="form-row"><label>经期·轻触档</label><input disabled type="checkbox" id="care-touch"></div>
+          <div class="form-row"><label>每天轻触上限</label><input disabled type="number" id="care-max" min="0" max="10" step="1"></div>
+          <div class="form-row"><label>https 代理(可选)</label><input disabled type="text" id="care-proxy" placeholder="wttr.in 直连不通再填,如 http://127.0.0.1:7890"></div>
+          <div style="margin-top:12px;"><span id="care-status" class="form-status">只读</span></div>
         </div>
         <div class="hcard">
           <h3>cycle 录入(只由她填,追加进 care/cycle.md)</h3>
-          <div class="form-row"><label>日期</label><input type="date" id="cycle-date"></div>
-          <div class="form-row"><label>类型</label><select id="cycle-kind"><option value="开始">开始</option><option value="结束">结束</option></select></div>
-          <div class="form-row"><label>备注(可选)</label><input type="text" id="cycle-note" maxlength="100"></div>
-          <div style="margin-top:12px;"><button onclick="submitCycle()">记一行</button><span id="cycle-status" class="form-status"></span></div>
+          <div class="form-row"><label>日期</label><input disabled type="date" id="cycle-date"></div>
+          <div class="form-row"><label>类型</label><select disabled id="cycle-kind"><option value="开始">开始</option><option value="结束">结束</option></select></div>
+          <div class="form-row"><label>备注(可选)</label><input disabled type="text" id="cycle-note" maxlength="100"></div>
+          <div style="margin-top:12px;"><span id="cycle-status" class="form-status">只读</span></div>
         </div>
         <div class="hcard" style="grid-column:1/-1;">
           <h3>cycle.md 现有内容(只读展示;写错了直接改文件本体,面板不提供删除)</h3>
@@ -2118,6 +2206,7 @@ function switchView(name) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('on'));
   document.getElementById('view-' + name).classList.add('on');
   if (name === 'health') loadHealth();
+  if (name === 'continuity') loadContinuity();
   if (name === 'injection') loadInjection();
   if (name === 'memorymap') loadMemoryMap();
   if (name === 'timeline') loadTimeline();
@@ -2131,6 +2220,59 @@ document.querySelectorAll('#tabs .tab').forEach(t => {
 });
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+
+async function retryContinuityReview(candidateId, button) {
+  button.disabled = true;
+  try {
+    const r = await fetch('/api/review/retry', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-Api-Token': getApiToken()},
+      body: JSON.stringify({candidate_id: candidateId}),
+    });
+    const data = await r.json();
+    button.textContent = data.ok ? 'Review requested' : ('Unavailable: ' + (data.error || r.status));
+    if (data.ok) setTimeout(loadContinuity, 500);
+  } catch (e) {
+    button.textContent = 'Unavailable';
+  }
+}
+
+function renderContinuityRows(targetId, rows, allowRetry) {
+  const target = document.getElementById(targetId);
+  target.innerHTML = '';
+  if (!rows.length) {
+    const empty = document.createElement('div');
+    empty.className = 'continuity-row'; empty.textContent = 'No records.'; target.appendChild(empty);
+    return;
+  }
+  rows.slice().reverse().forEach(row => {
+    const box = document.createElement('div'); box.className = 'continuity-row';
+    const pre = document.createElement('pre'); pre.textContent = JSON.stringify(row, null, 2); box.appendChild(pre);
+    if (allowRetry && ['deferred', 'rejected'].includes(row.action) && row.candidate_id) {
+      const button = document.createElement('button'); button.className = 'ghost'; button.textContent = 'Re-review';
+      button.onclick = () => retryContinuityReview(row.candidate_id, button); box.appendChild(button);
+    }
+    target.appendChild(box);
+  });
+}
+
+async function loadContinuity() {
+  const [moduleRes, traceRes, candidateRes, decisionRes] = await Promise.all([
+    fetch('/api/module-state'), fetch('/api/context-trace?limit=30'),
+    fetch('/api/continuity/candidates?limit=30'), fetch('/api/continuity/decisions?limit=30'),
+  ]);
+  const [moduleData, traceData, candidateData, decisionData] = await Promise.all([
+    moduleRes.json(), traceRes.json(), candidateRes.json(), decisionRes.json(),
+  ]);
+  const modules = document.getElementById('continuity-modules'); modules.innerHTML = '';
+  Object.entries(moduleData.modules || {}).forEach(([name, state]) => {
+    const item = document.createElement('span'); item.className = 'module-state ' + state;
+    item.textContent = name + ': ' + state; modules.appendChild(item);
+  });
+  renderContinuityRows('continuity-trace', traceData.rows || [], false);
+  renderContinuityRows('continuity-candidates', candidateData.rows || [], false);
+  renderContinuityRows('continuity-decisions', decisionData.rows || [], true);
+}
 
 // ---------- 1 健康度 ----------
 async function loadHealth() {
@@ -2281,32 +2423,7 @@ async function loadHealth() {
     '<div class="sub">下次运行:' + esc(aj.next_run_at || '(未排定)') + '</div>' +
     (aj.consecutive_failures > 0 ? '<div class="sub" style="color:#ff6b7a;">连续失败 ' + esc(aj.consecutive_failures) + ' 次</div>' : '') +
     ajTailHtml +
-    '<div style="margin-top:10px;"><button id="run-janitor-btn" class="ghost" onclick="runJanitorNow()">立即补记</button>' +
-    '<span id="run-janitor-status" style="margin-left:8px; font-size:12px; color:#9aa0b0;"></span></div></div>';
-}
-
-async function runJanitorNow() {
-  const btn = document.getElementById('run-janitor-btn');
-  const st = document.getElementById('run-janitor-status');
-  btn.disabled = true;
-  st.textContent = '触发中…';
-  try {
-    const r = await fetch('/api/janitor/run', { method: 'POST', headers: { 'X-Api-Token': getApiToken() } });
-    const d = await r.json();
-    if (r.status === 409) {
-      st.textContent = '已在运行中,请稍候。';
-    } else if (r.status === 401) {
-      st.textContent = 'token 校验失败,见 memory-kit/keys.local.json 的 API_TOKEN。';
-    } else if (d.ok) {
-      st.textContent = '已触发,后台运行中…';
-    } else {
-      st.textContent = '触发失败:' + (d.err || '未知错误');
-    }
-  } catch (e) {
-    st.textContent = '请求失败:' + e;
-  }
-  btn.disabled = false;
-  setTimeout(loadHealth, 1500);
+    '<div class="sub" style="margin-top:10px;">只读观察；手动 Janitor 写入口已冻结。</div></div>';
 }
 
 // 面板自身操作走本机 API,token 由后端在页面里内嵌(仅本机可见,不对外)
@@ -2828,47 +2945,11 @@ async function loadCare() {
 }
 
 async function saveCareConfig() {
-  const st = document.getElementById('care-status');
-  const maxRaw = parseInt(document.getElementById('care-max').value, 10);
-  const body = {
-    city: document.getElementById('care-city').value.trim(),
-    weather_enabled: document.getElementById('care-weather').checked,
-    cycle_silent_enabled: document.getElementById('care-silent').checked,
-    cycle_light_touch_enabled: document.getElementById('care-touch').checked,
-    max_touch_per_day: isNaN(maxRaw) ? 1 : maxRaw,
-    https_proxy: document.getElementById('care-proxy').value.trim(),
-  };
-  try {
-    const r = await fetch('/api/care/config', { method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Api-Token': getApiToken() },
-      body: JSON.stringify(body) });
-    const d = await r.json();
-    st.textContent = d.ok ? ('已保存 ' + new Date().toLocaleTimeString() + '(旧版在 care/.backups)')
-                          : ('失败:' + (d.err || JSON.stringify(d)));
-  } catch (e) { st.textContent = '请求失败:' + e; }
+  document.getElementById('care-status').textContent = '只读：写入口已冻结。';
 }
 
 async function submitCycle() {
-  const st = document.getElementById('cycle-status');
-  const body = {
-    date: document.getElementById('cycle-date').value,
-    kind: document.getElementById('cycle-kind').value,
-    note: document.getElementById('cycle-note').value.trim(),
-  };
-  if (!body.date) { st.textContent = '先选日期。'; return; }
-  try {
-    const r = await fetch('/api/care/cycle', { method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Api-Token': getApiToken() },
-      body: JSON.stringify(body) });
-    const d = await r.json();
-    if (d.ok) {
-      st.textContent = '已记:' + d.line;
-      document.getElementById('cycle-note').value = '';
-      loadCare();
-    } else {
-      st.textContent = '失败:' + (d.err || JSON.stringify(d));
-    }
-  } catch (e) { st.textContent = '请求失败:' + e; }
+  document.getElementById('cycle-status').textContent = '只读：写入口已冻结。';
 }
 
 // ---------- 5 剧场(theater/scripts_index.md 的外链列表,只读) ----------
@@ -2932,7 +3013,7 @@ async function loadFileList() {
 function applyFileContent(f, content) {
   origContent = content;
   document.getElementById('fname').textContent = (labels[f] || f);
-  document.getElementById('rolabel').textContent = '只读(点"编辑"解锁)';
+  document.getElementById('rolabel').textContent = '只读';
   document.getElementById('editbtn').style.display = '';
   document.getElementById('savebtn').style.display = 'none';
   document.getElementById('cancelbtn').style.display = 'none';
@@ -2950,7 +3031,7 @@ async function openFile(f) {
   return;
   origContent = d.content;
   document.getElementById('fname').textContent = (labels[f] || f);
-  document.getElementById('rolabel').textContent = '只读(点"编辑"解锁)';
+  document.getElementById('rolabel').textContent = '只读';
   document.getElementById('editbtn').style.display = '';
   document.getElementById('savebtn').style.display = 'none';
   document.getElementById('cancelbtn').style.display = 'none';
@@ -2969,27 +3050,14 @@ async function refreshFilesView() {
 }
 
 function enterEdit() {
-  if (!curFile) return;
-  const doEnter = () => {
-    editing = true;
-    document.getElementById('ed').readOnly = false;
-    document.getElementById('rolabel').textContent = '编辑中';
-    document.getElementById('editbtn').style.display = 'none';
-    document.getElementById('savebtn').style.display = '';
-    document.getElementById('cancelbtn').style.display = '';
-  };
-  if (guardConfirm[curFile]) {
-    if (confirm(guardConfirm[curFile])) doEnter();
-  } else {
-    doEnter();
-  }
+  document.getElementById('status').textContent = '只读：文件写入口已冻结。';
 }
 
 function cancelEdit() {
   editing = false;
   const ed = document.getElementById('ed');
   ed.value = origContent; ed.readOnly = true;
-  document.getElementById('rolabel').textContent = '只读(点"编辑"解锁)';
+  document.getElementById('rolabel').textContent = '只读';
   document.getElementById('editbtn').style.display = '';
   document.getElementById('savebtn').style.display = 'none';
   document.getElementById('cancelbtn').style.display = 'none';
@@ -3025,19 +3093,7 @@ function renderCards(f, content) {
 }
 
 function tryShowDiff() {
-  if (!curFile) return;
-  const v = document.getElementById('ed').value;
-  if (curFile.endsWith('.jsonl')) {
-    let n = 0;
-    for (const line of v.split('\n')) {
-      n++; if (!line.trim()) continue;
-      try { JSON.parse(line); } catch (e) {
-        document.getElementById('status').textContent = '第 ' + n + ' 行不是合法 JSON,未保存';
-        return;
-      }
-    }
-  }
-  showDiff(origContent, v);
+  document.getElementById('status').textContent = '只读：文件写入口已冻结。';
 }
 
 function showDiff(oldText, newText) {
@@ -3078,21 +3134,7 @@ function closeModal() {
 
 async function confirmSave() {
   closeModal();
-  const v = document.getElementById('ed').value;
-  const r = await fetch('/api/save?f=' + encodeURIComponent(curFile),
-    { method: 'POST', headers: { 'X-Api-Token': getApiToken() }, body: new TextEncoder().encode(v) });
-  const d = await r.json();
-  document.getElementById('status').textContent = d.ok ? '已保存 ' + new Date().toLocaleTimeString() + '(旧版在 .backups)' : ('失败:' + d.err);
-  if (d.ok) {
-    origContent = v;
-    editing = false;
-    document.getElementById('ed').readOnly = true;
-    document.getElementById('rolabel').textContent = '只读(点"编辑"解锁)';
-    document.getElementById('editbtn').style.display = '';
-    document.getElementById('savebtn').style.display = 'none';
-    document.getElementById('cancelbtn').style.display = 'none';
-    renderCards(curFile, v);
-  }
+  document.getElementById('status').textContent = '只读：文件写入口已冻结。';
 }
 
 document.addEventListener('keydown', e => {
@@ -3215,6 +3257,28 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
 
+        elif u.path == "/api/module-state":
+            try:
+                self._send(200, json.dumps({
+                    "modules": compute_module_state(),
+                    "continuity_dir": str(CONTINUITY_DIR),
+                    "write_mode": "read_only",
+                }, ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
+
+        elif u.path in ("/api/context-trace", "/api/continuity/candidates", "/api/continuity/decisions"):
+            try:
+                kind = {
+                    "/api/context-trace": "trace",
+                    "/api/continuity/candidates": "candidates",
+                    "/api/continuity/decisions": "decisions",
+                }[u.path]
+                limit = _parse_limit(parse_qs(u.query).get("limit", ["50"])[0], default=50)
+                self._send(200, json.dumps({"kind": kind, "rows": get_continuity_rows(kind, limit)}, ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
+
         elif u.path == "/api/episodes_index":
             try:
                 idx = compute_episodes_index()
@@ -3305,8 +3369,8 @@ class H(BaseHTTPRequestHandler):
                 self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
 
         elif u.path == "/config":
-            self._send(200, CONFIG_PAGE.replace("%API_TOKEN%", json.dumps(API_TOKEN, ensure_ascii=False)),
-                       "text/html; charset=utf-8")
+            self._send(410, "Configuration writes are retired; the Phase 4 console is read-only.",
+                       "text/plain; charset=utf-8")
 
         # ---- v3:关怀 / 剧场只读端点 ----
 
@@ -3360,6 +3424,17 @@ class H(BaseHTTPRequestHandler):
                 "error": "write_frozen",
                 "path": u.path,
             }, ensure_ascii=False))
+            return
+
+        if u.path == "/api/review/retry":
+            if not self._check_token():
+                return
+            obj, err = self._read_json_body()
+            if err:
+                self._send(400, json.dumps({"ok": False, "error": "invalid_body"}, ensure_ascii=False))
+                return
+            result, code = run_review_retry((obj or {}).get("candidate_id"))
+            self._send(code, json.dumps(result, ensure_ascii=False))
             return
 
         if u.path == "/api/save":

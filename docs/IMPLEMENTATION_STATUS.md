@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-11
 
-Phase 1 engineering and the minimum orchestration foundation are live verified. Phase 2 and Phase 3 engineering are offline verified and have not been cut over to live yet.
+Phase 1 engineering and the minimum orchestration foundation are live verified. Phase 2, Phase 3, and Phase 4 engineering are offline verified and have not been cut over to live yet.
 
 ## Verified Evidence
 
@@ -24,7 +24,8 @@ Phase 1 engineering and the minimum orchestration foundation are live verified. 
 
 - Phase 2 now provides first-turn-only Re-entry, opening/refresh Current State, Context Trace, explicit resume-origin handling, and four-gate legacy-memory enforcement.
 - Phase 3 now provides the leased Closeout/Janitor candidate path, independent Auto Review decisions, and the unique History writer publication path.
-- Phase 4 through Phase 5 are still incomplete.
+- Phase 4 now provides the independent 520 read-only observation console, module state, Trace/candidate/decision views, and controlled exceptional re-review.
+- Phase 5 remains incomplete.
 - Soft Retrieval remains off.
 
 ## Phase 2 Offline Gate
@@ -48,6 +49,17 @@ Phase 1 engineering and the minimum orchestration foundation are live verified. 
 - Same-day Closeout → Review → History replay is byte-identical. Candidate-to-Episode body equality, Dashboard 403 behavior, source-window lookup, boundary push rules, lease contention, over-budget Re-entry deferral, and `state_log.jsonl` immutability are covered by fixtures.
 - Writer change: `closeout-writer` and `janitor-writer` may append candidates; `review-writer` appends decisions; `history-writer` alone publishes Episode/Re-entry/Self-note canon. The subject runtime remains the sole author of Re-entry/Self-note body text.
 - Rollback: revert the Phase 3 commit. Before live use, restore changed canon from the continuity `.backups` directory and verify file hashes; offline fixtures require no data rollback.
+
+## Phase 4 Offline Gate
+
+- `/api/module-state` reports only `not_implemented`, `available`, `preview`, `on`, or `failed` for hard context, Trace, Re-entry, Closeout, Janitor, Auto Review, History writer, Dashboard, memory lookup, and Soft Retrieval.
+- Context Trace, candidates, and decisions are exposed through bounded read-only endpoints and a dedicated Continuity view. Empty stores are reported honestly.
+- The exceptional Re-review control is shown only for deferred or rejected decisions. Its authenticated endpoint invokes the leased Review service and never writes canon or Desire directly.
+- Legacy file editing, care/cycle submission, Janitor triggering, and configuration editing are removed or retired in the UI; all corresponding server write routes remain frozen with HTTP 403.
+- Dashboard termination is process-isolated from a TG sentinel, and the release watchdog contains no Dashboard target or restart path.
+- `npm run check`, `npm run test:phase4` (one targeted Re-review test, the HTTP/UI/process fixture, and 10 orchestration tests), and the earlier Phase gates pass without touching live processes or real memory.
+- Writer change: none. Phase 4 adds no canon or Desire writer; Re-review delegates to the existing `review-writer` lease.
+- Rollback: revert the Phase 4 commit. No continuity or memory data restoration is required because the Phase 4 fixtures use temporary directories.
 
 ## Notes
 

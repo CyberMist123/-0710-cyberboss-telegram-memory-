@@ -47,5 +47,8 @@ jobs:
       - name: Phase 3 continuity-pipeline tests
         run: npm run test:phase3
 
+      - name: Phase 4 read-only console tests
+        run: npm run test:phase4
+
       - name: Diff hygiene
         run: git diff --check

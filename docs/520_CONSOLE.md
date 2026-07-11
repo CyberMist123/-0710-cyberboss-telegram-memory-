@@ -1,11 +1,22 @@
 # 520 Console
 
-> 状态：功能说明，尚未按新边界完成实现  
+> 状态：Phase 4 只读观察边界已离线实现；后续交互能力仍按本文分阶段开放
 > 520 是查看、调试、模式切换与评测前端，不是记忆后端。
 
 ## 一句话
 
 关掉 520 后，Telegram、Context Builder、Desire、Closeout、Auto Review 和受控记忆查询仍然应该继续运行。
+
+## Phase 4 已实现边界
+
+- 520 与 Telegram/watchdog 进程树隔离，watchdog 不启动或重启 520；
+- `/api/module-state` 使用 `not_implemented | available | preview | on | failed`；
+- Context Trace、candidate 与 decision 仅提供有上限的只读查看；
+- deferred/rejected decision 可通过鉴权入口请求 Review service 重审；
+- 文件、care/cycle、Janitor、配置以及 memory/Desire 的直接写入口统一冻结；
+- 重审入口不直接写 canon 或 Desire，最终发布仍只能经过既有 Review/History writer 链。
+
+Prompt 版本管理、撤回、评测实验室等仍是后续能力；本阶段不伪装为已实现。
 
 ## 首页要让人一眼看懂
 

@@ -120,7 +120,7 @@ class ContinuityPipeline {
     };
   }
 
-  runReview({ env = process.env } = {}) {
+  runReview({ env = process.env, retryCandidateId = "" } = {}) {
     return this.withLease("review-writer", () => {
       const candidates = readJsonl(this.paths.candidates);
       const existing = readJsonl(this.paths.decisions);
@@ -132,7 +132,8 @@ class ContinuityPipeline {
       }
       const decisions = [];
       for (const candidate of candidates) {
-        if (decided.has(candidate.candidate_id)) continue;
+        if (retryCandidateId && candidate.candidate_id !== retryCandidateId) continue;
+        if (!retryCandidateId && decided.has(candidate.candidate_id)) continue;
         const bodyKey = sha256(`${candidate.type}\n${normalizeBody(candidate.body)}`);
         if (primaryByBody.get(bodyKey) !== candidate.candidate_id) {
           decisions.push(createDecision(candidate, {
