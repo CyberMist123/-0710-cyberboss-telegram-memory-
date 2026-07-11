@@ -1,0 +1,40 @@
+name: phase1
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  phase1:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install Python dependencies for phase 1 tests
+        run: python -m pip install -r extensions/relationship-memory/memory-kit/requirements.txt
+
+      - name: Static checks
+        run: npm run check
+
+      - name: Phase 1 tests
+        run: npm run test:phase1
+
+      - name: Diff hygiene
+        run: git diff --check
