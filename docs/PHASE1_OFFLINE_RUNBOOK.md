@@ -4,6 +4,8 @@ This runbook is intentionally placeholder-only. Do not paste real tokens, live m
 
 ## Offline Acceptance
 
+`.github/workflows/phase1-offline.yml` is the sole Phase 1 CI workflow and the document below stays aligned with it.
+
 - Use a fixture state directory: `<STATE_DIR>`.
 - Use a fixture workspace: `<WORKSPACE>`.
 - Use a private config directory: `<CONFIG_DIR>`.
