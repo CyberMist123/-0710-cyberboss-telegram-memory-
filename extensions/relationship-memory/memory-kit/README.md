@@ -65,10 +65,10 @@ python memory-kit/sync_memory_block.py     # 或双击 同步记忆块.bat
 **3. 面板**
 
 ```
-python memory-kit/dashboard.py
+python memory-kit/dashboard_continuity.py
 ```
 
-打开 http://127.0.0.1:520 。八维页显示的是 memory/state_log.jsonl 里冻结的历史数据;实时状态请去看 `~/.cyberboss/desire-state.json`(cyberboss 自己的 UI 或后续面板集成)。
+打开 http://127.0.0.1:520 。新版入口复用原面板，并在 Continuity 页把技术断档、证据材料、主体候选、后台候选、Review Decision 与已发布 Canon 分开显示。`dashboard.py` 暂时保留为回滚后备入口。
 
 ## 循环(不需要你维护)
 
