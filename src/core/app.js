@@ -1879,6 +1879,7 @@ class CyberbossApp {
   async handleTelegramMessage(normalized) {
     this.logTelegramDebug(`handleTelegramMessage messageId=${normalized.messageId} senderId=${normalized.senderId}`);
     if (this.config.channel === "telegram") {
+      this.recordInboundMessage(normalized);
       await this.handlePreparedMessage(normalized, { allowCommands: true });
       return;
     }

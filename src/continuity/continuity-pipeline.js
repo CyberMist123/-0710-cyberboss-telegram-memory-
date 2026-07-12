@@ -208,7 +208,7 @@ class ContinuityPipeline {
         "--outdir", this.continuityDir,
       ], {
         encoding: "utf8",
-        env: { ...env, CYBERBOSS_WRITER_LEASE_HELD: "1" },
+        env: { ...env, CYBERBOSS_WRITER_LEASE_HELD: "1", PYTHONUTF8: "1" },
         timeout: 120_000,
       });
       if (proc.status !== 0) {
@@ -368,7 +368,8 @@ function runPythonReview({ python, script, candidate, sourceLocated, env }) {
   const proc = spawnSync(python, [script], {
     input: JSON.stringify({ candidate, source_ref_located: sourceLocated }),
     encoding: "utf8",
-    env,
+    // Windows python decodes stdin as GBK by default; candidates are UTF-8.
+    env: { ...env, PYTHONUTF8: "1" },
     timeout: 60_000,
   });
   if (proc.status !== 0) {
@@ -397,7 +398,7 @@ function locateSourceRef(sourceRef = {}) {
 }
 
 function isConversationType(type) {
-  return type === "user" || type === "runtime.reply.completed" || type === "assistant";
+  return type === "user" || type === "runtime.reply.completed" || type === "assistant" || type === "runtime.turn.completed";
 }
 
 function safeReadText(filePath) {
