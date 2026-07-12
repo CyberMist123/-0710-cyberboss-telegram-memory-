@@ -33,13 +33,164 @@
 - `main` 当前仍不是最新实施代码，不能直接把实施分支删除。
 - 当前工作原则：GitHub 小步提交 → 本地同步 → 离线测试 → 明确验收 → 再部署。
 - 真实 119 条候选记忆暂不批量运行。
-- Nightly 自动 Review / 发布在模式门完成前保持停用。
+- Nightly 模式门已经完成；开发与首次部署阶段默认 `evidence`，最终稳定目标为 `auto`。
+- Runtime 尚未部署这批记忆语义修复。
+
+---
+
+## 2026-07-12 · v0.10 · 520 Continuity 中文分层 S6
+
+**状态：🟡 🧪 🔒**
+
+### 修了什么
+
+520 的 Continuity 页不再把所有对象笼统显示为 Candidate，而是分成：
+
+```text
+技术断档
+证据材料
+主体 AI 候选
+后台代理候选
+冻结的旧候选
+Review 决策
+已发布 Canon
+```
+
+为了避免直接重写 3820 行旧 `dashboard.py`，本次采用薄覆盖层：
+
+- `continuity_layers.py`：只读分层模型；
+- `dashboard_continuity.py`：复用旧面板，只替换 Continuity 页并增加只读接口；
+- 旧 `/api/continuity/candidates` 与 `/api/continuity/decisions` 保留兼容；
+- 新接口：`/api/continuity/layers`；
+- deferred / rejected 重审按钮兼容正式字段 `result`，不再只认旧字段 `action`；
+- Continuity 页加入 20 秒只读刷新。
+
+### 提交
+
+- `ad4e48d`：新增 Continuity 分层只读模型；
+- `f55770d`：新增中文分层 520 覆盖启动器；
+- `e336e6e`：增加分层接口、中文页面与只读不变测试；
+- `e4bd1ff`：接入 Phase 4 正式测试门。
+
+### 主要文件
+
+- `extensions/relationship-memory/memory-kit/continuity_layers.py`
+- `extensions/relationship-memory/memory-kit/dashboard_continuity.py`
+- `extensions/relationship-memory/memory-kit/tests/test_dashboard_continuity_layers.py`
+- `package.json`
+
+### 测试与部署
+
+- GitHub 代码与 fixture 已提交；
+- 本地验证：等待运行；
+- 测试只读临时目录，不触碰真实 continuity；
+- 旧 Dashboard 仍保留，尚未切换真实 520 启动入口；
+- Runtime 未部署，Telegram 未重启。
+
+### 回滚点
+
+- S5 已验证版本：`00b544bef113456b06afef41d158de968e7e48b7`
+- 当前 S6 版本：`e4bd1ffea46d2b77c4938b355fcaaa7ba812d49f`
+
+---
+
+## 2026-07-12 · v0.9 · Nightly 自动化安全模式门 S5
+
+**状态：✅ 🧪 🔒**
+
+### 修了什么
+
+原计划名 `manual | shadow | auto` 容易让人误以为用户需要日常人工审批，现改为：
+
+```text
+evidence  自动补漏；零模型调用；零 Canon 写入
+shadow    自动 Closeout + Review；不运行 History Writer
+auto      自动 Closeout + Review + History Writer
+```
+
+最终稳定目标是 `auto`。开发与首次上线阶段默认 `evidence`，只是防止 F4 体验验收前自动污染正式记忆。
+
+旧命令 `run-phase3.js all` 也受同一模式门控制；未配置模式时只运行 Janitor Evidence。
+
+### 提交
+
+- `a728e3f`：新增 fail-closed Nightly 模式定义；
+- `d15c1ff`：Phase 3 runner 接入模式计划；
+- `54b16ad`：增加 evidence / shadow / auto 测试；
+- `00b544b`：接入正式静态检查和 Phase 3 测试门。
+
+### 测试与部署
+
+用户在本机同步至：
+
+```text
+00b544bef113456b06afef41d158de968e7e48b7
+```
+
+并确认测试通过。验证了：
+
+- 默认 `evidence`；
+- evidence 不调用模型、不写 Canon；
+- shadow 自动生成 Candidate 与 Decision，但不发布；
+- auto 才运行完整自动链；
+- 无效模式直接报错；
+- 旧 `all` 命令不会绕过模式门。
+
+没有运行真实 Nightly，没有处理真实 119 条 Candidate，没有部署或重启 Telegram。
+
+### 回滚点
+
+- S4 已验证版本：`c43a126206d9601451eaffa3ff4a35383df7a16c`
+- S5 已验证版本：`00b544bef113456b06afef41d158de968e7e48b7`
+
+---
+
+## 2026-07-12 · v0.8 · Review 权限门前移 S4
+
+**状态：✅ 🧪 🔒**
+
+### 修了什么
+
+权限判断从 Review 之后前移到语义 Review 调用之前：
+
+```text
+Candidate
+→ 本地检查语义权限
+→ 无权限：直接落 deferred Decision
+→ 有权限：才调用语义 Review
+```
+
+旧 Janitor Candidate、后台代理 Self-note / Re-entry 不再浪费 Review 模型额度。权限 Decision 仍持有 writer lease、逐条落盘并支持中断续跑。
+
+### 提交
+
+- `f846ef8`：权限门嵌入既有 checkpoint；
+- `8a44cec`：增加零语义 Review 调用测试；
+- `9f959b6`：删除未接线的中间草稿；
+- `c43a126`：更新完整链路预期。
+
+### 测试与部署
+
+用户在本机同步至：
+
+```text
+c43a126206d9601451eaffa3ff4a35383df7a16c
+```
+
+并确认测试通过。验证无权限 Candidate 的语义 Review 调用数为 0，中断续跑与幂等链路未回归。
+
+没有调用真实模型，没有处理真实 119 条 Candidate，没有部署或重启 Telegram。
+
+### 回滚点
+
+- S3 已验证版本：`fad78a54990138d1454dd9a2193935929f1b3469`
+- S4 已验证版本：`c43a126206d9601451eaffa3ff4a35383df7a16c`
 
 ---
 
 ## 2026-07-12 · v0.7 · Candidate 来源与语义权限 S3
 
-**状态：🟡 🧪 🔒**
+**状态：✅ 🧪 🔒**
 
 ### 修了什么
 
@@ -78,7 +229,8 @@ Episode Canon 会保留来源、作者角色、模型、上下文范围和语义
 - `5ff8aa0`：新增 Candidate 来源与权限模块；
 - `c5f8501`：Candidate schema、旧数据映射、Review 与 History Writer 权限保护；
 - `468dafd`：增加 subject / background proxy / legacy Janitor 权限矩阵测试；
-- `08cf59a`：新模块接入正式静态检查。
+- `08cf59a`：新模块接入正式静态检查；
+- `fad78a5`：记录 S2 通过与 S3 状态。
 
 ### 主要文件
 
@@ -89,21 +241,12 @@ Episode Canon 会保留来源、作者角色、模型、上下文范围和语义
 
 ### 测试与部署
 
-- GitHub 代码与 fixture 已提交；
-- 本地验证：等待运行；
-- 不调用真实模型；
-- 不读取真实 119 条 Candidate；
-- 不迁移旧数据；
-- Runtime 未部署。
+用户随后确认 S3 本机测试通过。没有调用真实模型、没有读取真实 119 条 Candidate、没有迁移旧数据，Runtime 未部署。
 
 ### 回滚点
 
 - S2 已验证版本：`09adc1a92a435e40f24e5d67b62c0ccf3616c9a8`
-- 当前 S3 版本：`08cf59a6a0d280e4a8e2ee6256f9817913fb1144`
-
-### 已知边界
-
-当前权限不足的 Candidate 会在 Review 后被强制 deferred；下一步 S4 会把权限门前移到调用语义 Review 模型之前，确保权限不足时零模型调用。
+- S3 已验证版本：`fad78a54990138d1454dd9a2193935929f1b3469`
 
 ---
 
@@ -320,7 +463,7 @@ V1 改为 checkpoint 方式：
 
 本机已在 `3208978` 上通过静态检查、Phase 3 和 Phase 5A 测试。测试使用临时目录和 fixture，不处理真实 Candidate，也不调用真实模型。
 
-Runtime 尚未部署。当前 Nightly 仍可能调用 `run-phase3.js all`；在 `manual | shadow | auto` 模式门完成前，不部署这条新流水线到真实运行环境。
+Runtime 尚未部署。当前 Nightly 模式门已经完成，但这批代码仍未部署到真实运行环境。
 
 ### 回滚点
 
@@ -373,7 +516,10 @@ writer-lease 修复曾同步到本地 runtime 文件；Telegram 是否已由该 
 - `3208978`：正式测试门覆盖 checkpoint 和时间格式；
 - `08ccd3c`：完整虚构记忆链通过；
 - `09adc1a`：Janitor Evidence 化通过；
-- `08cf59a`：Candidate 来源与权限等待验证。
+- `fad78a5`：Candidate 来源与权限通过；
+- `c43a126`：Review 权限前置门通过；
+- `00b544b`：Nightly 模式门通过；
+- `e4bd1ff`：520 中文分层等待验证。
 
 后续只在找到可核对的提交、测试输出或部署记录后补写，不凭印象扩写历史。
 
@@ -381,23 +527,9 @@ writer-lease 修复曾同步到本地 runtime 文件；Telegram 是否已由该 
 
 ## 接下来
 
-### S4 · Review 权限门前移
+### S6 · 520 分层验证与启动入口切换
 
-权限不足时直接在本地 deferred，不调用语义 Review 模型；Review 继续不做“重要性”判断。
-
-### S5 · Nightly 模式门
-
-加入：
-
-```text
-manual | shadow | auto
-```
-
-默认 `manual`：只做覆盖扫描和 Evidence，不自动 Review，不运行 History Writer，不发布 Canon。
-
-### S6 · 520 展示
-
-区分漏档、证据、主体候选、后台代理候选、Decision 和已发布 Canon。
+先验证新的分层只读接口和中文页面。通过后再把真实 520 启动入口从旧 `dashboard.py` 切换到 `dashboard_continuity.py`；不在离线验收前替换运行环境。
 
 ### 最终 F4 体验门
 
