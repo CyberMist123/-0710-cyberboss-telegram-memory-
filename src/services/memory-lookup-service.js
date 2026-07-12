@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { writeJsonAtomic } = require("../orchestration/atomic-json");
 const { hashThreadId } = require("../core/context-trace");
+const { formatReadableTime } = require("../core/readable-time");
 
 const MAX_CALLS_PER_SESSION = 5; // Fault-loop guard, not a relational or posture budget.
 const MAX_HITS = 3;
@@ -121,7 +122,7 @@ function normalizeEpisode(row) {
   ].map(normalizeText).filter(Boolean).join("\n");
   return {
     ep_id: epId,
-    ts: normalizeText(row.ts || row.time),
+    ts: formatReadableTime(normalizeText(row.ts || row.time)),
     body,
     searchText: JSON.stringify(row).toLocaleLowerCase(),
     supersedes: normalizeText(row.supersedes),
