@@ -53,6 +53,129 @@ ROOT = Path(os.environ.get("CYBERBOSS_MEMORY_DIR") or (KIT_DIR.parent / "memory"
 BACKUPS = ROOT / ".backups"
 WORKSPACE_ROOT = KIT_DIR.parent
 CYBERLINK_ROOT = WORKSPACE_ROOT.parent
+
+
+def _resolve_dashboard_workspace_root():
+    for key in ("CYBERBOSS_WORKSPACE_ROOT", "CYBERBOSS_WORKSPACE"):
+        value = os.environ.get(key, "").strip()
+        if value:
+            return Path(value)
+    for parent in KIT_DIR.parents:
+        if (parent / "settings" / "manifest.json").exists():
+            return parent
+    return CYBERLINK_ROOT
+
+
+DASHBOARD_WORKSPACE_ROOT = _resolve_dashboard_workspace_root()
+DASHBOARD_STATE_DIR = Path(
+    os.environ.get("CYBERBOSS_DASHBOARD_STATE_DIR")
+    or os.environ.get("CYBERBOSS_STATE_DIR")
+    or (KIT_DIR / ".dashboard-state")
+)
+
+
+def _resolve_todo_file():
+    explicit = os.environ.get("CYBERBOSS_TODO_FILE", "").strip()
+    if explicit:
+        return Path(explicit)
+    candidates = (
+        DASHBOARD_WORKSPACE_ROOT / "settings" / "CODING_TODO.md",
+        DASHBOARD_WORKSPACE_ROOT / "CODING_TODO.md",
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+TODO_FILE = _resolve_todo_file()
+TODO_META_FILE = DASHBOARD_STATE_DIR / "dashboard-todo-meta.json"
+TODO_BACKUP_DIR = DASHBOARD_STATE_DIR / "todo-backups"
+CONTEXT_LAYOUT_FILE = DASHBOARD_STATE_DIR / "context-layout.json"
+CONTEXT_SNAPSHOT_DIR = DASHBOARD_STATE_DIR / "context-layout-snapshots"
+CONTEXT_META_FILE = DASHBOARD_STATE_DIR / "context-layout-meta.json"
+
+DEFAULT_CONTEXT_LAYOUT = {
+    "version": 1,
+    "groups": [
+        {
+            "id": "base",
+            "title": "Base",
+            "subtitle": "稳定层",
+            "fixed": "first",
+            "enabled": True,
+            "modules": [
+                {"id": "identity", "name": "人物卡 / AI Identity", "enabled": True},
+                {"id": "relationship", "name": "关系 / 情感注入", "enabled": True},
+                {"id": "tools_rules", "name": "Tool / AI 自主活动规则", "enabled": True},
+            ],
+        },
+        {
+            "id": "reentry",
+            "title": "Re-entry",
+            "subtitle": "慢变化层",
+            "enabled": True,
+            "runtime_gate": "reentry",
+            "modules": [
+                {"id": "boundary", "name": "Boundary", "enabled": True},
+                {"id": "history", "name": "History / Timeline 摘要", "enabled": True},
+                {"id": "ai_portrait", "name": "AI Portrait", "enabled": True},
+                {"id": "user_portrait", "name": "User Portrait", "enabled": True},
+            ],
+        },
+        {
+            "id": "live_state",
+            "title": "Live State",
+            "subtitle": "鲜活状态层",
+            "enabled": True,
+            "runtime_gate": "current_state",
+            "modules": [
+                {"id": "state_note", "name": "最近状态摘要 / 小纸条", "enabled": True},
+                {"id": "desire", "name": "八维 / Desire", "enabled": True},
+                {"id": "commitments", "name": "承诺 / Commitments", "enabled": True},
+                {"id": "focus", "name": "Todo / Current Focus", "enabled": True},
+                {"id": "health", "name": "Health / 手机 Monitor", "enabled": True},
+                {"id": "location", "name": "Location / Weather", "enabled": True},
+                {"id": "rp", "name": "RP 预设 / Overlays", "enabled": True},
+            ],
+        },
+        {
+            "id": "cache",
+            "title": "Cache / Continuity",
+            "subtitle": "会话连续层",
+            "enabled": True,
+            "modules": [
+                {"id": "previous_summary", "name": "上一会话摘要", "enabled": True},
+                {"id": "recent_turns", "name": "上一会话原文 / 最近 N 轮", "enabled": True},
+            ],
+        },
+        {
+            "id": "retrieval",
+            "title": "Retrieval & Tools",
+            "subtitle": "按需检索层",
+            "enabled": True,
+            "runtime_gate": "memory_context",
+            "modules": [
+                {"id": "memory_lookup", "name": "记忆检索 / 特殊记忆浮现", "enabled": True},
+                {"id": "tools", "name": "Tool / MCP 调用", "enabled": True},
+                {"id": "cc", "name": "CC / Codex 项目管理结果", "enabled": True},
+            ],
+        },
+        {
+            "id": "current",
+            "title": "Current Context",
+            "subtitle": "当轮上下文",
+            "fixed": "last",
+            "enabled": True,
+            "modules": [
+                {"id": "conversation", "name": "当前会话", "enabled": True},
+                {"id": "work_summary", "name": "当前轮公开工作摘要", "enabled": True},
+                {"id": "cot", "name": "可选公开推理摘要（不含私有 CoT）", "enabled": False},
+            ],
+        },
+    ],
+}
+
 HOST = os.environ.get("CYBERBOSS_DASHBOARD_HOST", "127.0.0.1")
 PORT = int(os.environ.get("CYBERBOSS_DASHBOARD_PORT", "520"))
 CONTINUITY_DIR = Path(os.environ.get("CYBERBOSS_CONTINUITY_DIR") or (WORKSPACE_ROOT / "continuity"))
@@ -374,6 +497,277 @@ def read_text(path):
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8", errors="replace")
+
+
+def write_text_atomic(path, content):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)
+
+
+def copy_json(value):
+    return json.loads(json.dumps(value, ensure_ascii=False))
+
+
+def read_json_file(path, default=None):
+    path = Path(path)
+    if not path.exists():
+        return {} if default is None else copy_json(default)
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {} if default is None else copy_json(default)
+    return value
+
+
+def iso_mtime(path):
+    path = Path(path)
+    if not path.exists():
+        return None
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return None
+
+
+def _safe_id(value, fallback):
+    text = re.sub(r"[^A-Za-z0-9_-]+", "_", str(value or "").strip()).strip("_")
+    return text[:64] or fallback
+
+
+def normalize_context_layout(payload):
+    raw_groups = payload.get("groups") if isinstance(payload, dict) else None
+    defaults = {group["id"]: group for group in DEFAULT_CONTEXT_LAYOUT["groups"]}
+    incoming = {}
+    if isinstance(raw_groups, list):
+        for raw_group in raw_groups:
+            if not isinstance(raw_group, dict):
+                continue
+            group_id = str(raw_group.get("id") or "").strip()
+            if group_id in defaults and group_id not in incoming:
+                incoming[group_id] = raw_group
+
+    order = [
+        str(item.get("id") or "").strip()
+        for item in (raw_groups or [])
+        if isinstance(item, dict)
+    ]
+    middle_ids = [item for item in order if item in defaults and item not in {"base", "current"}]
+    middle_ids += [
+        group_id for group_id in defaults
+        if group_id not in {"base", "current"} and group_id not in middle_ids
+    ]
+
+    groups = []
+    for group_id in ["base", *middle_ids, "current"]:
+        default_group = defaults[group_id]
+        raw_group = incoming.get(group_id, {})
+        fixed = default_group.get("fixed")
+        raw_modules = raw_group.get("modules")
+        if not isinstance(raw_modules, list):
+            raw_modules = default_group.get("modules", [])
+        modules = []
+        seen = set()
+        for index, raw_module in enumerate(raw_modules[:40]):
+            if not isinstance(raw_module, dict):
+                continue
+            module_id = _safe_id(raw_module.get("id"), f"module_{index + 1}")
+            if module_id in seen:
+                module_id = f"{module_id}_{index + 1}"
+            seen.add(module_id)
+            name = str(raw_module.get("name") or "").strip()[:160]
+            if not name:
+                continue
+            modules.append({
+                "id": module_id,
+                "name": name,
+                "enabled": raw_module.get("enabled") is not False,
+            })
+        group = {
+            "id": group_id,
+            "title": default_group["title"],
+            "subtitle": str(raw_group.get("subtitle") or default_group.get("subtitle") or "")[:80],
+            "enabled": True if fixed else raw_group.get("enabled") is not False,
+            "modules": modules,
+        }
+        if fixed:
+            group["fixed"] = fixed
+        if default_group.get("runtime_gate"):
+            group["runtime_gate"] = default_group["runtime_gate"]
+        groups.append(group)
+    return {"version": 1, "groups": groups}
+
+
+def _context_meta():
+    value = read_json_file(CONTEXT_META_FILE, default={})
+    return value if isinstance(value, dict) else {}
+
+
+def _write_context_meta(**updates):
+    meta = _context_meta()
+    meta.update(updates)
+    write_text_atomic(CONTEXT_META_FILE, json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
+    return meta
+
+
+def context_snapshot_slots():
+    return ("default", "last_auto", "slot1", "slot2", "slot3")
+
+
+def context_snapshot_path(slot):
+    slot = str(slot or "").strip().lower()
+    if slot not in context_snapshot_slots():
+        raise ValueError("invalid context snapshot slot")
+    return CONTEXT_SNAPSHOT_DIR / f"{slot}.json"
+
+
+def load_context_layout():
+    if not CONTEXT_LAYOUT_FILE.exists():
+        return normalize_context_layout(DEFAULT_CONTEXT_LAYOUT)
+    value = read_json_file(CONTEXT_LAYOUT_FILE, default=DEFAULT_CONTEXT_LAYOUT)
+    return normalize_context_layout(value if isinstance(value, dict) else DEFAULT_CONTEXT_LAYOUT)
+
+
+def _write_context_snapshot(slot, layout):
+    CONTEXT_SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    path = context_snapshot_path(slot)
+    write_text_atomic(path, json.dumps(normalize_context_layout(layout), ensure_ascii=False, indent=2) + "\n")
+    return path
+
+
+def context_snapshot_entries():
+    entries = []
+    for slot in context_snapshot_slots():
+        path = context_snapshot_path(slot)
+        entries.append({
+            "slot": slot,
+            "exists": slot == "default" or path.exists(),
+            "updated_at": None if slot == "default" else iso_mtime(path),
+        })
+    return entries
+
+
+def context_layout_payload():
+    meta = _context_meta()
+    return {
+        "layout": load_context_layout(),
+        "path": str(CONTEXT_LAYOUT_FILE),
+        "updated_at": iso_mtime(CONTEXT_LAYOUT_FILE),
+        "last_saved_at": meta.get("last_saved_at"),
+        "last_saved_by": meta.get("last_saved_by"),
+        "snapshots": context_snapshot_entries(),
+    }
+
+
+def save_context_layout(payload, saved_by="520 context"):
+    current = load_context_layout()
+    if CONTEXT_LAYOUT_FILE.exists():
+        _write_context_snapshot("last_auto", current)
+    normalized = normalize_context_layout(payload if isinstance(payload, dict) else {})
+    write_text_atomic(CONTEXT_LAYOUT_FILE, json.dumps(normalized, ensure_ascii=False, indent=2) + "\n")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    _write_context_meta(last_saved_at=now, last_saved_by=str(saved_by or "520 context")[:120])
+    return context_layout_payload()
+
+
+def archive_context_snapshot(slot):
+    slot = str(slot or "").strip().lower()
+    if slot not in {"slot1", "slot2", "slot3"}:
+        raise ValueError("only slot1/slot2/slot3 can be archived")
+    path = _write_context_snapshot(slot, load_context_layout())
+    return {"slot": slot, "path": str(path), "updated_at": iso_mtime(path)}
+
+
+def restore_context_snapshot(slot, saved_by="520 restore"):
+    slot = str(slot or "").strip().lower()
+    if slot == "default":
+        layout = copy_json(DEFAULT_CONTEXT_LAYOUT)
+    else:
+        path = context_snapshot_path(slot)
+        if not path.exists():
+            raise FileNotFoundError(f"context snapshot missing: {slot}")
+        layout = read_json_file(path, default=DEFAULT_CONTEXT_LAYOUT)
+    return save_context_layout(layout, saved_by=saved_by)
+
+
+def _todo_meta():
+    value = read_json_file(TODO_META_FILE, default={})
+    return value if isinstance(value, dict) else {}
+
+
+def todo_payload():
+    meta = _todo_meta()
+    return {
+        "path": str(TODO_FILE),
+        "content": read_text(TODO_FILE),
+        "updated_at": iso_mtime(TODO_FILE),
+        "last_saved_at": meta.get("last_saved_at"),
+        "last_saved_by": meta.get("last_saved_by"),
+    }
+
+
+def save_todo_content(content, saved_by="520 context"):
+    TODO_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    if TODO_FILE.exists():
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        backup = TODO_BACKUP_DIR / f"{TODO_FILE.stem}.{stamp}{TODO_FILE.suffix or '.md'}"
+        write_text_atomic(backup, read_text(TODO_FILE))
+    write_text_atomic(TODO_FILE, str(content or ""))
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    write_text_atomic(
+        TODO_META_FILE,
+        json.dumps({
+            "last_saved_at": now,
+            "last_saved_by": str(saved_by or "520 context")[:120],
+        }, ensure_ascii=False, indent=2) + "\n",
+    )
+    return todo_payload()
+
+
+def run_git_text(repo_path, args):
+    repo_path = Path(repo_path)
+    if not repo_path.is_dir():
+        return ""
+    git_command = "git.exe" if os.name == "nt" else "git"
+    try:
+        proc = subprocess.run(
+            [git_command, "-C", str(repo_path), *args],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except Exception:
+        return ""
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def compute_context_overview():
+    repo_text = (
+        os.environ.get("CYBERBOSS_CONTINUITY_WORKTREE", "").strip()
+        or os.environ.get("CYBERBOSS_HOME", "").strip()
+    )
+    repo_path = Path(repo_text) if repo_text else DASHBOARD_WORKSPACE_ROOT
+    return {
+        "workspace_root": str(DASHBOARD_WORKSPACE_ROOT),
+        "repo": {
+            "path": str(repo_path),
+            "branch": run_git_text(repo_path, ["branch", "--show-current"]),
+            "commit": run_git_text(repo_path, ["rev-parse", "HEAD"]),
+            "dirty": bool(run_git_text(repo_path, ["status", "--short"])),
+        },
+        "paths": {
+            "memory": str(ROOT),
+            "continuity": str(CONTINUITY_DIR),
+            "state": str(DASHBOARD_STATE_DIR),
+            "todo": str(TODO_FILE),
+            "context_layout": str(CONTEXT_LAYOUT_FILE),
+        },
+        "gates": load_context_gates(),
+        "modules": compute_module_state(),
+    }
 
 
 def read_jsonl(path):
@@ -2111,6 +2505,134 @@ PAGE = r"""<!doctype html>
   #modal-diff .del { background:#3a1c22; color:#ffb4bd; display:block; white-space:pre-wrap; text-decoration:line-through; }
   #modal-diff .same { color:#5c6070; display:block; white-space:pre-wrap; }
   #modal-actions { padding:12px 18px; border-top:1px solid #2a2d38; display:flex; gap:10px; justify-content:flex-end; }
+
+  /* ---- 上下文编排 ---- */
+  .ctx-shell { display:flex; flex-direction:column; gap:16px; }
+  .ctx-hero {
+      position:relative; overflow:hidden; padding:20px 22px; border:1px solid #343a52;
+      border-radius:14px; background:
+        radial-gradient(620px 220px at 84% -20%, rgba(122,134,194,.25), transparent 66%),
+        linear-gradient(145deg, #202433, #181b25 72%);
+      box-shadow:var(--shadow);
+  }
+  .ctx-hero::after {
+      content:""; position:absolute; inset:auto -36px -72px auto; width:180px; height:180px;
+      border:1px solid rgba(174,184,232,.14); border-radius:50%; pointer-events:none;
+  }
+  .ctx-kicker { color:#aeb8e8; font-size:11px; letter-spacing:.14em; text-transform:uppercase; }
+  .ctx-title { margin:6px 0 5px; font-size:22px; color:#f3f4f8; font-weight:650; }
+  .ctx-lead { max-width:760px; color:var(--text-dim); font-size:12.5px; line-height:1.75; }
+  .ctx-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:16px; position:relative; z-index:1; }
+  .ctx-toolbar select {
+      min-width:185px; background:#11131a; color:var(--text); border:1px solid var(--line);
+      border-radius:7px; padding:8px 10px;
+  }
+  .ctx-toolbar .spacer { flex:1 1 18px; }
+  .ctx-meta { color:var(--text-faint); font-size:11.5px; min-height:18px; }
+  .ctx-section {
+      border:1px solid var(--line); border-radius:13px; background:rgba(26,28,36,.82);
+      box-shadow:var(--shadow-soft); overflow:hidden;
+  }
+  .ctx-section-head {
+      display:flex; align-items:flex-start; justify-content:space-between; gap:16px;
+      padding:15px 17px 12px; border-bottom:1px solid var(--line-soft);
+      background:linear-gradient(180deg,rgba(35,38,49,.72),rgba(30,32,41,.25));
+  }
+  .ctx-section-title { margin:0; color:#edf0f7; font-size:14px; }
+  .ctx-section-copy { margin-top:4px; color:var(--text-faint); font-size:11.5px; line-height:1.6; }
+  .ctx-section-body { padding:15px 17px 17px; }
+  .ctx-runtime-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:10px; }
+  .ctx-runtime-card {
+      min-height:92px; padding:12px 13px; border:1px solid var(--line-soft); border-radius:10px;
+      background:linear-gradient(180deg,#20232d,#1b1e27);
+  }
+  .ctx-runtime-card .label { color:var(--text-faint); font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; }
+  .ctx-runtime-card .value { margin-top:7px; color:#e7e9ef; font-size:13px; line-height:1.55; word-break:break-all; }
+  .ctx-runtime-card .detail { margin-top:5px; color:var(--text-faint); font-size:10.5px; line-height:1.5; }
+  .ctx-gates { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; }
+  .ctx-gate {
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+      padding:12px 13px; border:1px solid var(--line-soft); border-radius:10px; background:#1c1f28;
+  }
+  .ctx-gate strong { display:block; color:#e8eaf1; font-size:12.5px; }
+  .ctx-gate small { display:block; color:var(--text-faint); font-size:10.5px; margin-top:3px; line-height:1.45; }
+  .ctx-switch { position:relative; width:38px; height:22px; flex:0 0 auto; }
+  .ctx-switch input { opacity:0; width:0; height:0; }
+  .ctx-switch span {
+      position:absolute; inset:0; cursor:pointer; border-radius:999px; background:#353946;
+      transition:.18s var(--ease); border:1px solid #454a59;
+  }
+  .ctx-switch span::before {
+      content:""; position:absolute; width:16px; height:16px; left:2px; top:2px; border-radius:50%;
+      background:#a5a9b4; transition:.18s var(--ease); box-shadow:0 1px 3px rgba(0,0,0,.35);
+  }
+  .ctx-switch input:checked + span { background:#46568f; border-color:#6f80bf; }
+  .ctx-switch input:checked + span::before { transform:translateX(16px); background:#f2f4ff; }
+  .ctx-board { display:flex; flex-direction:column; gap:9px; }
+  .ctx-layer {
+      display:grid; grid-template-columns:42px minmax(150px,220px) 1fr auto; gap:12px; align-items:start;
+      padding:12px; border:1px solid var(--line-soft); border-radius:11px;
+      background:linear-gradient(100deg,#1d2029,#1b1d25); transition:.15s var(--ease);
+  }
+  .ctx-layer:hover { border-color:#3a4054; transform:translateY(-1px); }
+  .ctx-layer.dragging { opacity:.46; transform:scale(.995); }
+  .ctx-layer.drop-target { border-color:#6e7cba; box-shadow:inset 0 0 0 1px #6e7cba; }
+  .ctx-layer.fixed { background:linear-gradient(100deg,#222637,#1b1e27); border-color:#354064; }
+  .ctx-order {
+      width:34px; height:34px; display:grid; place-items:center; border-radius:9px;
+      background:#11131a; color:#8793c8; font:600 12px Consolas,monospace; border:1px solid #2c3140;
+      cursor:grab; user-select:none;
+  }
+  .ctx-layer.fixed .ctx-order { cursor:default; color:#687295; }
+  .ctx-layer-name { color:#f0f1f5; font-size:13px; font-weight:650; }
+  .ctx-layer-sub { color:var(--text-faint); font-size:10.5px; margin-top:3px; }
+  .ctx-layer-badge {
+      display:inline-flex; align-items:center; margin-top:7px; padding:2px 7px; border-radius:999px;
+      font-size:10px; color:#aeb8e8; border:1px solid #3b4567; background:#20263a;
+  }
+  .ctx-layer-badge.draft { color:#b5a982; border-color:#51492f; background:#2b271b; }
+  .ctx-items { display:flex; flex-direction:column; gap:6px; }
+  .ctx-item {
+      display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:8px;
+      padding:6px 7px; border:1px solid transparent; border-radius:7px; background:#171921;
+  }
+  .ctx-item:focus-within { border-color:#414967; background:#191c26; }
+  .ctx-item input[type="text"] {
+      min-width:0; width:100%; padding:4px 6px; color:var(--text); background:transparent;
+      border:0; border-bottom:1px solid transparent; font:inherit; font-size:11.5px;
+  }
+  .ctx-item input[type="text"]:focus { outline:none; border-bottom-color:#596691; }
+  .ctx-item input[type="checkbox"] { accent-color:#7180bd; }
+  .ctx-icon-btn {
+      width:26px; height:26px; padding:0; border-radius:6px; color:#73798a; background:transparent;
+      border:1px solid transparent; box-shadow:none;
+  }
+  .ctx-icon-btn:hover { color:#ffb4bd; border-color:#56333b; background:#2e1d22; filter:none; }
+  .ctx-layer-actions { display:flex; flex-direction:column; align-items:flex-end; gap:7px; min-width:92px; }
+  .ctx-save-state { color:var(--text-faint); font-size:10.5px; min-height:16px; }
+  .ctx-add {
+      margin-top:6px; padding:5px 9px; font-size:10.5px; border:1px dashed #3c4254;
+      background:transparent; color:#9aa0b0; box-shadow:none;
+  }
+  .ctx-add:hover { background:#232631; border-color:#6673a8; filter:none; }
+  .ctx-reset-menu { display:none; flex-wrap:wrap; gap:7px; padding:10px 0 0; }
+  .ctx-reset-menu.on { display:flex; }
+  .ctx-todo-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:10px; }
+  #ctx-todo-editor {
+      display:block; width:100%; min-height:310px; resize:vertical; background:#101219; color:#dfe1e7;
+      border:1px solid #2c303c; border-radius:9px; padding:13px 14px;
+      font:12px/1.7 "JetBrains Mono",Consolas,monospace;
+  }
+  #ctx-todo-editor[readonly] { color:#aeb1bc; background:#12141a; }
+  .ctx-warning {
+      padding:9px 11px; border-radius:8px; font-size:11px; line-height:1.55;
+      color:#c9b98a; border:1px solid #4a4234; background:#232120;
+  }
+  @media (max-width:840px) {
+      .ctx-layer { grid-template-columns:36px 1fr auto; }
+      .ctx-items { grid-column:2 / -1; }
+      .ctx-layer-actions { grid-column:2 / -1; flex-direction:row; align-items:center; justify-content:space-between; }
+  }
 </style>
 </head>
 <body>
@@ -2124,6 +2646,7 @@ PAGE = r"""<!doctype html>
     <div class="tab" data-view="octant">八维</div>
     <div class="tab" data-view="care">关怀</div>
     <div class="tab" data-view="theater">剧场</div>
+    <div class="tab" data-view="context">上下文</div>
     <div class="tab" data-view="files">文件</div>
     <div class="spacer"></div>
     <div id="auto-indicator" onclick="toggleAutoRefresh()" title="20 秒自动刷新中(点击暂停)" style="cursor:pointer;font-size:14px;padding:0 10px;user-select:none;">●</div>
@@ -2253,6 +2776,73 @@ PAGE = r"""<!doctype html>
       <div id="theater-list"></div>
     </div>
 
+    <!-- 上下文编排 -->
+    <div class="view" id="view-context">
+      <div class="ctx-shell">
+        <section class="ctx-hero">
+          <div class="ctx-kicker">Context Orchestration</div>
+          <h2 class="ctx-title">上下文管理</h2>
+          <div class="ctx-lead">
+            把稳定身份、Re-entry、鲜活状态、会话连续、按需检索与当轮上下文放在同一张编排图里。
+            三个标记为“实时生效”的开关会直接写入 runtime gate；其余排序与小模块配置保存为编排配置，不会改写记忆 Canon。
+          </div>
+          <div class="ctx-toolbar">
+            <select id="ctx-snapshot-select" aria-label="选择上下文快照"></select>
+            <button onclick="saveSelectedContextSnapshot()">存档</button>
+            <button class="ghost" onclick="restoreSelectedContextSnapshot()">载入存档</button>
+            <button class="ghost" onclick="toggleContextResetMenu()">Reset</button>
+            <span class="spacer"></span>
+            <span class="ctx-meta" id="ctx-layout-meta">读取中…</span>
+          </div>
+          <div class="ctx-reset-menu" id="ctx-reset-menu">
+            <button class="ghost" onclick="restoreContextSnapshot('default')">恢复默认</button>
+            <button class="ghost" onclick="restoreContextSnapshot('last_auto')">上次自动快照</button>
+            <button class="ghost" onclick="restoreContextSnapshot('slot1')">快照 1</button>
+            <button class="ghost" onclick="restoreContextSnapshot('slot2')">快照 2</button>
+            <button class="ghost" onclick="restoreContextSnapshot('slot3')">快照 3</button>
+          </div>
+        </section>
+
+        <section class="ctx-section">
+          <div class="ctx-section-head"><div><h3 class="ctx-section-title">当前运行结构</h3>
+            <div class="ctx-section-copy">只读显示当前 repo、路径与模块状态，便于判断网页正在管理哪套 runtime。</div></div></div>
+          <div class="ctx-section-body"><div class="ctx-runtime-grid" id="ctx-runtime-grid"></div></div>
+        </section>
+
+        <section class="ctx-section">
+          <div class="ctx-section-head"><div><h3 class="ctx-section-title">真实注入开关</h3>
+            <div class="ctx-section-copy">这些开关调用现有 context-gates API，下一轮对话即时生效。</div></div>
+            <span class="ctx-save-state" id="ctx-gate-status"></span></div>
+          <div class="ctx-section-body"><div class="ctx-gates" id="ctx-gates"></div></div>
+        </section>
+
+        <section class="ctx-section">
+          <div class="ctx-section-head"><div><h3 class="ctx-section-title">上下文载入顺序</h3>
+            <div class="ctx-section-copy">Base 固定最前，Current Context 固定最后；拖动中间层，编辑、开关或删除其中的小模块。</div></div>
+            <span class="ctx-save-state" id="ctx-layout-save-state"></span></div>
+          <div class="ctx-section-body">
+            <div class="ctx-warning">带“编排配置”标记的层目前只保存配置，不会擅自改动 TG prompt；带“实时 gate 对应层”标记的层同时受上方 runtime gate 控制。</div>
+            <div class="ctx-board" id="ctx-board" style="margin-top:11px;"></div>
+          </div>
+        </section>
+
+        <section class="ctx-section">
+          <div class="ctx-section-head"><div><h3 class="ctx-section-title">当前任务单</h3>
+            <div class="ctx-section-copy">读取实际 CODING_TODO.md；保存前显示 diff，并把旧版备份到 runtime state。</div></div>
+            <span class="ctx-meta" id="ctx-todo-meta"></span></div>
+          <div class="ctx-section-body">
+            <div class="ctx-todo-actions">
+              <button id="ctx-todo-edit" onclick="enterContextTodoEdit()">编辑</button>
+              <button id="ctx-todo-save" style="display:none" onclick="showContextTodoDiff()">保存</button>
+              <button class="ghost" id="ctx-todo-cancel" style="display:none" onclick="cancelContextTodoEdit()">取消</button>
+              <span id="ctx-todo-status"></span>
+            </div>
+            <textarea id="ctx-todo-editor" spellcheck="false" readonly></textarea>
+          </div>
+        </section>
+      </div>
+    </div>
+
     <!-- 6 文件 -->
     <div class="view" id="view-files">
       <div id="files-layout">
@@ -2290,6 +2880,12 @@ let labels = %LABELS%;
 let guardConfirm = %GUARD_CONFIRM%;
 let curView = 'health';
 let curFile = null, origContent = '', editing = false;
+let contextLayoutPayload = null;
+let contextLayoutSaveTimer = null;
+let contextDraggedGroup = null;
+let contextTodoOriginal = '';
+let contextTodoEditing = false;
+let pendingAction = null;
 
 // ---------- tab 切换 ----------
 function switchView(name) {
@@ -2305,6 +2901,7 @@ function switchView(name) {
   if (name === 'octant') loadOctant();
   if (name === 'care') loadCare();
   if (name === 'theater') loadTheater();
+  if (name === 'context') loadContextManager();
   if (name === 'files') refreshFilesView();
 }
 document.querySelectorAll('#tabs .tab').forEach(t => {
@@ -3128,6 +3725,357 @@ async function loadTheater() {
   }
 }
 
+
+// ---------- 上下文管理 ----------
+const CONTEXT_GATE_LABELS_V2 = {
+  reentry: ['Re-entry', '慢变化层与醒来第一包'],
+  current_state: ['Live State', '八维、承诺与当前关注事项'],
+  memory_context: ['Memory Context', '记忆缝入与按需工具上下文'],
+};
+
+async function contextPost(url, body) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-Api-Token': getApiToken()},
+    body: JSON.stringify(body || {}),
+  });
+  let data = {};
+  try { data = await response.json(); } catch (e) {}
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.err || data.error || ('HTTP ' + response.status));
+  }
+  return data;
+}
+
+function contextEscAttr(value) {
+  return esc(value).replace(/"/g, '&quot;');
+}
+
+function setContextSaveState(text, bad=false) {
+  const el = document.getElementById('ctx-layout-save-state');
+  if (!el) return;
+  el.textContent = text || '';
+  el.style.color = bad ? '#ff9ca8' : '';
+}
+
+function renderContextRuntime(data) {
+  const repo = data.repo || {};
+  const paths = data.paths || {};
+  const modules = data.modules || {};
+  const cards = [
+    ['Git / 部署来源', repo.path || '(未配置)', (repo.branch || '-') + ' · ' + ((repo.commit || '').slice(0, 12) || '-') + (repo.dirty ? ' · dirty' : '')],
+    ['Memory', paths.memory || '(未配置)', '正式记忆与候选数据目录'],
+    ['Continuity', paths.continuity || '(未配置)', 'Trace / Candidate / Decision / Canon'],
+    ['Runtime State', paths.state || '(未配置)', '开关、上下文配置与快照'],
+    ['CODING_TODO', paths.todo || '(未配置)', '任务单编辑采用原子写入与备份'],
+    ['模块状态', Object.entries(modules).map(([k,v]) => k + ':' + v).join(' · ') || '(无)', '只读状态摘要'],
+  ];
+  const host = document.getElementById('ctx-runtime-grid');
+  host.innerHTML = cards.map(([label, value, detail]) =>
+    '<div class="ctx-runtime-card"><div class="label">' + esc(label) + '</div>' +
+    '<div class="value">' + esc(value) + '</div><div class="detail">' + esc(detail) + '</div></div>'
+  ).join('');
+}
+
+function renderContextGates(gates) {
+  const host = document.getElementById('ctx-gates');
+  host.innerHTML = Object.entries(CONTEXT_GATE_LABELS_V2).map(([key, pair]) => {
+    const on = gates[key] !== false;
+    return '<div class="ctx-gate"><div><strong>' + esc(pair[0]) + '</strong><small>' + esc(pair[1]) +
+      '</small></div><label class="ctx-switch"><input type="checkbox" data-gate="' + key + '" ' +
+      (on ? 'checked' : '') + ' onchange="setContextGate(\'' + key + '\', this.checked)"><span></span></label></div>';
+  }).join('');
+}
+
+async function setContextGate(key, enabled) {
+  const status = document.getElementById('ctx-gate-status');
+  status.textContent = '保存中…';
+  try {
+    const body = {}; body[key] = !!enabled;
+    await contextPost('/api/context-gates', body);
+    status.textContent = '已生效';
+    setTimeout(() => { if (status.textContent === '已生效') status.textContent = ''; }, 1400);
+  } catch (e) {
+    status.textContent = '失败：' + e.message;
+    await loadContextGatesForManager();
+  }
+}
+
+async function loadContextGatesForManager() {
+  const response = await fetch('/api/context-gates');
+  const gates = await response.json();
+  renderContextGates(gates || {});
+  return gates || {};
+}
+
+function contextGroups() {
+  return ((contextLayoutPayload || {}).layout || {}).groups || [];
+}
+
+function moduleInputId(groupId, moduleId) {
+  return 'ctx-module-' + String(groupId) + '-' + String(moduleId);
+}
+
+function renderContextBoard() {
+  const host = document.getElementById('ctx-board');
+  const groups = contextGroups();
+  host.innerHTML = '';
+  groups.forEach((group, index) => {
+    const fixed = !!group.fixed;
+    const gateLinked = !!group.runtime_gate;
+    const card = document.createElement('div');
+    card.className = 'ctx-layer' + (fixed ? ' fixed' : '');
+    card.dataset.groupId = group.id;
+    if (!fixed) {
+      card.draggable = true;
+      card.addEventListener('dragstart', event => {
+        contextDraggedGroup = group.id;
+        card.classList.add('dragging');
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', group.id);
+      });
+      card.addEventListener('dragend', () => {
+        contextDraggedGroup = null;
+        document.querySelectorAll('.ctx-layer').forEach(node => node.classList.remove('dragging', 'drop-target'));
+      });
+      card.addEventListener('dragover', event => {
+        event.preventDefault();
+        card.classList.add('drop-target');
+      });
+      card.addEventListener('dragleave', () => card.classList.remove('drop-target'));
+      card.addEventListener('drop', event => {
+        event.preventDefault();
+        card.classList.remove('drop-target');
+        reorderContextGroups(contextDraggedGroup || event.dataTransfer.getData('text/plain'), group.id);
+      });
+    }
+    const modules = (group.modules || []).map(module => {
+      const inputId = moduleInputId(group.id, module.id);
+      return '<div class="ctx-item"><input type="checkbox" ' + (module.enabled !== false ? 'checked' : '') +
+        ' onchange="updateContextModule(\'' + contextEscAttr(group.id) + '\',\'' + contextEscAttr(module.id) +
+        '\',\'enabled\',this.checked)"><input id="' + contextEscAttr(inputId) + '" type="text" value="' +
+        contextEscAttr(module.name || '') + '" onchange="updateContextModule(\'' + contextEscAttr(group.id) +
+        '\',\'' + contextEscAttr(module.id) + '\',\'name\',this.value)"><button class="ctx-icon-btn" title="删除小模块" ' +
+        'onclick="removeContextModule(\'' + contextEscAttr(group.id) + '\',\'' + contextEscAttr(module.id) + '\')">×</button></div>';
+    }).join('');
+    card.innerHTML =
+      '<div class="ctx-order" title="' + (fixed ? '固定层' : '拖动调整顺序') + '">' + String(index + 1).padStart(2, '0') + '</div>' +
+      '<div><div class="ctx-layer-name">' + esc(group.title || group.id) + '</div><div class="ctx-layer-sub">' +
+      esc(group.subtitle || '') + '</div><span class="ctx-layer-badge ' + (gateLinked ? '' : 'draft') + '">' +
+      (gateLinked ? '实时 gate 对应层' : (fixed ? '固定层' : '编排配置')) + '</span></div>' +
+      '<div class="ctx-items">' + (modules || '<div class="ctx-meta">暂无小模块</div>') +
+      '<button class="ctx-add" onclick="addContextModule(\'' + contextEscAttr(group.id) + '\')">＋ 添加小模块</button></div>' +
+      '<div class="ctx-layer-actions"><label class="ctx-switch" title="' + (fixed ? '固定层始终开启' : '开启或关闭整层') +
+      '"><input type="checkbox" ' + (group.enabled !== false ? 'checked' : '') + (fixed ? ' disabled' : '') +
+      ' onchange="updateContextGroup(\'' + contextEscAttr(group.id) + '\',this.checked)"><span></span></label>' +
+      '<span class="ctx-meta">' + (fixed ? '始终开启' : (group.enabled !== false ? '已开启' : '已关闭')) + '</span></div>';
+    host.appendChild(card);
+  });
+}
+
+function findContextGroup(groupId) {
+  return contextGroups().find(group => group.id === groupId);
+}
+
+function scheduleContextLayoutSave() {
+  if (contextLayoutSaveTimer) clearTimeout(contextLayoutSaveTimer);
+  setContextSaveState('待保存…');
+  contextLayoutSaveTimer = setTimeout(saveContextLayoutNow, 550);
+}
+
+async function saveContextLayoutNow() {
+  contextLayoutSaveTimer = null;
+  setContextSaveState('保存中…');
+  try {
+    const data = await contextPost('/api/context-layout/save', {
+      layout: (contextLayoutPayload || {}).layout,
+      source: '520 context manager',
+    });
+    contextLayoutPayload = data.context;
+    renderContextSnapshotMeta();
+    setContextSaveState('已保存');
+    setTimeout(() => setContextSaveState(''), 1300);
+  } catch (e) {
+    setContextSaveState('保存失败：' + e.message, true);
+  }
+}
+
+function updateContextGroup(groupId, enabled) {
+  const group = findContextGroup(groupId);
+  if (!group || group.fixed) return;
+  group.enabled = !!enabled;
+  renderContextBoard();
+  scheduleContextLayoutSave();
+}
+
+function updateContextModule(groupId, moduleId, field, value) {
+  const group = findContextGroup(groupId);
+  const module = (group && group.modules || []).find(item => item.id === moduleId);
+  if (!module) return;
+  if (field === 'enabled') module.enabled = !!value;
+  if (field === 'name') module.name = String(value || '').slice(0, 160);
+  scheduleContextLayoutSave();
+}
+
+function removeContextModule(groupId, moduleId) {
+  const group = findContextGroup(groupId);
+  if (!group) return;
+  group.modules = (group.modules || []).filter(item => item.id !== moduleId);
+  renderContextBoard();
+  scheduleContextLayoutSave();
+}
+
+function addContextModule(groupId) {
+  const group = findContextGroup(groupId);
+  if (!group) return;
+  const id = 'custom_' + Date.now().toString(36);
+  group.modules = group.modules || [];
+  group.modules.push({id, name: '新模块', enabled: true});
+  renderContextBoard();
+  const input = document.getElementById(moduleInputId(groupId, id));
+  if (input) { input.focus(); input.select(); }
+  scheduleContextLayoutSave();
+}
+
+function reorderContextGroups(sourceId, targetId) {
+  if (!sourceId || !targetId || sourceId === targetId) return;
+  const groups = contextGroups();
+  const from = groups.findIndex(group => group.id === sourceId);
+  const to = groups.findIndex(group => group.id === targetId);
+  if (from < 0 || to < 0 || groups[from].fixed || groups[to].fixed) return;
+  const moved = groups.splice(from, 1)[0];
+  groups.splice(to, 0, moved);
+  renderContextBoard();
+  scheduleContextLayoutSave();
+}
+
+function renderContextSnapshotMeta() {
+  const payload = contextLayoutPayload || {};
+  const snapshots = payload.snapshots || [];
+  const select = document.getElementById('ctx-snapshot-select');
+  const manualSlots = snapshots.filter(item => ['slot1','slot2','slot3'].includes(item.slot));
+  select.innerHTML = manualSlots.map(item => {
+    const labels = {slot1:'快照 1',slot2:'快照 2',slot3:'快照 3'};
+    return '<option value="' + esc(item.slot) + '">' + esc(labels[item.slot] || item.slot) +
+      (item.exists ? (item.updated_at ? ' · ' + esc(item.updated_at) : ' · 已存档') : ' · 空') + '</option>';
+  }).join('');
+  const bits = [];
+  if (payload.updated_at) bits.push('配置 ' + payload.updated_at);
+  if (payload.last_saved_by) bits.push('来源 ' + payload.last_saved_by);
+  document.getElementById('ctx-layout-meta').textContent = bits.join(' · ') || '使用默认配置';
+}
+
+async function saveContextSnapshot(slot) {
+  try {
+    const data = await contextPost('/api/context-layout/snapshot', {slot});
+    document.getElementById('ctx-layout-meta').textContent = '已存档到 ' + data.slot;
+    await loadContextLayout();
+  } catch (e) {
+    setContextSaveState('存档失败：' + e.message, true);
+  }
+}
+
+async function restoreContextSnapshot(slot) {
+  try {
+    const data = await contextPost('/api/context-layout/restore', {slot, source:'520 snapshot restore'});
+    contextLayoutPayload = data.context;
+    renderContextSnapshotMeta();
+    renderContextBoard();
+    setContextSaveState('已载入 ' + slot);
+  } catch (e) {
+    setContextSaveState('载入失败：' + e.message, true);
+  }
+}
+
+async function saveSelectedContextSnapshot() {
+  const select = document.getElementById('ctx-snapshot-select');
+  if (select && select.value) await saveContextSnapshot(select.value);
+}
+
+async function restoreSelectedContextSnapshot() {
+  const select = document.getElementById('ctx-snapshot-select');
+  if (select && select.value) await restoreContextSnapshot(select.value);
+}
+
+function toggleContextResetMenu() {
+  document.getElementById('ctx-reset-menu').classList.toggle('on');
+}
+
+async function loadContextLayout() {
+  const response = await fetch('/api/context-layout');
+  contextLayoutPayload = await response.json();
+  renderContextSnapshotMeta();
+  renderContextBoard();
+}
+
+async function loadContextTodo() {
+  const response = await fetch('/api/todo');
+  const data = await response.json();
+  contextTodoOriginal = data.content || '';
+  const editor = document.getElementById('ctx-todo-editor');
+  editor.value = contextTodoOriginal;
+  editor.readOnly = !contextTodoEditing;
+  const bits = [];
+  if (data.updated_at) bits.push('文件 ' + data.updated_at);
+  if (data.last_saved_by) bits.push('来源 ' + data.last_saved_by);
+  document.getElementById('ctx-todo-meta').textContent = bits.join(' · ');
+}
+
+function enterContextTodoEdit() {
+  contextTodoEditing = true;
+  document.getElementById('ctx-todo-editor').readOnly = false;
+  document.getElementById('ctx-todo-edit').style.display = 'none';
+  document.getElementById('ctx-todo-save').style.display = '';
+  document.getElementById('ctx-todo-cancel').style.display = '';
+  document.getElementById('ctx-todo-status').textContent = '编辑中';
+  document.getElementById('ctx-todo-editor').focus();
+}
+
+function cancelContextTodoEdit() {
+  contextTodoEditing = false;
+  const editor = document.getElementById('ctx-todo-editor');
+  editor.value = contextTodoOriginal;
+  editor.readOnly = true;
+  document.getElementById('ctx-todo-edit').style.display = '';
+  document.getElementById('ctx-todo-save').style.display = 'none';
+  document.getElementById('ctx-todo-cancel').style.display = 'none';
+  document.getElementById('ctx-todo-status').textContent = '';
+}
+
+function showContextTodoDiff() {
+  pendingAction = {kind:'todo-save'};
+  showDiff(contextTodoOriginal, document.getElementById('ctx-todo-editor').value);
+}
+
+async function commitContextTodoSave() {
+  const data = await contextPost('/api/todo/save', {
+    content: document.getElementById('ctx-todo-editor').value,
+    source: '520 context manager',
+  });
+  contextTodoEditing = false;
+  document.getElementById('ctx-todo-editor').readOnly = true;
+  document.getElementById('ctx-todo-edit').style.display = '';
+  document.getElementById('ctx-todo-save').style.display = 'none';
+  document.getElementById('ctx-todo-cancel').style.display = 'none';
+  document.getElementById('ctx-todo-status').textContent = '已保存';
+  contextTodoOriginal = ((data.todo || {}).content || '');
+  await loadContextTodo();
+}
+
+async function loadContextManager() {
+  try {
+    const [overviewRes] = await Promise.all([
+      fetch('/api/context-overview'),
+      loadContextGatesForManager(),
+      loadContextLayout(),
+      loadContextTodo(),
+    ]);
+    renderContextRuntime(await overviewRes.json());
+  } catch (e) {
+    setContextSaveState('加载失败：' + e.message, true);
+  }
+}
+
 // ---------- 6 文件 ----------
 async function loadFileList() {
   const r = await fetch('/api/list'); const fs = await r.json();
@@ -3265,6 +4213,16 @@ function closeModal() {
 
 async function confirmSave() {
   closeModal();
+  if (pendingAction && pendingAction.kind === 'todo-save') {
+    try {
+      await commitContextTodoSave();
+    } catch (e) {
+      document.getElementById('ctx-todo-status').textContent = '保存失败：' + e.message;
+    } finally {
+      pendingAction = null;
+    }
+    return;
+  }
   document.getElementById('status').textContent = '只读：文件写入口已冻结。';
 }
 
@@ -3272,6 +4230,7 @@ document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault();
     if (curView === 'files' && editing) tryShowDiff();
+    if (curView === 'context' && contextTodoEditing) showContextTodoDiff();
   }
 });
 
@@ -3281,6 +4240,7 @@ loadHealth();
 // ---------- 自动轮询(每 20s;只 health / timeline / octant;编辑中的文件页不刷) ----------
 const AUTO_REFRESH_MS = 20000;
 const AUTO_REFRESH_VIEWS = { health: loadHealth, injection: loadInjection, memorymap: loadMemoryMap, timeline: loadTimeline, octant: loadOctant, files: refreshFilesView };
+AUTO_REFRESH_VIEWS.context = loadContextManager;
 let autoTimer = null;
 let autoPaused = false;
 try { autoPaused = localStorage.getItem('dash_auto_paused') === '1'; } catch (e) {}
@@ -3355,6 +4315,24 @@ class H(BaseHTTPRequestHandler):
             page = page.replace("%GUARD_CONFIRM%", json.dumps(GUARD_CONFIRM, ensure_ascii=False))
             page = page.replace("%API_TOKEN%", json.dumps(API_TOKEN, ensure_ascii=False))
             self._send(200, page, "text/html; charset=utf-8")
+
+        elif u.path == "/api/context-overview":
+            try:
+                self._send(200, json.dumps(compute_context_overview(), ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
+
+        elif u.path == "/api/context-layout":
+            try:
+                self._send(200, json.dumps(context_layout_payload(), ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
+
+        elif u.path == "/api/todo":
+            try:
+                self._send(200, json.dumps(todo_payload(), ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
 
         elif u.path == "/api/list":
             self._send(200, json.dumps(list_files(), ensure_ascii=False))
@@ -3563,6 +4541,62 @@ class H(BaseHTTPRequestHandler):
                 "error": "write_frozen",
                 "path": u.path,
             }, ensure_ascii=False))
+            return
+
+        if u.path == "/api/context-layout/save":
+            if not self._check_token():
+                return
+            obj, err = self._read_json_body()
+            if err or not isinstance(obj, dict):
+                self._send(400, json.dumps({"ok": False, "error": "invalid_body"}, ensure_ascii=False))
+                return
+            try:
+                payload = save_context_layout(obj.get("layout"), obj.get("source"))
+                self._send(200, json.dumps({"ok": True, "context": payload}, ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"ok": False, "err": str(e)}, ensure_ascii=False))
+            return
+
+        if u.path == "/api/context-layout/snapshot":
+            if not self._check_token():
+                return
+            obj, err = self._read_json_body()
+            if err or not isinstance(obj, dict):
+                self._send(400, json.dumps({"ok": False, "error": "invalid_body"}, ensure_ascii=False))
+                return
+            try:
+                result = archive_context_snapshot(obj.get("slot"))
+                self._send(200, json.dumps({"ok": True, **result}, ensure_ascii=False))
+            except Exception as e:
+                self._send(400, json.dumps({"ok": False, "err": str(e)}, ensure_ascii=False))
+            return
+
+        if u.path == "/api/context-layout/restore":
+            if not self._check_token():
+                return
+            obj, err = self._read_json_body()
+            if err or not isinstance(obj, dict):
+                self._send(400, json.dumps({"ok": False, "error": "invalid_body"}, ensure_ascii=False))
+                return
+            try:
+                payload = restore_context_snapshot(obj.get("slot"), obj.get("source"))
+                self._send(200, json.dumps({"ok": True, "context": payload}, ensure_ascii=False))
+            except Exception as e:
+                self._send(400, json.dumps({"ok": False, "err": str(e)}, ensure_ascii=False))
+            return
+
+        if u.path == "/api/todo/save":
+            if not self._check_token():
+                return
+            obj, err = self._read_json_body()
+            if err or not isinstance(obj, dict):
+                self._send(400, json.dumps({"ok": False, "error": "invalid_body"}, ensure_ascii=False))
+                return
+            try:
+                payload = save_todo_content(obj.get("content"), obj.get("source"))
+                self._send(200, json.dumps({"ok": True, "todo": payload}, ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"ok": False, "err": str(e)}, ensure_ascii=False))
             return
 
         if u.path == "/api/context-gates":
