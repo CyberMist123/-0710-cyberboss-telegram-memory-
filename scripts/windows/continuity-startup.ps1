@@ -48,13 +48,18 @@ function Resolve-DashboardRoot($Descriptor) {
 }
 
 function Resolve-PythonWindowless {
-  $override = [System.Environment]::GetEnvironmentVariable('CYBERBOSS_DASHBOARD_PYTHON', 'Process')
-  if (-not [string]::IsNullOrWhiteSpace($override)) {
-    if (-not (Test-Path -LiteralPath $override -PathType Leaf)) {
-      throw "CYBERBOSS_DASHBOARD_PYTHON does not exist: $override"
+  param([switch]$DashboardOverride)
+
+  if ($DashboardOverride) {
+    $override = [System.Environment]::GetEnvironmentVariable('CYBERBOSS_DASHBOARD_PYTHON', 'Process')
+    if (-not [string]::IsNullOrWhiteSpace($override)) {
+      if (-not (Test-Path -LiteralPath $override -PathType Leaf)) {
+        throw "CYBERBOSS_DASHBOARD_PYTHON does not exist: $override"
+      }
+      return (Resolve-Path -LiteralPath $override).Path
     }
-    return (Resolve-Path -LiteralPath $override).Path
   }
+
   foreach ($name in @('pythonw.exe', 'python.exe')) {
     $command = Get-Command $name -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($command) { return $command.Source }
@@ -107,7 +112,7 @@ function Start-Dashboard([string]$Path) {
   if ([string]::IsNullOrWhiteSpace($env:CYBERBOSS_DASHBOARD_NO_BROWSER)) { $env:CYBERBOSS_DASHBOARD_NO_BROWSER = '1' }
   $env:CYBERBOSS_DASHBOARD_PID_FILE = $pidFile
 
-  $python = Resolve-PythonWindowless
+  $python = Resolve-PythonWindowless -DashboardOverride
   Start-Process -FilePath $python -ArgumentList @($dashboard) -WorkingDirectory (Split-Path -Parent $dashboard) -WindowStyle Hidden
 }
 
