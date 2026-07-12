@@ -7,11 +7,18 @@ Continuity page and adds one bounded, read-only endpoint.
 
 import atexit
 import json
+import os
 from http.server import HTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import dashboard as legacy
 from continuity_layers import build_continuity_layers
+
+
+PID_FILE_OVERRIDE = os.environ.get("CYBERBOSS_DASHBOARD_PID_FILE", "").strip()
+if PID_FILE_OVERRIDE:
+    legacy.PID_FILE = Path(PID_FILE_OVERRIDE)
 
 
 OLD_CONTINUITY_HTML = '''    <div class="view" id="view-continuity">
@@ -143,6 +150,13 @@ class H(legacy.H):
         super().do_GET()
 
 
+def _open_browser_if_enabled(url):
+    disabled = os.environ.get("CYBERBOSS_DASHBOARD_NO_BROWSER", "").strip().lower()
+    if disabled in {"1", "true", "yes", "on"}:
+        return
+    legacy._open_browser(url)
+
+
 def main():
     if not legacy.ROOT.exists():
         legacy.safe_print(f"找不到 {legacy.ROOT} — 请确认 memory/ 文件夹在工作区根目录。")
@@ -153,7 +167,7 @@ def main():
     except OSError:
         url = f"http://{legacy.HOST}:{legacy.PORT}"
         legacy.safe_print(f"端口 {legacy.PORT} 已被占用，520 可能已在运行：{url}")
-        legacy._open_browser(url)
+        _open_browser_if_enabled(url)
         raise SystemExit(0)
 
     legacy.write_pid_file()
@@ -165,7 +179,7 @@ def main():
 
     url = f"http://{legacy.HOST}:{legacy.PORT}"
     legacy.safe_print(f"520 Continuity layered view: {url}   (Ctrl+C 退出)")
-    legacy._open_browser(url)
+    _open_browser_if_enabled(url)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
