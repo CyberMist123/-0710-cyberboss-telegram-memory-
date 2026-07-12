@@ -41,6 +41,15 @@ def snapshot_tree(root):
     return result
 
 
+def optional_file_state(path):
+    if not path.is_file():
+        return {"exists": False, "sha256": None}
+    return {
+        "exists": True,
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+
+
 def reserve_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -174,6 +183,8 @@ def prepare_fixture():
 def main():
     prepare_fixture()
     before = snapshot_tree(PROTECTED)
+    repository_pid = KIT / ".panel.pid"
+    repository_pid_before = optional_file_state(repository_pid)
     port = reserve_port()
     env = os.environ.copy()
     env.update({
@@ -264,7 +275,9 @@ def main():
 
     after = snapshot_tree(PROTECTED)
     assert after == before, "external 520 smoke must leave the protected fixture tree byte-identical"
-    assert not (KIT / ".panel.pid").exists(), "black-box test must not write the repository PID file"
+    assert optional_file_state(repository_pid) == repository_pid_before, (
+        "black-box test must not create, delete, or rewrite the repository PID file"
+    )
 
     print("520 black-box: external process, real HTTP, malformed JSON, legacy quarantine, frozen writes, full-tree hash -> ok")
     if stderr.strip():
