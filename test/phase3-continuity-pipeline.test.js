@@ -77,7 +77,7 @@ test("duplicate candidates merge without a second canon write", () => {
   const duplicate = createCandidate({
     date: "2026-07-12",
     type: "episode",
-    author: "janitor",
+    author: "closeout",
     body: "同一段主体 AI 原稿。",
     sourceRef: { file: fixture.conversationFile, window: "1-2" },
   });
@@ -193,17 +193,24 @@ test("over-budget Re-entry is retained as evidence, deferred, and never publishe
   assert.equal(fs.existsSync(fixture.pipeline.paths.reentry), false);
 });
 
-test("janitor runs only through the leased wrapper and writes candidate schema", () => {
+test("janitor runs through the leased wrapper and writes evidence only", () => {
   const fixture = createFixture();
   const result = fixture.pipeline.runJanitor({ env: { ...process.env, JANITOR_MOCK: "1" } });
   assert.equal(result.status, "success");
-  const candidates = readJsonl(fixture.pipeline.paths.candidates);
-  assert.equal(candidates.length, 1);
-  assert.equal(candidates[0].author, "janitor");
-  assert.equal(candidates[0].type, "episode");
-  const reviewed = fixture.pipeline.runReview({ env: { ...process.env, AUTO_REVIEW_MOCK: "accept" } }).decisions[0];
-  assert.equal(reviewed.result, "accepted");
-  assert.equal(reviewed.checks.source_ref_located, true);
+
+  const gaps = readJsonl(path.join(fixture.continuityDir, "gaps", "gaps.jsonl"));
+  const evidence = readJsonl(path.join(fixture.continuityDir, "evidence", "janitor.evidence.jsonl"));
+  assert.equal(gaps.length, 1);
+  assert.equal(evidence.length, 1);
+  assert.equal(evidence[0].origin, "janitor");
+  assert.equal(evidence[0].author_role, "extractor");
+  assert.equal(evidence[0].semantic_authority, "none");
+  assert.equal(evidence[0].gap_id, gaps[0].gap_id);
+  assert.equal(fs.existsSync(fixture.pipeline.paths.candidates), false);
+
+  const review = fixture.pipeline.runReview({ env: { ...process.env, AUTO_REVIEW_MOCK: "accept" } });
+  assert.equal(review.decisions.length, 0);
+  assert.equal(fs.existsSync(fixture.pipeline.paths.episodes), false);
   assert.equal(fs.existsSync(fixture.writerLeaseFile), false);
 });
 
