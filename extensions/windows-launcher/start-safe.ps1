@@ -1,22 +1,50 @@
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
-$stateDir = 'C:\Users\18717\.cyberboss-deepseek-test'
-$workspaceRoot = 'C:\Users\18717\Documents\cyberlink\cyberboss-deepseek-workspace'
+
+function Resolve-RequiredPathEnv {
+  param([string]$Name)
+  $raw = [System.Environment]::GetEnvironmentVariable($Name, 'Process')
+  if ([string]::IsNullOrWhiteSpace($raw)) {
+    throw "Missing required environment variable: $Name"
+  }
+  return [System.IO.Path]::GetFullPath($raw)
+}
+
+function Resolve-OptionalPathEnv {
+  param(
+    [string]$Name,
+    [string]$Fallback
+  )
+  $raw = [System.Environment]::GetEnvironmentVariable($Name, 'Process')
+  if ([string]::IsNullOrWhiteSpace($raw)) {
+    return [System.IO.Path]::GetFullPath($Fallback)
+  }
+  return [System.IO.Path]::GetFullPath($raw)
+}
+
+$stateDir = Resolve-RequiredPathEnv 'CYBERBOSS_STATE_DIR'
+$workspaceRoot = Resolve-RequiredPathEnv 'CYBERBOSS_WORKSPACE'
+$configDir = Resolve-RequiredPathEnv 'CYBERBOSS_CONFIG_DIR'
 $pidFile = Join-Path $stateDir 'cyberboss.pid'
-$logDir = Join-Path $stateDir 'logs'
+$logDir = Resolve-OptionalPathEnv 'CYBERBOSS_LOG_DIR' (Join-Path $stateDir 'logs')
 $logFile = Join-Path $logDir 'cyberboss.log'
 $errFile = Join-Path $logDir 'cyberboss.err.log'
 $launchEnvFile = Join-Path $logDir 'launch-env.txt'
-$envFile = Join-Path $stateDir '.env'
+$envFile = Resolve-OptionalPathEnv 'CYBERBOSS_ENV_FILE' (Join-Path $configDir '.env')
 
 if (-not (Test-Path $envFile)) {
-  throw "Missing state env file: $envFile"
+  throw "Missing env file configured by CYBERBOSS_CONFIG_DIR or CYBERBOSS_ENV_FILE."
+}
+
+if (-not (Test-Path $workspaceRoot)) {
+  throw "CYBERBOSS_WORKSPACE must point to an existing directory."
 }
 
 $required = @(
   'CYBERBOSS_TELEGRAM_BOT_TOKEN',
-  'CYBERBOSS_TELEGRAM_ALLOWED_USER_IDS'
+  'CYBERBOSS_TELEGRAM_ALLOWED_USER_IDS',
+  'CYBERBOSS_PROMPT_FILE'
 )
 # ANTHROPIC_AUTH_TOKEN 不再强制:claude.exe 用它自己的 ~/.claude 凭据时,.env 里可以没有。
 
@@ -30,34 +58,34 @@ Get-Content $envFile | ForEach-Object {
   }
 }
 
+$processEnvNames = @(
+  'CYBERBOSS_TELEGRAM_BOT_TOKEN',
+  'CYBERBOSS_TELEGRAM_ALLOWED_USER_IDS',
+  'CYBERBOSS_PROMPT_FILE',
+  'CYBERBOSS_MEMORY_BACKGROUND_WRITE',
+  'CYBERBOSS_TELEGRAM_PROXY_URL',
+  'CYBERBOSS_CLAUDE_COMMAND'
+)
+foreach ($name in $processEnvNames) {
+  $value = [System.Environment]::GetEnvironmentVariable($name, 'Process')
+  if (-not [string]::IsNullOrWhiteSpace($value)) {
+    $envMap[$name] = $value
+  }
+}
+
 foreach ($name in $required) {
   if (-not $envMap.ContainsKey($name) -or [string]::IsNullOrWhiteSpace($envMap[$name])) {
-    throw "Fill $name in $envFile before starting."
+    throw "Fill $name before starting."
   }
 }
 
 if (-not $envMap.ContainsKey('CYBERBOSS_MEMORY_BACKGROUND_WRITE') -or [string]::IsNullOrWhiteSpace([string]$envMap['CYBERBOSS_MEMORY_BACKGROUND_WRITE'])) {
-  $envMap['CYBERBOSS_MEMORY_BACKGROUND_WRITE'] = '1'
+  $envMap['CYBERBOSS_MEMORY_BACKGROUND_WRITE'] = '0'
 }
-
-function Test-DirectTelegramReachable {
-  try {
-    $res = Test-NetConnection api.telegram.org -Port 443 -WarningAction SilentlyContinue
-    return [bool]$res.TcpTestSucceeded
-  } catch {
-    return $false
-  }
-}
-
-if ($envMap.ContainsKey('CYBERBOSS_TELEGRAM_PROXY_URL')) {
-  $proxyValue = [string]$envMap['CYBERBOSS_TELEGRAM_PROXY_URL']
-  if (-not [string]::IsNullOrWhiteSpace($proxyValue) -and (Test-DirectTelegramReachable)) {
-    $envMap['CYBERBOSS_TELEGRAM_PROXY_URL'] = ''
-    $envMap['HTTP_PROXY'] = ''
-    $envMap['HTTPS_PROXY'] = ''
-    $envMap['ALL_PROXY'] = ''
-  }
-}
+$envMap['CYBERBOSS_STATE_DIR'] = $stateDir
+$envMap['CYBERBOSS_WORKSPACE'] = $workspaceRoot
+$envMap['CYBERBOSS_WORKSPACE_ROOT'] = $workspaceRoot
+$envMap['CYBERBOSS_CONFIG_DIR'] = $configDir
 
 function Resolve-ClaudeCommand {
   param([hashtable]$Config)
@@ -126,7 +154,6 @@ if (-not $mutex.WaitOne(0)) {
 }
 
 New-Item -ItemType Directory -Force $stateDir | Out-Null
-New-Item -ItemType Directory -Force $workspaceRoot | Out-Null
 New-Item -ItemType Directory -Force $logDir | Out-Null
 
 $existingPid = 0
@@ -147,21 +174,21 @@ if ($existingPid -gt 0) {
   }
 }
 
-$stale = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+$running = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
   Where-Object {
     ($_.CommandLine -like "*$repoRoot*") -and
     ($_.CommandLine -like '*bin\cyberboss.js*' -or $_.CommandLine -like '*bin/cyberboss.js*')
   }
-foreach ($p in $stale) {
-  try {
-    if ([int]$p.ProcessId -ne $PID) {
-      Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction Stop
-      Write-Host "Stopped stale cyberboss TG PID $($p.ProcessId)"
-    }
-  } catch {}
+if ($running) {
+  Write-Host 'A cyberboss process for this repo is already present; exit without stopping it.'
+  $mutex.ReleaseMutex() | Out-Null
+  exit 0
 }
 
 $env:CYBERBOSS_STATE_DIR = $stateDir
+$env:CYBERBOSS_WORKSPACE = $workspaceRoot
+$env:CYBERBOSS_WORKSPACE_ROOT = $workspaceRoot
+$env:CYBERBOSS_CONFIG_DIR = $configDir
 $claudeCommand = Resolve-ClaudeCommand -Config $envMap
 $claudeDir = Split-Path -Parent $claudeCommand
 
@@ -180,6 +207,9 @@ foreach ($entry in $envMap.GetEnumerator()) {
 }
 
 [System.Environment]::SetEnvironmentVariable('CYBERBOSS_STATE_DIR', $stateDir, 'Process')
+[System.Environment]::SetEnvironmentVariable('CYBERBOSS_WORKSPACE', $workspaceRoot, 'Process')
+[System.Environment]::SetEnvironmentVariable('CYBERBOSS_WORKSPACE_ROOT', $workspaceRoot, 'Process')
+[System.Environment]::SetEnvironmentVariable('CYBERBOSS_CONFIG_DIR', $configDir, 'Process')
 [System.Environment]::SetEnvironmentVariable('CYBERBOSS_CLAUDE_COMMAND', $claudeCommand, 'Process')
 if (-not [string]::IsNullOrWhiteSpace($anthAuth)) {
   [System.Environment]::SetEnvironmentVariable('ANTHROPIC_API_KEY', $anthAuth, 'Process')
@@ -231,8 +261,8 @@ function Invoke-HiddenProcessCapture {
   return $stdout
 }
 
-$helperScript = Join-Path $repoRoot 'scripts\windows\start-node-hidden-detached.js'
-$anchorScript = Join-Path $repoRoot 'scripts\windows\hidden-console-anchor.js'
+$helperScript = Join-Path $PSScriptRoot 'start-node-hidden-detached.js'
+$anchorScript = Join-Path $PSScriptRoot 'hidden-console-anchor.js'
 if (-not (Test-Path $anchorScript)) {
   [System.Environment]::SetEnvironmentVariable('CYBERBOSS_LEGACY_DETACHED_SPAWN', '1', 'Process')
 }

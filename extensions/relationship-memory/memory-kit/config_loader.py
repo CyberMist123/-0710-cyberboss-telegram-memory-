@@ -16,7 +16,11 @@ import json
 import os
 from pathlib import Path
 
-KEYS_FILE = Path(__file__).resolve().parent / "keys.local.json"
+KEYS_FILE = Path(
+    os.environ.get("CYBERBOSS_DASHBOARD_KEYS_FILE")
+    or os.environ.get("CYBERBOSS_KEYS_FILE")
+    or (Path(__file__).resolve().parent / "keys.local.json")
+)
 
 
 def load_keys() -> dict:

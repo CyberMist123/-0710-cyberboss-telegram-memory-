@@ -2,7 +2,12 @@ const crypto = require("crypto");
 
 const SHANGHAI_TZ = "Asia/Shanghai";
 
-async function runHourlyDesirePoller(config) {
+async function runHourlyDesirePoller(config = {}) {
+  if (!config.desireDriven) {
+    console.log("[desire] hourly poller disabled");
+    return;
+  }
+
   const { SessionStore } = require("../adapters/runtime/codex/session-store");
   const { SystemMessageQueueStore } = require("../core/system-message-queue-store");
   const queue = new SystemMessageQueueStore({ filePath: config.systemMessageQueueFile });

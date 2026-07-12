@@ -1,22 +1,32 @@
 const fs = require("fs");
-const os = require("os");
 const path = require("path");
 
 function readConfig() {
   const argv = process.argv.slice(2);
   const mode = argv[0] || "";
-  const stateDir = process.env.CYBERBOSS_STATE_DIR || path.join(os.homedir(), ".cyberboss");
-  const timelineStateDir = readTextEnv("CYBERBOSS_TIMELINE_STATE_DIR") || stateDir;
-  const diaryDir = readTextEnv("CYBERBOSS_DIARY_DIR") || path.join(stateDir, "diary");
+  const stateDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_STATE_DIR"));
+  const configDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_CONFIG_DIR"));
+  const workspaceRoot = resolveConfiguredPath(
+    readTextEnv("CYBERBOSS_WORKSPACE") || readTextEnv("CYBERBOSS_WORKSPACE_ROOT")
+  );
+  const promptFile = resolveConfiguredPath(
+    readTextEnv("CYBERBOSS_PROMPT_FILE") || readTextEnv("CYBERBOSS_INSTRUCTIONS_FILE")
+  );
+  const timelineStateDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_TIMELINE_STATE_DIR")) || stateDir;
+  const diaryDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_DIARY_DIR")) || joinIfBase(stateDir, "diary");
   const sourceLabel = readTextEnv("CYBERBOSS_SOURCE_LABEL");
-  const memoryDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_MEMORY_DIR") || path.join(stateDir, "memory"));
+  const memoryDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_MEMORY_DIR") || joinIfBase(stateDir, "memory"));
+  const operationsFile = resolveConfiguredPath(readTextEnv("CYBERBOSS_OPERATIONS_FILE"));
+  const continuityDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_CONTINUITY_DIR"));
 
   return {
     mode,
     argv,
     stateDir,
+    configDir,
     workspaceId: readTextEnv("CYBERBOSS_WORKSPACE_ID") || "default",
-    workspaceRoot: readTextEnv("CYBERBOSS_WORKSPACE_ROOT") || process.cwd(),
+    workspaceRoot,
+    promptFile,
     userName: readTextEnv("CYBERBOSS_USER_NAME") || "User",
     userGender: readTextEnv("CYBERBOSS_USER_GENDER") || "female",
     allowedUserIds: readListEnv("CYBERBOSS_ALLOWED_USER_IDS"),
@@ -26,33 +36,49 @@ function readConfig() {
     accountId: readTextEnv("CYBERBOSS_ACCOUNT_ID"),
     weixinBaseUrl: readTextEnv("CYBERBOSS_WEIXIN_BASE_URL") || "https://ilinkai.weixin.qq.com",
     weixinCdnBaseUrl: readTextEnv("CYBERBOSS_WEIXIN_CDN_BASE_URL") || "https://novac2c.cdn.weixin.qq.com/c2c",
-    weixinConfigFile: path.join(stateDir, "weixin-config.json"),
+    weixinConfigFile: joinIfBase(stateDir, "weixin-config.json"),
     weixinMinChunkChars: readIntEnv("CYBERBOSS_WEIXIN_MIN_CHUNK_CHARS"),
     weixinQrBotType: readTextEnv("CYBERBOSS_WEIXIN_QR_BOT_TYPE") || "3",
-    accountsDir: path.join(stateDir, "accounts"),
-    reminderQueueFile: path.join(stateDir, "reminder-queue.json"),
-    systemMessageQueueFile: path.join(stateDir, "system-message-queue.json"),
-    deferredSystemReplyQueueFile: path.join(stateDir, "deferred-system-replies.json"),
-    checkinConfigFile: path.join(stateDir, "checkin-config.json"),
-    conversationDir: path.join(stateDir, "conversations"),
+    accountsDir: joinIfBase(stateDir, "accounts"),
+    reminderQueueFile: joinIfBase(stateDir, "reminder-queue.json"),
+    systemMessageQueueFile: joinIfBase(stateDir, "system-message-queue.json"),
+    deferredSystemReplyQueueFile: joinIfBase(stateDir, "deferred-system-replies.json"),
+    checkinConfigFile: joinIfBase(stateDir, "checkin-config.json"),
+    conversationDir: joinIfBase(stateDir, "conversations"),
     telegramBotToken: readTextEnv("CYBERBOSS_TELEGRAM_BOT_TOKEN"),
     telegramAllowedUserIds: readListEnv("CYBERBOSS_TELEGRAM_ALLOWED_USER_IDS"),
-    telegramStateFile: path.join(stateDir, "telegram-state.json"),
-    sleepScheduleFile: path.join(stateDir, "sleep-schedule.json"),
-    timelineScreenshotQueueFile: path.join(stateDir, "timeline-screenshot-queue.json"),
-    desireStateFile: path.join(stateDir, "desire-state.json"),
-    desireThoughtsFile: path.join(stateDir, "desire-thoughts.json"),
-    projectToolContextFile: path.join(stateDir, "project-tool-runtime-context.json"),
-    weixinInstructionsFile: path.join(stateDir, "weixin-instructions.md"),
+    telegramStateFile: joinIfBase(stateDir, "telegram-state.json"),
+    sleepScheduleFile: joinIfBase(stateDir, "sleep-schedule.json"),
+    timelineScreenshotQueueFile: joinIfBase(stateDir, "timeline-screenshot-queue.json"),
+    desireStateFile: joinIfBase(stateDir, "desire-state.json"),
+    desireHistoryFile: joinIfBase(stateDir, "desire-history.jsonl"),
+    desireThoughtsFile: joinIfBase(stateDir, "desire-thoughts.json"),
+    projectToolContextFile: joinIfBase(stateDir, "project-tool-runtime-context.json"),
+    weixinInstructionsFile: promptFile,
     memoryDir,
-    memoryStateFile: path.join(memoryDir, "state.md"),
-    memoryPendingPromisesFile: path.join(memoryDir, "pending-promises.md"),
-    memoryVectorFile: path.join(memoryDir, "vectors.jsonl"),
-    weixinOperationsFile: path.resolve(__dirname, "..", "..", "templates", "weixin-operations.md"),
-    stickersDir: path.join(stateDir, "stickers"),
-    stickerAssetsDir: path.join(stateDir, "stickers", "assets"),
-    stickersIndexFile: path.join(stateDir, "stickers", "index.json"),
-    stickerTagsFile: path.join(stateDir, "stickers", "tags.json"),
+    continuityDir,
+    reentryFile: joinIfBase(continuityDir, "reentry.md"),
+    contextTraceFile: joinIfBase(continuityDir, "trace", "context_trace.jsonl"),
+    recallLogFile: joinIfBase(continuityDir, "recall_log.jsonl"),
+    writerLeaseFile: resolveConfiguredPath(readTextEnv("CYBERBOSS_WRITER_LEASE_FILE")),
+    continuityBranch: readTextEnv("CYBERBOSS_CONTINUITY_BRANCH"),
+    continuityWorktree: resolveConfiguredPath(readTextEnv("CYBERBOSS_CONTINUITY_WORKTREE")),
+    continuityBaseSha: readTextEnv("CYBERBOSS_CONTINUITY_BASE_SHA"),
+    claudeTranscriptDir: resolveConfiguredPath(readTextEnv("CYBERBOSS_CLAUDE_TRANSCRIPT_DIR")),
+    reentryAuthoringMode: readTextEnv("CYBERBOSS_REENTRY_AUTHORING_MODE") || "ai_direct",
+    memoryStateFile: joinIfBase(memoryDir, "state.md"),
+    memoryPendingPromisesFile: joinIfBase(memoryDir, "pending-promises.md"),
+    memoryVectorFile: joinIfBase(memoryDir, "vectors.jsonl"),
+    weixinOperationsFile: operationsFile,
+    includeOperationsPrompt: readBoolEnv("CYBERBOSS_INCLUDE_OPERATIONS_PROMPT"),
+    includeLegacyMemoryRelays: readBoolEnv("CYBERBOSS_INCLUDE_LEGACY_MEMORY_RELAYS"),
+    legacyMemoryRetrieval: readBoolEnv("CYBERBOSS_MEMORY_RETRIEVAL"),
+    legacyMemoryBackgroundWrite: readBoolEnv("CYBERBOSS_MEMORY_BACKGROUND_WRITE"),
+    legacyMemoryReplyTransform: readBoolEnv("CYBERBOSS_MEMORY_REPLY_TRANSFORM"),
+    stickersDir: joinIfBase(stateDir, "stickers"),
+    stickerAssetsDir: joinIfBase(stateDir, "stickers", "assets"),
+    stickersIndexFile: joinIfBase(stateDir, "stickers", "index.json"),
+    stickerTagsFile: joinIfBase(stateDir, "stickers", "tags.json"),
     stickersTemplateDir: path.resolve(__dirname, "..", "..", "templates", "stickers"),
     stickersTemplateIndexFile: path.resolve(__dirname, "..", "..", "templates", "stickers", "index.json"),
     stickerTagsTemplateFile: path.resolve(__dirname, "..", "..", "templates", "stickers", "tags.json"),
@@ -60,9 +86,9 @@ function readConfig() {
     diaryDir,
     timelineStateDir,
     sourceLabel,
-    locationStoreFile: path.join(stateDir, "locations.json"),
-    locationStateFile: path.join(stateDir, "location-state.json"),
-    locationEventStoreFile: path.join(stateDir, "location-events.json"),
+    locationStoreFile: joinIfBase(stateDir, "locations.json"),
+    locationStateFile: joinIfBase(stateDir, "location-state.json"),
+    locationEventStoreFile: joinIfBase(stateDir, "location-events.json"),
     locationV2Enabled: resolveLocationV2Enabled(),
     locationHost: readTextEnv("CYBERBOSS_LOCATION_HOST") || "0.0.0.0",
     locationPort: readIntEnv("CYBERBOSS_LOCATION_PORT") || 4318,
@@ -90,7 +116,7 @@ function readConfig() {
       mode,
       enabled: readOptionalBoolEnv("CYBERBOSS_ENABLE_LOCATION_SERVER"),
     }),
-    syncBufferDir: path.join(stateDir, "sync-buffers"),
+    syncBufferDir: joinIfBase(stateDir, "sync-buffers"),
     codexEndpoint: readTextEnv("CYBERBOSS_CODEX_ENDPOINT"),
     codexCommand: readTextEnv("CYBERBOSS_CODEX_COMMAND"),
     codexModel: readTextEnv("CYBERBOSS_CODEX_MODEL"),
@@ -117,7 +143,8 @@ function readConfig() {
     claudePermissionMode: readTextEnv("CYBERBOSS_CLAUDE_PERMISSION_MODE") || "default",
     claudeDisableVerbose: readBoolEnv("CYBERBOSS_CLAUDE_DISABLE_VERBOSE"),
     claudeExtraArgs: readListEnv("CYBERBOSS_CLAUDE_EXTRA_ARGS"),
-    sessionsFile: path.join(stateDir, "sessions.json"),
+    claudeConfigDir: resolveConfiguredPath(readTextEnv("CYBERBOSS_CLAUDE_CONFIG_DIR")),
+    sessionsFile: joinIfBase(stateDir, "sessions.json"),
     startWithCheckin: (mode === "start" && hasArgFlag(argv, "--checkin")) || readBoolEnv("CYBERBOSS_ENABLE_CHECKIN"),
   };
 }
@@ -150,6 +177,11 @@ function resolveConfiguredPath(value) {
   } catch {
     return resolved;
   }
+}
+
+function joinIfBase(base, ...parts) {
+  const normalizedBase = typeof base === "string" ? base.trim() : "";
+  return normalizedBase ? path.join(normalizedBase, ...parts) : "";
 }
 
 function readOptionalBoolEnv(name) {
@@ -242,4 +274,4 @@ function resolveFeatureGate(envName) {
   return typeof explicit === "boolean" ? explicit : false;
 }
 
-module.exports = { readConfig };
+module.exports = { readConfig, resolveConfiguredPath };

@@ -1,0 +1,28 @@
+# Soft Retrieval 回放器配置样例。相对路径以本文件所在目录为基准。
+# 真实数据的配置放私有目录，不进 Git。
+
+paths:
+  episodes_snapshot: tests/fixtures/episodes.sample.jsonl   # 只读快照；正式库路径会被拒绝
+  workdir: var                                              # sqlite / 索引输出（gitignore 覆盖）
+
+tokenizer:
+  backend: builtin          # builtin | jieba（机器上装了 jieba 可切换，词典同样生效）
+  user_dict: user_dict.txt  # 暗语、人名、地名——不被切碎
+
+embedding:
+  provider: mock            # mock | gemini
+  model: mock-hash-256      # gemini 时如 text-embedding-004
+  dim: 256
+
+retrieval:
+  fusion: rrf               # rrf（基线）| dyn_alpha（实验组）
+  rrf_k: 60                 # 非神奇常数，用回放集校准
+  top_pool: 30
+  final_k: 10
+  mmr_lambda: 0.7
+
+admission:
+  provider: mock            # mock | deepseek
+  model: mock
+  prompt_path: prompts/admission_v0_1.txt
+  prompt_version: v0.1-draft

@@ -9,13 +9,13 @@ extract_memory.py — 从 Claude Code 会话记录(JSONL)本地提取关系记�
   set DS_API_KEY=sk-xxxx          (Windows cmd;PowerShell 用 $env:DS_API_KEY="sk-xxxx")
 
   先看规模,不花钱:
-  python extract_memory.py --input "C:/Users/18717/.claude/projects/C--Users-18717-Documents-cyberlink-cyberboss-deepseek-workspace" --dry-run
+  python extract_memory.py --input "<CLAUDE_TRANSCRIPT_DIR>" --dry-run
 
   正式跑:
-  python extract_memory.py --input "上面那个路径" --outdir ./memory
+  python extract_memory.py --input "<CLAUDE_TRANSCRIPT_DIR>" --outdir "<MEMORY_DIR>"
 
   以后增量(只处理某日期之后的内容):
-  python extract_memory.py --input "..." --outdir ./memory --since 2026-07-01
+  python extract_memory.py --input "<CLAUDE_TRANSCRIPT_DIR>" --outdir "<MEMORY_DIR>" --since 2026-07-01
 
 配置(优先级:环境变量 > memory-kit/keys.local.json > 默认值):
   MEM_PROVIDER 选 "glm" 或 "deepseek";不设则有 GLM key 就用 GLM
@@ -183,7 +183,7 @@ def turn_from_line(line):
     if t not in ("user", "assistant"):
         return None
     msg = obj.get("message") or {}
-    text = extract_text(msg.get("content")).strip()
+    text = strip_prompt_artifacts(extract_text(msg.get("content"))).strip()
     if not text:
         return None
     if text.startswith("/") or text.startswith("<command"):
@@ -193,6 +193,25 @@ def turn_from_line(line):
     ts = obj.get("timestamp", "")
     role = "她" if t == "user" else "AI"
     return (ts, role, text)
+
+
+def strip_prompt_artifacts(text):
+    """Closeout/Janitor consumer boundary: keep raw recorder intact, remove injected echoes."""
+    value = str(text or "").replace("\r\n", "\n")
+    value = re.sub(r"<<<CB_CTX:[\s\S]*?<<<END_CB_CTX>>>\s*", "", value)
+    if re.search(r"^(?:TELEGRAM|WECHAT) SESSION INSTRUCTIONS(?:\s|$)", value, re.M):
+        marker = "Current user message:"
+        value = value.split(marker, 1)[1] if marker in value else ""
+    value = re.sub(r"^\[[^\]\n]{4,80}\]\s*\n?", "", value)
+    for header in (
+        "Retrieved memory context:", "Saved attachments:",
+        "Visual context from attachments:", "Attachment intake errors:",
+        "Tool result:", "Builder metadata:", "Old Episode echo:",
+    ):
+        value = re.sub(rf"^{re.escape(header)}\n[\s\S]*?(?=\n\n|$)", "", value, flags=re.M)
+    value = re.sub(r"^(?:STATE RELAY|PENDING PROMISES)[^\n]*\n[\s\S]*?(?=\n\n|$)", "", value, flags=re.M)
+    value = re.sub(r"^To save reusable stickers,[\s\S]*?(?=\n\n|$)", "", value, flags=re.M)
+    return re.sub(r"\n{3,}", "\n\n", value).strip()
 
 
 def load_turns(input_dir, since=None):
@@ -276,12 +295,15 @@ def parse_json(s):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True, help="JSONL 会话目录(.claude/projects/ 下那个)")
-    ap.add_argument("--outdir", default="./memory")
+    ap.add_argument("--outdir", default=os.environ.get("CYBERBOSS_MEMORY_DIR", ""))
     ap.add_argument("--since", default=None, help="只处理该 ISO 日期之后,如 2026-07-01")
     ap.add_argument("--limit", type=int, default=0, help="只处理最后 N 块(控制花费)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
+    if not str(args.outdir or "").strip():
+        print("缺少 --outdir 或 CYBERBOSS_MEMORY_DIR,拒绝猜测 memory 目录。")
+        sys.exit(1)
     sessions = load_turns(args.input, args.since)
     chunks = make_chunks(sessions)
     if args.limit:

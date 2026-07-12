@@ -163,7 +163,7 @@ diff 汇总
 ======================================================================
 
 启动命令:
-  cd /home/anan/cyberboss-deepseek && bash scripts/start-deepseek-telegram.sh
+  cd <REPO_ROOT> && bash scripts/start-deepseek-telegram.sh
 
 日志确认:
   [cyberboss] channel=telegram              ✅

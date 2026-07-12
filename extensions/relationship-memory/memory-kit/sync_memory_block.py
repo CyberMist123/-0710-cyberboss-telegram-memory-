@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""同步「## 记忆与连续性」块 —— template → ~/.cyberboss/weixin-instructions.md
+"""同步「## 记忆与连续性」块 —— template → runtime prompt file
 
 背景:cyberboss 的 src/index.js 只在运行时文件不存在时才从模板拷贝;
 模板改了、运行时副本不会自动跟。这个脚本手动同步,只碰记忆块,不动别的段落。
 
 用法:双击 同步记忆块.bat 或 `python memory-kit/sync_memory_block.py`。
-- 找到运行时 weixin-instructions.md(默认 %USERPROFILE%\.cyberboss\)
+- 找到运行时 prompt 文件(通过 CYBERBOSS_RUNTIME_PROMPT_FILE 或 CYBERBOSS_STATE_DIR 指定)
 - 读模板尾部「## 记忆与连续性」整段
 - 用新块替换运行时文件中同名段落(旧内容备份到 .bak.<时间戳>)
 - 找不到目标段落时:追加到文件末尾,不覆盖任何东西
@@ -23,17 +23,20 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 WORKSPACE = HERE.parent
-TEMPLATE = (
-    WORKSPACE.parent
-    / "cyberboss-deepseek-test"
-    / "templates"
-    / "weixin-instructions.md"
+REPO_ROOT = WORKSPACE.parent.parent
+TEMPLATE = Path(
+    os.environ.get("CYBERBOSS_PROMPT_TEMPLATE")
+    or REPO_ROOT / "templates" / "weixin-instructions.md"
 )
-STATE_DIR = Path(
-    os.environ.get("CYBERBOSS_STATE_DIR")
-    or (Path.home() / ".cyberboss")
-)
-RUNTIME_FILE = STATE_DIR / "weixin-instructions.md"
+STATE_DIR_ENV = os.environ.get("CYBERBOSS_STATE_DIR", "").strip()
+STATE_DIR = Path(STATE_DIR_ENV) if STATE_DIR_ENV else None
+RUNTIME_PROMPT = os.environ.get("CYBERBOSS_RUNTIME_PROMPT_FILE", "").strip()
+if RUNTIME_PROMPT:
+    RUNTIME_FILE = Path(RUNTIME_PROMPT)
+elif STATE_DIR is not None:
+    RUNTIME_FILE = STATE_DIR / "weixin-instructions.md"
+else:
+    RUNTIME_FILE = None
 
 HEADING = "## 记忆与连续性"
 
@@ -64,6 +67,9 @@ def replace_or_append(runtime_text: str, new_block: str, heading: str) -> str:
 
 
 def main() -> int:
+    if RUNTIME_FILE is None:
+        print("[skip] CYBERBOSS_RUNTIME_PROMPT_FILE or CYBERBOSS_STATE_DIR is required.")
+        return 1
     if not TEMPLATE.exists():
         print(f"[skip] 模板不存在: {TEMPLATE}")
         return 1

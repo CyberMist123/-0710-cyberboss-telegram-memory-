@@ -38,7 +38,7 @@ memory/
 
 ```
 pip install requests
-python extract_memory.py --input "C:/Users/18717/.claude/projects/C--Users-18717-Documents-cyberlink-cyberboss-deepseek-workspace" --dry-run
+python extract_memory.py --input "<CLAUDE_TRANSCRIPT_DIR>" --dry-run
 ```
 
 dry-run 只统计规模不花钱。合理就去掉 `--dry-run`;想先试水加 `--limit 20`。断了直接重跑,已完成的块有缓存不重复计费。
@@ -46,8 +46,8 @@ dry-run 只统计规模不花钱。合理就去掉 `--dry-run`;想先试水加 `
 **1.5 断档补记(janitor,平时就用这个)**
 
 ```
-python memory-kit/janitor.py --dry-run
-python memory-kit/janitor.py
+python memory-kit/janitor.py --input "<CLAUDE_TRANSCRIPT_DIR>" --outdir "<MEMORY_DIR>" --dry-run
+python memory-kit/janitor.py --input "<CLAUDE_TRANSCRIPT_DIR>" --outdir "<MEMORY_DIR>"
 ```
 
 白天 /new、崩窗漏掉的 session 补进 `episodes.candidates.jsonl` 和 `reentry.extracted.md`,不直接改手工文件。位点在 `.janitor_state.json`,幂等。
@@ -65,10 +65,10 @@ python memory-kit/sync_memory_block.py     # 或双击 同步记忆块.bat
 **3. 面板**
 
 ```
-python memory-kit/dashboard.py
+python memory-kit/dashboard_continuity.py
 ```
 
-打开 http://127.0.0.1:520 。八维页显示的是 memory/state_log.jsonl 里冻结的历史数据;实时状态请去看 `~/.cyberboss/desire-state.json`(cyberboss 自己的 UI 或后续面板集成)。
+打开 http://127.0.0.1:520 。新版入口复用原面板，并在 Continuity 页把技术断档、证据材料、主体候选、后台候选、Review Decision 与已发布 Canon 分开显示。`dashboard.py` 暂时保留为回滚后备入口。
 
 ## 循环(不需要你维护)
 

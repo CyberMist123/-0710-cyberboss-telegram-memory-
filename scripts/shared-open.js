@@ -1,7 +1,6 @@
 const { spawn } = require("child_process");
 const net = require("net");
 const fs = require("fs");
-const os = require("os");
 const path = require("path");
 const readline = require("readline");
 const {
@@ -11,7 +10,7 @@ const {
 } = require("./shared-common");
 
 async function main() {
-  const workspaceRoot = process.env.CYBERBOSS_WORKSPACE_ROOT || process.cwd();
+  const workspaceRoot = requirePathEnv("CYBERBOSS_WORKSPACE");
   const runtime = process.env.CYBERBOSS_RUNTIME || "codex";
 
   if (runtime === "codex") {
@@ -42,7 +41,7 @@ async function main() {
 
   // For Claude: connect to the bridge's IPC socket so we can observe and
   // interact with the same ClaudeCode process that handles channel messages.
-  const stateDir = process.env.CYBERBOSS_STATE_DIR || path.join(os.homedir(), ".cyberboss");
+  const stateDir = requirePathEnv("CYBERBOSS_STATE_DIR");
   const socketPath = path.join(stateDir, "claudecode-runtime.sock");
   const endpointFile = path.join(stateDir, "claudecode-runtime.json");
   const tokenFile = path.join(stateDir, "claudecode-runtime.token");
@@ -193,6 +192,14 @@ function readClaudeIpcEndpoint({ endpointFile, socketPath, tokenFile }) {
     };
   }
   return null;
+}
+
+function requirePathEnv(name) {
+  const value = normalizeText(process.env[name]);
+  if (!value) {
+    throw new Error(`${name} is required.`);
+  }
+  return path.resolve(value);
 }
 
 function formatEndpointLabel(endpoint) {

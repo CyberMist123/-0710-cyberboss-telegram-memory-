@@ -44,6 +44,8 @@ const {
 class DesireService {
   constructor(config) {
     this.stateFile = config.desireStateFile;
+    this.historyFile = config.desireHistoryFile
+      || path.join(path.dirname(config.desireStateFile), "desire-history.jsonl");
     this.thoughtsFile = config.desireThoughtsFile;
     this.memoryDir = normalizeText(config.memoryDir);
     this.memoryThoughtSyncKey = "";
@@ -78,6 +80,7 @@ class DesireService {
 
   ensureParentDirectories() {
     fs.mkdirSync(path.dirname(this.stateFile), { recursive: true });
+    fs.mkdirSync(path.dirname(this.historyFile), { recursive: true });
     fs.mkdirSync(path.dirname(this.thoughtsFile), { recursive: true });
   }
 
@@ -125,6 +128,12 @@ class DesireService {
       updatedAt: now,
       thoughts: normalizedThoughts,
     }, null, 2));
+    appendDesireHistory(this.historyFile, {
+      time: now,
+      ...normalizeDrive(this.state.drive),
+      most_want: snapshot.intent?.want_action || "",
+      note: "desire-runtime",
+    });
   }
 
   tick({ now = new Date().toISOString(), availableActions = [] } = {}) {
@@ -449,6 +458,23 @@ function loadStateFile(filePath) {
       heartbeat: createDefaultHeartbeatState(),
       couplingEdges: createDefaultCouplingEdges(),
     };
+  }
+}
+
+function readDesireRuntimeState(filePath) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function appendDesireHistory(filePath, row) {
+  try {
+    fs.appendFileSync(filePath, `${JSON.stringify(row)}\n`, "utf8");
+  } catch {
+    // History is observation evidence; state persistence must remain fail-open.
   }
 }
 
@@ -878,4 +904,5 @@ module.exports = {
   generateThoughtFromMemory,
   generateThoughtFromSelfReflection,
   generateThoughtFromWorldObservation,
+  readDesireRuntimeState,
 };

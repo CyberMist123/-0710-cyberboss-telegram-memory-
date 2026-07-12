@@ -1,4 +1,12 @@
-' Hidden launcher for WeChat line (cyberboss + shared app server 8785)
+' Hidden launcher for WeChat line.
 Set WshShell = CreateObject("WScript.Shell")
-WshShell.CurrentDirectory = "C:\Users\18717\Documents\cyberlink\cyberboss"
-WshShell.Run "cmd.exe /c ""C:\Users\18717\.cyberboss\start-cyberboss-wechat-telegram.bat""", 0, False
+WechatRoot = WshShell.ExpandEnvironmentStrings("%CYBERBOSS_WECHAT_ROOT%")
+WechatStart = WshShell.ExpandEnvironmentStrings("%CYBERBOSS_WECHAT_START_COMMAND%")
+If WechatRoot = "%CYBERBOSS_WECHAT_ROOT%" Or WechatRoot = "" Then
+  WScript.Quit 1
+End If
+If WechatStart = "%CYBERBOSS_WECHAT_START_COMMAND%" Or WechatStart = "" Then
+  WScript.Quit 1
+End If
+WshShell.CurrentDirectory = WechatRoot
+WshShell.Run "cmd.exe /c """ & WechatStart & """", 0, False

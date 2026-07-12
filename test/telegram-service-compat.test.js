@@ -28,12 +28,12 @@ test("system message service queues telegram messages without WeChat account fil
 
   const queued = service.queueMessage({
     text: "ping",
-    userId: "8719061650",
+    userId: "12345",
     workspaceRoot,
   }, {});
 
   assert.equal(queued.accountId, "telegram-deepseek");
-  assert.equal(queued.senderId, "8719061650");
+  assert.equal(queued.senderId, "12345");
   assert.equal(queued.workspaceRoot, workspaceRoot);
   assert.equal(queued.text, "ping");
 });
@@ -61,11 +61,11 @@ test("timeline service queues telegram screenshots without WeChat account files"
   });
 
   const queued = service.queueScreenshot({
-    userId: "8719061650",
+    userId: "12345",
     date: "2026-06-10",
   }, {});
 
   assert.equal(queued.accountId, "telegram-deepseek");
-  assert.equal(queued.senderId, "8719061650");
+  assert.equal(queued.senderId, "12345");
   assert.equal(queued.date, "2026-06-10");
 });

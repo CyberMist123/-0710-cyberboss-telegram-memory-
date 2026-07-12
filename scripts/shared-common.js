@@ -1,6 +1,5 @@
 const fs = require("fs");
 const http = require("http");
-const os = require("os");
 const path = require("path");
 const { spawn } = require("child_process");
 const {
@@ -8,28 +7,40 @@ const {
   resolveCodexProjectToolMcpServerConfig,
 } = require("../src/adapters/runtime/codex/mcp-config");
 
-try {
-  require("dotenv").config({ path: path.join(process.cwd(), ".env") });
-} catch {
-  // ignore
-}
-
-try {
-  require("dotenv").config({ path: path.join(os.homedir(), ".cyberboss", ".env") });
-} catch {
-  // ignore
-}
+loadConfiguredEnvFiles();
 
 const rootDir = path.resolve(__dirname, "..");
 const port = String(process.env.CYBERBOSS_SHARED_PORT || "8765");
 const listenUrl = `ws://127.0.0.1:${port}`;
-const stateDir = process.env.CYBERBOSS_STATE_DIR || path.join(os.homedir(), ".cyberboss");
+const stateDir = requirePathEnv("CYBERBOSS_STATE_DIR");
 const logDir = path.join(stateDir, "logs");
 const appServerPidFile = path.join(logDir, "shared-app-server.pid");
 const bridgePidFile = path.join(logDir, "shared-wechat.pid");
 const appServerLogFile = path.join(logDir, "shared-app-server.log");
 const accountsDir = path.join(stateDir, "accounts");
 const sessionFile = process.env.CYBERBOSS_SESSIONS_FILE || path.join(stateDir, "sessions.json");
+
+function loadConfiguredEnvFiles() {
+  const candidates = [
+    process.env.CYBERBOSS_ENV_FILE ? path.resolve(process.env.CYBERBOSS_ENV_FILE) : "",
+    process.env.CYBERBOSS_CONFIG_DIR ? path.join(path.resolve(process.env.CYBERBOSS_CONFIG_DIR), ".env") : "",
+    process.env.CYBERBOSS_STATE_DIR ? path.join(path.resolve(process.env.CYBERBOSS_STATE_DIR), ".env") : "",
+  ].filter(Boolean);
+  for (const envPath of Array.from(new Set(candidates))) {
+    if (!fs.existsSync(envPath)) {
+      continue;
+    }
+    require("dotenv").config({ path: envPath, override: true });
+  }
+}
+
+function requirePathEnv(name) {
+  const value = normalizeText(process.env[name]);
+  if (!value) {
+    throw new Error(`${name} is required.`);
+  }
+  return path.resolve(value);
+}
 
 function ensureLogDir() {
   fs.mkdirSync(logDir, { recursive: true });

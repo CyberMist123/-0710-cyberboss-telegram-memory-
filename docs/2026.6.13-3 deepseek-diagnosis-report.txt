@@ -7,7 +7,7 @@ cyberboss-deepseek 链路诊断报告
 ======================================================================
 
 1. 进程状态
-   cyberboss-deepseek 主进程: PID 50930 ✅ (node ./bin/cyberboss.js start --checkin)
+   cyberboss-deepseek 主进程: PID <PID> ✅ (node ./bin/cyberboss.js start --checkin)
    claude 子进程:        PID 51015 ✅ (/usr/bin/claude --output-format stream-json ...)
    telegram MCP 进程:     PID 51034 ✅ (cyberboss.js tool-mcp-server)
    tmux cb-deepseek-checkin: 存在 ✅
@@ -31,7 +31,7 @@ cyberboss-deepseek 链路诊断报告
 
 问题 1: 进程频繁崩溃导致 desire 轮询从未触发过
 ───────────────────────────────────────────
-位置: /home/anan/.deepseek/logs/cb-deepseek.log
+位置: <STATE_DIR>/logs/cyberboss.log
 现象: 完整日志显示进程已重启 5 次（每个 "> cyberboss@0.1.0 start:checkin"
       标记一次重启）。每次重启重置 hourly desire poller 到"首次等待"状态。
 证据:
@@ -49,7 +49,7 @@ cyberboss-deepseek 链路诊断报告
 位置: cb-deepseek.log（第 1-2 次运行区间）
 现象: 连续 4 次 [cyberboss] poll failed: telegram request failed: 409
       后进程退出重启。
-根因: 同一 bot token (8987018314) 的旧长轮询连接尚未断开，新进程发起
+根因: 同一 bot token (<REDACTED_TELEGRAM_TOKEN>) 的旧长轮询连接尚未断开，新进程发起
       getUpdates 请求时 Telegram 返回 409 Conflict。
       （deepseek 的 token 与主 cyberboss 的 token 不同，但同一进程
       重启时旧连接残留。）
@@ -80,9 +80,9 @@ updatedAt:    "2026-06-12T06:00:32.056Z"（昨天 14:00 北京）
 
 问题 5: Dashboard 默认读的是主 cyberboss 的数据
 ─────────────────────────────────────────────────
-位置: /home/anan/dashboard/frontend/src/source.js:13
+位置: <DASHBOARD_REPO>/frontend/src/source.js:13
       dashboardSource 默认从 localStorage 读取，回退到 "cyberboss"
-位置: /home/anan/dashboard/backend/src/core/source-config.js:23
+位置: <DASHBOARD_REPO>/backend/src/core/source-config.js:23
       resolveDashboardSource 默认 source="cyberboss" 读 ~/.cyberboss/
 路径:
   dashboard 前端 desire 请求:   GET /api/desire?source=<dashboardSource>

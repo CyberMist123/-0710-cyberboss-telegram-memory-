@@ -1,15 +1,24 @@
 const fs = require("fs");
 const path = require("path");
-const os = require("os");
 const { ClaudeCodeProcessClient } = require("./process-client");
 const { mapClaudeCodeMessageToRuntimeEvent } = require("./events");
 const { ensureClaudeProjectMcpConfig } = require("./project-settings");
 const { SessionStore } = require("../codex/session-store");
 const { buildOpeningTurnText, buildInstructionRefreshText } = require("../shared-instructions");
 const { ClaudeCodeIpcServer } = require("./ipc-server");
+const {
+  finalizeOpeningContext,
+  prepareOpeningContext,
+  prepareOrdinaryContext,
+  prepareRefreshContext,
+} = require("../../../core/hard-context");
 const CLAUDE_RESUME_SESSION_TIMEOUT_MS = 8000;
 
 function createClaudeCodeRuntimeAdapter(config) {
+  const stateDir = normalizeText(config.stateDir);
+  if (!stateDir) {
+    throw new Error("CYBERBOSS_STATE_DIR is required for the Claude runtime adapter.");
+  }
   const sessionStore = new SessionStore({ filePath: config.sessionsFile, runtimeId: "claudecode" });
   const clientsByWorkspace = new Map();
   const pendingApprovals = new Map();
@@ -17,11 +26,11 @@ function createClaudeCodeRuntimeAdapter(config) {
   const configuredModel = normalizeText(config.claudeModel);
   let globalListener = null;
   const ipcSocketPath = path.join(
-    config.stateDir || path.join(os.homedir(), ".cyberboss"),
+    stateDir,
     "claudecode-runtime.sock",
   );
   const ipcServer = new ClaudeCodeIpcServer({
-    stateDir: config.stateDir || path.join(os.homedir(), ".cyberboss"),
+    stateDir,
   });
 
   hydrateRuntimeModelsFromClaudeProjects();
@@ -315,23 +324,52 @@ function createClaudeCodeRuntimeAdapter(config) {
       }
       return { threadId, turnId };
     },
-    async resumeThread({ threadId, workspaceRoot, model = "" }) {
+    async resumeThread({ threadId, workspaceRoot, model = "", resumeOrigin = "implicit_restore" }) {
       if (!workspaceRoot) {
-        return { threadId };
+        return { threadId, resumed: true, resumeOrigin, empty: false };
       }
       const attached = await attachClientToThread(workspaceRoot, threadId, model);
-      return { threadId: attached.threadId };
+      return { threadId: attached.threadId, resumed: true, resumeOrigin, empty: false };
+    },
+    async runBackgroundTurn({ workspaceRoot, text, model = "" }) {
+      const normalizedWorkspaceRoot = normalizeText(workspaceRoot);
+      if (!normalizedWorkspaceRoot) throw new Error("workspaceRoot is required");
+      const projectSettings = ensureClaudeProjectMcpConfig({
+        workspaceRoot: normalizedWorkspaceRoot,
+        cyberbossHome: process.env.CYBERBOSS_HOME || path.resolve(__dirname, "..", "..", "..", ".."),
+      });
+      const client = new ClaudeCodeProcessClient({
+        command: config.claudeCommand || "claude",
+        cwd: normalizedWorkspaceRoot,
+        env: filterClaudeCodeEnv(process.env),
+        model: resolveModel(model),
+        permissionMode: config.claudePermissionMode || "default",
+        disableVerbose: Boolean(config.claudeDisableVerbose),
+        extraArgs: config.claudeExtraArgs || [],
+        mcpConfigPaths: [projectSettings.configPath],
+        ipcServer: null,
+        workspaceRoot: normalizedWorkspaceRoot,
+      });
+      try {
+        await client.connect("");
+        const completion = waitForIsolatedCompletion(client);
+        await client.sendUserMessage({ text, threadId: "" });
+        return await completion;
+      } finally {
+        await client.close().catch(() => {});
+      }
     },
     async compactThread({ threadId, workspaceRoot, model = "" }) {
       const { client, threadId: activeThreadId } = await attachClientToThread(workspaceRoot, threadId, model);
       await client.sendUserMessage({ text: "/compact", threadId: activeThreadId });
       return { threadId: activeThreadId, turnId: client.pendingTurnId };
     },
-    async refreshThreadInstructions({ threadId, workspaceRoot, model = "" }) {
+    async refreshThreadInstructions({ threadId, workspaceRoot, model = "", reason = "refresh" }) {
       const { client, threadId: activeThreadId } = await attachClientToThread(workspaceRoot, threadId, model);
-      const refreshText = buildInstructionRefreshText(config);
+      const continuity = prepareRefreshContext({ config, reason });
+      const refreshText = buildInstructionRefreshText(config, continuity);
       await client.sendUserMessage({ text: refreshText, threadId: activeThreadId });
-      return { threadId: activeThreadId };
+      return { threadId: activeThreadId, continuity: { ...continuity, total_chars: countVisibleChars(refreshText) } };
     },
     async sendTextTurn(args) {
       return this.sendTurn(args);
@@ -349,6 +387,7 @@ function createClaudeCodeRuntimeAdapter(config) {
         });
       }
       let openingTurn = !threadId;
+      let openingReason = "new_thread";
       let attached;
       try {
         attached = await attachClientToThread(workspaceRoot, threadId, desiredModel);
@@ -359,11 +398,35 @@ function createClaudeCodeRuntimeAdapter(config) {
         sessionStore.clearThreadIdForWorkspace(bindingKey, workspaceRoot);
         threadId = "";
         openingTurn = true;
+        openingReason = "thread_recreated";
         attached = await attachClientToThread(workspaceRoot, "", desiredModel);
       }
       const { client, threadId: activeThreadId } = attached;
-      const outboundText = openingTurn ? buildOpeningTurnText(config, text) : text;
       const outboundThreadId = activeThreadId || threadId;
+      let outboundText = text;
+      let continuity = prepareOrdinaryContext(text);
+      if (openingTurn) {
+        const openingContext = prepareOpeningContext({
+          config,
+          sessionStore,
+          threadId: outboundThreadId,
+          reason: openingReason,
+        });
+        let fallback = false;
+        try {
+          outboundText = buildOpeningTurnText(config, text, openingContext);
+        } catch (error) {
+          fallback = true;
+          outboundText = text;
+          console.warn(`[continuity] opening builder failed: ${error.message || String(error)}`);
+        }
+        continuity = finalizeOpeningContext(openingContext, {
+          sessionStore,
+          threadId: outboundThreadId,
+          outboundText,
+          fallback,
+        });
+      }
       if (outboundThreadId) {
         sessionStore.setThreadIdForWorkspace(
           bindingKey,
@@ -379,6 +442,9 @@ function createClaudeCodeRuntimeAdapter(config) {
       if (!returnedThreadId) {
         throw new Error("claudecode did not report a session id");
       }
+      if (continuity?.reentry?.text) {
+        sessionStore.markReentryInjected(returnedThreadId, continuity.reentry);
+      }
       sessionStore.setThreadIdForWorkspace(
         bindingKey,
         workspaceRoot,
@@ -389,6 +455,7 @@ function createClaudeCodeRuntimeAdapter(config) {
       return {
         threadId: returnedThreadId,
         turnId: client.pendingTurnId,
+        continuity,
       };
     },
   };
@@ -513,7 +580,10 @@ function resolveClaudeProjectTranscriptPath({ claudeConfigDir = "", workspaceRoo
   if (!normalizedWorkspaceRoot || !normalizedThreadId) {
     return "";
   }
-  const baseDir = normalizeText(claudeConfigDir) || path.join(os.homedir(), ".claude");
+  const baseDir = normalizeText(claudeConfigDir);
+  if (!baseDir) {
+    return "";
+  }
   return path.join(baseDir, "projects", encodeClaudeProjectPath(normalizedWorkspaceRoot), `${normalizedThreadId}.jsonl`);
 }
 
@@ -540,4 +610,28 @@ function clientMatchesThread(client, threadId) {
   }
   return normalizeThreadId(client.sessionId) === normalizedThreadId
     || normalizeThreadId(client.resumeSessionId) === normalizedThreadId;
+}
+
+function countVisibleChars(value) {
+  return Array.from(String(value || "").replace(/\s/gu, "")).length;
+}
+
+function waitForIsolatedCompletion(client, timeoutMs = 120_000) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error, text = "") => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      unsubscribe();
+      if (error) reject(error);
+      else resolve(text);
+    };
+    const unsubscribe = client.onMessage((event) => {
+      if (event?.type === "turn.completed") finish(null, event.text || "");
+      if (event?.type === "process.error") finish(new Error(event.error || "background runtime failed"));
+      if (event?.type === "process.close") finish(new Error("background runtime closed before completion"));
+    });
+    const timer = setTimeout(() => finish(new Error("background runtime timed out")), timeoutMs);
+  });
 }

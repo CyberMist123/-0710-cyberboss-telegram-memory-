@@ -263,8 +263,10 @@ function getNonTextDescription(message) {
 }
 
 function writeTelegramLog(config, message) {
-  const os = require("os");
-  const baseDir = config?.telegramStateFile ? path.dirname(config.telegramStateFile) : path.join(os.homedir(), ".cyberboss", "logs");
+  if (!config?.telegramStateFile) {
+    throw new Error("CYBERBOSS_STATE_DIR is required before writing telegram poller logs.");
+  }
+  const baseDir = path.dirname(config.telegramStateFile);
   const filePath = path.join(baseDir, "telegram-poller.log");
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.appendFileSync(filePath, `${new Date().toISOString()} ${message}\n`, "utf8");

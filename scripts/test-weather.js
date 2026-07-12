@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 const fs = require("fs");
-const os = require("os");
 const path = require("path");
 const dotenv = require("dotenv");
 
@@ -10,16 +9,16 @@ const { createWeatherService } = require("../src/services/weather-service");
 
 function loadEnv() {
   const candidates = [
-    path.join(process.cwd(), ".env"),
-    path.join(os.homedir(), ".cyberboss", ".env"),
-  ];
+    process.env.CYBERBOSS_ENV_FILE ? path.resolve(process.env.CYBERBOSS_ENV_FILE) : "",
+    process.env.CYBERBOSS_CONFIG_DIR ? path.join(path.resolve(process.env.CYBERBOSS_CONFIG_DIR), ".env") : "",
+    process.env.CYBERBOSS_STATE_DIR ? path.join(path.resolve(process.env.CYBERBOSS_STATE_DIR), ".env") : "",
+  ].filter(Boolean);
   for (const envPath of candidates) {
     if (!fs.existsSync(envPath)) {
       continue;
     }
     dotenv.config({ path: envPath, override: true });
   }
-  dotenv.config({ override: true });
 }
 
 async function main() {

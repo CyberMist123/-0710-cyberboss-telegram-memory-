@@ -1,4 +1,3 @@
-const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
 const fs = require("fs");
@@ -25,6 +24,7 @@ const { CheckinConfigStore, parseCheckinRangeMinutes, resolveDefaultCheckinRange
 const { resolvePreferredSenderId, resolvePreferredWorkspaceRoot } = require("./default-targets");
 const { StreamDelivery, createSystemReplyPolicy, resolveSystemReplyDelivery } = require("./stream-delivery");
 const { ThreadStateStore } = require("./thread-state-store");
+const { ContextTraceRecorder, hashThreadId } = require("./context-trace");
 const { DeferredSystemReplyStore } = require("./deferred-system-reply-store");
 const { SystemMessageQueueStore } = require("./system-message-queue-store");
 const { SystemMessageDispatcher } = require("./system-message-dispatcher");
@@ -42,14 +42,16 @@ const {
 } = require("../adapters/runtime/shared/approval-command");
 const { runSystemCheckinPoller } = require("../app/system-checkin-poller");
 const { runHourlyDesirePoller } = require("../app/hourly-desire-poller");
+const { persistReportedDesireState } = require("./desire-state-persistence");
+const { loadContextGates } = require("./hard-context");
 const { createProjectTooling } = require("../tools/create-project-tooling");
 const { formatBeijingDateTime } = require("../utils/beijing-time");
 const { runMemoryPostResponsePipeline } = require("./memory-background-pipeline");
-const { EmbeddingService } = require("../services/embedding-service");
 const { resolveMemoryRetrievalPlan } = require("./memory-resolver");
 const { parseMemoryCommand } = require("./memory-command-router");
 const { validateDraftAgainstMemory, rewriteDraftToMatchMemory } = require("./memory-validator");
 const { buildRecentStateMemoryLines } = require("../location/recent-state-memory");
+const { recordCanaryReceipt } = require("../orchestration/canary-receipt");
 const DEFAULT_LONG_POLL_TIMEOUT_MS = 35_000;
 const MIN_LONG_POLL_TIMEOUT_MS = 2_000;
 const SESSION_EXPIRED_ERRCODE = -14;
@@ -66,9 +68,19 @@ function createRuntimeAdapter(config) {
   return require("../adapters/runtime/codex").createCodexRuntimeAdapter(config);
 }
 
+function hasLegacyMemoryPipelineEnabled(config = {}) {
+  return Boolean(
+    config.legacyMemoryRetrieval
+    || config.legacyMemoryBackgroundWrite
+    || config.legacyMemoryReplyTransform
+    || config.includeLegacyMemoryRelays
+  );
+}
+
 class CyberbossApp {
   constructor(config) {
     this.config = config;
+    this.legacyMemoryPipelineEnabled = hasLegacyMemoryPipelineEnabled(config);
     this.telegramChannelAdapter = createTelegramChannelAdapter(config);
     this.weixinChannelAdapter = config.channel !== "telegram" ? createWeixinChannelAdapter(config) : null;
     this.channelAdapter = config.channel === "telegram"
@@ -83,14 +95,16 @@ class CyberbossApp {
     this.projectToolHost = projectTooling.toolHost;
     this.runtimeContextStore = projectTooling.runtimeContextStore;
     this.runtimeAdapter = createRuntimeAdapter(config);
-    this.embeddingService = new EmbeddingService();
-    this.memoryService = new (require("../services/memory-service").MemoryService)({
-      memoryDir: config.memoryDir,
-      vectorFile: config.memoryVectorFile,
-    });
-    this.memoryService.ensureFiles();
+    this.embeddingService = null;
+    this.memoryService = null;
+    if (this.legacyMemoryPipelineEnabled) {
+      this.createEmbeddingService();
+      this.createMemoryService({ ensureFiles: true });
+    }
     this.memoryBgState = { lastMineAtMs: Date.now(), userMsgCountSinceMine: 0, userCharsSinceMine: 0, buffer: [] };
     this.threadStateStore = new ThreadStateStore();
+    this.contextTraceRecorder = new ContextTraceRecorder({ filePath: config.contextTraceFile });
+    this.contextTraceRunState = new Map();
     this.systemMessageQueue = new SystemMessageQueueStore({ filePath: config.systemMessageQueueFile });
     this.deferredSystemReplyQueue = new DeferredSystemReplyStore({ filePath: config.deferredSystemReplyQueueFile });
     this.checkinConfigStore = new CheckinConfigStore({ filePath: config.checkinConfigFile });
@@ -109,7 +123,9 @@ class CyberbossApp {
       sessionStore: this.runtimeAdapter.getSessionStore(),
       runtimeId: this.runtimeAdapter.describe().id,
       onDeferredSystemReply: (payload) => this.deferSystemReply(payload),
-      transformReplyDelivery: (payload) => this.transformReplyDelivery(payload),
+      transformReplyDelivery: config.legacyMemoryReplyTransform
+        ? (payload) => this.transformReplyDelivery(payload)
+        : null,
       onSystemReplySent: (threadId, turnId, replyText) => this.handleSystemReplySent(threadId, turnId, replyText),
     });
     this.pendingOperationByRunKey = new Map();
@@ -125,6 +141,35 @@ class CyberbossApp {
           console.error(`[cyberboss] runtime event handling failed type=${event?.type || "(unknown)"} ${message}`);
         });
     });
+  }
+
+  createEmbeddingService() {
+    if (!this.embeddingService) {
+      const { EmbeddingService } = require("../services/embedding-service");
+      this.embeddingService = new EmbeddingService();
+    }
+    return this.embeddingService;
+  }
+
+  createMemoryService({ ensureFiles = false } = {}) {
+    if (!this.memoryService) {
+      if (!this.config.memoryDir) {
+        throw new Error("CYBERBOSS_MEMORY_DIR or CYBERBOSS_STATE_DIR is required before using memory commands.");
+      }
+      const { MemoryService } = require("../services/memory-service");
+      this.memoryService = new MemoryService({
+        memoryDir: this.config.memoryDir,
+        vectorFile: this.config.memoryVectorFile,
+      });
+    }
+    if (ensureFiles) {
+      this.memoryService.ensureFiles();
+    }
+    return this.memoryService;
+  }
+
+  getMemoryServiceForCommand() {
+    return this.createMemoryService({ ensureFiles: true });
   }
 
   printDoctor() {
@@ -227,6 +272,17 @@ class CyberbossApp {
                 continue;
               }
               this.logTelegramDebug(`inbound messageId=${normalized.messageId} chatId=${normalized.chatId} senderId=${normalized.senderId} workspace=${normalized.workspaceId}`);
+              try {
+                recordCanaryReceipt({
+                  stateDir: this.config.stateDir,
+                  text: normalized.text,
+                  updateId: update?.update_id,
+                  messageId: normalized.messageId,
+                  threadKey: normalized.threadKey,
+                });
+              } catch (error) {
+                this.logTelegramDebug(`canary receipt write failed error=${error instanceof Error ? error.message : String(error)}`);
+              }
               await this.handleTelegramMessage(normalized);
             }
           } else {
@@ -588,15 +644,7 @@ class CyberbossApp {
     }
 
     await this.routePreparedInbound({ bindingKey, workspaceRoot, prepared });
-    void runMemoryPostResponsePipeline({
-      memoryService: this.memoryService,
-      embeddingService: this.embeddingService,
-      normalized,
-      bgState: this.memoryBgState,
-    }).catch((error) => {
-      const msg = error instanceof Error ? error.message : String(error || "unknown");
-      console.warn(`[memory] post-response pipeline failed: ${msg}`);
-    });
+    this.maybeRunLegacyMemoryBackgroundPipeline(normalized, "post-response");
   }
 
   isTurnDispatchBlocked(bindingKey, workspaceRoot, { ignoreBoundary = false } = {}) {
@@ -642,6 +690,7 @@ class CyberbossApp {
           channelSource: prepared.provider,
         },
       });
+      this.recordContextTrace?.(turn.threadId, turn.turnId, turn.continuity);
       this.runtimeContextStore?.setActiveContext?.({
         workspaceRoot,
         runtimeId: this.runtimeAdapter.describe().id,
@@ -684,20 +733,12 @@ class CyberbossApp {
 
   async resolveMemoryContextForPrepared(prepared) {
     const text = String(prepared?.originalText || prepared?.text || "").trim();
-    if (!text || !this.embeddingService || !this.memoryService) {
+    if (!text) {
       return { lines: [] };
     }
-    const retrievalPlan = resolveMemoryRetrievalPlan(text);
-    const recentMemoryLines = retrievalPlan.mode === "targeted"
-      ? formatSevenDayContextLines(
-        this.memoryService.readSevenDayMemory({ status: "active", limit: 20 }),
-        text,
-        1,
-      )
-      : [];
-    const pendingPromiseLines = retrievalPlan.includePendingPromises
-      ? formatPendingPromiseContextLines(this.memoryService.readPendingPromises({ status: "pending", limit: 10 }), 1)
-      : [];
+    if (!loadContextGates(this.config).memory_context) {
+      return { lines: [], slots: [], mode: "gated_off" };
+    }
     const locationLines = this.resolveRecentLocationStateMemoryLines();
     this.projectServices?.locationStateStore?.recordMemoryInjection?.({
       lines: locationLines,
@@ -705,6 +746,26 @@ class CyberbossApp {
       used: this.config.locationV2Enabled,
       text,
     });
+    if (!this.config.legacyMemoryRetrieval) {
+      return {
+        lines: dedupeMemoryContextLines(locationLines),
+        slots: [],
+        mode: "disabled",
+      };
+    }
+    const memoryService = this.memoryService || this.createMemoryService({ ensureFiles: true });
+    const embeddingService = this.embeddingService || this.createEmbeddingService();
+    const retrievalPlan = resolveMemoryRetrievalPlan(text);
+    const recentMemoryLines = retrievalPlan.mode === "targeted"
+      ? formatSevenDayContextLines(
+        memoryService.readSevenDayMemory({ status: "active", limit: 20 }),
+        text,
+        1,
+      )
+      : [];
+    const pendingPromiseLines = retrievalPlan.includePendingPromises
+      ? formatPendingPromiseContextLines(memoryService.readPendingPromises({ status: "pending", limit: 10 }), 1)
+      : [];
     if (retrievalPlan.mode !== "targeted") {
       return {
         lines: locationLines,
@@ -719,10 +780,10 @@ class CyberbossApp {
         mode: retrievalPlan.mode,
       };
     }
-    const memoryQuery = this.memoryService.resolvePreResponseMemory({ slots: retrievalPlan.retrievalSlots });
+    const memoryQuery = memoryService.resolvePreResponseMemory({ slots: retrievalPlan.retrievalSlots });
     const curated = await selectCuratedMemoryLines(memoryQuery.markdownLines, text, 1, {
-      embeddingService: this.embeddingService,
-      memoryService: this.memoryService,
+      embeddingService,
+      memoryService,
     });
     return {
       lines: dedupeMemoryContextLines([...pendingPromiseLines, ...curated, ...recentMemoryLines, ...locationLines]),
@@ -1046,7 +1107,7 @@ class CyberbossApp {
         workspaceRoot: draft.workspaceRoot,
         ...latest,
         text: [
-          "Multiple newer WeChat messages arrived while you were still handling the previous turn.",
+          "Multiple newer user messages arrived while you were still handling the previous turn.",
           "Treat the following blocks as one ordered batch of fresh user input and respond once after considering all of them.",
           "",
           blocks.join("\n\n"),
@@ -1161,6 +1222,9 @@ class CyberbossApp {
 
   resolveLongPollTimeoutMs() {
     if (this.systemMessageDispatcher?.hasPending()) {
+      return MIN_LONG_POLL_TIMEOUT_MS;
+    }
+    if (this.pendingInboundByScope?.size > 0) {
       return MIN_LONG_POLL_TIMEOUT_MS;
     }
     if (this.activeAccountId && this.timelineScreenshotQueue.hasPendingForAccount(this.activeAccountId)) {
@@ -1312,10 +1376,10 @@ class CyberbossApp {
       return;
     }
 
-    if (!isPathWithinAllowedDirectories(workspaceRoot)) {
+    if (!isPathWithinAllowedDirectories(workspaceRoot, this.config)) {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
-        text: "⚠️ The path must be within your home directory or the current working directory.",
+        text: "⚠️ The path must be within CYBERBOSS_WORKSPACE.",
         contextToken: normalized.contextToken,
       });
       return;
@@ -1427,12 +1491,14 @@ class CyberbossApp {
         provider: normalized.provider,
       });
       const runtimeParams = sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
-      await this.runtimeAdapter.refreshThreadInstructions({
+      const refreshed = await this.runtimeAdapter.refreshThreadInstructions({
         threadId,
         workspaceRoot,
         model: runtimeParams.model,
         modelProvider: runtimeParams.modelProvider,
+        reason: "reread",
       });
+      this.recordContextTrace?.(threadId, refreshed?.turnId || "", refreshed?.continuity);
     } catch (error) {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
@@ -1513,23 +1579,48 @@ class CyberbossApp {
     const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
     const sessionStore = this.runtimeAdapter.getSessionStore();
     const runtimeParams = sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
-    const resumed = await this.runtimeAdapter.resumeThread({
-      threadId: targetThreadId,
-      workspaceRoot,
-      model: runtimeParams.model,
-      modelProvider: runtimeParams.modelProvider,
-    });
+    let resumed;
+    try {
+      resumed = await this.runtimeAdapter.resumeThread({
+        threadId: targetThreadId,
+        workspaceRoot,
+        model: runtimeParams.model,
+        modelProvider: runtimeParams.modelProvider,
+        resumeOrigin: "user_switch",
+      });
+    } catch (error) {
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: `❌ Switch failed; the requested thread was not replaced.\n${error instanceof Error ? error.message : String(error || "unknown error")}`,
+        contextToken: normalized.contextToken,
+      }).catch(() => {});
+      return;
+    }
+    if (resumed?.empty === true) {
+      if (typeof this.runtimeAdapter.startFreshThreadDraft === "function") {
+        await this.runtimeAdapter.startFreshThreadDraft({ bindingKey, workspaceRoot });
+      }
+      sessionStore.clearThreadIdForWorkspace(bindingKey, workspaceRoot);
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: `✅ Empty thread selected; the next message will start a fresh thread.\nworkspace: ${workspaceRoot}`,
+        contextToken: normalized.contextToken,
+      });
+      return;
+    }
     sessionStore.setThreadIdForWorkspace(
       bindingKey,
       workspaceRoot,
       resumed?.threadId || targetThreadId,
     );
     try {
-      await this.runtimeAdapter.refreshThreadInstructions({
+      const refreshed = await this.runtimeAdapter.refreshThreadInstructions({
         threadId: resumed?.threadId || targetThreadId,
         workspaceRoot,
         model: sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot).model,
+        reason: "user_switch",
       });
+      this.recordContextTrace?.(resumed?.threadId || targetThreadId, refreshed?.turnId || "", refreshed?.continuity);
     } catch {
       // ignore refresh failure on switch; thread is already switched
     }
@@ -1762,6 +1853,17 @@ class CyberbossApp {
             continue;
           }
           this.logTelegramDebug(`inbound messageId=${normalized.messageId} chatId=${normalized.chatId} senderId=${normalized.senderId} workspace=${normalized.workspaceId}`);
+          try {
+            recordCanaryReceipt({
+              stateDir: this.config.stateDir,
+              text: normalized.text,
+              updateId: update?.update_id,
+              messageId: normalized.messageId,
+              threadKey: normalized.threadKey,
+            });
+          } catch (error) {
+            this.logTelegramDebug(`canary receipt write failed error=${error instanceof Error ? error.message : String(error)}`);
+          }
           await this.handleTelegramMessage(normalized);
         }
         failureCount = 0;
@@ -1777,6 +1879,7 @@ class CyberbossApp {
   async handleTelegramMessage(normalized) {
     this.logTelegramDebug(`handleTelegramMessage messageId=${normalized.messageId} senderId=${normalized.senderId}`);
     if (this.config.channel === "telegram") {
+      this.recordInboundMessage(normalized);
       await this.handlePreparedMessage(normalized, { allowCommands: true });
       return;
     }
@@ -1814,14 +1917,15 @@ class CyberbossApp {
 
   async dispatchTelegramPreparedInbound({ bindingKey, workspaceRoot, prepared, messageId = "" }) {
     this.logTelegramDebug(`dispatchTelegramPreparedInbound messageId=${messageId} senderId=${prepared?.senderId || ""}`);
-    const startedAt = Date.now();
-    while (this.isTurnDispatchBlocked(bindingKey, workspaceRoot)) {
-      if (Date.now() - startedAt > 30_000) {
-        this.logTelegramDebug(`dispatch timeout buffered messageId=${messageId}`);
-        this.bufferPendingInboundMessage({ bindingKey, workspaceRoot, prepared });
-        return false;
-      }
-      await sleep(500);
+    // Never busy-wait here: this method runs inside the single poller loop, and
+    // blocking it stalls getUpdates, reminders, and system-message flushes.
+    // If a turn is already running, buffer the message; the runtime.turn.completed
+    // handler flushes pending inbound messages (merging concurrent ones into a
+    // single ordered batch) as soon as the previous turn finishes.
+    if (this.isTurnDispatchBlocked(bindingKey, workspaceRoot)) {
+      this.logTelegramDebug(`dispatch blocked, buffered messageId=${messageId}`);
+      this.bufferPendingInboundMessage({ bindingKey, workspaceRoot, prepared });
+      return false;
     }
     return this.dispatchPreparedTurn({ bindingKey, workspaceRoot, prepared });
   }
@@ -1829,7 +1933,10 @@ class CyberbossApp {
   logTelegramDebug(message) {
     const logFile = this.config.telegramStateFile
       ? path.join(path.dirname(this.config.telegramStateFile), "telegram-poller.log")
-      : path.join(os.homedir(), ".cyberboss", "logs", "telegram-poller.log");
+      : "";
+    if (!logFile) {
+      throw new Error("CYBERBOSS_STATE_DIR is required before writing telegram poller logs.");
+    }
     fs.mkdirSync(path.dirname(logFile), { recursive: true });
     fs.appendFileSync(logFile, `${new Date().toISOString()} ${message}\n`, "utf8");
   }
@@ -1844,8 +1951,7 @@ class CyberbossApp {
 
   async handleMemoryCommand(normalized) {
     const parsed = parseMemoryCommand(normalized.text);
-    const memoryService = this.memoryService;
-    if (!parsed || !memoryService) {
+    if (!parsed) {
       return;
     }
     const reply = await this.executeMemoryCommand(parsed).catch((error) =>
@@ -1863,6 +1969,9 @@ class CyberbossApp {
     const action = String(parsed?.action || "help").toLowerCase();
     const args = Array.isArray(parsed?.args) ? parsed.args : [];
     const options = parsed?.options && typeof parsed.options === "object" ? parsed.options : {};
+    const memoryService = action === "help"
+      ? null
+      : (typeof this.getMemoryServiceForCommand === "function" ? this.getMemoryServiceForCommand() : this.memoryService);
     switch (action) {
       case "help":
         return buildMemoryHelpText();
@@ -1871,15 +1980,15 @@ class CyberbossApp {
         const category = normalizeMemoryCategory(args[1] || options.category);
         const limit = normalizeMemoryLimit(options.limit, 20);
         const rows = status === "pending"
-          ? this.memoryService.readPending({ limit })
-          : this.memoryService.readIndex({ status, categories: category ? [category] : [], limit });
+          ? memoryService.readPending({ limit })
+          : memoryService.readIndex({ status, categories: category ? [category] : [], limit });
         if (options.json) return JSON.stringify(rows, null, 2);
         return formatMemoryRows(status === "pending" ? "7-Day memory" : `Memories (${status})`, rows);
       }
       case "review": {
         const category = normalizeMemoryCategory(args[0] || options.category);
         const limit = normalizeMemoryLimit(options.limit, 20);
-        const rows = this.memoryService.readPending({ limit: Math.max(limit * 2, limit) })
+        const rows = memoryService.readPending({ limit: Math.max(limit * 2, limit) })
           .filter((item) => !category || item.category === category)
           .slice(0, limit);
         if (options.json) return JSON.stringify(rows.map((item) => ({ ...item, suggestion: buildPendingRewriteSuggestion(item) })), null, 2);
@@ -1888,7 +1997,7 @@ class CyberbossApp {
       case "suggest": {
         const id = args[0] || "";
         if (!id) return "💡 Usage: /memory suggest <entryId>";
-        const pending = findPendingMemoryById(this.memoryService, id);
+        const pending = findPendingMemoryById(memoryService, id);
         if (!pending) return `❌ 7-Day entry not found\n${id}`;
         const suggestion = buildPendingRewriteSuggestion(pending);
         return [
@@ -1900,16 +2009,16 @@ class CyberbossApp {
       case "apply-suggestion": {
         const id = args[0] || "";
         if (!id) return "💡 Usage: /memory apply-suggestion <entryId>";
-        const pending = findPendingMemoryById(this.memoryService, id);
+        const pending = findPendingMemoryById(memoryService, id);
         if (!pending) return `❌ 7-Day entry not found\n${id}`;
         const suggestion = buildPendingRewriteSuggestion(pending);
-        const approved = this.memoryService.approvePending(id, { text: suggestion });
+        const approved = memoryService.approvePending(id, { text: suggestion });
         return approved ? `✅ 7-Day entry promoted with suggestion\n${formatMemoryRow({ ...approved, text: suggestion || approved.text || approved.value, tier: 'stable', status: 'active' })}` : `❌ 7-Day entry not found\n${id}`;
       }
       case "search": {
         const query = args.join(" ").trim();
         if (!query) return "💡 Usage: /memory search <query>";
-        const rows = this.memoryService.searchMemory(query);
+        const rows = memoryService.searchMemory(query);
         if (options.json) return JSON.stringify(rows, null, 2);
         return formatMemoryRows(`Memory search: ${query}`, rows);
       }
@@ -1930,15 +2039,15 @@ class CyberbossApp {
           updatedAt: new Date().toISOString(),
           status: "active",
         };
-        const dup = this.memoryService.findDuplicate(candidate);
+        const dup = memoryService.findDuplicate(candidate);
         if (dup) return `⚠️ Memory already exists\n${formatMemoryRow(dup)}`;
-        const saved = this.memoryService.saveFormalMemory(candidate, { markdownText: text });
+        const saved = memoryService.saveFormalMemory(candidate, { markdownText: text });
         return `✅ Memory saved\n${formatMemoryRow(saved)}`;
       }
       case "delete": {
         const reference = args[0] || "";
         if (!reference) return "💡 Usage: /memory delete <id|key>";
-        return this.memoryService.markDeleted(reference)
+        return memoryService.markDeleted(reference)
           ? `✅ Memory deleted\n${reference}`
           : `❌ Memory not found\n${reference}`;
       }
@@ -1946,37 +2055,37 @@ class CyberbossApp {
         const reference = args[0] || "";
         const value = args.slice(1).join(" ").trim();
         if (!reference || !value) return "💡 Usage: /memory update <id|key> <text>";
-        const updated = this.memoryService.updateMemoryReference(reference, value);
+        const updated = memoryService.updateMemoryReference(reference, value);
         return updated
           ? `✅ Memory updated\n${formatMemoryRow(updated)}`
           : `❌ Active memory not found\n${reference}`;
       }
       case "undo":
-        return this.memoryService.undoLastWrite() ? "✅ Last memory write was reverted" : "❌ No memory write to undo";
+        return memoryService.undoLastWrite() ? "✅ Last memory write was reverted" : "❌ No memory write to undo";
       case "pending":
         return this.executeMemoryCommand({ action: "review", args, options });
       case "approve": {
         const id = args[0] || "";
         const text = args.slice(1).join(" ").trim();
         if (!id) return "💡 Usage: /memory approve <entryId> [rewrite text]";
-        const approved = this.memoryService.approvePending(id, { text });
+        const approved = memoryService.approvePending(id, { text });
         return approved ? `✅ 7-Day entry promoted into formal memory\n${formatMemoryRow({ ...approved, text: text || approved.text || approved.value, tier: 'stable', status: 'active' })}` : `❌ 7-Day entry not found\n${id}`;
       }
       case "reject": {
         const id = args[0] || "";
         if (!id) return "💡 Usage: /memory reject <entryId>";
-        return this.memoryService.rejectPending(id) ? `✅ 7-Day entry rejected\n${id}` : `❌ 7-Day entry not found\n${id}`;
+        return memoryService.rejectPending(id) ? `✅ 7-Day entry rejected\n${id}` : `❌ 7-Day entry not found\n${id}`;
       }
       case "prune": {
         const category = normalizeMemoryCategory(args[0]);
         if (!category) return "💡 Usage: /memory prune <category>";
-        const result = this.memoryService.pruneCategory(category);
+        const result = memoryService.pruneCategory(category);
         return result
           ? `✅ Memory category pruned\ncategory: ${category}\nbefore: ${result.before}\nafter: ${result.after}`
           : `❌ Unknown memory category\n${args[0] || ""}`;
       }
       case "cleanup": {
-        const result = this.memoryService.cleanupHistoricalMemories();
+        const result = memoryService.cleanupHistoricalMemories();
         return [
           "✅ Memory cleanup finished",
           `deleted: ${result.deleted}`,
@@ -2027,18 +2136,27 @@ class CyberbossApp {
     if (!candidate) {
       return;
     }
+    this.maybeRunLegacyMemoryBackgroundPipeline({
+      text: candidate,
+      role: "assistant",
+      receivedAt: new Date().toISOString(),
+    }, "assistant reply");
+  }
+
+  maybeRunLegacyMemoryBackgroundPipeline(normalized, label = "post-response") {
+    if (!this.config.legacyMemoryBackgroundWrite) {
+      return;
+    }
+    const memoryService = this.memoryService || this.createMemoryService({ ensureFiles: true });
+    const embeddingService = this.embeddingService || this.createEmbeddingService();
     void runMemoryPostResponsePipeline({
-      memoryService: this.memoryService,
-      embeddingService: this.embeddingService,
-      normalized: {
-        text: candidate,
-        role: "assistant",
-        receivedAt: new Date().toISOString(),
-      },
+      memoryService,
+      embeddingService,
+      normalized,
       bgState: this.memoryBgState,
     }).catch((error) => {
       const msg = error instanceof Error ? error.message : String(error || "unknown");
-      console.warn(`[memory] assistant reply pipeline failed: ${msg}`);
+      console.warn(`[memory] ${label} pipeline failed: ${msg}`);
     });
   }
 
@@ -2065,6 +2183,7 @@ class CyberbossApp {
       return;
     }
     if (event.type === "runtime.turn.completed" || event.type === "runtime.turn.failed") {
+      await this.synchronizeRecallTrace(event.payload.threadId, event.payload.turnId);
       const completedRunKey = buildRunKey(event.payload.threadId, event.payload.turnId);
       const pendingOperations = this.pendingOperationByRunKey;
       const pendingOperation = pendingOperations?.get?.(completedRunKey) || null;
@@ -2306,9 +2425,43 @@ class CyberbossApp {
         await this.runtimeAdapter.resumeThread({
           threadId: normalizedThreadId,
           workspaceRoot: normalizedWorkspaceRoot,
+          resumeOrigin: "implicit_restore",
         }).catch(() => {});
       }
     }
+  }
+
+  recordContextTrace(threadId, turnId, continuity = {}) {
+    const context = continuity && typeof continuity === "object" ? continuity : {};
+    const ts = new Date().toISOString();
+    const runKey = buildRunKey(threadId, turnId);
+    if (runKey) this.contextTraceRunState.set(runKey, { ts });
+    void this.contextTraceRecorder.record({
+      ts,
+      threadId,
+      turnId,
+      opening: context.opening === true,
+      blocks: context.blocks,
+      skipped: context.skipped,
+      fallback: context.fallback,
+      total_chars: context.total_chars,
+      recall_calls: [],
+    });
+  }
+
+  async synchronizeRecallTrace(threadId, turnId) {
+    const runKey = buildRunKey(threadId, turnId);
+    const state = this.contextTraceRunState.get(runKey);
+    if (!state) return false;
+    this.contextTraceRunState.delete(runKey);
+    const rows = readJsonlSafe(this.config.recallLogFile);
+    const threadHash = hashThreadId(threadId);
+    const startedAt = Date.parse(state.ts) || 0;
+    const recallCalls = rows
+      .filter((row) => row?.session === threadHash && row?.trigger === "user_pull" && (Date.parse(row.ts) || 0) > startedAt)
+      .map((row) => ({ trigger: "user_pull", results_count: Array.isArray(row.hit_ids) ? row.hit_ids.length : 0 }));
+    if (!recallCalls.length) return false;
+    return await this.contextTraceRecorder.mergeRecallCalls({ threadId, turnId, recallCalls });
   }
 
   resolveReplyTargetForBinding(bindingKey) {
@@ -2334,31 +2487,18 @@ class CyberbossApp {
   handleSystemReplySent(threadId, turnId, replyText) {
     if (!replyText) return;
     try {
-      const text = typeof replyText === "string" ? replyText.trim() : "";
-      if (!text) return;
-      const isObj = text.startsWith("{");
-      if (!isObj) { console.log(`[desire] handleSystemReplySent non-JSON text thread=${threadId}`); return; }
+      const text = extractJsonObjectText(replyText);
+      if (!text) { console.log(`[desire] handleSystemReplySent non-JSON text thread=${threadId}`); return; }
       const parsed = JSON.parse(text);
       const state = parsed?.desire_state;
       if (state && this.config.desireStateFile) {
-        const fs = require("fs");
         const drives = normalizeDesireDrives(state?.drives);
         const intent = normalizeDesireIntent(state?.intent);
-        const now = new Date().toISOString();
-        let previous = null;
-        try {
-          const raw = JSON.parse(fs.readFileSync(this.config.desireStateFile, "utf8"));
-          if (raw.drives && raw.updatedAt !== now) {
-            previous = { drives: raw.drives, updatedAt: raw.updatedAt };
-          }
-        } catch {}
-        fs.writeFileSync(this.config.desireStateFile, JSON.stringify({
-          ...state,
-          drives,
-          intent,
-          previous,
-          updatedAt: now,
-        }, null, 2));
+        persistReportedDesireState({
+          state: { ...state, drives, intent },
+          stateFile: this.config.desireStateFile,
+          historyFile: this.config.desireHistoryFile,
+        });
       }
     } catch {}
   }
@@ -2369,27 +2509,18 @@ class CyberbossApp {
   maybeSaveDesireStateFromTurnText(text) {
     if (!text || !this.config.desireStateFile) return;
     try {
-      const trimmed = typeof text === "string" ? text.trim() : "";
-      if (!trimmed || !trimmed.startsWith("{")) return;
+      const trimmed = extractJsonObjectText(text);
+      if (!trimmed) return;
       const parsed = JSON.parse(trimmed);
       const state = parsed?.desire_state;
       if (!state || !Array.isArray(state?.drives)) return;
-      const fs = require("fs");
       const drives = normalizeDesireDrives(state.drives);
-      const now = new Date().toISOString();
-      let previous = null;
-      try {
-        const raw = JSON.parse(fs.readFileSync(this.config.desireStateFile, "utf8"));
-        if (raw.drives && raw.updatedAt !== now) {
-          previous = { drives: raw.drives, updatedAt: raw.updatedAt };
-        }
-      } catch {}
-      fs.writeFileSync(this.config.desireStateFile, JSON.stringify({
-        ...state,
-        drives,
-        previous,
-        updatedAt: now,
-      }, null, 2));
+      const intent = normalizeDesireIntent(state?.intent);
+      persistReportedDesireState({
+        state: { ...state, drives, intent },
+        stateFile: this.config.desireStateFile,
+        historyFile: this.config.desireHistoryFile,
+      });
     } catch {}
   }
 }
@@ -2422,6 +2553,24 @@ function normalizeDesireIntent(intent) {
 
 function buildRunKey(threadId, turnId) {
   return `${normalizeCommandArgument(threadId)}:${normalizeCommandArgument(turnId)}`;
+}
+
+// Desire 八维报告经常被模型包在 ```json fence 或 "json:" 前缀里；
+// 以前直接 startsWith("{") 判定会把这些合法报告全部丢掉，
+// 导致 desire-state / desire-history 长期只有零星数据。
+function extractJsonObjectText(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  const unfenced = normalized
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```\s*$/, "")
+    .trim()
+    .replace(/^json\s*:\s*/i, "")
+    .trim();
+  const start = unfenced.indexOf("{");
+  const end = unfenced.lastIndexOf("}");
+  if (start === -1 || end <= start) return "";
+  return unfenced.slice(start, end + 1);
 }
 
 function normalizeReplyTarget(target) {
@@ -2702,7 +2851,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-module.exports = { CyberbossApp };
+module.exports = { CyberbossApp, createRuntimeAdapter };
 
 function parseChannelCommand(text) {
   const normalized = typeof text === "string" ? text.trim() : "";
@@ -3092,13 +3241,11 @@ function extractPathFromFileUri(value) {
   }
 }
 
-function isPathWithinAllowedDirectories(rawPath) {
+function isPathWithinAllowedDirectories(rawPath, config = {}) {
   const resolved = path.resolve(rawPath);
   const normalized = resolved.replace(/\\/g, "/") + "/";
   const allowedDirs = [
-    os.homedir(),
-    process.cwd(),
-    this?.config?.workspaceRoot,
+    config?.workspaceRoot,
   ]
     .filter(Boolean)
     .map((dir) => path.resolve(dir).replace(/\\/g, "/") + "/");
@@ -3474,4 +3621,15 @@ function stringifyRpcId(value) {
 
 function hasRpcId(value) {
   return stringifyRpcId(value) !== "";
+}
+
+function readJsonlSafe(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return [];
+  try {
+    return fs.readFileSync(filePath, "utf8").split(/\r?\n/u).filter(Boolean).flatMap((line) => {
+      try { return [JSON.parse(line)]; } catch { return []; }
+    });
+  } catch {
+    return [];
+  }
 }

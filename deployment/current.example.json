@@ -1,0 +1,23 @@
+{
+  "active_release_id": "phase1-example",
+  "telegram_entry": "C:\\releases\\cyberboss-phase1\\bin\\cyberboss.js",
+  "config_dir": "C:\\cyberboss\\phase1-config",
+  "state_dir": "C:\\cyberboss\\phase1-state",
+  "log_dir": "C:\\cyberboss\\phase1-logs",
+  "pid_file": "C:\\cyberboss\\phase1-state\\cyberboss.pid",
+  "watchdog_target": "C:\\releases\\cyberboss-phase1\\extensions\\windows-launcher\\start-safe.ps1",
+  "workspace_dir": "C:\\cyberboss\\workspace",
+  "watchdog_owner_dir": "C:\\cyberboss\\watchdog-owner",
+  "rollback_release": {
+    "release_id": "legacy-example",
+    "telegram_entry": "C:\\releases\\cyberboss-legacy\\bin\\cyberboss.js",
+    "config_dir": "C:\\cyberboss\\legacy-config",
+    "state_dir": "C:\\cyberboss\\legacy-state",
+    "log_dir": "C:\\cyberboss\\legacy-logs",
+    "pid_file": "C:\\cyberboss\\legacy-state\\cyberboss.pid",
+    "watchdog_target": "C:\\releases\\cyberboss-legacy\\scripts\\windows\\start-safe.ps1",
+    "workspace_dir": "C:\\cyberboss\\workspace",
+    "last_verified_sha": "0000000000000000000000000000000000000000"
+  },
+  "last_verified_sha": "0000000000000000000000000000000000000000"
+}

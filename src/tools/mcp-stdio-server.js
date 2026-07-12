@@ -329,7 +329,7 @@ function buildTelegramSendFileMarkdown() {
     "",
     "```json",
     "{",
-    "  \"filePath\": \"/home/anan/cyberboss/tmp/reward.pdf\"",
+    "  \"filePath\": \"<WORKSPACE>/tmp/reward.pdf\"",
     "}",
     "```",
   ].join("\n");

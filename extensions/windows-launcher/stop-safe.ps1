@@ -1,6 +1,15 @@
 $ErrorActionPreference = 'Stop'
 
-$stateDir = 'C:\Users\18717\.cyberboss-deepseek-test'
+function Resolve-RequiredPathEnv {
+  param([string]$Name)
+  $raw = [System.Environment]::GetEnvironmentVariable($Name, 'Process')
+  if ([string]::IsNullOrWhiteSpace($raw)) {
+    throw "Missing required environment variable: $Name"
+  }
+  return [System.IO.Path]::GetFullPath($raw)
+}
+
+$stateDir = Resolve-RequiredPathEnv 'CYBERBOSS_STATE_DIR'
 $pidFile = Join-Path $stateDir 'cyberboss.pid'
 
 function Get-ProcessTree {

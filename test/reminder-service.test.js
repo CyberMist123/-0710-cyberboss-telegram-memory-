@@ -25,12 +25,12 @@ test("reminder service creates telegram reminders without WeChat account files",
   const reminder = await service.create({
     text: "test telegram reminder",
     delayMinutes: 1,
-    userId: "8719061650",
+    userId: "12345",
   }, {});
 
   assert.equal(reminder.accountId, "telegram-deepseek");
-  assert.equal(reminder.senderId, "8719061650");
-  assert.equal(reminder.contextToken, "telegram:8719061650");
+  assert.equal(reminder.senderId, "12345");
+  assert.equal(reminder.contextToken, "telegram:12345");
   assert.equal(reminder.text, "test telegram reminder");
   assert.match(reminder.id, /^[0-9a-f-]{36}$/i);
 });

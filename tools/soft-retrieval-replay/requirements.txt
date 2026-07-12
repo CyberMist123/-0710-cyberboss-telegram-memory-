@@ -1,0 +1,3 @@
+numpy>=1.24
+pyyaml>=6.0
+# 可选：jieba>=0.42（config tokenizer.backend=jieba 时）

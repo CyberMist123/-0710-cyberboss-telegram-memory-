@@ -24,6 +24,10 @@ function buildCodexToolServerEnv() {
   for (const key of [
     "CYBERBOSS_TELEGRAM_BOT_TOKEN",
     "CYBERBOSS_TELEGRAM_ALLOWED_USER_IDS",
+    "CYBERBOSS_CONTINUITY_DIR",
+    "CYBERBOSS_STATE_DIR",
+    "CYBERBOSS_CHANNEL",
+    "CYBERBOSS_ACCOUNT_ID",
   ]) {
     if (typeof process.env[key] === "string" && process.env[key].trim()) {
       env[key] = process.env[key];
