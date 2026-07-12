@@ -45,16 +45,23 @@ def request_text(port, endpoint):
         return response.status, response.read().decode("utf-8")
 
 
+def read_pid(pid_file):
+    try:
+        raw = pid_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return int(raw) if raw.isdigit() and int(raw) > 0 else None
+
+
 def wait_for_dashboard(port, pid_file):
     last_error = None
     for _ in range(160):
         try:
-            if pid_file.is_file():
-                raw = pid_file.read_text(encoding="utf-8").strip()
-                if raw.isdigit() and int(raw) > 0:
-                    code, payload = request_json(port, "/api/continuity/layers?limit=10")
-                    if code == 200:
-                        return int(raw), payload
+            pid = read_pid(pid_file)
+            if pid:
+                code, payload = request_json(port, "/api/continuity/layers?limit=10")
+                if code == 200:
+                    return pid, payload
         except Exception as error:
             last_error = error
         time.sleep(0.05)
@@ -99,6 +106,12 @@ def terminate_process(pid, pid_file):
         pid_file.unlink()
     except FileNotFoundError:
         pass
+
+
+def cleanup_case(pid, pid_file):
+    resolved_pid = pid or read_pid(pid_file)
+    if resolved_pid:
+        terminate_process(resolved_pid, pid_file)
 
 
 def prepare_case(name):
@@ -192,8 +205,7 @@ def run_vbs_case():
         assert "dashboard_continuity.py" in process_command_line(pid)
         assert_layered_server(port, payload, "vbs-legacy-janitor")
     finally:
-        if pid:
-            terminate_process(pid, case["pid"])
+        cleanup_case(pid, case["pid"])
     assert snapshot_tree(case["protected"]) == before
 
 
@@ -227,8 +239,7 @@ def run_powershell_case():
         assert "dashboard_continuity.py" in process_command_line(pid)
         assert_layered_server(port, payload, "powershell-legacy-janitor")
     finally:
-        if pid:
-            terminate_process(pid, case["pid"])
+        cleanup_case(pid, case["pid"])
     assert snapshot_tree(case["protected"]) == before
 
 
