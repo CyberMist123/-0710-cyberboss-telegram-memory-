@@ -44,6 +44,8 @@ test("rerun skips completed candidates and remains idempotent", () => {
   assert.equal(first.status, "success");
   assert.deepEqual(calls, ["cand-2", "cand-3"]);
   assert.equal(first.decisions.length, 2);
+  assert.equal(first.model_eligible, 2);
+  assert.equal(first.authority_deferred, 0);
   assert.equal(readJsonl(fixture.paths.decisions).length, 3);
 
   const second = runReviewCheckpointed(pipeline);
@@ -53,33 +55,95 @@ test("rerun skips completed candidates and remains idempotent", () => {
   assert.equal(readJsonl(fixture.paths.decisions).length, 3);
 });
 
-test("explicit candidate retry delegates exactly one candidate", () => {
+test("explicit candidate retry still passes through the checkpoint gate", () => {
+  const fixture = createFixture(["cand-2"]);
   let received = null;
-  const expected = { status: "success", decisions: [createDecision("cand-2")] };
+  const expectedDecision = createDecision("cand-2");
   const pipeline = {
-    paths: { candidates: "unused", decisions: "unused" },
+    paths: fixture.paths,
     runReview(options) {
       received = options;
-      return expected;
+      const added = appendJsonlUnique(fixture.paths.decisions, [expectedDecision], "decision_id");
+      return { status: "success", decisions: added };
     },
   };
 
   const result = runReviewCheckpointed(pipeline, { retryCandidateId: " cand-2 " });
-  assert.equal(result, expected);
+  assert.equal(result.status, "success");
+  assert.deepEqual(result.decisions, [expectedDecision]);
+  assert.equal(result.model_eligible, 1);
+  assert.equal(result.authority_deferred, 0);
   assert.deepEqual(received, { retryCandidateId: "cand-2" });
 });
 
+test("authority failures persist locally and never call semantic review", () => {
+  const fixture = createFixtureFromRows([
+    {
+      candidate_id: "cand-legacy-janitor",
+      type: "episode",
+      author: "janitor",
+      body: "旧 Janitor 提取器写出的解释。",
+      source_ref: {},
+    },
+    {
+      candidate_id: "cand-background-self-note",
+      type: "self_note",
+      author: "closeout",
+      body: "后台代理不能替主体认领这段自述。",
+      source_ref: {},
+    },
+  ]);
+  let reviewCalls = 0;
+  const pipeline = {
+    paths: fixture.paths,
+    withLease(_writer, fn) { return fn(); },
+    runReview() {
+      reviewCalls += 1;
+      throw new Error("semantic review must not be called");
+    },
+  };
+
+  const result = runReviewCheckpointed(pipeline);
+  assert.equal(result.status, "success");
+  assert.equal(result.model_eligible, 0);
+  assert.equal(result.authority_deferred, 2);
+  assert.equal(reviewCalls, 0);
+
+  const decisions = readJsonl(fixture.paths.decisions);
+  assert.equal(decisions.length, 2);
+  assert.deepEqual(decisions.map((item) => item.reason), [
+    "semantic_authority_missing",
+    "subject_review_required",
+  ]);
+  for (const decision of decisions) {
+    assert.equal(decision.result, "deferred");
+    assert.equal(decision.checks.publication_allowed, false);
+    assert.equal(Object.prototype.hasOwnProperty.call(decision, "body"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(decision, "rewrite"), false);
+  }
+
+  const before = fs.readFileSync(fixture.paths.decisions, "utf8");
+  const rerun = runReviewCheckpointed(pipeline);
+  assert.equal(rerun.decisions.length, 0);
+  assert.equal(fs.readFileSync(fixture.paths.decisions, "utf8"), before);
+  assert.equal(reviewCalls, 0);
+});
+
 function createFixture(candidateIds) {
+  return createFixtureFromRows(candidateIds.map((candidateId) => ({
+    candidate_id: candidateId,
+    type: "episode",
+    body: `fixture ${candidateId}`,
+  })));
+}
+
+function createFixtureFromRows(rows) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-review-checkpoint-"));
   const paths = {
     candidates: path.join(root, "candidates", "episodes.candidates.jsonl"),
     decisions: path.join(root, "decisions", "decisions.jsonl"),
   };
-  appendJsonlUnique(paths.candidates, candidateIds.map((candidateId) => ({
-    candidate_id: candidateId,
-    type: "episode",
-    body: `fixture ${candidateId}`,
-  })), "candidate_id");
+  appendJsonlUnique(paths.candidates, rows, "candidate_id");
   return { root, paths };
 }
 
