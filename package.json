@@ -28,7 +28,8 @@
     "test:orchestration": "node --test test/orchestration-release-watchdog.test.js test/writer-lease.test.js test/orchestrator-resume.test.js test/canary-runner.test.js test/canary-receipt.test.js",
     "test:phase2": "node --test test/phase2-hard-context.test.js",
     "test:phase3": "node --test test/phase3-continuity-pipeline.test.js test/phase3-review-checkpoint.test.js test/phase3-review-checkpoint-integration.test.js test/nightly-mode.test.js test/readable-time.test.js && python extensions/relationship-memory/memory-kit/tests/test_janitor.py && python extensions/relationship-memory/memory-kit/tests/test_dashboard_write_freeze.py",
-    "test:phase4": "node --test test/phase4-dashboard.test.js test/desire-history.test.js && python extensions/relationship-memory/memory-kit/tests/test_dashboard_phase4.py && python extensions/relationship-memory/memory-kit/tests/test_dashboard_continuity_layers.py && npm run test:orchestration",
+    "test:phase4:blackbox": "python extensions/relationship-memory/memory-kit/tests/test_dashboard_continuity_blackbox.py",
+    "test:phase4": "node --test test/phase4-dashboard.test.js test/desire-history.test.js && python extensions/relationship-memory/memory-kit/tests/test_dashboard_phase4.py && python extensions/relationship-memory/memory-kit/tests/test_dashboard_continuity_layers.py && npm run test:phase4:blackbox && npm run test:orchestration",
     "test:phase5a": "node --test test/phase5a-memory-lookup.test.js",
     "continuity:phase3": "node ./scripts/continuity/run-phase3.js"
   },
