@@ -48,6 +48,13 @@ function Resolve-DashboardRoot($Descriptor) {
 }
 
 function Resolve-PythonWindowless {
+  $override = [System.Environment]::GetEnvironmentVariable('CYBERBOSS_DASHBOARD_PYTHON', 'Process')
+  if (-not [string]::IsNullOrWhiteSpace($override)) {
+    if (-not (Test-Path -LiteralPath $override -PathType Leaf)) {
+      throw "CYBERBOSS_DASHBOARD_PYTHON does not exist: $override"
+    }
+    return (Resolve-Path -LiteralPath $override).Path
+  }
   foreach ($name in @('pythonw.exe', 'python.exe')) {
     $command = Get-Command $name -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($command) { return $command.Source }
@@ -80,7 +87,13 @@ function Start-Dashboard([string]$Path) {
   $descriptor = Read-Descriptor $Path
   $releaseRoot = Resolve-DashboardRoot $descriptor
   $dashboard = Resolve-DashboardEntry $releaseRoot
-  $pidFile = Join-Path (Split-Path -Parent $dashboard) '.panel.pid'
+
+  $pidOverride = [System.Environment]::GetEnvironmentVariable('CYBERBOSS_DASHBOARD_PID_FILE', 'Process')
+  $pidFile = if ([string]::IsNullOrWhiteSpace($pidOverride)) {
+    Join-Path (Split-Path -Parent $dashboard) '.panel.pid'
+  } else {
+    [System.IO.Path]::GetFullPath($pidOverride)
+  }
   if (Test-VerifiedProcess $pidFile $dashboard) { return }
 
   $env:CYBERBOSS_HOME = $releaseRoot
@@ -89,9 +102,11 @@ function Start-Dashboard([string]$Path) {
   $env:CYBERBOSS_CONFIG_DIR = [string]$descriptor.config_dir
   $env:CYBERBOSS_CONTINUITY_DIR = Join-Path ([string]$descriptor.workspace_dir) 'continuity'
   $env:CYBERBOSS_MEMORY_DIR = Join-Path ([string]$descriptor.workspace_dir) 'memory'
-  $env:CYBERBOSS_DASHBOARD_HOST = '127.0.0.1'
-  $env:CYBERBOSS_DASHBOARD_PORT = '520'
-  $env:CYBERBOSS_DASHBOARD_NO_BROWSER = '1'
+  if ([string]::IsNullOrWhiteSpace($env:CYBERBOSS_DASHBOARD_HOST)) { $env:CYBERBOSS_DASHBOARD_HOST = '127.0.0.1' }
+  if ([string]::IsNullOrWhiteSpace($env:CYBERBOSS_DASHBOARD_PORT)) { $env:CYBERBOSS_DASHBOARD_PORT = '520' }
+  if ([string]::IsNullOrWhiteSpace($env:CYBERBOSS_DASHBOARD_NO_BROWSER)) { $env:CYBERBOSS_DASHBOARD_NO_BROWSER = '1' }
+  $env:CYBERBOSS_DASHBOARD_PID_FILE = $pidFile
+
   $python = Resolve-PythonWindowless
   Start-Process -FilePath $python -ArgumentList @($dashboard) -WorkingDirectory (Split-Path -Parent $dashboard) -WindowStyle Hidden
 }
