@@ -1,96 +1,20 @@
-# Memory Loop Worklog
+# 记忆流水线工作记录（已并入全项目日志）
 
-This file is the single running ledger for incremental memory-loop changes.
+这份文件最初只记录 Candidate → Review → History Writer 的修复过程，范围过窄。
 
-## Branch policy
+从 2026-07-12 起，整个 Cyberboss 项目的版本、测试、部署和回滚信息统一记录在：
 
-- Stable branch: `main`
-- Active implementation branch: `impl/codex-cheap-prework-20260711-170034`
-- Long-lived design branch: `design/living-memory-rfc`
-- Temporary implementation branches must be merged or archived after acceptance.
-- Historical rollback points should use annotated tags rather than permanent parallel branches.
+- [`PROJECT_CHANGELOG.md`](./PROJECT_CHANGELOG.md) — 中文全项目更新日志
 
-## Current topology
+旧链接保留，避免历史对话和交接文档失效。
 
-- GitHub default branch: `main`
-- `main` baseline: `d8bc0b5c603bdc6050df5967e3140a0c85bbd24d`
-- Active implementation baseline: `bac410f74bebd0f04c37d15cdeb37188089b9261`
-- Relationship: active implementation is 82 commits ahead of `main` and 1 commit behind it.
-- The `main`-only commit adds `.github/workflows/secret-audit.yml` and must be preserved before the implementation line is promoted.
+## 原有范围
 
-## Safety rules
+这里曾记录：
 
-1. One behavior change per commit whenever practical.
-2. No real-model calls during code-loop tests.
-3. No processing of the 119 real candidates during fixture tests.
-4. No direct writes to live `memory/` during GitHub-side development.
-5. Every entry records: parent SHA, new SHA, changed files, tests, deployment status, and rollback command.
-6. Runtime deployment and GitHub commits are separate steps.
-7. `main` is updated only after local sync, offline tests, and explicit acceptance.
+- Review checkpoint；
+- Nightly 模式门计划；
+- Candidate → Decision → Canon 流水线；
+- 相关测试、SHA 与回滚点。
 
-## Rollback pattern
-
-Before local sync, record the accepted SHA.
-
-```powershell
-git -C "C:\Users\18717\Documents\cyberlink\cyberboss-codex-cheap-prework-20260711-170034" reset --hard <accepted-sha>
-```
-
-For a change already pushed and shared, prefer:
-
-```powershell
-git revert <bad-commit-sha>
-```
-
-Do not force-push `main`.
-
-## Change ledger
-
-### V0 — Baseline
-
-- Date: 2026-07-12
-- Branch: `impl/codex-cheap-prework-20260711-170034`
-- SHA: `bac410f74bebd0f04c37d15cdeb37188089b9261`
-- State:
-  - stale writer lease recovery implemented and pushed;
-  - Review still accumulates all decisions in memory and writes only after the full loop;
-  - nightly still invokes `run-phase3.js all`;
-  - real Review/History publication must remain disabled operationally until mode gating and semantic policy are settled.
-- Deployment: writer-lease fix deployed locally; Telegram restart status is tracked separately.
-- Rollback point: `bac410f74bebd0f04c37d15cdeb37188089b9261`
-
-## Planned increments
-
-### V1 — Review checkpoint only
-
-Scope:
-- write each completed decision immediately using existing idempotent storage;
-- preserve completed decisions across interruption;
-- skip already-decided candidates on rerun;
-- fixture tests only;
-- do not change prompts, nightly mode, or real memory.
-
-### V2 — Nightly mode gate
-
-Scope:
-- introduce `manual | shadow | auto`;
-- default to `manual`;
-- prevent real Review and History Writer publication unless explicitly enabled;
-- fixture and command-construction tests only.
-
-### V3 — Semantic review contract
-
-Scope:
-- separate mechanical validation from relationship/identity judgment;
-- relationship-sensitive candidates defer to the subject AI in TG context;
-- version prompt and schema;
-- no bulk run until explicitly approved.
-
-### V4 — Promotion to `main`
-
-Prerequisites:
-- preserve the `main`-only secret-audit workflow;
-- local formal repository is clean or its local-only changes are committed separately;
-- all accepted tests pass;
-- deployment SHA and Git SHA match;
-- create an annotated pre-promotion tag.
+这些内容已经迁入 `PROJECT_CHANGELOG.md`，今后不要在两个文件里重复维护同一份进度。
