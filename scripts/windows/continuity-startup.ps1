@@ -65,11 +65,21 @@ function Test-VerifiedProcess([string]$PidFile, [string]$ExpectedScript) {
   return ([string]$row.CommandLine).IndexOf($ExpectedScript, [StringComparison]::OrdinalIgnoreCase) -ge 0
 }
 
+function Resolve-DashboardEntry([string]$ReleaseRoot) {
+  $kit = Join-Path $ReleaseRoot 'extensions\relationship-memory\memory-kit'
+  $layered = Join-Path $kit 'dashboard_continuity.py'
+  if (Test-Path -LiteralPath $layered -PathType Leaf) { return $layered }
+
+  $legacy = Join-Path $kit 'dashboard.py'
+  if (Test-Path -LiteralPath $legacy -PathType Leaf) { return $legacy }
+
+  throw "Dashboard missing: $layered (legacy fallback also missing: $legacy)"
+}
+
 function Start-Dashboard([string]$Path) {
   $descriptor = Read-Descriptor $Path
   $releaseRoot = Resolve-DashboardRoot $descriptor
-  $dashboard = Join-Path $releaseRoot 'extensions\relationship-memory\memory-kit\dashboard.py'
-  if (-not (Test-Path -LiteralPath $dashboard -PathType Leaf)) { throw "Dashboard missing: $dashboard" }
+  $dashboard = Resolve-DashboardEntry $releaseRoot
   $pidFile = Join-Path (Split-Path -Parent $dashboard) '.panel.pid'
   if (Test-VerifiedProcess $pidFile $dashboard) { return }
 
@@ -81,6 +91,7 @@ function Start-Dashboard([string]$Path) {
   $env:CYBERBOSS_MEMORY_DIR = Join-Path ([string]$descriptor.workspace_dir) 'memory'
   $env:CYBERBOSS_DASHBOARD_HOST = '127.0.0.1'
   $env:CYBERBOSS_DASHBOARD_PORT = '520'
+  $env:CYBERBOSS_DASHBOARD_NO_BROWSER = '1'
   $python = Resolve-PythonWindowless
   Start-Process -FilePath $python -ArgumentList @($dashboard) -WorkingDirectory (Split-Path -Parent $dashboard) -WindowStyle Hidden
 }
