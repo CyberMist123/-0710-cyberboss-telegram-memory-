@@ -562,6 +562,26 @@ def resolve_desire_history_file():
     return resolve_runtime_state_dir() / "desire-history.jsonl"
 
 
+CONTEXT_GATE_KEYS = ("reentry", "current_state", "memory_context")
+
+
+def load_context_gates():
+    """读 CYBERBOSS_STATE_DIR/context-gates.json;缺文件/缺键 = 默认开。"""
+    gates = {key: True for key in CONTEXT_GATE_KEYS}
+    try:
+        gate_file = resolve_runtime_state_dir() / "context-gates.json"
+        if gate_file.exists():
+            parsed = json.loads(read_text(gate_file))
+            for key in CONTEXT_GATE_KEYS:
+                if isinstance(parsed, dict) and key in parsed:
+                    gates[key] = parsed[key] is not False
+            if isinstance(parsed, dict) and parsed.get("updated_at"):
+                gates["updated_at"] = str(parsed["updated_at"])
+    except Exception:
+        pass
+    return gates
+
+
 def normalize_octant_score(value):
     if isinstance(value, bool):
         return None
@@ -625,14 +645,33 @@ def load_octant_history_rows(limit=None):
     desire_rows = [normalize_desire_history_row(row) for row in read_jsonl(desire_history_file)]
     desire_rows = [row for row in desire_rows if row]
     if desire_rows:
-        rows = annotate_octant_gaps(desire_rows)
+        # 连续历史存在但行数还很少时（刚接线），把冻结 state_log 中更早的行
+        # 作为只读历史前缀拼进来，避免八维页只剩 1 条数据。只读，不写文件。
+        merged = list(desire_rows)
+        earliest = min(
+            (parse_time(r.get("time", "")) for r in desire_rows if parse_time(r.get("time", ""))),
+            default=None,
+        )
+        legacy_used = 0
+        if earliest is not None:
+            for raw in read_jsonl(ROOT / "state_log.jsonl"):
+                if not isinstance(raw, dict):
+                    continue
+                dt = parse_time(str(raw.get("time") or ""))
+                if dt is not None and dt < earliest:
+                    row = dict(raw)
+                    row.setdefault("note", "state_log(frozen)")
+                    merged.append(row)
+                    legacy_used += 1
+        rows = annotate_octant_gaps(merged)
         if limit:
             rows = rows[-limit:]
         return {
             "rows": rows,
-            "source": "desire_history",
+            "source": "desire_history+state_log" if legacy_used else "desire_history",
             "path": str(desire_history_file),
             "row_count": len(desire_rows),
+            "legacy_prefix_count": legacy_used,
             "fallback": False,
         }
     rows = annotate_octant_gaps(read_jsonl(ROOT / "state_log.jsonl"))
@@ -2322,9 +2361,36 @@ async function loadContinuity() {
     const item = document.createElement('span'); item.className = 'module-state ' + state;
     item.textContent = name + ': ' + state; modules.appendChild(item);
   });
+  await loadContextGates(modules);
   renderContinuityRows('continuity-trace', traceData.rows || [], false);
   renderContinuityRows('continuity-candidates', candidateData.rows || [], false);
   renderContinuityRows('continuity-decisions', decisionData.rows || [], true);
+}
+
+// ---------- 上下文缝入开关(即时生效,runtime 每轮读取) ----------
+const CONTEXT_GATE_LABELS = { reentry: 'Re-entry 注入', current_state: '当前姿态注入', memory_context: '记忆缝入上下文' };
+async function loadContextGates(container) {
+  try {
+    const r = await fetch('/api/context-gates'); const gates = await r.json();
+    Object.entries(CONTEXT_GATE_LABELS).forEach(([key, label]) => {
+      const on = gates[key] !== false;
+      const item = document.createElement('span');
+      item.className = 'module-state ' + (on ? 'on' : 'failed');
+      item.style.cursor = 'pointer';
+      item.title = '点击切换,下一轮生效';
+      item.textContent = label + ': ' + (on ? '开' : '关');
+      item.onclick = async () => {
+        const body = {}; body[key] = !on;
+        const res = await fetch('/api/context-gates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Api-Token': TOKEN },
+          body: JSON.stringify(body),
+        });
+        if (res.ok) { loadContinuity(); } else { alert('切换失败: ' + res.status); }
+      };
+      container.appendChild(item);
+    });
+  } catch (e) { /* gates 面板失败不影响其余 */ }
 }
 
 // ---------- 1 健康度 ----------
@@ -3374,6 +3440,12 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
 
+        elif u.path == "/api/context-gates":
+            try:
+                self._send(200, json.dumps(load_context_gates(), ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
+
         # ---- v2.1 API 桥:只读端点(无需 token,只绑本机) ----
 
         elif u.path == "/api/reentry":
@@ -3491,6 +3563,29 @@ class H(BaseHTTPRequestHandler):
                 "error": "write_frozen",
                 "path": u.path,
             }, ensure_ascii=False))
+            return
+
+        if u.path == "/api/context-gates":
+            # 上下文缝入开关:只写 CYBERBOSS_STATE_DIR/context-gates.json,
+            # 不碰 memory / Desire / canon。runtime 每轮读取,即时生效。
+            if not self._check_token():
+                return
+            obj, err = self._read_json_body()
+            if err or not isinstance(obj, dict):
+                self._send(400, json.dumps({"ok": False, "error": "invalid_body"}, ensure_ascii=False))
+                return
+            try:
+                gates = load_context_gates()
+                for key in CONTEXT_GATE_KEYS:
+                    if key in obj:
+                        gates[key] = bool(obj[key])
+                gates["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                gate_file = resolve_runtime_state_dir() / "context-gates.json"
+                gate_file.parent.mkdir(parents=True, exist_ok=True)
+                gate_file.write_text(json.dumps(gates, ensure_ascii=False, indent=2), encoding="utf-8")
+                self._send(200, json.dumps({"ok": True, **gates}, ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"ok": False, "err": str(e)}, ensure_ascii=False))
             return
 
         if u.path == "/api/review/retry":

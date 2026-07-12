@@ -1,12 +1,39 @@
+const fs = require("fs");
+const path = require("path");
 const { loadCurrentState } = require("./current-state");
 const { countNonWhitespace, loadReentry } = require("./reentry-loader");
 
+// Runtime-adjustable context gates. 520 console (or any tool) can write
+// CYBERBOSS_STATE_DIR/context-gates.json to toggle which hard-context blocks
+// are stitched into turns, without restarting the TG process.
+// Shape: {"reentry": true, "current_state": true, "memory_context": true}
+// Missing file or missing key = enabled (current behavior).
+function loadContextGates(config = {}) {
+  const stateDir = typeof config.stateDir === "string" ? config.stateDir.trim() : "";
+  if (!stateDir) {
+    return { reentry: true, current_state: true, memory_context: true };
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(path.join(stateDir, "context-gates.json"), "utf8"));
+    return {
+      reentry: parsed?.reentry !== false,
+      current_state: parsed?.current_state !== false,
+      memory_context: parsed?.memory_context !== false,
+    };
+  } catch {
+    return { reentry: true, current_state: true, memory_context: true };
+  }
+}
+
 function prepareOpeningContext({ config = {}, sessionStore, threadId, reason = "new_thread" } = {}) {
+  const gates = loadContextGates(config);
   const blocks = [];
   const skipped = [];
   let reentry = null;
   const existing = sessionStore?.getReentryInjection?.(threadId);
-  if (existing?.reentry_injected === true) {
+  if (!gates.reentry) {
+    skipped.push({ type: "reentry", reason: "gated_off" });
+  } else if (existing?.reentry_injected === true) {
     skipped.push({ type: "reentry", reason: "already_injected" });
   } else {
     const loaded = loadReentry({ filePath: config.reentryFile });
@@ -18,7 +45,9 @@ function prepareOpeningContext({ config = {}, sessionStore, threadId, reason = "
     }
   }
 
-  const currentState = loadCurrentState({ filePath: config.desireStateFile });
+  const currentState = gates.current_state
+    ? loadCurrentState({ filePath: config.desireStateFile })
+    : { skipped: "gated_off" };
   if (currentState?.text) {
     blocks.push({ type: "current_state", loaded: true, reason, ...pickEvidence(currentState) });
   } else {
@@ -28,7 +57,10 @@ function prepareOpeningContext({ config = {}, sessionStore, threadId, reason = "
 }
 
 function prepareRefreshContext({ config = {}, reason = "refresh" } = {}) {
-  const currentState = loadCurrentState({ filePath: config.desireStateFile });
+  const gates = loadContextGates(config);
+  const currentState = gates.current_state
+    ? loadCurrentState({ filePath: config.desireStateFile })
+    : { skipped: "gated_off" };
   const blocks = [];
   const skipped = [{ type: "reentry", reason: "existing_thread" }];
   if (currentState?.text) {
@@ -75,6 +107,7 @@ function pickEvidence(value = {}) {
 
 module.exports = {
   finalizeOpeningContext,
+  loadContextGates,
   prepareOpeningContext,
   prepareOrdinaryContext,
   prepareRefreshContext,

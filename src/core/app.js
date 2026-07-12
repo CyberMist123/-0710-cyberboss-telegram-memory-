@@ -43,6 +43,7 @@ const {
 const { runSystemCheckinPoller } = require("../app/system-checkin-poller");
 const { runHourlyDesirePoller } = require("../app/hourly-desire-poller");
 const { persistReportedDesireState } = require("./desire-state-persistence");
+const { loadContextGates } = require("./hard-context");
 const { createProjectTooling } = require("../tools/create-project-tooling");
 const { formatBeijingDateTime } = require("../utils/beijing-time");
 const { runMemoryPostResponsePipeline } = require("./memory-background-pipeline");
@@ -735,6 +736,9 @@ class CyberbossApp {
     if (!text) {
       return { lines: [] };
     }
+    if (!loadContextGates(this.config).memory_context) {
+      return { lines: [], slots: [], mode: "gated_off" };
+    }
     const locationLines = this.resolveRecentLocationStateMemoryLines();
     this.projectServices?.locationStateStore?.recordMemoryInjection?.({
       lines: locationLines,
@@ -1103,7 +1107,7 @@ class CyberbossApp {
         workspaceRoot: draft.workspaceRoot,
         ...latest,
         text: [
-          "Multiple newer WeChat messages arrived while you were still handling the previous turn.",
+          "Multiple newer user messages arrived while you were still handling the previous turn.",
           "Treat the following blocks as one ordered batch of fresh user input and respond once after considering all of them.",
           "",
           blocks.join("\n\n"),
@@ -1218,6 +1222,9 @@ class CyberbossApp {
 
   resolveLongPollTimeoutMs() {
     if (this.systemMessageDispatcher?.hasPending()) {
+      return MIN_LONG_POLL_TIMEOUT_MS;
+    }
+    if (this.pendingInboundByScope?.size > 0) {
       return MIN_LONG_POLL_TIMEOUT_MS;
     }
     if (this.activeAccountId && this.timelineScreenshotQueue.hasPendingForAccount(this.activeAccountId)) {
@@ -1909,14 +1916,15 @@ class CyberbossApp {
 
   async dispatchTelegramPreparedInbound({ bindingKey, workspaceRoot, prepared, messageId = "" }) {
     this.logTelegramDebug(`dispatchTelegramPreparedInbound messageId=${messageId} senderId=${prepared?.senderId || ""}`);
-    const startedAt = Date.now();
-    while (this.isTurnDispatchBlocked(bindingKey, workspaceRoot)) {
-      if (Date.now() - startedAt > 30_000) {
-        this.logTelegramDebug(`dispatch timeout buffered messageId=${messageId}`);
-        this.bufferPendingInboundMessage({ bindingKey, workspaceRoot, prepared });
-        return false;
-      }
-      await sleep(500);
+    // Never busy-wait here: this method runs inside the single poller loop, and
+    // blocking it stalls getUpdates, reminders, and system-message flushes.
+    // If a turn is already running, buffer the message; the runtime.turn.completed
+    // handler flushes pending inbound messages (merging concurrent ones into a
+    // single ordered batch) as soon as the previous turn finishes.
+    if (this.isTurnDispatchBlocked(bindingKey, workspaceRoot)) {
+      this.logTelegramDebug(`dispatch blocked, buffered messageId=${messageId}`);
+      this.bufferPendingInboundMessage({ bindingKey, workspaceRoot, prepared });
+      return false;
     }
     return this.dispatchPreparedTurn({ bindingKey, workspaceRoot, prepared });
   }
@@ -2478,10 +2486,8 @@ class CyberbossApp {
   handleSystemReplySent(threadId, turnId, replyText) {
     if (!replyText) return;
     try {
-      const text = typeof replyText === "string" ? replyText.trim() : "";
-      if (!text) return;
-      const isObj = text.startsWith("{");
-      if (!isObj) { console.log(`[desire] handleSystemReplySent non-JSON text thread=${threadId}`); return; }
+      const text = extractJsonObjectText(replyText);
+      if (!text) { console.log(`[desire] handleSystemReplySent non-JSON text thread=${threadId}`); return; }
       const parsed = JSON.parse(text);
       const state = parsed?.desire_state;
       if (state && this.config.desireStateFile) {
@@ -2502,8 +2508,8 @@ class CyberbossApp {
   maybeSaveDesireStateFromTurnText(text) {
     if (!text || !this.config.desireStateFile) return;
     try {
-      const trimmed = typeof text === "string" ? text.trim() : "";
-      if (!trimmed || !trimmed.startsWith("{")) return;
+      const trimmed = extractJsonObjectText(text);
+      if (!trimmed) return;
       const parsed = JSON.parse(trimmed);
       const state = parsed?.desire_state;
       if (!state || !Array.isArray(state?.drives)) return;
@@ -2546,6 +2552,24 @@ function normalizeDesireIntent(intent) {
 
 function buildRunKey(threadId, turnId) {
   return `${normalizeCommandArgument(threadId)}:${normalizeCommandArgument(turnId)}`;
+}
+
+// Desire 八维报告经常被模型包在 ```json fence 或 "json:" 前缀里；
+// 以前直接 startsWith("{") 判定会把这些合法报告全部丢掉，
+// 导致 desire-state / desire-history 长期只有零星数据。
+function extractJsonObjectText(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  const unfenced = normalized
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```\s*$/, "")
+    .trim()
+    .replace(/^json\s*:\s*/i, "")
+    .trim();
+  const start = unfenced.indexOf("{");
+  const end = unfenced.lastIndexOf("}");
+  if (start === -1 || end <= start) return "";
+  return unfenced.slice(start, end + 1);
 }
 
 function normalizeReplyTarget(target) {
