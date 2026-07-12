@@ -51,27 +51,33 @@ test("real pipeline persists the first decision, resumes after interruption, and
   assert.equal(readJsonl(pipeline.paths.decisions).length, 2);
 });
 
-test("checkpoint review through history writer publishes one canon entry and reruns byte-identically", () => {
+test("checkpoint authority gate defers extractors before review and reruns byte-identically", () => {
   const fixture = createFullLoopFixture();
   const { pipeline } = fixture;
 
   const reviewed = runReviewCheckpointed(pipeline);
   assert.equal(reviewed.status, "success");
+  assert.equal(reviewed.authority_deferred, 1);
+  assert.equal(reviewed.model_eligible, 2);
+
+  const decisions = readJsonl(pipeline.paths.decisions);
   assert.deepEqual(
-    readJsonl(pipeline.paths.decisions).map((item) => item.result),
-    ["accepted", "merged", "deferred"],
+    decisions.map((item) => item.result),
+    ["accepted", "deferred", "deferred"],
   );
+  assert.equal(decisions[1].reason, "semantic_authority_missing");
+  assert.equal(decisions[1].checks.publication_allowed, false);
 
   const firstWrite = pipeline.runHistoryWriter();
   assert.equal(firstWrite.status, "success");
-  assert.equal(firstWrite.written.length, 2);
+  assert.equal(firstWrite.written.length, 1);
 
   const episodes = readJsonl(pipeline.paths.episodes);
   assert.equal(episodes.length, 1);
   assert.equal(episodes[0].body, "accepted fixture memory");
 
   const writerState = JSON.parse(fs.readFileSync(pipeline.paths.writerState, "utf8"));
-  assert.equal(writerState.applied_decision_ids.length, 2);
+  assert.equal(writerState.applied_decision_ids.length, 1);
 
   const before = snapshotDirectory(fixture.continuityDir);
 
