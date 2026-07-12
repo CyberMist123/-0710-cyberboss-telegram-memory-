@@ -37,9 +37,139 @@
 
 ---
 
-## 2026-07-12 · v0.5 · 完整记忆链离线保险测试
+## 2026-07-12 · v0.7 · Candidate 来源与语义权限 S3
 
 **状态：🟡 🧪 🔒**
+
+### 修了什么
+
+真正的 Semantic Candidate 现在会记录：
+
+```text
+origin
+author_role
+author_model
+context_scope
+semantic_authority
+needs_subject_review
+```
+
+默认 Nightly Closeout 被明确标记为：
+
+```text
+origin = nightly_closeout
+author_role = background_proxy
+context_scope = daily_materials
+semantic_authority = medium
+```
+
+权限规则：
+
+- `subject_ai + high` 可以提出并发布 Episode、Self-note、Re-entry；
+- `background_proxy + medium` 可以提出 Episode；
+- 后台代理写出的 Self-note / Re-entry 默认 `needs_subject_review=true`，不能自动发布；
+- 旧 `author=janitor` Candidate 自动兼容映射为 `extractor + none`；
+- extractor 即使被错误写入 accepted Decision，History Writer 也拒绝发布。
+
+Episode Canon 会保留来源、作者角色、模型、上下文范围和语义权限，方便以后追溯“这是谁在什么上下文里写的”。
+
+### 提交
+
+- `5ff8aa0`：新增 Candidate 来源与权限模块；
+- `c5f8501`：Candidate schema、旧数据映射、Review 与 History Writer 权限保护；
+- `468dafd`：增加 subject / background proxy / legacy Janitor 权限矩阵测试；
+- `08cf59a`：新模块接入正式静态检查。
+
+### 主要文件
+
+- `src/continuity/candidate-authority.js`
+- `src/continuity/continuity-pipeline.js`
+- `test/phase3-continuity-pipeline.test.js`
+- `package.json`
+
+### 测试与部署
+
+- GitHub 代码与 fixture 已提交；
+- 本地验证：等待运行；
+- 不调用真实模型；
+- 不读取真实 119 条 Candidate；
+- 不迁移旧数据；
+- Runtime 未部署。
+
+### 回滚点
+
+- S2 已验证版本：`09adc1a92a435e40f24e5d67b62c0ccf3616c9a8`
+- 当前 S3 版本：`08cf59a6a0d280e4a8e2ee6256f9817913fb1144`
+
+### 已知边界
+
+当前权限不足的 Candidate 会在 Review 后被强制 deferred；下一步 S4 会把权限门前移到调用语义 Review 模型之前，确保权限不足时零模型调用。
+
+---
+
+## 2026-07-12 · v0.6 · Janitor Evidence 化 S2
+
+**状态：✅ 🧪 🔒**
+
+### 修了什么
+
+Janitor 从“用小模型写 Episode Candidate”降级为确定性的技术补漏器：
+
+```text
+新增会话覆盖差异
+→ gaps/gaps.jsonl
+→ evidence/janitor.evidence.jsonl
+→ 更新覆盖位点
+```
+
+Janitor 现在不调用模型，不解释关系意义，不写 Candidate、Decision、Canon、Re-entry 或 Self-note。
+
+Evidence 固定标记：
+
+```text
+origin = janitor
+author_role = extractor
+semantic_authority = none
+```
+
+### 提交
+
+- `88056dc`：新增记忆语义修复计划并吸收 Fable 的 F2 / F4 验收门；
+- `caf4e0f`：Janitor 改为 Gap / Evidence；
+- `381e4c8`：重写 Janitor 离线测试；
+- `376d3fc`：Node 主链测试改为验证 evidence-only；
+- `09adc1a`：Janitor 测试接入正式 Phase 3 测试门。
+
+### 测试与部署
+
+用户在本机同步至：
+
+```text
+09adc1a92a435e40f24e5d67b62c0ccf3616c9a8
+```
+
+并确认 S2 测试脚本通过。测试覆盖：
+
+- Janitor 只产生 Gap / Evidence；
+- API 调用数为 0；
+- 没有 Janitor Episode Candidate；
+- Review 没有 Janitor Candidate 可审；
+- 没有写 Canon；
+- 重跑幂等；
+- Phase 5A 查询回归通过。
+
+没有处理真实 119 条 Candidate，没有部署或重启 Telegram。
+
+### 回滚点
+
+- 改动前：`08ccd3ca096215c6bdc34e639d849291649910f9`
+- 已验证版本：`09adc1a92a435e40f24e5d67b62c0ccf3616c9a8`
+
+---
+
+## 2026-07-12 · v0.5 · 完整记忆链离线保险测试
+
+**状态：✅ 🧪 🔒**
 
 ### 增加了什么
 
@@ -54,7 +184,7 @@ accepted / duplicate / deferred
 → 重跑字节完全不变
 ```
 
-预期结果：
+验证结果：
 
 - accepted 写入一条 Episode；
 - duplicate 生成 `merged` Decision，不重复写 Canon；
@@ -66,6 +196,7 @@ accepted / duplicate / deferred
 ### 提交
 
 - `0e2c312a65f2bb145515f254da06613f084e7615`
+- `08ccd3ca096215c6bdc34e639d849291649910f9`：记录并等待本机验证。
 
 ### 主要文件
 
@@ -73,17 +204,12 @@ accepted / duplicate / deferred
 
 ### 测试与部署
 
-- 测试只使用系统临时目录与本地 Python fixture；
-- 不调用真实模型；
-- 不读取真实 119 条 Candidate；
-- 不写真实 Canon；
-- Runtime 未部署；
-- 本地验证：等待运行。
+用户随后确认完整虚构记忆链测试通过。测试只使用系统临时目录与本地 Python fixture，不调用真实模型、不读取真实 119 条 Candidate、不写真实 Canon，Runtime 未部署。
 
 ### 回滚点
 
 - 改动前：`3208978e7ec903e1a4156efb42fb5aa63dd2dc56`
-- 当前测试提交：`0e2c312a65f2bb145515f254da06613f084e7615`
+- 已验证版本：`08ccd3ca096215c6bdc34e639d849291649910f9`
 
 ---
 
@@ -245,7 +371,9 @@ writer-lease 修复曾同步到本地 runtime 文件；Telegram 是否已由该 
 - `13b4d74`：建立局部 worklog；
 - `51beea9`：Review checkpoint；
 - `3208978`：正式测试门覆盖 checkpoint 和时间格式；
-- `0e2c312`：完整记忆链离线保险测试。
+- `08ccd3c`：完整虚构记忆链通过；
+- `09adc1a`：Janitor Evidence 化通过；
+- `08cf59a`：Candidate 来源与权限等待验证。
 
 后续只在找到可核对的提交、测试输出或部署记录后补写，不凭印象扩写历史。
 
@@ -253,29 +381,27 @@ writer-lease 修复曾同步到本地 runtime 文件；Telegram 是否已由该 
 
 ## 接下来
 
-### Nightly 模式门
+### S4 · Review 权限门前移
 
-计划加入：
+权限不足时直接在本地 deferred，不调用语义 Review 模型；Review 继续不做“重要性”判断。
+
+### S5 · Nightly 模式门
+
+加入：
 
 ```text
 manual | shadow | auto
 ```
 
-默认 `manual`：只收集材料，不自动 Review，不发布正式记忆。
+默认 `manual`：只做覆盖扫描和 Evidence，不自动 Review，不运行 History Writer，不发布 Canon。
 
-### Candidate 来源与语义权限
+### S6 · 520 展示
 
-需要区分：
+区分漏档、证据、主体候选、后台代理候选、Decision 和已发布 Canon。
 
-- 活跃对话中的主体 AI 原稿；
-- Nightly 同人格后台草稿；
-- Janitor 小模型提取的证据材料。
+### 最终 F4 体验门
 
-Janitor 应负责发现和保住漏档，不应默认替主体 AI 写正式 Episode。
-
-### 小规模完整链路验证
-
-先验证 `0e2c312` 的虚构数据全链路测试。真实 119 条 Candidate 继续冻结，直到 Prompt、权限和模式门明确。
+真实 TG canary 才判断“人机味是否太重”：删除测试、设定加载感、Re-entry 是否过满、动词是否诚实、当前对话是否优先。离线测试不能替代这一关。
 
 ---
 
