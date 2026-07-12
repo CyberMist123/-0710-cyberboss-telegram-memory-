@@ -542,7 +542,7 @@ writer-lease 修复曾同步到本地 runtime 文件；Telegram 是否已由该 
 本地尚未共享的改动，可以回到已接受 SHA：
 
 ```powershell
-git -C "C:\Users\18717\Documents\cyberlink\cyberboss-codex-cheap-prework-20260711-170034" reset --hard <accepted-sha>
+git -C "<LOCAL_REPO>" reset --hard <accepted-sha>
 ```
 
 已经推送并被其他环境使用的提交，优先：
