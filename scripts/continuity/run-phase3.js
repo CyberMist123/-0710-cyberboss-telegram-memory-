@@ -6,17 +6,31 @@ const { validateStartupPreflight } = require("../../src/core/startup-preflight")
 const { createRuntimeAdapter } = require("../../src/core/app");
 const { authorCloseout } = require("../../src/continuity/background-author");
 const { ContinuityPipeline } = require("../../src/continuity/continuity-pipeline");
+const { resolvePhase3Plan } = require("../../src/continuity/nightly-mode");
 const { runReviewCheckpointed } = require("../../src/continuity/review-checkpoint");
 
 async function main() {
   loadEnv();
   const command = String(process.argv[2] || "").trim();
   const date = readFlag("--date") || shanghaiYesterday();
+  const plan = resolvePhase3Plan({
+    command,
+    nightlyMode: process.env.CYBERBOSS_NIGHTLY_MODE,
+  });
   const config = readConfig();
   validateStartupPreflight(config);
   const pipeline = createPipeline(config);
   const output = {};
-  if (command === "closeout" || command === "all") {
+
+  if (plan.nightly) {
+    output.nightly = {
+      mode: plan.mode,
+      model_calls_allowed: plan.model_calls_allowed,
+      canon_writes_allowed: plan.canon_writes_allowed,
+    };
+  }
+
+  if (plan.closeout) {
     const runtimeAdapter = createRuntimeAdapter(config);
     try {
       output.closeout = await pipeline.runCloseoutAsync({
@@ -29,12 +43,13 @@ async function main() {
       await runtimeAdapter.close().catch(() => {});
     }
   }
-  if (command === "janitor" || command === "all") output.janitor = pipeline.runJanitor();
-  if (command === "review" || command === "all") {
+
+  if (plan.janitor) output.janitor = pipeline.runJanitor();
+  if (plan.review) {
     output.review = runReviewCheckpointed(pipeline, { retryCandidateId: readFlag("--candidate-id") });
   }
-  if (command === "write" || command === "all") output.history = pipeline.runHistoryWriter();
-  if (!Object.keys(output).length) throw new Error("Usage: run-phase3.js <closeout|janitor|review|write|all> [--date=YYYY-MM-DD]");
+  if (plan.history) output.history = pipeline.runHistoryWriter();
+
   console.log(JSON.stringify(output, null, 2));
 }
 
