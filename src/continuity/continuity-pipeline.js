@@ -30,6 +30,11 @@ class ContinuityPipeline {
       worktree: requireText(options.worktree, "worktree"),
       base_sha: options.baseSha || "0".repeat(40),
     };
+    this.leaseOptions = {
+      recoverStale: options.recoverStaleWriterLease !== false,
+      isProcessAlive: options.isProcessAlive,
+      staleArchiveDir: path.resolve(options.writerLeaseArchiveDir || path.join(this.continuityDir, ".backups", "writer-leases")),
+    };
     this.paths = {
       candidates: path.join(this.continuityDir, "candidates", "episodes.candidates.jsonl"),
       decisions: path.join(this.continuityDir, "decisions", "decisions.jsonl"),
@@ -254,7 +259,7 @@ class ContinuityPipeline {
   withLease(writer, fn) {
     let lease;
     try {
-      lease = acquireWriterLease(this.writerLeaseFile, { writer, ...this.leaseDetails });
+      lease = acquireWriterLease(this.writerLeaseFile, { writer, ...this.leaseDetails }, this.leaseOptions);
     } catch (error) {
       if (/already held/.test(error.message)) return { status: "skipped", reason: "lease_unavailable" };
       throw error;
@@ -265,7 +270,7 @@ class ContinuityPipeline {
   async withLeaseAsync(writer, fn) {
     let lease;
     try {
-      lease = acquireWriterLease(this.writerLeaseFile, { writer, ...this.leaseDetails });
+      lease = acquireWriterLease(this.writerLeaseFile, { writer, ...this.leaseDetails }, this.leaseOptions);
     } catch (error) {
       if (/already held/.test(error.message)) return { status: "skipped", reason: "lease_unavailable" };
       throw error;

@@ -152,6 +152,26 @@ test("writer lease contention skips background work without calling the model", 
   }
 });
 
+test("continuity pipeline recovers a dead writer lease before background work", () => {
+  const fixture = createFixture({ isProcessAlive: () => false });
+  const stale = acquireWriterLease(fixture.writerLeaseFile, {
+    writer: "dead-review-writer", model: "fixture", phase: "phase3", branch: "fixture",
+    worktree: fixture.root, base_sha: "a".repeat(40), owner_pid: 424242,
+  });
+  let called = false;
+  const result = fixture.pipeline.runCloseout({
+    date: "2026-07-11",
+    author: () => { called = true; return {}; },
+  });
+  assert.equal(result.status, "no_output");
+  assert.equal(called, true);
+  assert.equal(fs.existsSync(fixture.writerLeaseFile), false);
+  const archiveDir = path.join(fixture.continuityDir, ".backups", "writer-leases");
+  const archives = fs.readdirSync(archiveDir);
+  assert.equal(archives.length, 1);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(archiveDir, archives[0]), "utf8")).lease_id, stale.lease_id);
+});
+
 test("review failure defers the candidate and never publishes canon", () => {
   const fixture = createFixture();
   fixture.pipeline.runCloseout({ date: "2026-07-11", author: () => ({ episodes: [{ body: "等待审核。" }] }) });
@@ -262,7 +282,7 @@ test("claudecode background author uses an isolated client and closes it", async
   }
 });
 
-function createFixture() {
+function createFixture(options = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-phase3-"));
   const continuityDir = path.join(root, "continuity");
   const conversationDir = path.join(root, "conversations");
@@ -293,6 +313,7 @@ function createFixture() {
     branch: "fixture-branch",
     worktree: root,
     baseSha: "a".repeat(40),
+    isProcessAlive: options.isProcessAlive,
   });
   return { root, continuityDir, conversationDir, conversationFile, writerLeaseFile, stateLog, stateLogHash: hashFile(stateLog), pipeline };
 }
