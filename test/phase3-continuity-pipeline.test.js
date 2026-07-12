@@ -11,12 +11,22 @@ const { stripConversationArtifacts } = require("../src/continuity/conversation-p
 const { ContinuityPipeline, createCandidate } = require("../src/continuity/continuity-pipeline");
 const { appendJsonlUnique, readJsonl } = require("../src/continuity/continuity-store");
 
+const SUBJECT_AI_METADATA = {
+  origin: "live_closeout",
+  authorRole: "subject_ai",
+  authorModel: "fixture-subject-ai",
+  contextScope: "active_session",
+  semanticAuthority: "high",
+  needsSubjectReview: false,
+};
+
 test("closeout, review, and history writer are byte-idempotent and preserve authored wording", () => {
   const fixture = createFixture();
   const pipeline = fixture.pipeline;
   let authorCalls = 0;
   const closeout = pipeline.runCloseout({
     date: "2026-07-11",
+    candidateMetadata: SUBJECT_AI_METADATA,
     author({ materials }) {
       authorCalls += 1;
       assert.match(materials, /此刻真实原话/);
@@ -33,8 +43,14 @@ test("closeout, review, and history writer are byte-idempotent and preserve auth
   assert.equal(authorCalls, 1);
   for (const candidate of readJsonl(pipeline.paths.candidates)) {
     assert.deepEqual(Object.keys(candidate), [
-      "candidate_id", "ts", "type", "author", "body", "source_ref", "idempotency_key",
+      "candidate_id", "ts", "type", "author", "origin", "author_role", "author_model",
+      "context_scope", "semantic_authority", "needs_subject_review", "body", "source_ref",
+      "idempotency_key",
     ]);
+    assert.equal(candidate.origin, "live_closeout");
+    assert.equal(candidate.author_role, "subject_ai");
+    assert.equal(candidate.semantic_authority, "high");
+    assert.equal(candidate.needs_subject_review, false);
   }
 
   const review = pipeline.runReview({ env: { ...process.env, AUTO_REVIEW_MOCK: "accept" } });
@@ -46,14 +62,21 @@ test("closeout, review, and history writer are byte-idempotent and preserve auth
   }
   const writer = pipeline.runHistoryWriter();
   assert.equal(writer.written.length, 3);
+  assert.equal(writer.skipped.length, 0);
   const episodeCandidate = readJsonl(pipeline.paths.candidates).find((item) => item.type === "episode");
   const episode = readJsonl(pipeline.paths.episodes)[0];
   assert.equal(episode.body, episodeCandidate.body);
+  assert.equal(episode.origin, "live_closeout");
+  assert.equal(episode.author_role, "subject_ai");
   assert.equal(fs.readFileSync(pipeline.paths.reentry, "utf8"), readJsonl(pipeline.paths.candidates).find((item) => item.type === "reentry_draft").body);
   assert.match(fs.readFileSync(pipeline.paths.selfNotes, "utf8"), /我选择先承认悬而未决。/);
 
   const before = snapshotBytes(fixture.continuityDir);
-  const secondCloseout = pipeline.runCloseout({ date: "2026-07-11", author: () => { authorCalls += 1; return {}; } });
+  const secondCloseout = pipeline.runCloseout({
+    date: "2026-07-11",
+    candidateMetadata: SUBJECT_AI_METADATA,
+    author: () => { authorCalls += 1; return {}; },
+  });
   const secondReview = pipeline.runReview({ env: { ...process.env, AUTO_REVIEW_MOCK: "accept" } });
   const secondWriter = pipeline.runHistoryWriter();
   assert.equal(secondCloseout.status, "no_output");
@@ -63,6 +86,90 @@ test("closeout, review, and history writer are byte-idempotent and preserve auth
   assert.equal(authorCalls, 1);
   assert.deepEqual(snapshotBytes(fixture.continuityDir), before);
   assert.equal(hashFile(fixture.stateLog), fixture.stateLogHash);
+});
+
+test("background proxy Episode can publish but Self-note and Re-entry require the subject", () => {
+  const fixture = createFixture();
+  fixture.pipeline.runCloseout({
+    date: "2026-07-11",
+    author: () => ({
+      episodes: [{ body: "后台代理可以提出这条 Episode 候选。" }],
+      self_note: "后台代理不能替主体认领这段自述。",
+      reentry_draft: "后台代理不能直接成为下一次醒来的交接。",
+    }),
+  });
+
+  const candidates = readJsonl(fixture.pipeline.paths.candidates);
+  assert.equal(candidates.length, 3);
+  for (const candidate of candidates) {
+    assert.equal(candidate.origin, "nightly_closeout");
+    assert.equal(candidate.author_role, "background_proxy");
+    assert.equal(candidate.context_scope, "daily_materials");
+    assert.equal(candidate.semantic_authority, "medium");
+  }
+  assert.equal(candidates.find((item) => item.type === "episode").needs_subject_review, false);
+  assert.equal(candidates.find((item) => item.type === "self_note").needs_subject_review, true);
+  assert.equal(candidates.find((item) => item.type === "reentry_draft").needs_subject_review, true);
+
+  const decisions = fixture.pipeline.runReview({
+    env: { ...process.env, AUTO_REVIEW_MOCK: "accept" },
+  }).decisions;
+  assert.equal(decisions.find((item) => item.candidate_id === candidates.find((c) => c.type === "episode").candidate_id).result, "accepted");
+  for (const type of ["self_note", "reentry_draft"]) {
+    const candidate = candidates.find((item) => item.type === type);
+    const decision = decisions.find((item) => item.candidate_id === candidate.candidate_id);
+    assert.equal(decision.result, "deferred");
+    assert.equal(decision.reason, "subject_review_required");
+    assert.equal(Object.prototype.hasOwnProperty.call(decision, "body"), false);
+  }
+
+  const writer = fixture.pipeline.runHistoryWriter();
+  assert.equal(writer.written.length, 1);
+  assert.equal(readJsonl(fixture.pipeline.paths.episodes).length, 1);
+  assert.equal(fs.existsSync(fixture.pipeline.paths.selfNotes), false);
+  assert.equal(fs.existsSync(fixture.pipeline.paths.reentry), false);
+});
+
+test("legacy janitor candidates are mapped to extractor authority and cannot publish", () => {
+  const fixture = createFixture();
+  const legacy = {
+    candidate_id: "cand-legacy-janitor",
+    ts: "2026-07-11T23:59:59+08:00",
+    type: "episode",
+    author: "janitor",
+    body: "旧 Janitor 小模型曾经写出的解释。",
+    source_ref: { file: fixture.conversationFile, window: "1-2" },
+    idempotency_key: "legacy-janitor",
+  };
+  appendJsonlUnique(fixture.pipeline.paths.candidates, [legacy], "candidate_id");
+
+  const decision = fixture.pipeline.runReview({
+    env: { ...process.env, AUTO_REVIEW_MOCK: "accept" },
+  }).decisions[0];
+  assert.equal(decision.result, "deferred");
+  assert.equal(decision.reason, "semantic_authority_missing");
+  assert.equal(decision.checks.publication_allowed, false);
+  assert.equal(fixture.pipeline.runHistoryWriter().written.length, 0);
+  assert.equal(fs.existsSync(fixture.pipeline.paths.episodes), false);
+
+  const fixture2 = createFixture();
+  appendJsonlUnique(fixture2.pipeline.paths.candidates, [legacy], "candidate_id");
+  appendJsonlUnique(fixture2.pipeline.paths.decisions, [{
+    decision_id: "decision-malicious-accept",
+    candidate_id: legacy.candidate_id,
+    result: "accepted",
+    reason: "fixture",
+    checks: {},
+    merged_into: null,
+    pushed_to_user: false,
+  }], "decision_id");
+  const defensive = fixture2.pipeline.runHistoryWriter();
+  assert.equal(defensive.written.length, 0);
+  assert.deepEqual(defensive.skipped, [{
+    decision_id: "decision-malicious-accept",
+    reason: "semantic_authority_missing",
+  }]);
+  assert.equal(fs.existsSync(fixture2.pipeline.paths.episodes), false);
 });
 
 test("duplicate candidates merge without a second canon write", () => {
@@ -94,6 +201,7 @@ test("imperatives warn without rejection and boundary conflicts are pushed", () 
   const pipeline = fixture.pipeline;
   pipeline.runCloseout({
     date: "2026-07-11",
+    candidateMetadata: SUBJECT_AI_METADATA,
     author: () => ({ reentry_draft: "下次必须先确认这一点。" }),
   });
   const warning = pipeline.runReview({ env: { ...process.env, AUTO_REVIEW_MOCK: "accept" } }).decisions[0];
@@ -183,7 +291,11 @@ test("review failure defers the candidate and never publishes canon", () => {
 
 test("over-budget Re-entry is retained as evidence, deferred, and never published", () => {
   const fixture = createFixture();
-  fixture.pipeline.runCloseout({ date: "2026-07-11", author: () => ({ reentry_draft: "她".repeat(301) }) });
+  fixture.pipeline.runCloseout({
+    date: "2026-07-11",
+    candidateMetadata: SUBJECT_AI_METADATA,
+    author: () => ({ reentry_draft: "她".repeat(301) }),
+  });
   const candidate = readJsonl(fixture.pipeline.paths.candidates)[0];
   assert.equal(candidate.body.length, 301);
   const decision = fixture.pipeline.runReview({ env: { ...process.env, AUTO_REVIEW_MOCK: "accept" } }).decisions[0];
