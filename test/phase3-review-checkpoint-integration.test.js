@@ -51,6 +51,39 @@ test("real pipeline persists the first decision, resumes after interruption, and
   assert.equal(readJsonl(pipeline.paths.decisions).length, 2);
 });
 
+test("checkpoint review through history writer publishes one canon entry and reruns byte-identically", () => {
+  const fixture = createFullLoopFixture();
+  const { pipeline } = fixture;
+
+  const reviewed = runReviewCheckpointed(pipeline);
+  assert.equal(reviewed.status, "success");
+  assert.deepEqual(
+    readJsonl(pipeline.paths.decisions).map((item) => item.result),
+    ["accepted", "merged", "deferred"],
+  );
+
+  const firstWrite = pipeline.runHistoryWriter();
+  assert.equal(firstWrite.status, "success");
+  assert.equal(firstWrite.written.length, 2);
+
+  const episodes = readJsonl(pipeline.paths.episodes);
+  assert.equal(episodes.length, 1);
+  assert.equal(episodes[0].body, "accepted fixture memory");
+
+  const writerState = JSON.parse(fs.readFileSync(pipeline.paths.writerState, "utf8"));
+  assert.equal(writerState.applied_decision_ids.length, 2);
+
+  const before = snapshotDirectory(fixture.continuityDir);
+
+  const secondReview = runReviewCheckpointed(pipeline);
+  const secondWrite = pipeline.runHistoryWriter();
+  assert.equal(secondReview.status, "success");
+  assert.equal(secondReview.decisions.length, 0);
+  assert.equal(secondWrite.status, "success");
+  assert.equal(secondWrite.written.length, 0);
+  assert.deepEqual(snapshotDirectory(fixture.continuityDir), before);
+});
+
 function createFixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-review-checkpoint-integration-"));
   const continuityDir = path.join(root, "continuity");
@@ -68,33 +101,9 @@ function createFixture() {
     "utf8",
   );
 
-  fs.writeFileSync(
-    reviewScript,
-    [
-      "import json",
-      "import sys",
-      "payload = json.load(sys.stdin)",
-      "candidate = payload.get('candidate') or {}",
-      "print(json.dumps({",
-      "    'result': 'accepted',",
-      "    'reason': 'fixture_accept',",
-      "    'checks': {'safety_ok': True},",
-      "}))",
-    ].join("\n") + "\n",
-    "utf8",
-  );
+  writeReviewFixture(reviewScript, false);
 
-  const pipeline = new ContinuityPipeline({
-    continuityDir,
-    conversationDir,
-    writerLeaseFile: path.join(root, "writer-lease.json"),
-    reviewScript,
-    python: process.env.PYTHON || "python",
-    branch: "fixture",
-    worktree: root,
-    baseSha: "a".repeat(40),
-  });
-
+  const pipeline = createPipeline({ root, continuityDir, conversationDir, reviewScript });
   const candidates = [
     createCandidate({
       date: "2026-07-11",
@@ -113,5 +122,117 @@ function createFixture() {
   ];
 
   appendJsonlUnique(pipeline.paths.candidates, candidates, "candidate_id");
-  return { root, pipeline, candidates };
+  return { root, continuityDir, pipeline, candidates };
+}
+
+function createFullLoopFixture() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-full-memory-loop-"));
+  const continuityDir = path.join(root, "continuity");
+  const conversationDir = path.join(root, "conversations");
+  const conversationFile = path.join(conversationDir, "2026-07-12.jsonl");
+  const reviewScript = path.join(root, "review_fixture.py");
+
+  fs.mkdirSync(conversationDir, { recursive: true });
+  fs.writeFileSync(
+    conversationFile,
+    [
+      JSON.stringify({ type: "user", text: "first source line" }),
+      JSON.stringify({ type: "assistant", text: "second source line" }),
+      JSON.stringify({ type: "user", text: "third source line" }),
+    ].join("\n") + "\n",
+    "utf8",
+  );
+
+  writeReviewFixture(reviewScript, true);
+  const pipeline = createPipeline({ root, continuityDir, conversationDir, reviewScript });
+  const candidates = [
+    createCandidate({
+      date: "2026-07-12",
+      type: "episode",
+      author: "closeout",
+      body: "accepted fixture memory",
+      sourceRef: { file: conversationFile, window: "1-1" },
+    }),
+    createCandidate({
+      date: "2026-07-12",
+      type: "episode",
+      author: "janitor",
+      body: "accepted fixture memory",
+      sourceRef: { file: conversationFile, window: "2-2" },
+    }),
+    createCandidate({
+      date: "2026-07-12",
+      type: "episode",
+      author: "closeout",
+      body: "defer fixture memory",
+      sourceRef: { file: conversationFile, window: "3-3" },
+    }),
+  ];
+
+  appendJsonlUnique(pipeline.paths.candidates, candidates, "candidate_id");
+  return { root, continuityDir, pipeline, candidates };
+}
+
+function createPipeline({ root, continuityDir, conversationDir, reviewScript }) {
+  return new ContinuityPipeline({
+    continuityDir,
+    conversationDir,
+    writerLeaseFile: path.join(root, "writer-lease.json"),
+    reviewScript,
+    python: process.env.PYTHON || "python",
+    branch: "fixture",
+    worktree: root,
+    baseSha: "a".repeat(40),
+  });
+}
+
+function writeReviewFixture(reviewScript, deferByBody) {
+  const bodyDecision = deferByBody
+    ? [
+      "body = str(candidate.get('body') or '')",
+      "deferred = 'defer fixture' in body",
+      "result = 'deferred' if deferred else 'accepted'",
+      "reason = 'fixture_defer' if deferred else 'fixture_accept'",
+    ]
+    : [
+      "result = 'accepted'",
+      "reason = 'fixture_accept'",
+    ];
+
+  fs.writeFileSync(
+    reviewScript,
+    [
+      "import json",
+      "import sys",
+      "payload = json.load(sys.stdin)",
+      "candidate = payload.get('candidate') or {}",
+      ...bodyDecision,
+      "print(json.dumps({",
+      "    'result': result,",
+      "    'reason': reason,",
+      "    'checks': {'safety_ok': True},",
+      "}))",
+    ].join("\n") + "\n",
+    "utf8",
+  );
+}
+
+function snapshotDirectory(root) {
+  if (!fs.existsSync(root)) return {};
+  const snapshot = {};
+  walk(root, root, snapshot);
+  return snapshot;
+}
+
+function walk(root, current, snapshot) {
+  for (const name of fs.readdirSync(current).sort()) {
+    const fullPath = path.join(current, name);
+    const relative = path.relative(root, fullPath).replaceAll("\\", "/");
+    const stat = fs.statSync(fullPath);
+    if (stat.isDirectory()) {
+      walk(root, fullPath, snapshot);
+    } else {
+      snapshot[relative] = fs.readFileSync(fullPath).toString("base64");
+    }
+  }
 }
