@@ -5,6 +5,11 @@ const { acquireWriterLease, releaseWriterLease } = require("../orchestration/wri
 const { countNonWhitespace } = require("../core/reentry-loader");
 const { stripConversationArtifacts } = require("./conversation-purity");
 const {
+  authorityFailureReason,
+  canPublishCandidate,
+  normalizeCandidateMetadata,
+} = require("./candidate-authority");
+const {
   appendJsonlUnique,
   backupFile,
   loadJson,
@@ -47,7 +52,7 @@ class ContinuityPipeline {
     };
   }
 
-  runCloseout({ date, author }) {
+  runCloseout({ date, author, candidateMetadata = {} }) {
     const day = normalizeDate(date);
     const ledgerPath = path.join(this.paths.jobs, `closeout-${day}.json`);
     if (fs.existsSync(ledgerPath)) return { status: "no_output", reason: "already_ran", author_called: false };
@@ -63,11 +68,11 @@ class ContinuityPipeline {
       if (authored && typeof authored.then === "function") {
         throw new Error("runCloseout author must be synchronous; use runCloseoutAsync for runtime authoring");
       }
-      return this.publishCloseout(day, materials, authored, ledgerPath);
+      return this.publishCloseout(day, materials, authored, ledgerPath, candidateMetadata);
     });
   }
 
-  async runCloseoutAsync({ date, author }) {
+  async runCloseoutAsync({ date, author, candidateMetadata = {} }) {
     const day = normalizeDate(date);
     const ledgerPath = path.join(this.paths.jobs, `closeout-${day}.json`);
     if (fs.existsSync(ledgerPath)) return { status: "no_output", reason: "already_ran", author_called: false };
@@ -79,11 +84,11 @@ class ContinuityPipeline {
         return { status: "no_output", reason: "no_materials", author_called: false };
       }
       const authored = await author({ date: day, materials: materials.text, entries: materials.entries });
-      return this.publishCloseout(day, materials, authored, ledgerPath);
+      return this.publishCloseout(day, materials, authored, ledgerPath, candidateMetadata);
     });
   }
 
-  publishCloseout(day, materials, authored = {}, ledgerPath) {
+  publishCloseout(day, materials, authored = {}, ledgerPath, candidateMetadata = {}) {
     const sourceRef = materials.source_ref;
     const drafts = [];
     for (const episode of (Array.isArray(authored?.episodes) ? authored.episodes : []).slice(0, 2)) {
@@ -94,12 +99,25 @@ class ContinuityPipeline {
     if (selfNote) drafts.push({ type: "self_note", body: selfNote });
     const reentry = normalizeBody(authored?.reentry_draft);
     if (reentry) drafts.push({ type: "reentry_draft", body: reentry });
+
+    const defaults = {
+      origin: "nightly_closeout",
+      authorRole: "background_proxy",
+      authorModel: this.leaseDetails.model,
+      contextScope: "daily_materials",
+      semanticAuthority: "medium",
+      ...candidateMetadata,
+    };
     const candidates = drafts.map((draft) => createCandidate({
       date: day,
       type: draft.type,
       author: "closeout",
       body: draft.body,
       sourceRef,
+      ...defaults,
+      needsSubjectReview: typeof defaults.needsSubjectReview === "boolean"
+        ? defaults.needsSubjectReview
+        : (["self_note", "reentry_draft"].includes(draft.type) && defaults.authorRole !== "subject_ai"),
     }));
     const added = appendJsonlUnique(this.paths.candidates, candidates, "candidate_id");
     writeJsonAtomic(ledgerPath, {
@@ -127,7 +145,7 @@ class ContinuityPipeline {
 
   runReview({ env = process.env, retryCandidateId = "" } = {}) {
     return this.withLease("review-writer", () => {
-      const candidates = readJsonl(this.paths.candidates);
+      const candidates = readJsonl(this.paths.candidates).map(normalizeCandidateMetadata);
       const existing = readJsonl(this.paths.decisions);
       const decided = new Set(existing.map((item) => item.candidate_id));
       const primaryByBody = new Map();
@@ -162,11 +180,15 @@ class ContinuityPipeline {
         combinedChecks.source_ref_located = localChecks.source_ref_located;
         combinedChecks.length_ok = localChecks.length_ok;
         combinedChecks.imperative_warning = localChecks.imperative_warning || result.checks?.imperative_warning === true;
+        combinedChecks.publication_allowed = localChecks.publication_allowed;
         let enforced = { ...result };
         if (!combinedChecks.source_ref_located) enforced = { ...enforced, result: "deferred", reason: "source_ref_missing" };
         if (!combinedChecks.length_ok) enforced = { ...enforced, result: "deferred", reason: "over_budget" };
         if (combinedChecks.safety_ok === false && enforced.result === "accepted") {
           enforced = { ...enforced, result: "rejected", reason: "safety_failed" };
+        }
+        if (!combinedChecks.publication_allowed) {
+          enforced = { ...enforced, result: "deferred", reason: authorityFailureReason(candidate) };
         }
         decisions.push(createDecision(candidate, { ...enforced, checks: combinedChecks }));
       }
@@ -198,11 +220,16 @@ class ContinuityPipeline {
 
   runHistoryWriter() {
     return this.withLease("history-writer", () => {
-      const candidates = new Map(readJsonl(this.paths.candidates).map((item) => [item.candidate_id, item]));
+      const candidates = new Map(
+        readJsonl(this.paths.candidates)
+          .map(normalizeCandidateMetadata)
+          .map((item) => [item.candidate_id, item]),
+      );
       const decisions = readJsonl(this.paths.decisions);
       const state = loadJson(this.paths.writerState, { applied_decision_ids: [] });
       const applied = new Set(state.applied_decision_ids || []);
       const written = [];
+      const skipped = [];
       for (const decision of decisions) {
         if (applied.has(decision.decision_id) || !["accepted", "merged"].includes(decision.result)) continue;
         if (decision.result === "merged") {
@@ -213,6 +240,10 @@ class ContinuityPipeline {
         }
         const candidate = candidates.get(decision.candidate_id);
         if (!candidate) continue;
+        if (!canPublishCandidate(candidate)) {
+          skipped.push({ decision_id: decision.decision_id, reason: authorityFailureReason(candidate) });
+          continue;
+        }
         if (candidate.type === "episode") this.publishEpisode(candidate, decision);
         if (candidate.type === "self_note") this.publishSelfNote(candidate, decision);
         if (candidate.type === "reentry_draft") this.publishReentry(candidate, decision);
@@ -220,7 +251,7 @@ class ContinuityPipeline {
         written.push(decision.decision_id);
         writeJsonAtomic(this.paths.writerState, { applied_decision_ids: [...applied] });
       }
-      return { status: "success", written };
+      return { status: "success", written, skipped };
     });
   }
 
@@ -237,6 +268,11 @@ class ContinuityPipeline {
       candidate_id: candidate.candidate_id,
       decision_id: decision.decision_id,
       supersedes: candidate.supersedes || null,
+      origin: candidate.origin,
+      author_role: candidate.author_role,
+      author_model: candidate.author_model,
+      context_scope: candidate.context_scope,
+      semantic_authority: candidate.semantic_authority,
     }], "decision_id");
   }
 
@@ -279,18 +315,36 @@ class ContinuityPipeline {
   }
 }
 
-function createCandidate({ date, type, author, body, sourceRef }) {
+function createCandidate({
+  date,
+  type,
+  author,
+  body,
+  sourceRef,
+  origin,
+  authorRole,
+  authorModel,
+  contextScope,
+  semanticAuthority,
+  needsSubjectReview,
+}) {
   const normalizedBody = normalizeBody(body);
   const idempotencyKey = sha256(`${date}\n${sourceRef.file}:${sourceRef.window}\n${normalizedBody.replace(/\s+/g, " ")}`);
-  return {
+  return normalizeCandidateMetadata({
     candidate_id: `cand-${idempotencyKey.slice(0, 20)}`,
     ts: `${date}T23:59:59+08:00`,
     type,
     author,
+    origin,
+    author_role: authorRole,
+    author_model: authorModel,
+    context_scope: contextScope,
+    semantic_authority: semanticAuthority,
+    needs_subject_review: needsSubjectReview,
     body: normalizedBody,
     source_ref: sourceRef,
     idempotency_key: idempotencyKey,
-  };
+  });
 }
 
 function createDecision(candidate, value = {}) {
@@ -324,12 +378,14 @@ function runPythonReview({ python, script, candidate, sourceLocated, env }) {
 }
 
 function buildLocalChecks(candidate, sourceLocated) {
+  const normalized = normalizeCandidateMetadata(candidate);
   return {
     source_ref_located: sourceLocated === true,
-    length_ok: candidate.type !== "reentry_draft" || countNonWhitespace(candidate.body) <= 300,
+    length_ok: normalized.type !== "reentry_draft" || countNonWhitespace(normalized.body) <= 300,
     safety_ok: true,
-    imperative_warning: /(?:必须|务必|永远不要|记住要|\bshould\b|\bmust\b)/iu.test(candidate.body),
+    imperative_warning: /(?:必须|务必|永远不要|记住要|\bshould\b|\bmust\b)/iu.test(normalized.body),
     duplicate_of: null,
+    publication_allowed: canPublishCandidate(normalized),
   };
 }
 
