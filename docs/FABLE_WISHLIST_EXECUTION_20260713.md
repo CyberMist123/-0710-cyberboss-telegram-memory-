@@ -12,7 +12,7 @@
 2. **入口换 checkpoint**：runtime 的 `run-phase3.js` 之前是旧版（一次性写盘的 `pipeline.runReview`），已与本分支对齐为 `runReviewCheckpointed`（逐条落盘）。
 3. **TG 用户消息未录制**：`handleTelegramMessage` 的 telegram 分支漏了 `recordInboundMessage`，导致会话存储里从来没有 user 行、closeout 永远 no_output。已补。（`src/core/app.js`）
 4. **类型过滤器**：`isConversationType` 增加 `runtime.turn.completed`（实际日志类型），否则材料永远为空。
-5. **janitor 数据源**：`CYBERBOSS_CLAUDE_TRANSCRIPT_DIR` 从旧 deepseek-workspace 项目目录改为 `C--Users-18717-Documents-cyberlink`（settings/secrets/telegram.env，机器本地，不在 Git）。
+5. **janitor 数据源**：`CYBERBOSS_CLAUDE_TRANSCRIPT_DIR` 从旧 deepseek-workspace 项目目录改为 `<CYBERLINK_ROOT>`（settings/secrets/telegram.env，机器本地，不在 Git）。
 6. **episode 笔法**：MEMORY_LIVENESS_NOTES §9.3 已并入 memory/closeout_guide.md（机器本地）。
 
 验证方式：看 2026-07-13 之后的 `memory/decisions/decisions.jsonl` 是否逐条增长、closeout 台账是否 success、conversations/*.jsonl 里是否持续出现 type=user 行。

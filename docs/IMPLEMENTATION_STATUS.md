@@ -1,6 +1,15 @@
 # Implementation Status
 
-Last updated: 2026-07-12
+Last updated: 2026-07-13
+
+## 2026-07-13 Portability and migration verification
+
+- The legacy 118-file memory set was safely copied into the unified memory root; the old workspace has not been deleted or archived.
+- The canonical `episodes.jsonl` contains 11 valid Episodes, and the canonical candidate JSONL is valid under the standard UTF-8 parser. The earlier PowerShell validation failure was an encoding/parser false positive.
+- Phase 5A `memory_lookup` offline tests pass. Phase 5B Soft Retrieval remains disabled and is not connected to Telegram or real replies.
+- The 520 Context Manager implementation is committed on the implementation branch, including layered context UI, snapshots, TODO backup, API boundaries, and dashboard tests.
+- Portability check passes after replacing a machine-specific path example with a repository placeholder. No runtime, memory, settings, sessions, secrets, or logs were added to Git.
+- Full local gates pass: `npm run check`, `npm run test:phase1` through `npm run test:phase5a`, Python dashboard/context-manager tests, and `git diff --check`.
 
 ## 2026-07-12 Continuity Liveness Cutover
 

@@ -11,7 +11,7 @@
 > [!IMPORTANT]
 > 当前阶段：**Phase 1–5A 已实现，当前发布临时标绿**。用户已明确放弃本轮 Telegram canary；离线门、进程矩阵与 watchdog 周期通过，但这不等于 canary 通过。实时进度只看 [`docs/IMPLEMENTATION_STATUS.md`](./docs/IMPLEMENTATION_STATUS.md)。
 
-## 当前实现状态（2026-07-12）
+## 当前实现状态（2026-07-13）
 
 | 模块 | 状态 | 已实现边界 |
 |---|---|---|
@@ -21,6 +21,8 @@
 | Phase 4 / 520 | 已实现并继续优化 | 独立只读控制台、Trace/candidate/decision、八维实时态与连续历史 |
 | Phase 5A memory lookup | 已实现 | 仅 `user_pull`、字面查询、预算/熔断与 recall evidence |
 | Phase 5B / 自动 Soft Retrieval | **未实现** | 自动召回、embedding、BM25、reranker、GraphRAG 仍关闭 |
+
+本次收口验证：旧版 118 个记忆文件已安全复制到统一 memory，Episode 11 条均可解析，`memory_lookup` 离线测试通过；旧 workspace 尚未删除或归档。520 Context Manager 的分层、snapshot、TODO 备份、API/UI 与测试已提交到实施分支。Phase 5B / Soft Retrieval 仍关闭。
 
 当前 520 的八维页直接读取 runtime 的 `desire-state.json`，并优先读取由 Desire 唯一 writer 追加的 `desire-history.jsonl`；只有连续历史不存在时才只读回退到冻结的 `state_log.jsonl`。页面显示数据源、路径、新鲜度、维度完整度与回退状态，不写 Desire 或 canon。
 

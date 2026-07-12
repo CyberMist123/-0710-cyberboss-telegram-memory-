@@ -38,6 +38,33 @@
 
 ---
 
+## 2026-07-13 · Portability repair and implementation verification
+
+**状态：🟡 🧪 🔒**
+
+### 修了什么
+
+- Replaced the single machine-specific path example reported by `portability-check.js` with a repository placeholder; command meaning and the historical note were preserved.
+- Confirmed the 520 Context Manager is already committed on the implementation branch; no unrelated dirty files were staged.
+- Recorded that the legacy 118-file memory set is safely copied into unified memory, with 11 valid Episodes and a passing offline `memory_lookup` gate. The old workspace remains neither deleted nor archived.
+- Kept Phase 5B / Soft Retrieval disabled.
+
+### 验证
+
+- `npm run check`
+- `npm run test:phase1`
+- `npm run test:phase2`
+- `npm run test:phase3`
+- `npm run test:phase4`
+- `npm run test:phase5a`
+- Existing Python dashboard/context-manager tests
+- `git diff --check`
+- `node scripts/portability-check.js`
+
+All listed checks passed locally. This entry records verification only; it does not claim deployment or a Telegram canary.
+
+---
+
 ## 2026-07-12 · v0.10 · 520 Continuity 中文分层 S6
 
 **状态：🟡 🧪 🔒**
