@@ -70,6 +70,18 @@ test("lookup is capped, truncates bodies, and returns superseding corrections to
   assert.ok(result.hits.every((hit) => hit.register === "lookup"));
 });
 
+test("lookup tokenizes multi-word queries and ranks all-token hits first", () => {
+  const { service } = fixture([
+    { ep_id: "ep-a", ts: "t1", body: "她说我说话太慢太完美，要有呼吸感" },
+    { ep_id: "ep-b", ts: "t2", body: "呼吸感这个词后来又出现过一次" },
+    { ep_id: "ep-c", ts: "t3", body: "完全无关的一条" },
+  ]);
+  const result = service.lookup({ query: "完美 呼吸感", trigger: "user_pull", reason: "她在找旧事" }, context());
+  assert.equal(result.hits.length, 2);
+  assert.equal(result.hits[0].ep_id, "ep-a");
+  assert.equal(result.hits[1].ep_id, "ep-b");
+});
+
 test("lookup failure is fail-open and the tool host returns a normal result", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-phase5a-fail-"));
   const service = new MemoryLookupService({ continuityDir: root, readEpisodes() { throw new Error("offline"); } });

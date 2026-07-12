@@ -98,6 +98,30 @@ test("current state is read-only, bounded, and appears only in opening or refres
   assert.equal(fs.readFileSync(desireStateFile, "utf8").includes("reflection"), true);
 });
 
+test("current state summarizes the desire report shape without intent", () => {
+  const root = fixtureRoot();
+  const desireStateFile = path.join(root, "desire-state.json");
+  fs.writeFileSync(desireStateFile, JSON.stringify({
+    most_want: "想知道她现在在做什么，周日下午两点，她是不是还在睡、在赖床、还是已经起了在发呆",
+    drives: [
+      { key: "attachment", label: "依恋", score: 0.7, change: "steady" },
+      { key: "duty", label: "责任", score: 0.5, change: "up" },
+      { key: "curiosity", label: "好奇", score: 0.3, change: "down" },
+    ],
+  }), "utf8");
+  const currentState = loadCurrentState({ filePath: desireStateFile });
+  assert.equal(currentState.skipped, undefined);
+  assert.ok(currentState.chars <= 100);
+  assert.match(currentState.text, /^此刻:想知道她现在在做什么/u);
+  assert.match(currentState.text, /依恋0\.7 责任0\.5↑/u);
+  const overlong = { most_want: "她".repeat(200), drives: [] };
+  fs.writeFileSync(desireStateFile, JSON.stringify(overlong), "utf8");
+  const truncated = loadCurrentState({ filePath: desireStateFile });
+  assert.equal(truncated.skipped, undefined);
+  assert.ok(truncated.chars <= 100);
+  assert.match(truncated.text, /…$/u);
+});
+
 test("context trace records evidence only and defaults old archives to hidden", async () => {
   const root = fixtureRoot();
   const filePath = path.join(root, "trace", "context_trace.jsonl");
@@ -141,6 +165,17 @@ test("phase 2 preflight requires an external continuity dir and all legacy gates
   assert.doesNotThrow(() => validateStartupPreflight({ ...base, continuityDir: path.join(workspaceRoot, "continuity") }));
   assert.throws(() => validateStartupPreflight({ ...base, continuityDir: path.join(stateDir, "continuity") }), /outside CYBERBOSS_STATE_DIR/);
   assert.throws(() => validateStartupPreflight({ ...base, legacyMemoryRetrieval: true }), /CYBERBOSS_MEMORY_RETRIEVAL must remain off/);
+  const memoryDir = path.join(root, "memory");
+  fs.mkdirSync(memoryDir, { recursive: true });
+  assert.doesNotThrow(() => validateStartupPreflight({ ...base, continuityDir: memoryDir, memoryDir }));
+  assert.throws(
+    () => validateStartupPreflight({ ...base, continuityDir: memoryDir, memoryDir, legacyMemoryBackgroundWrite: true }),
+    /CYBERBOSS_MEMORY_BACKGROUND_WRITE must remain off/,
+  );
+  assert.throws(
+    () => validateStartupPreflight({ ...base, continuityDir: path.join(memoryDir, "nested"), memoryDir }),
+    /outside CYBERBOSS_MEMORY_DIR/,
+  );
 });
 
 test("builder source has no default-hidden archive read path", () => {

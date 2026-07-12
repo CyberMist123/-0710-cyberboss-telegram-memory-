@@ -80,6 +80,9 @@ class MemoryLookupService {
 function searchEpisodes(rows, query) {
   if (!query) return [];
   const normalizedQuery = query.toLocaleLowerCase();
+  // 整句必须作为连续子串出现的老规则让两个词以上的查询几乎必空手；
+  // 改为按空白分词打分：整句命中 > 全词命中 > 部分词命中，同分保持文件序。
+  const tokens = normalizedQuery.split(/\s+/u).filter(Boolean);
   const episodes = (Array.isArray(rows) ? rows : []).map(normalizeEpisode).filter(Boolean);
   const correctionByOriginal = new Map();
   for (const episode of episodes) {
@@ -87,14 +90,22 @@ function searchEpisodes(rows, query) {
       correctionByOriginal.set(episode.supersedes, episode);
     }
   }
+  const scored = [];
+  for (const episode of episodes) {
+    const fullMatch = episode.searchText.includes(normalizedQuery);
+    const hitCount = tokens.filter((token) => episode.searchText.includes(token)).length;
+    if (!fullMatch && hitCount === 0) continue;
+    const score = (fullMatch ? 1000 : 0) + (hitCount === tokens.length ? 100 : 0) + hitCount;
+    scored.push({ episode, score });
+  }
+  scored.sort((a, b) => b.score - a.score);
   const results = [];
   const seen = new Set();
-  for (const episode of episodes) {
-    if (!episode.searchText.includes(normalizedQuery)) continue;
+  for (const { episode } of scored) {
+    if (results.length >= MAX_HITS) break;
     pushEpisode(results, seen, episode, correctionByOriginal.get(episode.ep_id)?.ep_id || episode.superseded_by);
     const correction = correctionByOriginal.get(episode.ep_id);
     if (correction) pushEpisode(results, seen, correction, null);
-    if (results.length >= MAX_HITS) break;
   }
   return results.slice(0, MAX_HITS);
 }

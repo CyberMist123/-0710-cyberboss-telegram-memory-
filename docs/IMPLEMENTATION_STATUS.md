@@ -2,6 +2,14 @@
 
 Last updated: 2026-07-12
 
+## 2026-07-12 Continuity Liveness Cutover
+
+- Adjudication change: the operational continuity root moves to the workspace `memory\` directory, per workspace `FRAMEWORK.md` which names it the single formal home for Episodes/Re-entry/Candidates/Decisions. Startup preflight now allows `CYBERBOSS_CONTINUITY_DIR` to exactly equal `CYBERBOSS_MEMORY_DIR` only while all four legacy memory gates stay off; nesting or partial overlap remains forbidden. This supersedes the Phase 2 note that the target must be outside the legacy memory directory.
+- Current State now also summarizes the live desire-report shape `{most_want, drives[]}`; the legacy `intent` shape keeps priority when present.
+- `memory_lookup` tokenizes multi-word queries (full-phrase hit > all-token hit > partial hit, stable order for ties). Single-word behavior is unchanged; budgets, supersession, and honest-empty semantics are unchanged.
+- `scripts/continuity/migrate-legacy-candidates.js` converts v1 janitor extractions (root `episodes.candidates.jsonl`, rich schema) into the frozen Phase 3 candidate schema under `candidates/`, skipping titles already in canon; bodies keep anchor quotes verbatim; unlocatable sources stay honest and defer at review.
+- `scripts/windows/continuity-nightly.ps1` runs the closeout -> janitor -> review -> history chain via `run-phase3.js all`, loading paths from the cyberlink manifest and the Auto Review DeepSeek key from the soft-retrieval env file.
+
 Phase 1 through Phase 5A are present in the selected immutable live release. The user explicitly waived the pending Telegram canary on 2026-07-12, so the release is temporarily green based on offline gates, the live process matrix, and a healthy watchdog cycle; this is not recorded as a passed canary.
 
 ## Verified Evidence
