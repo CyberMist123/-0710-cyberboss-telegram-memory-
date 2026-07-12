@@ -37,9 +37,59 @@
 
 ---
 
-## 2026-07-12 · v0.4 · 模型可读时间格式
+## 2026-07-12 · v0.5 · 完整记忆链离线保险测试
 
 **状态：🟡 🧪 🔒**
+
+### 增加了什么
+
+使用三条虚构 Candidate 覆盖完整链路：
+
+```text
+accepted / duplicate / deferred
+→ checkpoint Review
+→ Decision 逐条落盘
+→ History Writer
+→ 临时 Canon
+→ 重跑字节完全不变
+```
+
+预期结果：
+
+- accepted 写入一条 Episode；
+- duplicate 生成 `merged` Decision，不重复写 Canon；
+- deferred 不写 Canon；
+- 第二次 Review 不新增 Decision；
+- 第二次 History Writer 不新增内容；
+- 临时 continuity 目录重跑前后 byte-identical。
+
+### 提交
+
+- `0e2c312a65f2bb145515f254da06613f084e7615`
+
+### 主要文件
+
+- `test/phase3-review-checkpoint-integration.test.js`
+
+### 测试与部署
+
+- 测试只使用系统临时目录与本地 Python fixture；
+- 不调用真实模型；
+- 不读取真实 119 条 Candidate；
+- 不写真实 Canon；
+- Runtime 未部署；
+- 本地验证：等待运行。
+
+### 回滚点
+
+- 改动前：`3208978e7ec903e1a4156efb42fb5aa63dd2dc56`
+- 当前测试提交：`0e2c312a65f2bb145515f254da06613f084e7615`
+
+---
+
+## 2026-07-12 · v0.4 · 模型可读时间格式
+
+**状态：✅ 🧪 🔒**
 
 ### 修了什么
 
@@ -68,7 +118,8 @@ YYYY-MM-DD HH:mm
 - `e0a97a0`：增加统一时间显示工具；
 - `633a873`：Closeout Prompt 使用易读时间；
 - `310e1de`：记忆查询结果使用易读时间；
-- `cae16c1`：增加离线测试。
+- `cae16c1`：增加离线测试；
+- `3208978`：把新增测试正式接入静态检查和 Phase 3 测试门。
 
 ### 主要文件
 
@@ -76,18 +127,28 @@ YYYY-MM-DD HH:mm
 - `src/continuity/background-author.js`
 - `src/services/memory-lookup-service.js`
 - `test/readable-time.test.js`
+- `package.json`
 
 ### 测试与部署
 
-- GitHub 侧：代码与测试文件已提交；
-- 本地测试：尚待运行确认；
-- 真实模型调用：没有；
-- Runtime 部署：没有。
+2026-07-12，用户在本机同步至：
+
+```text
+3208978e7ec903e1a4156efb42fb5aa63dd2dc56
+```
+
+并确认以下命令全部通过：
+
+- `npm run check`
+- `npm run test:phase3`
+- `npm run test:phase5a`
+
+确认没有调用真实模型、没有读取真实 119 条 Candidate、没有写真实 Canon、没有部署或重启 Telegram。
 
 ### 回滚点
 
 - 改动前：`51beea95fe5bbe72048d2c2a5be196775ab1a9c7`
-- 当前版本：`cae16c194b7724a1cffae0585bdcd9d0c8e85918`
+- 已验证版本：`3208978e7ec903e1a4156efb42fb5aa63dd2dc56`
 
 ### 开发者碎碎念
 
@@ -97,7 +158,7 @@ YYYY-MM-DD HH:mm
 
 ## 2026-07-12 · v0.3 · Review 中断续跑 V1
 
-**状态：🟡 🧪 🔒**
+**状态：✅ 🧪 🔒**
 
 ### 修了什么
 
@@ -117,30 +178,29 @@ V1 改为 checkpoint 方式：
 ### 提交
 
 - `13b4d74`：建立初版记忆 loop 工作记录；
-- `51beea9`：Phase 3 runner 接入 checkpoint Review。
+- `51beea9`：Phase 3 runner 接入 checkpoint Review；
+- `e9104eb`：增加真实 `ContinuityPipeline` 的中断续跑集成测试；
+- `3208978`：把 checkpoint 和时间测试接入正式测试门。
 
 ### 主要文件
 
 - `src/continuity/review-checkpoint.js`
 - `scripts/continuity/run-phase3.js`
 - `test/phase3-review-checkpoint.test.js`
+- `test/phase3-review-checkpoint-integration.test.js`
+- `package.json`
 
 ### 测试与部署
 
-- 测试设计已覆盖：中断保存、续跑、避免重复、指定 Candidate 重试；
-- 本地测试：尚待正式确认；
-- 真实 Candidate：没有处理；
-- 真实模型 API：没有调用；
-- Runtime 部署：没有。
+本机已在 `3208978` 上通过静态检查、Phase 3 和 Phase 5A 测试。测试使用临时目录和 fixture，不处理真实 Candidate，也不调用真实模型。
+
+Runtime 尚未部署。当前 Nightly 仍可能调用 `run-phase3.js all`；在 `manual | shadow | auto` 模式门完成前，不部署这条新流水线到真实运行环境。
 
 ### 回滚点
 
 - 改动前：`13b4d7483db570d2ba00354b27eac4c50a16f193`
-- V1：`51beea95fe5bbe72048d2c2a5be196775ab1a9c7`
-
-### 已知限制
-
-当前 Nightly 仍可能调用 `run-phase3.js all`。在 `manual | shadow | auto` 模式门完成前，不部署这条新流水线到真实运行环境。
+- 初版 V1：`51beea95fe5bbe72048d2c2a5be196775ab1a9c7`
+- 已验证测试门：`3208978e7ec903e1a4156efb42fb5aa63dd2dc56`
 
 ---
 
@@ -184,7 +244,8 @@ writer-lease 修复曾同步到本地 runtime 文件；Telegram 是否已由该 
 - `bac410f`：writer lease 恢复与安全边界；
 - `13b4d74`：建立局部 worklog；
 - `51beea9`：Review checkpoint；
-- `cae16c1`：模型可读时间显示。
+- `3208978`：正式测试门覆盖 checkpoint 和时间格式；
+- `0e2c312`：完整记忆链离线保险测试。
 
 后续只在找到可核对的提交、测试输出或部署记录后补写，不凭印象扩写历史。
 
@@ -192,7 +253,7 @@ writer-lease 修复曾同步到本地 runtime 文件；Telegram 是否已由该 
 
 ## 接下来
 
-### v0.5 · Nightly 模式门
+### Nightly 模式门
 
 计划加入：
 
@@ -202,7 +263,7 @@ manual | shadow | auto
 
 默认 `manual`：只收集材料，不自动 Review，不发布正式记忆。
 
-### v0.6 · Candidate 来源与语义权限
+### Candidate 来源与语义权限
 
 需要区分：
 
@@ -212,16 +273,9 @@ manual | shadow | auto
 
 Janitor 应负责发现和保住漏档，不应默认替主体 AI 写正式 Episode。
 
-### v0.7 · 小规模完整链路测试
+### 小规模完整链路验证
 
-使用虚构 Candidate 测试：
-
-- accepted；
-- deferred；
-- duplicate / merged；
-- 重跑不重复发布。
-
-真实 119 条 Candidate 继续冻结，直到 Prompt、权限和模式门明确。
+先验证 `0e2c312` 的虚构数据全链路测试。真实 119 条 Candidate 继续冻结，直到 Prompt、权限和模式门明确。
 
 ---
 
