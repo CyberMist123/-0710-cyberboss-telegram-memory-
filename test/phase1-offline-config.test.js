@@ -150,6 +150,17 @@ test("portability static check passes for repo and newly added files", () => {
   assert.match(result.stdout, /Portability check passed/);
 });
 
+test("Windows startup process checks do not bind PowerShell's read-only PID variable", () => {
+  const script = fs.readFileSync(
+    path.join(__dirname, "..", "scripts", "windows", "cyberlink-start.ps1"),
+    "utf8",
+  );
+  assert.doesNotMatch(script, /\[int\]\$Pid\b/i);
+  assert.match(script, /\[int\]\$ProcessId\b/);
+  assert.doesNotMatch(script, /Test-ProcessMatches\s+-Pid\b/i);
+  assert.match(script, /Test-ProcessMatches\s+-ProcessId\b/);
+});
+
 function withCleanEnv(fn) {
   const previousArgv = process.argv;
   const snapshot = new Map(ENV_KEYS.map((key) => [key, process.env[key]]));
