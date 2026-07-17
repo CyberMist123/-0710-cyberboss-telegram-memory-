@@ -2421,6 +2421,12 @@ PAGE = r"""<!doctype html>
           background: rgba(20,21,26,.72); backdrop-filter: blur(10px);
           border-bottom:1px solid var(--line); flex-shrink:0;
           box-shadow: 0 1px 0 rgba(255,255,255,.02); }
+  #tabs .brand { display:flex; align-items:center; gap:8px; padding-right:12px; margin-right:4px;
+                 border-right:1px solid var(--line); white-space:nowrap; }
+  #tabs .brand-mark { width:25px; height:25px; display:grid; place-items:center; border-radius:8px;
+                      color:#f4f5fb; font-size:11px; font-weight:800; background:linear-gradient(145deg,#59689e,#343d62); }
+  #tabs .brand-copy strong { display:block; color:#f0f1f5; font-size:12px; line-height:1.1; }
+  #tabs .brand-copy small { display:block; margin-top:3px; color:var(--text-faint); font-size:9px; letter-spacing:.07em; }
   #tabs .tab { padding:7px 16px; cursor:pointer; border-radius:8px; font-size:13.5px;
                color: var(--text-dim); font-weight:500; letter-spacing:.02em;
                transition: background .18s var(--ease), color .18s var(--ease), transform .12s var(--ease); }
@@ -2428,6 +2434,8 @@ PAGE = r"""<!doctype html>
   #tabs .tab:active { transform: translateY(1px); }
   #tabs .tab.on { background: linear-gradient(180deg,#454f78,#3a4266);
                   color:#fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 2px 8px rgba(60,69,104,.4); }
+  #tabs .tab.secondary { color:#777d8d; padding-left:11px; padding-right:11px; }
+  #tabs .nav-divider { width:1px; height:22px; margin:0 4px; background:var(--line); flex:0 0 auto; }
   #tabs .spacer { flex:1; }
   #tabs .hint { font-size:11.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
 
@@ -2464,6 +2472,52 @@ PAGE = r"""<!doctype html>
   .hcard .big { font-size:28px; color:#fff; font-weight:600; letter-spacing:-.01em;
                 font-variant-numeric: tabular-nums; }
   .hcard .sub { font-size:12px; color: var(--text-faint); margin-top:5px; line-height:1.5; }
+
+  /* ---- 核心工作台 ---- */
+  .core-hero { padding:20px; margin-bottom:15px; border:1px solid #343a52; border-radius:14px;
+               background:radial-gradient(620px 230px at 86% -25%,rgba(122,134,194,.23),transparent 65%),
+                          linear-gradient(145deg,#202433,#181b25 72%); box-shadow:var(--shadow); }
+  .core-hero-top { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; }
+  .core-eyebrow { color:#aeb8e8; font-size:10px; letter-spacing:.13em; text-transform:uppercase; }
+  .core-title { margin:6px 0 5px; color:#f5f6fa; font-size:23px; font-weight:650; }
+  .core-copy { color:var(--text-dim); font-size:12.5px; line-height:1.7; }
+  .core-state { flex:0 0 auto; padding:8px 12px; border-radius:999px; font-size:12px; border:1px solid #75612f;
+                color:#ffd98a; background:#302712; }
+  .core-state.ok { color:#a8e7b7; border-color:#3b754b; background:#183322; }
+  .core-state.bad { color:#ffb4bd; border-color:#8a3040; background:#351b21; }
+  .core-status-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-top:17px; }
+  .core-status { min-height:92px; padding:12px 13px; border:1px solid var(--line-soft); border-radius:10px; background:rgba(22,24,32,.7); }
+  .core-status .label { color:var(--text-faint); font-size:10.5px; }
+  .core-status strong { display:block; margin-top:7px; color:#f0f1f5; font-size:14px; line-height:1.35; }
+  .core-status small { display:block; margin-top:5px; color:var(--text-faint); font-size:10.5px; line-height:1.45; }
+  .core-status.warn strong { color:#ffd98a; }
+  .core-status.bad strong { color:#ffb4bd; }
+  .quick-nav { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-bottom:16px; }
+  .quick-link { text-align:left; padding:12px 13px; border:1px solid var(--line); border-radius:10px; background:var(--surface-2);
+                color:var(--text); box-shadow:none; }
+  .quick-link:hover { border-color:#596691; background:#232735; filter:none; }
+  .quick-link strong,.quick-link small { display:block; }
+  .quick-link strong { font-size:12.5px; }
+  .quick-link small { margin-top:4px; color:var(--text-faint); font-size:10.5px; line-height:1.45; }
+  details.advanced-details { border:1px solid var(--line); border-radius:11px; background:rgba(24,26,34,.7); overflow:hidden; }
+  details.advanced-details > summary { cursor:pointer; list-style:none; padding:13px 15px; color:var(--text-dim); font-size:12px; }
+  details.advanced-details > summary::-webkit-details-marker { display:none; }
+  details.advanced-details > summary::before { content:"＋"; display:inline-block; width:20px; color:#8793c8; }
+  details.advanced-details[open] > summary::before { content:"−"; }
+  details.advanced-details > .details-body { padding:2px 15px 15px; }
+
+  .memory-map { display:grid; grid-template-columns:repeat(5,minmax(130px,1fr)); gap:9px; }
+  .memory-stage { position:relative; min-height:122px; padding:13px; border:1px solid var(--line); border-radius:10px; background:var(--surface-2); }
+  .memory-stage:not(:last-child)::after { content:"→"; position:absolute; right:-15px; top:44px; z-index:2; color:#65709f; font-size:17px; }
+  .memory-stage .num { color:#7f8bc3; font:600 10px Consolas,monospace; }
+  .memory-stage strong { display:block; margin-top:6px; color:#f0f1f5; font-size:13px; }
+  .memory-stage p { margin:5px 0 0; color:var(--text-faint); font-size:10.5px; line-height:1.55; }
+  .read-policy { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; margin-top:10px; }
+  .policy-card { padding:11px 12px; border:1px solid var(--line-soft); border-radius:9px; background:#191b23; }
+  .policy-card strong { color:#e9ebf1; font-size:11.5px; }
+  .policy-card span { display:block; margin-top:5px; color:var(--text-faint); font-size:10.5px; line-height:1.5; }
+  .policy-pill { display:inline-flex !important; width:auto; margin:0 0 6px !important; padding:2px 7px; border-radius:999px;
+                 color:#a8e7b7 !important; border:1px solid #356344; background:#172c1e; font-size:9.5px !important; }
 
   .barwrap { background:#0c0d12; border-radius:7px; height:14px; overflow:hidden; margin-top:10px;
              box-shadow: inset 0 1px 2px rgba(0,0,0,.5); }
@@ -2787,26 +2841,55 @@ PAGE = r"""<!doctype html>
       padding:9px 11px; border-radius:8px; font-size:11px; line-height:1.55;
       color:#c9b98a; border:1px solid #4a4234; background:#232120;
   }
+  .context-flow { display:flex; flex-direction:column; gap:8px; }
+  .context-step { display:grid; grid-template-columns:42px minmax(145px,210px) 1fr auto; align-items:center; gap:12px;
+                  padding:12px; border:1px solid var(--line-soft); border-radius:10px; background:#1b1e27; }
+  .context-step .step-no { width:32px; height:32px; display:grid; place-items:center; border-radius:9px; background:#11131a;
+                           color:#8793c8; font:600 11px Consolas,monospace; border:1px solid #2c3140; }
+  .context-step strong { color:#edf0f7; font-size:12.5px; }
+  .context-step small { display:block; margin-top:4px; color:var(--text-faint); font-size:10.5px; line-height:1.45; }
+  .context-step .load-rule { color:#aeb8e8; font-size:10.5px; line-height:1.5; }
+  .context-step.fixed { border-color:#354064; background:#202432; }
+  .context-step.off { opacity:.62; }
+  .context-note { margin-top:10px; color:var(--text-faint); font-size:10.5px; line-height:1.6; }
   @media (max-width:840px) {
+      #tabs { overflow-x:auto; padding:8px 10px; }
+      #tabs .brand-copy, #tabs .hint, #tabs .spacer { display:none; }
+      #tabs .tab { flex:0 0 auto; padding:7px 10px; }
+      .view { padding:14px 12px; }
+      .core-status-grid,.quick-nav,.read-policy { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .memory-map { grid-template-columns:1fr; }
+      .memory-stage:not(:last-child)::after { content:"↓"; top:auto; right:50%; bottom:-17px; }
+      .context-step { grid-template-columns:36px 1fr auto; }
+      .context-step .load-rule { grid-column:2 / -1; }
       .ctx-layer { grid-template-columns:36px 1fr auto; }
       .ctx-items { grid-column:2 / -1; }
       .ctx-layer-actions { grid-column:2 / -1; flex-direction:row; align-items:center; justify-content:space-between; }
+  }
+  @media (max-width:520px) {
+      .core-hero-top { display:block; }
+      .core-state { display:inline-block; margin-top:12px; }
+      .core-status-grid,.quick-nav,.read-policy { grid-template-columns:1fr; }
+      .cardgrid { grid-template-columns:1fr; }
+      .nav-divider { display:none; }
   }
 </style>
 </head>
 <body>
 <div id="app">
   <div id="tabs">
-    <div class="tab on" data-view="health">健康度</div>
-    <div class="tab" data-view="continuity">Continuity</div>
-    <div class="tab" data-view="injection">注入</div>
-    <div class="tab" data-view="memorymap">记忆</div>
+    <div class="brand"><span class="brand-mark">520</span><span class="brand-copy"><strong>Cyberlink</strong><small>MEMORY CONSOLE</small></span></div>
+    <div class="tab on" data-view="health">总览</div>
+    <div class="tab" data-view="memorymap">记忆数据</div>
+    <div class="tab" data-view="context">上下文控制</div>
+    <div class="tab" data-view="continuity">事件流水</div>
+    <div class="tab" data-view="octant">八维状态</div>
     <div class="tab" data-view="timeline">时间线</div>
-    <div class="tab" data-view="octant">八维</div>
-    <div class="tab" data-view="care">关怀</div>
-    <div class="tab" data-view="theater">剧场</div>
-    <div class="tab" data-view="context">上下文</div>
-    <div class="tab" data-view="files">文件</div>
+    <div class="tab" data-view="injection">模型与提示词</div>
+    <div class="nav-divider"></div>
+    <div class="tab secondary" data-view="care">关怀</div>
+    <div class="tab secondary" data-view="theater">剧场</div>
+    <div class="tab secondary" data-view="files">文件</div>
     <div class="spacer"></div>
     <div id="auto-indicator" onclick="toggleAutoRefresh()" title="20 秒自动刷新中(点击暂停)" style="cursor:pointer;font-size:14px;padding:0 10px;user-select:none;">●</div>
     <div class="hint">记忆面板 v3 · 127.0.0.1:520</div>
@@ -2815,8 +2898,16 @@ PAGE = r"""<!doctype html>
   <div id="views">
     <!-- 1 健康度 -->
     <div class="view on" id="view-health">
-      <div id="alertbar"></div>
-      <div class="cardgrid" id="health-cards"></div>
+      <div id="core-health-summary"></div>
+      <div class="quick-nav">
+        <button class="quick-link" onclick="switchView('memorymap')"><strong>查看记忆怎么运转</strong><small>Episode、Re-entry、Self-note 与候选层</small></button>
+        <button class="quick-link" onclick="switchView('context')"><strong>控制本轮加载内容</strong><small>三个真实开关与固定载入顺序</small></button>
+        <button class="quick-link" onclick="switchView('continuity')"><strong>查看刚才发生了什么</strong><small>可读事件、Review 决策与正式 Canon</small></button>
+        <button class="quick-link" onclick="switchView('injection')"><strong>模型与实际提示词</strong><small>查看当前模型，编辑真正加载的提示词</small></button>
+      </div>
+      <details class="advanced-details"><summary>详细诊断与原始指标</summary>
+        <div class="details-body"><div id="alertbar"></div><div class="cardgrid" id="health-cards"></div></div>
+      </details>
     </div>
 
     <div class="view" id="view-continuity">
@@ -2864,29 +2955,35 @@ PAGE = r"""<!doctype html>
 
     <!-- 记忆 -->
     <div class="view" id="view-memorymap">
-      <div class="notice">这里看“它真正记住了什么”。这套系统没有单独的“每日总结.md”；每晚 closeout 会把内容分散写进 reentry / timeline / portrait / episodes / ai_self_notes，而自动补记会写进 candidates / extracted。注意：候选层不会自动转正，正式层目前仍依赖 AI 自己做 closeout 吸收。</div>
       <div class="view-stack">
+        <section class="ctx-section">
+          <div class="ctx-section-head"><div><h3 class="ctx-section-title">记忆是怎么流动的</h3>
+            <div class="ctx-section-copy">先看流程，再看每层真实数据。候选不会自动冒充正式记忆。</div></div></div>
+          <div class="ctx-section-body">
+            <div class="memory-map">
+              <div class="memory-stage"><span class="num">01</span><strong>对话与运行事件</strong><p>Telegram 对话、上下文 Trace 和八维状态是原始来源。</p></div>
+              <div class="memory-stage"><span class="num">02</span><strong>证据与候选</strong><p>Janitor 补漏，只形成待审材料，不直接改变 AI 的长期记忆。</p></div>
+              <div class="memory-stage"><span class="num">03</span><strong>Review</strong><p>判断接受、合并、延后或拒绝，并保留决定依据。</p></div>
+              <div class="memory-stage"><span class="num">04</span><strong>正式记忆</strong><p>Episode、Timeline、Portrait 与 Self-note 分工保存。</p></div>
+              <div class="memory-stage"><span class="num">05</span><strong>下次载入</strong><p>Re-entry、八维摘要和按需回忆经真实 gate 进入上下文。</p></div>
+            </div>
+            <div class="read-policy">
+              <div class="policy-card"><span class="policy-pill">新线程首轮</span><strong>Re-entry</strong><span>醒来第一包，短、慢变化，受 Re-entry 开关控制。</span></div>
+              <div class="policy-card"><span class="policy-pill">首轮 / 刷新</span><strong>八维与当前状态</strong><span>告诉模型“现在是什么状态”，不是长期事实。</span></div>
+              <div class="policy-card"><span class="policy-pill">按需读取</span><strong>Episode / Timeline</strong><span>需要回忆时检索，不应每轮把全部历史塞进上下文。</span></div>
+              <div class="policy-card"><span class="policy-pill">后台私有</span><strong>AI Self-note</strong><span>AI 的反思日记，普通对话默认不整本载入。</span></div>
+            </div>
+          </div>
+        </section>
         <div class="cardgrid" id="memory-head"></div>
         <div>
           <div class="section-head">当前可读到的正式记忆</div>
           <div class="cardgrid" id="memory-current"></div>
         </div>
-        <div>
-          <div class="section-head">正式层（会留下来）</div>
-          <div class="cardgrid" id="memory-formal"></div>
-        </div>
-        <div>
-          <div class="section-head">自动层（待审 / 补记）</div>
-          <div class="cardgrid" id="memory-auto"></div>
-        </div>
-        <div>
-          <div class="section-head">运行时 / 历史归档</div>
-          <div class="cardgrid" id="memory-runtime"></div>
-        </div>
-        <div>
-          <div class="section-head">最近几天的更新痕迹</div>
-          <div id="memory-daily"></div>
-        </div>
+        <details class="advanced-details"><summary>正式层文件状态</summary><div class="details-body"><div class="cardgrid" id="memory-formal"></div></div></details>
+        <details class="advanced-details"><summary>自动补记与待审候选</summary><div class="details-body"><div class="cardgrid" id="memory-auto"></div></div></details>
+        <details class="advanced-details"><summary>运行时缓存与历史归档</summary><div class="details-body"><div class="cardgrid" id="memory-runtime"></div></div></details>
+        <details class="advanced-details"><summary>最近几天的文件更新痕迹</summary><div class="details-body"><div id="memory-daily"></div></div></details>
       </div>
     </div>
 
@@ -2952,57 +3049,58 @@ PAGE = r"""<!doctype html>
     <div class="view" id="view-context">
       <div class="ctx-shell">
         <section class="ctx-hero">
-          <div class="ctx-kicker">Context Orchestration</div>
-          <h2 class="ctx-title">上下文管理</h2>
+          <div class="ctx-kicker">Context Control</div>
+          <h2 class="ctx-title">本轮模型会看到什么</h2>
           <div class="ctx-lead">
-            把稳定身份、Re-entry、鲜活状态、会话连续、按需检索与当轮上下文放在同一张编排图里。
-            三个标记为“实时生效”的开关会直接写入 runtime gate；其余排序与小模块配置保存为编排配置，不会改写记忆 Canon。
+            这里优先显示真实运行顺序。三个开关会直接影响下一轮 Telegram 对话；顺序目前由 runtime 固定，页面不会把“仅保存的拖拽方案”伪装成已生效。
           </div>
           <div class="ctx-toolbar">
-            <select id="ctx-snapshot-select" aria-label="选择上下文快照"></select>
-            <button onclick="saveSelectedContextSnapshot()">存档</button>
-            <button class="ghost" onclick="restoreSelectedContextSnapshot()">载入存档</button>
-            <button class="ghost" onclick="toggleContextResetMenu()">Reset</button>
-            <span class="spacer"></span>
-            <span class="ctx-meta" id="ctx-layout-meta">读取中…</span>
-          </div>
-          <div class="ctx-reset-menu" id="ctx-reset-menu">
-            <button class="ghost" onclick="restoreContextSnapshot('default')">恢复默认</button>
-            <button class="ghost" onclick="restoreContextSnapshot('last_auto')">上次自动快照</button>
-            <button class="ghost" onclick="restoreContextSnapshot('slot1')">快照 1</button>
-            <button class="ghost" onclick="restoreContextSnapshot('slot2')">快照 2</button>
-            <button class="ghost" onclick="restoreContextSnapshot('slot3')">快照 3</button>
+            <button onclick="switchView('injection')">查看当前模型与提示词</button>
+            <span class="ctx-meta" id="ctx-runtime-summary">读取中…</span>
           </div>
         </section>
 
-        <section class="ctx-section">
-          <div class="ctx-section-head"><div><h3 class="ctx-section-title">当前运行结构</h3>
-            <div class="ctx-section-copy">只读显示当前 repo、路径与模块状态，便于判断网页正在管理哪套 runtime。</div></div></div>
-          <div class="ctx-section-body"><div class="ctx-runtime-grid" id="ctx-runtime-grid"></div></div>
-        </section>
+        <details class="advanced-details">
+          <summary>运行路径与模块诊断</summary>
+          <div class="details-body"><div class="ctx-runtime-grid" id="ctx-runtime-grid"></div></div>
+        </details>
 
         <section class="ctx-section">
-          <div class="ctx-section-head"><div><h3 class="ctx-section-title">真实注入开关</h3>
-            <div class="ctx-section-copy">这些开关调用现有 context-gates API，下一轮对话即时生效。</div></div>
+          <div class="ctx-section-head"><div><h3 class="ctx-section-title">实际载入顺序与真实注入开关</h3>
+            <div class="ctx-section-copy">从上到下进入模型上下文；固定层不能关闭，记忆层可即时开关。</div></div>
             <span class="ctx-save-state" id="ctx-gate-status"></span></div>
           <div class="ctx-section-body"><div class="ctx-gates" id="ctx-gates"></div></div>
         </section>
 
-        <section class="ctx-section">
-          <div class="ctx-section-head"><div><h3 class="ctx-section-title">上下文载入顺序</h3>
-            <div class="ctx-section-copy">Base 固定最前，Current Context 固定最后；拖动中间层，编辑、开关或删除其中的小模块。</div></div>
-            <span class="ctx-save-state" id="ctx-layout-save-state"></span></div>
-          <div class="ctx-section-body">
-            <div class="ctx-warning">带“编排配置”标记的层目前只保存配置，不会擅自改动 TG prompt；带“实时 gate 对应层”标记的层同时受上方 runtime gate 控制。</div>
+        <details class="advanced-details">
+          <summary>实验性编排（目前不改变 Telegram 的真实顺序）</summary>
+          <div class="details-body">
+            <div class="ctx-warning">这里保存的是未来编排草案。真实生效项只有上方三个开关；拖动、重命名和快照不会改变当前 TG prompt 顺序。</div>
+            <div class="ctx-toolbar">
+              <select id="ctx-snapshot-select" aria-label="选择上下文快照"></select>
+              <button onclick="saveSelectedContextSnapshot()">存档</button>
+              <button class="ghost" onclick="restoreSelectedContextSnapshot()">载入</button>
+              <button class="ghost" onclick="toggleContextResetMenu()">重置选项</button>
+              <span class="ctx-meta" id="ctx-layout-meta">读取中…</span>
+            </div>
+            <div class="ctx-reset-menu" id="ctx-reset-menu">
+              <button class="ghost" onclick="restoreContextSnapshot('default')">恢复默认</button>
+              <button class="ghost" onclick="restoreContextSnapshot('last_auto')">上次自动快照</button>
+              <button class="ghost" onclick="restoreContextSnapshot('slot1')">快照 1</button>
+              <button class="ghost" onclick="restoreContextSnapshot('slot2')">快照 2</button>
+              <button class="ghost" onclick="restoreContextSnapshot('slot3')">快照 3</button>
+            </div>
+            <span class="ctx-save-state" id="ctx-layout-save-state"></span>
             <div class="ctx-board" id="ctx-board" style="margin-top:11px;"></div>
           </div>
-        </section>
+        </details>
 
-        <section class="ctx-section">
-          <div class="ctx-section-head"><div><h3 class="ctx-section-title">当前任务单</h3>
-            <div class="ctx-section-copy">读取实际 CODING_TODO.md；保存前显示 diff，并把旧版备份到 runtime state。</div></div>
+        <details class="advanced-details">
+          <summary>开发任务单（CODING_TODO）</summary>
+          <div class="details-body">
+          <div class="ctx-section-head"><div><h3 class="ctx-section-title">仅供开发维护</h3>
+            <div class="ctx-section-copy">这不是记忆或上下文的一部分；仅在需要维护项目时使用。</div></div>
             <span class="ctx-meta" id="ctx-todo-meta"></span></div>
-          <div class="ctx-section-body">
             <div class="ctx-todo-actions">
               <button id="ctx-todo-edit" onclick="enterContextTodoEdit()">编辑</button>
               <button id="ctx-todo-save" style="display:none" onclick="showContextTodoDiff()">保存</button>
@@ -3011,7 +3109,7 @@ PAGE = r"""<!doctype html>
             </div>
             <textarea id="ctx-todo-editor" spellcheck="false" readonly></textarea>
           </div>
-        </section>
+        </details>
       </div>
     </div>
 
@@ -3227,8 +3325,36 @@ async function loadContextGates(container) {
 }
 
 // ---------- 1 健康度 ----------
+function renderCoreHealthSummary(h) {
+  const host = document.getElementById('core-health-summary');
+  const alerts = h.alerts || [];
+  const redCount = alerts.filter(item => item.level === 'red').length;
+  const stateClass = redCount ? 'bad' : (alerts.length ? '' : 'ok');
+  const stateText = redCount ? '存在故障' : (alerts.length ? alerts.length + ' 项需要留意' : '运行正常');
+  const bridge = h.bridge_status || {};
+  const bridgeGap = bridge.latest_long_gap;
+  const bridgeClass = bridgeGap ? 'bad' : (bridge.runtime_exit_at ? 'warn' : '');
+  const bridgeTitle = bridgeGap ? '发现长断档' : (bridge.runtime_exit_at ? '近期曾异常退出' : '近 48 小时无长断档');
+  const bridgeDetail = bridgeGap ? (Math.round(Number(bridgeGap.minutes || 0)) + ' 分钟') : 'Telegram 链路观察';
+  const reentryOver = Number(h.reentry_chars || 0) > Number(h.reentry_budget || 0);
+  const octantAge = Number((h.desire_state || {}).hours_since_update || h.hours_since_state || 0);
+  const octantClass = octantAge > 8 ? 'warn' : '';
+  const candidateClass = Number(h.candidates_n || 0) > 50 ? 'warn' : '';
+  host.innerHTML = '<section class="core-hero"><div class="core-hero-top"><div>' +
+    '<div class="core-eyebrow">Cyberlink status</div><h1 class="core-title">现在的系统状态</h1>' +
+    '<div class="core-copy">只显示会影响使用的结论。底层路径、原始 JSON 和开发诊断已收进折叠区。</div></div>' +
+    '<div class="core-state ' + stateClass + '">' + esc(stateText) + '</div></div>' +
+    '<div class="core-status-grid">' +
+      '<div class="core-status ' + bridgeClass + '"><div class="label">TELEGRAM / RUNTIME</div><strong>' + esc(bridgeTitle) + '</strong><small>' + esc(bridgeDetail) + '</small></div>' +
+      '<div class="core-status ' + (reentryOver ? 'bad' : '') + '"><div class="label">RE-ENTRY</div><strong>' + esc(h.reentry_chars) + ' / ' + esc(h.reentry_budget) + ' 字符</strong><small>' + (reentryOver ? '已超过预算，需要收缩' : '醒来第一包在预算内') + '</small></div>' +
+      '<div class="core-status ' + octantClass + '"><div class="label">八维状态</div><strong>' + (octantAge ? esc(octantAge) + ' 小时前' : '暂无时间') + '</strong><small>' + (octantAge > 8 ? '心跳偏旧，但数据结构完整' : '状态刷新正常') + '</small></div>' +
+      '<div class="core-status ' + candidateClass + '"><div class="label">待审候选</div><strong>' + esc(h.candidates_n || 0) + ' 条</strong><small>候选不会自动进入正式记忆</small></div>' +
+    '</div></section>';
+}
+
 async function loadHealth() {
   const r = await fetch('/api/health'); const h = await r.json();
+  renderCoreHealthSummary(h);
   const ab = document.getElementById('alertbar');
   ab.innerHTML = '';
   if (h.alerts.length === 0) {
@@ -4073,33 +4199,48 @@ function setContextSaveState(text, bad=false) {
   el.style.color = bad ? '#ff9ca8' : '';
 }
 
-function renderContextRuntime(data) {
+function renderContextRuntime(data, injection) {
   const repo = data.repo || {};
-  const paths = data.paths || {};
   const modules = data.modules || {};
+  const prompt = (injection || {}).runtime_prompt || {};
+  const moduleValues = Object.values(modules);
+  const healthyModules = moduleValues.filter(value => value === 'on').length;
+  const promptName = String(prompt.path || '').split(/[\\/]/).pop() || '未识别';
   const cards = [
-    ['Git / 部署来源', repo.path || '(未配置)', (repo.branch || '-') + ' · ' + ((repo.commit || '').slice(0, 12) || '-') + (repo.dirty ? ' · dirty' : '')],
-    ['Memory', paths.memory || '(未配置)', '正式记忆与候选数据目录'],
-    ['Continuity', paths.continuity || '(未配置)', 'Trace / Candidate / Decision / Canon'],
-    ['Runtime State', paths.state || '(未配置)', '开关、上下文配置与快照'],
-    ['CODING_TODO', paths.todo || '(未配置)', '任务单编辑采用原子写入与备份'],
-    ['模块状态', Object.entries(modules).map(([k,v]) => k + ':' + v).join(' · ') || '(无)', '只读状态摘要'],
+    ['运行版本', (repo.branch || '-') + ' · ' + ((repo.commit || '').slice(0, 12) || '-'), repo.dirty ? '工作区包含未提交改动' : '工作区干净'],
+    ['实际提示词', promptName, (prompt.chars || 0) + ' 字符 · ' + (prompt.updated_at || '无时间')],
+    ['核心模块', healthyModules + ' / ' + moduleValues.length + ' 正常', Object.entries(modules).map(([k,v]) => k + ':' + v).join(' · ') || '无模块状态'],
   ];
   const host = document.getElementById('ctx-runtime-grid');
   host.innerHTML = cards.map(([label, value, detail]) =>
     '<div class="ctx-runtime-card"><div class="label">' + esc(label) + '</div>' +
     '<div class="value">' + esc(value) + '</div><div class="detail">' + esc(detail) + '</div></div>'
   ).join('');
+  const summary = document.getElementById('ctx-runtime-summary');
+  if (summary) summary.textContent = '当前模型：' + (prompt.model || '未识别') + ' · ' + promptName;
 }
 
 function renderContextGates(gates) {
   const host = document.getElementById('ctx-gates');
-  host.innerHTML = Object.entries(CONTEXT_GATE_LABELS_V2).map(([key, pair]) => {
+  host.className = 'context-flow';
+  const fixedStep = (number, title, copy, rule) =>
+    '<div class="context-step fixed"><span class="step-no">' + number + '</span><div><strong>' + esc(title) +
+    '</strong><small>' + esc(copy) + '</small></div><div class="load-rule">' + esc(rule) + '</div><span class="status-pill ok">固定</span></div>';
+  const gateSteps = Object.entries(CONTEXT_GATE_LABELS_V2).map(([key, pair], index) => {
     const on = gates[key] !== false;
-    return '<div class="ctx-gate"><div><strong>' + esc(pair[0]) + '</strong><small>' + esc(pair[1]) +
-      '</small></div><label class="ctx-switch"><input type="checkbox" data-gate="' + key + '" ' +
+    const rules = {
+      reentry:'仅新线程首轮；同一线程不会反复注入',
+      current_state:'首轮或状态刷新时提供八维与当前关注',
+      memory_context:'按需检索与连续性缝入，不加载整库',
+    };
+    return '<div class="context-step ' + (on ? '' : 'off') + '"><span class="step-no">0' + (index + 2) + '</span><div><strong>' + esc(pair[0]) +
+      '</strong><small>' + esc(pair[1]) + '</small></div><div class="load-rule">' + esc(rules[key]) + '</div>' +
+      '<label class="ctx-switch" title="下一轮 Telegram 对话生效"><input type="checkbox" data-gate="' + key + '" ' +
       (on ? 'checked' : '') + ' onchange="setContextGate(\'' + key + '\', this.checked)"><span></span></label></div>';
   }).join('');
+  host.innerHTML = fixedStep('01','System / Persona','实际模型提示词与稳定身份','每轮固定加载；在“模型与提示词”页编辑') +
+    gateSteps + fixedStep('05','Current Context / 当前对话','最近消息、工具结果与本轮用户输入','每轮固定加载，位于上下文末端') +
+    '<div class="context-note">开关是唯一会即时改变 Telegram 上下文的页面操作。顺序仍由 runtime 固定；实验性拖拽仅保存草案。</div>';
 }
 
 async function setContextGate(key, enabled) {
@@ -4379,13 +4520,14 @@ async function commitContextTodoSave() {
 
 async function loadContextManager() {
   try {
-    const [overviewRes] = await Promise.all([
+    const [overviewRes, injectionRes] = await Promise.all([
       fetch('/api/context-overview'),
+      fetch('/api/injection'),
       loadContextGatesForManager(),
       loadContextLayout(),
       loadContextTodo(),
     ]);
-    renderContextRuntime(await overviewRes.json());
+    renderContextRuntime(await overviewRes.json(), await injectionRes.json());
   } catch (e) {
     setContextSaveState('加载失败：' + e.message, true);
   }

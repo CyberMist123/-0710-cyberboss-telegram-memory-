@@ -32,18 +32,18 @@ OLD_CONTINUITY_HTML = '''    <div class="view" id="view-continuity">
     </div>'''
 
 NEW_CONTINUITY_HTML = '''    <div class="view" id="view-continuity">
-      <div class="notice">只读观察页：这里把技术断档、证据、语义候选、Review 决策和正式 Canon 分开显示。页面不直接写记忆。</div>
+      <div class="notice">这是一条从“发生了什么”到“正式记住什么”的只读流水。默认只展开最常看的层，原始字段仍可在每条事件里查看。</div>
       <div class="view-stack">
         <div><div class="section-head">模块与 Nightly 模式</div><div id="continuity-modules"></div><div id="continuity-nightly" class="notice"></div></div>
-        <div><div class="section-head">上下文 Trace</div><div id="continuity-trace"></div></div>
-        <div><div class="section-head">技术断档</div><div id="continuity-gaps-meta" class="notice"></div><div id="continuity-gaps"></div></div>
-        <div><div class="section-head">证据材料</div><div id="continuity-evidence-meta" class="notice"></div><div id="continuity-evidence"></div></div>
-        <div><div class="section-head">主体 AI 候选</div><div id="continuity-subject-candidates-meta" class="notice"></div><div id="continuity-subject-candidates"></div></div>
-        <div><div class="section-head">后台代理候选</div><div id="continuity-background-candidates-meta" class="notice"></div><div id="continuity-background-candidates"></div></div>
-        <div><div class="section-head">冻结的旧候选</div><div id="continuity-blocked-candidates-meta" class="notice"></div><div id="continuity-blocked-candidates"></div></div>
-        <div><div class="section-head">Review 决策</div><div id="continuity-decisions-meta" class="notice"></div><div id="continuity-decisions"></div></div>
-        <div><div class="section-head">已发布 Canon</div><div id="continuity-canon-meta" class="notice"></div><div id="continuity-canon"></div></div>
-        <div><div class="section-head">520 配置变更事件</div><div id="continuity-config-events-meta" class="notice"></div><div id="continuity-config-events"></div></div>
+        <details class="advanced-details" open><summary>实际上下文事件（Trace）</summary><div class="details-body"><div id="continuity-trace"></div></div></details>
+        <details class="advanced-details"><summary>技术断档</summary><div class="details-body"><div id="continuity-gaps-meta" class="notice"></div><div id="continuity-gaps"></div></div></details>
+        <details class="advanced-details"><summary>证据材料</summary><div class="details-body"><div id="continuity-evidence-meta" class="notice"></div><div id="continuity-evidence"></div></div></details>
+        <details class="advanced-details" open><summary>主体 AI 候选</summary><div class="details-body"><div id="continuity-subject-candidates-meta" class="notice"></div><div id="continuity-subject-candidates"></div></div></details>
+        <details class="advanced-details"><summary>后台代理候选</summary><div class="details-body"><div id="continuity-background-candidates-meta" class="notice"></div><div id="continuity-background-candidates"></div></div></details>
+        <details class="advanced-details"><summary>冻结的旧候选</summary><div class="details-body"><div id="continuity-blocked-candidates-meta" class="notice"></div><div id="continuity-blocked-candidates"></div></div></details>
+        <details class="advanced-details" open><summary>Review 决策</summary><div class="details-body"><div id="continuity-decisions-meta" class="notice"></div><div id="continuity-decisions"></div></div></details>
+        <details class="advanced-details" open><summary>已发布 Canon（正式记忆）</summary><div class="details-body"><div id="continuity-canon-meta" class="notice"></div><div id="continuity-canon"></div></div></details>
+        <details class="advanced-details"><summary>520 配置变更</summary><div class="details-body"><div id="continuity-config-events-meta" class="notice"></div><div id="continuity-config-events"></div></div></details>
       </div>
     </div>'''
 
@@ -90,6 +90,8 @@ NEW_LOAD_CONTINUITY = '''async function loadContinuity() {
   }[layersData.nightly_mode] || layersData.nightly_mode;
   nightly.textContent = '当前 Nightly 模式：' + modeText;
   renderContinuityRows('continuity-trace', traceData.rows || [], false);
+  const traceSummary = document.getElementById('continuity-trace').closest('details').querySelector('summary');
+  traceSummary.textContent = '实际上下文事件（Trace） · ' + (traceData.rows || []).length + ' 条';
   const targets = {
     gaps: 'continuity-gaps',
     evidence: 'continuity-evidence',
@@ -105,6 +107,10 @@ NEW_LOAD_CONTINUITY = '''async function loadContinuity() {
     if (!targetId) return;
     const meta = document.getElementById(targetId + '-meta');
     if (meta) meta.textContent = (layer.description || '') + ' 共 ' + (layer.count || 0) + ' 条。';
+    const details = document.getElementById(targetId).closest('details');
+    const summary = details && details.querySelector('summary');
+    if (summary && !summary.dataset.baseLabel) summary.dataset.baseLabel = summary.textContent;
+    if (summary) summary.textContent = summary.dataset.baseLabel + ' · ' + (layer.count || 0) + ' 条';
     renderContinuityRows(targetId, layer.rows || [], layer.key === 'decisions');
   });
 }'''
