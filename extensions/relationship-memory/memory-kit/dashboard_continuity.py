@@ -43,6 +43,7 @@ NEW_CONTINUITY_HTML = '''    <div class="view" id="view-continuity">
         <div><div class="section-head">冻结的旧候选</div><div id="continuity-blocked-candidates-meta" class="notice"></div><div id="continuity-blocked-candidates"></div></div>
         <div><div class="section-head">Review 决策</div><div id="continuity-decisions-meta" class="notice"></div><div id="continuity-decisions"></div></div>
         <div><div class="section-head">已发布 Canon</div><div id="continuity-canon-meta" class="notice"></div><div id="continuity-canon"></div></div>
+        <div><div class="section-head">520 配置变更事件</div><div id="continuity-config-events-meta" class="notice"></div><div id="continuity-config-events"></div></div>
       </div>
     </div>'''
 
@@ -97,6 +98,7 @@ NEW_LOAD_CONTINUITY = '''async function loadContinuity() {
     blocked_candidates: 'continuity-blocked-candidates',
     decisions: 'continuity-decisions',
     canon: 'continuity-canon',
+    config_events: 'continuity-config-events',
   };
   (layersData.layers || []).forEach(layer => {
     const targetId = targets[layer.key];
@@ -143,6 +145,19 @@ class H(legacy.H):
             try:
                 raw_limit = parse_qs(parsed.query).get("limit", ["50"])[0]
                 payload = build_continuity_layers(legacy.CONTINUITY_DIR, limit=raw_limit)
+                prompt_events = legacy.read_jsonl(legacy.PROMPT_AUDIT_FILE)
+                try:
+                    bounded_limit = max(1, min(int(raw_limit), 200))
+                except Exception:
+                    bounded_limit = 50
+                payload["layers"].append({
+                    "key": "config_events",
+                    "label": "520 配置变更事件",
+                    "description": "从网页保存或恢复实际模型提示词时产生的审计记录。",
+                    "count": len(prompt_events),
+                    "rows": prompt_events[-bounded_limit:],
+                })
+                payload = legacy.normalize_display_value(payload)
                 self._send(200, json.dumps(payload, ensure_ascii=False))
             except Exception as error:
                 self._send(500, json.dumps({"err": str(error)}, ensure_ascii=False))

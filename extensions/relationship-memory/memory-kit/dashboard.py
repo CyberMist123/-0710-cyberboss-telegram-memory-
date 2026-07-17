@@ -33,6 +33,7 @@ API 桥永不让外部直接写 episodes.jsonl 正式文件——候选与正式
 关怀页边界:cycle 只由她录入,数据永不进 user_portrait / episodes,不做经期分析图表。
 """
 import atexit
+import hashlib
 import json
 import os
 import re
@@ -94,6 +95,8 @@ TODO_BACKUP_DIR = DASHBOARD_STATE_DIR / "todo-backups"
 CONTEXT_LAYOUT_FILE = DASHBOARD_STATE_DIR / "context-layout.json"
 CONTEXT_SNAPSHOT_DIR = DASHBOARD_STATE_DIR / "context-layout-snapshots"
 CONTEXT_META_FILE = DASHBOARD_STATE_DIR / "context-layout-meta.json"
+PROMPT_BACKUP_DIR = DASHBOARD_STATE_DIR / "prompt-backups"
+PROMPT_AUDIT_FILE = DASHBOARD_STATE_DIR / "prompt-change-log.jsonl"
 
 DEFAULT_CONTEXT_LAYOUT = {
     "version": 1,
@@ -319,7 +322,7 @@ def get_continuity_rows(kind, limit=50):
     if kind not in ("trace", "candidates", "decisions"):
         raise ValueError("invalid continuity row kind")
     rows = read_jsonl(paths[kind])
-    return rows[-max(1, min(int(limit), 200)):]
+    return normalize_display_value(rows[-max(1, min(int(limit), 200)):])
 
 
 def run_review_retry(candidate_id):
@@ -499,6 +502,35 @@ def read_text(path):
     return path.read_text(encoding="utf-8", errors="replace")
 
 
+def sha256_text(content):
+    return hashlib.sha256(str(content or "").encode("utf-8")).hexdigest()
+
+
+def repair_mojibake_text(value):
+    """Repair the common UTF-8-as-GBK corruption for display only."""
+    text = str(value or "")
+    markers = "鍚鐨鏄浠绗鎴濂璇杩锛銆鈥"
+    before = sum(text.count(char) for char in markers)
+    if before < 1:
+        return text
+    try:
+        repaired = text.encode("gb18030").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
+    after = sum(repaired.count(char) for char in markers)
+    return repaired if after < before else text
+
+
+def normalize_display_value(value):
+    if isinstance(value, str):
+        return repair_mojibake_text(value)
+    if isinstance(value, list):
+        return [normalize_display_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: normalize_display_value(item) for key, item in value.items()}
+    return value
+
+
 def write_text_atomic(path, content):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -516,7 +548,7 @@ def read_json_file(path, default=None):
     if not path.exists():
         return {} if default is None else copy_json(default)
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
     except Exception:
         return {} if default is None else copy_json(default)
     return value
@@ -1105,7 +1137,18 @@ def is_truthy_env(value):
 
 def resolve_runtime_env(state_dir=None):
     state_dir = state_dir or resolve_runtime_state_dir()
-    return read_env_file(state_dir / ".env")
+    merged = {}
+    manifest = read_json_file(DASHBOARD_WORKSPACE_ROOT / "settings" / "manifest.json", default={})
+    telegram = manifest.get("telegram") if isinstance(manifest, dict) else {}
+    configured_env = (telegram or {}).get("env_file") if isinstance(telegram, dict) else None
+    if configured_env:
+        merged.update(read_env_file(Path(configured_env)))
+    merged.update(read_env_file(state_dir / ".env"))
+    merged.update(resolve_runtime_launch_env(state_dir))
+    for key, value in os.environ.items():
+        if key.startswith("CYBERBOSS_"):
+            merged[key] = value
+    return merged
 
 
 def resolve_runtime_launch_env(state_dir=None):
@@ -1517,9 +1560,13 @@ def summarize_recent_file_updates(entries, limit=7):
 
 def get_model_overview():
     keys = load_keys()
+    try:
+        runtime_env = resolve_runtime_env()
+    except Exception:
+        runtime_env = {}
     return {
-        "chat_provider": keys.get("chat_provider") or "",
-        "chat_model": keys.get("chat_model") or "",
+        "chat_provider": keys.get("chat_provider") or runtime_env.get("CYBERBOSS_RUNTIME") or "",
+        "chat_model": keys.get("chat_model") or runtime_env.get("CYBERBOSS_CLAUDE_MODEL") or "",
         "extract_provider": keys.get("extract_provider") or keys.get("MEM_PROVIDER") or "",
         "extract_model": keys.get("extract_model") or keys.get("GLM_MODEL") or keys.get("DS_MODEL") or "",
     }
@@ -1531,6 +1578,99 @@ def model_label(provider, model, fallback):
     if provider or model:
         return " / ".join([p for p in (provider, model) if p])
     return fallback
+
+
+def resolve_runtime_prompt_path(state_dir=None, project_dir=None):
+    state_dir = state_dir or resolve_runtime_state_dir()
+    project_dir = project_dir or resolve_cyberboss_project_dir()
+    runtime_env = resolve_runtime_env(state_dir)
+    configured = str(runtime_env.get("CYBERBOSS_PROMPT_FILE") or "").strip()
+    return Path(configured) if configured else (project_dir / "templates" / "weixin-instructions.md")
+
+
+def list_prompt_backups(limit=30):
+    if not PROMPT_BACKUP_DIR.is_dir():
+        return []
+    rows = []
+    for path in sorted(PROMPT_BACKUP_DIR.glob("*.md"), key=lambda item: item.stat().st_mtime, reverse=True)[:limit]:
+        content = read_text(path)
+        rows.append({
+            "name": path.name,
+            "updated_at": iso_mtime(path),
+            "chars": len(content),
+            "sha256": sha256_text(content),
+        })
+    return rows
+
+
+def get_runtime_prompt_payload(include_content=True):
+    state_dir = resolve_runtime_state_dir()
+    project_dir = resolve_cyberboss_project_dir()
+    runtime_env = resolve_runtime_env(state_dir)
+    path = resolve_runtime_prompt_path(state_dir, project_dir)
+    content = read_text(path)
+    payload = {
+        "path": str(path),
+        "exists": path.is_file(),
+        "updated_at": iso_mtime(path),
+        "chars": len(content),
+        "lines": len(content.splitlines()),
+        "sha256": sha256_text(content),
+        "model": runtime_env.get("CYBERBOSS_CLAUDE_MODEL") or "",
+        "runtime": runtime_env.get("CYBERBOSS_RUNTIME") or "",
+        "operations_enabled": is_truthy_env(runtime_env.get("CYBERBOSS_INCLUDE_OPERATIONS_PROMPT")),
+        "memory_retrieval_enabled": is_truthy_env(runtime_env.get("CYBERBOSS_MEMORY_RETRIEVAL")),
+        "background_write_enabled": is_truthy_env(runtime_env.get("CYBERBOSS_MEMORY_BACKGROUND_WRITE")),
+        "apply_note": "保存后，新线程会读取新版本；已存在的线程需执行 /reread 或重新开线程。",
+        "backups": list_prompt_backups(),
+    }
+    if include_content:
+        payload["content"] = content
+    return payload
+
+
+def append_prompt_audit(event):
+    PROMPT_AUDIT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with PROMPT_AUDIT_FILE.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+
+def save_runtime_prompt(content, expected_sha256="", source="520"):
+    text = str(content or "")
+    if not text.strip() or len(text) > 100000 or "\x00" in text:
+        raise ValueError("提示词不能为空，且必须小于 100000 字符。")
+    path = resolve_runtime_prompt_path()
+    current = read_text(path)
+    current_sha = sha256_text(current)
+    if expected_sha256 and expected_sha256 != current_sha:
+        raise RuntimeError("提示词已被其他进程修改，请刷新后重试。")
+    if text == current:
+        return get_runtime_prompt_payload()
+    PROMPT_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    backup = PROMPT_BACKUP_DIR / f"{stamp}-{current_sha[:10]}.md"
+    write_text_atomic(backup, current)
+    write_text_atomic(path, text)
+    append_prompt_audit({
+        "ts": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "event": "prompt_saved",
+        "source": str(source or "520"),
+        "path": str(path),
+        "before_sha256": current_sha,
+        "after_sha256": sha256_text(text),
+        "backup": backup.name,
+    })
+    return get_runtime_prompt_payload()
+
+
+def restore_runtime_prompt(backup_name, expected_sha256="", source="520"):
+    safe_name = Path(str(backup_name or "")).name
+    if not safe_name or safe_name != str(backup_name or "") or not safe_name.endswith(".md"):
+        raise ValueError("无效的备份版本。")
+    backup = PROMPT_BACKUP_DIR / safe_name
+    if not backup.is_file():
+        raise FileNotFoundError("备份版本不存在。")
+    return save_runtime_prompt(read_text(backup), expected_sha256=expected_sha256, source=f"{source}:restore:{safe_name}")
 
 
 def build_entry(path, *, key, label, writer, cadence, purpose, layer,
@@ -1568,7 +1708,7 @@ def compute_injection_overview():
     models = get_model_overview()
     runtime_env = resolve_runtime_env(state_dir)
     runtime_memory_status = compute_runtime_memory_status()
-    runtime_instructions = state_dir / "weixin-instructions.md"
+    runtime_instructions = resolve_runtime_prompt_path(state_dir, project_dir)
     template_instructions = project_dir / "templates" / "weixin-instructions.md"
     operations_template = project_dir / "templates" / "weixin-operations.md"
     runtime_memory_dir = resolve_runtime_memory_dir(state_dir)
@@ -1587,6 +1727,7 @@ def compute_injection_overview():
     state_text = read_text(workspace_state_relay)
     pending_text = read_text(workspace_pending_promises)
     reentry_text = read_text(reentry_path)
+    operations_enabled = is_truthy_env(runtime_env.get("CYBERBOSS_INCLUDE_OPERATIONS_PROMPT"))
 
     runtime_memory_block = extract_h2_block(runtime_text, "记忆与连续性")
     template_memory_block = extract_h2_block(template_text, "记忆与连续性")
@@ -1670,6 +1811,17 @@ def compute_injection_overview():
             recent_lines_limit=6,
         ),
     ]
+    active_by_key = {
+        "runtime_instructions": True,
+        "operations_template": operations_enabled,
+        "runtime_seven_day": is_truthy_env(runtime_env.get("CYBERBOSS_MEMORY_BACKGROUND_WRITE")),
+        "runtime_pending_promises": is_truthy_env(runtime_env.get("CYBERBOSS_LEGACY_PROMISE_RELAY")),
+        "workspace_state_relay": is_truthy_env(runtime_env.get("CYBERBOSS_LEGACY_STATE_RELAY")),
+        "workspace_pending_promises": is_truthy_env(runtime_env.get("CYBERBOSS_LEGACY_PROMISE_RELAY")),
+        "reentry": True,
+    }
+    for entry in runtime_chain:
+        entry["active"] = bool(active_by_key.get(entry.get("key"), False))
 
     source_files = [
         build_entry(
@@ -1701,15 +1853,17 @@ def compute_injection_overview():
         "runtime_state_dir": str(state_dir),
         "runtime_memory_status": runtime_memory_status,
         "runtime_background_write_enabled": is_runtime_background_write_enabled(state_dir),
+        "operations_enabled": operations_enabled,
         "project_dir": str(project_dir),
         "memory_block_sync": memory_block_sync,
         "runtime_chain": runtime_chain,
         "source_files": source_files,
+        "runtime_prompt": get_runtime_prompt_payload(include_content=True),
         "sections": {
             "role_card": extract_h2_block(runtime_text, "人格与关系"),
             "memory_continuity": runtime_memory_block,
             "thinking_style": extract_h2_block(runtime_text, "思考方式"),
-            "operations_excerpt": preview_block(operations_text, limit_chars=1800, limit_lines=24),
+            "operations_excerpt": preview_block(operations_text, limit_chars=1800, limit_lines=24) if operations_enabled else "",
             "runtime_seven_day": preview_block(seven_day_text, limit_chars=1600, limit_lines=20),
             "runtime_pending_promises": preview_block(runtime_pending_text, limit_chars=1200, limit_lines=16),
             "state_relay": preview_block(state_text, limit_chars=1200, limit_lines=16),
@@ -2487,6 +2641,11 @@ PAGE = r"""<!doctype html>
   #editbtn, #savebtn, #cancelbtn { display:none !important; }
   .continuity-row { background:var(--surface-2); border:1px solid var(--line); border-radius:8px;
                     padding:10px 12px; margin-bottom:8px; font-size:12px; overflow-wrap:anywhere; }
+  .continuity-row .event-title { font-weight:700; color:var(--text); margin-bottom:5px; }
+  .continuity-row .event-meta { color:var(--muted); margin-bottom:7px; }
+  .continuity-row .event-body { white-space:pre-wrap; line-height:1.65; }
+  .continuity-row details { margin-top:8px; color:var(--muted); }
+  .continuity-row details pre { margin-top:6px; max-height:260px; overflow:auto; white-space:pre-wrap; }
   .module-state { display:inline-block; margin:3px 6px 3px 0; padding:5px 8px;
                   border:1px solid var(--line); border-radius:6px; font-size:12px; }
   .module-state.on { border-color:#4f7658; color:#9be3ab; }
@@ -2687,6 +2846,19 @@ PAGE = r"""<!doctype html>
           <div class="section-head">当前真正的注入内容</div>
           <div class="cardgrid" id="injection-sections"></div>
         </div>
+        <div>
+          <div class="section-head">实际模型提示词（完整内容）</div>
+          <div class="notice" id="runtime-prompt-meta">读取中…</div>
+          <textarea id="runtime-prompt-editor" readonly style="min-height:420px; margin-top:10px;"></textarea>
+          <div class="row" style="margin-top:10px;">
+            <button id="runtime-prompt-edit" onclick="editRuntimePrompt()">修改实际提示词</button>
+            <button id="runtime-prompt-save" onclick="previewRuntimePromptSave()" style="display:none;">查看差异并保存</button>
+            <button class="ghost" id="runtime-prompt-cancel" onclick="cancelRuntimePromptEdit()" style="display:none;">取消</button>
+            <select id="runtime-prompt-backups" aria-label="历史提示词版本"></select>
+            <button class="ghost" onclick="restoreRuntimePrompt()">恢复所选版本</button>
+            <span id="runtime-prompt-status" class="status"></span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -2885,6 +3057,9 @@ let contextLayoutSaveTimer = null;
 let contextDraggedGroup = null;
 let contextTodoOriginal = '';
 let contextTodoEditing = false;
+let runtimePromptOriginal = '';
+let runtimePromptPayload = null;
+let runtimePromptEditing = false;
 let pendingAction = null;
 
 // ---------- tab 切换 ----------
@@ -2936,13 +3111,74 @@ function renderContinuityRows(targetId, rows, allowRetry) {
   }
   rows.slice().reverse().forEach(row => {
     const box = document.createElement('div'); box.className = 'continuity-row';
-    const pre = document.createElement('pre'); pre.textContent = JSON.stringify(row, null, 2); box.appendChild(pre);
-    if (allowRetry && ['deferred', 'rejected'].includes(row.action) && row.candidate_id) {
+    const event = describeContinuityEvent(row, targetId);
+    const title = document.createElement('div'); title.className = 'event-title'; title.textContent = event.title; box.appendChild(title);
+    if (event.meta) { const meta = document.createElement('div'); meta.className = 'event-meta'; meta.textContent = event.meta; box.appendChild(meta); }
+    if (event.body) { const body = document.createElement('div'); body.className = 'event-body'; body.textContent = event.body; box.appendChild(body); }
+    const details = document.createElement('details');
+    const summary = document.createElement('summary'); summary.textContent = '查看原始记录'; details.appendChild(summary);
+    const pre = document.createElement('pre'); pre.textContent = JSON.stringify(row, null, 2); details.appendChild(pre); box.appendChild(details);
+    if (allowRetry && ['deferred', 'rejected'].includes(row.result || row.action) && row.candidate_id) {
       const button = document.createElement('button'); button.className = 'ghost'; button.textContent = 'Re-review';
       button.onclick = () => retryContinuityReview(row.candidate_id, button); box.appendChild(button);
     }
     target.appendChild(box);
   });
+}
+
+function continuityTypeLabel(value) {
+  return ({episode:'事件记忆', self_note:'AI 私人日记', reentry_draft:'下次醒来交接稿',
+    accepted:'已接受', rejected:'已拒绝', deferred:'已延后', merged:'已合并'})[value] || value || '';
+}
+
+function continuityReasonLabel(value) {
+  return ({default_hidden:'默认不加载', existing_thread:'已是现有线程', already_injected:'本线程已经加载过',
+    gated_off:'运行开关已关闭', missing:'来源不存在', reviewed:'证据与边界检查通过',
+    subject_review_required:'需要主体 AI 复核', boundary_touch:'涉及边界内容，需要复核',
+    semantic_authority_missing:'来源没有语义执笔权', legacy_uncovered:'历史会话区间尚未覆盖'})[value] || value || '';
+}
+
+function continuityCheckLabel(value) {
+  return ({source_ref_located:'来源可定位', length_ok:'长度合规', safety_ok:'安全检查通过',
+    imperative_warning:'含命令式措辞', duplicate_of:'重复于', publication_allowed:'允许发布'})[value] || value;
+}
+
+function sourceRefText(ref) {
+  if (!ref) return '';
+  if (typeof ref === 'string') return ref;
+  const file = ref.file ? String(ref.file).split(/[\\/]/).pop() : '';
+  return [file, ref.window ? ('行 ' + ref.window) : ''].filter(Boolean).join(' · ');
+}
+
+function describeContinuityEvent(row, targetId) {
+  const when = row.ts || row.time || row.detected_at || row.created_at || row.updated_at || '';
+  const id = row.trace_entry_id || row.gap_id || row.evidence_id || row.candidate_id || row.decision_id || row.ep_id || row.id || '';
+  const source = sourceRefText(row.source_ref);
+  if (targetId === 'continuity-trace' || Array.isArray(row.blocks) || Array.isArray(row.skipped)) {
+    const loaded = (row.blocks || []).map(item => typeof item === 'string' ? item : item.type).filter(Boolean);
+    const skipped = (row.skipped || []).map(item => typeof item === 'string' ? item : ((item.type || '未知块') + '（' + continuityReasonLabel(item.reason || '未说明') + '）'));
+    const mode = row.opening === true ? '新线程首轮' : (row.opening === false ? '普通对话' : '上下文记录');
+    const lines = [loaded.length ? ('实际载入：' + loaded.join('、')) : '本轮没有额外载入记忆块。',
+      skipped.length ? ('未载入：' + skipped.join('；')) : '',
+      row.recall_calls && row.recall_calls.length ? ('主动回忆调用：' + row.recall_calls.length + ' 次') : '主动回忆：未调用',
+      '受控上下文记录量：' + Number(row.total_chars || 0) + ' 字符' + (row.fallback ? '；使用了回退路径' : '')].filter(Boolean);
+    return {title:'上下文事件 · ' + mode, meta:[when, row.thread ? ('线程 ' + row.thread) : '', row.turn || id].filter(Boolean).join(' · '), body:lines.join('\n')};
+  }
+  if (targetId === 'continuity-evidence' || row.evidence_id) return {title:'已保存证据材料', meta:[when,row.evidence_id || id,source,row.origin].filter(Boolean).join(' · '), body:row.body || row.text || row.excerpt || '材料已保存，但它本身还不是正式记忆。'};
+  if (targetId === 'continuity-gaps' || row.gap_id) return {title:'发现技术断档', meta:[when,id,source].filter(Boolean).join(' · '), body:continuityReasonLabel(row.reason) || row.note || '这段会话尚未被记忆流水线覆盖，等待补取证据。'};
+  if (targetId === 'continuity-decisions' || row.result || row.action) {
+    const result = row.result || row.action || 'unknown'; const checks = row.checks || {};
+    const checkText = Object.keys(checks).length ? Object.entries(checks).map(([key,value]) => continuityCheckLabel(key) + '：' + String(value)).join('；') : '';
+    return {title:'Review 决策 · ' + continuityTypeLabel(result), meta:[when,row.decision_id || id,row.candidate_id].filter(Boolean).join(' · '), body:[row.reason ? ('原因：' + continuityReasonLabel(row.reason)) : '', row.merged_into ? ('合并到：' + row.merged_into) : '', checkText ? ('检查：' + checkText) : ''].filter(Boolean).join('\n') || '审核完成。'};
+  }
+  if ((targetId || '').includes('candidates') || (row.candidate_id && !row.ep_id)) {
+    const authority = row.author_role === 'subject_ai' ? '主体 AI 执笔' : (row.author_role === 'background_proxy' ? '后台代理草稿' : '待确认来源');
+    return {title:continuityTypeLabel(row.type) + '候选', meta:[when,id,authority,source].filter(Boolean).join(' · '), body:row.body || row.what_happened || row.summary || '候选已生成，尚未看到可展示的正文。'};
+  }
+  if (targetId === 'continuity-canon' || row.ep_id || row.title || row.what_happened) return {title:'正式事件 · ' + (row.title || row.ep_id || row.candidate_id || 'Episode'), meta:[when,row.ep_id || id,source].filter(Boolean).join(' · '), body:row.what_happened || row.body || row.summary || '已发布到正式记忆。'};
+  if (targetId === 'continuity-config-events' || row.event === 'prompt_saved') return {title:'实际模型提示词已更新', meta:[when,row.after_sha256 ? ('新版本 ' + row.after_sha256.slice(0,12)) : ''].filter(Boolean).join(' · '), body:'修改来源：' + (row.source || '520') + '\n旧版本备份：' + (row.backup || '无')};
+  const summaryText = row.body || row.text || row.note || row.summary || row.reason || '';
+  return {title:'系统事件' + (id ? (' · ' + id) : ''), meta:[when,source].filter(Boolean).join(' · '), body:summaryText || '这条记录没有标准摘要，可展开查看原始字段。'};
 }
 
 async function loadContinuity() {
@@ -3155,10 +3391,15 @@ function renderAuditCard(item) {
   html += '<div class="meta-row">更新节奏: ' + esc(item.cadence || '') + '</div>';
   html += '<div class="meta-row">最后更新: ' + when + '</div>';
   html += '<div class="meta-row">作用: ' + esc(item.purpose || '') + '</div>';
+  if (typeof item.active === 'boolean') {
+    html += '<div class="status-pill ' + (item.active ? 'ok' : 'warn') + '">' + (item.active ? '本轮启用' : '当前未启用') + '</div>';
+  }
   if (item.rows != null) {
     html += '<div class="meta-row">条目数: ' + esc(item.rows) + (item.latest_day ? (' · 最新日期 ' + esc(item.latest_day)) : '') + '</div>';
   }
-  if (item.recent_lines && item.recent_lines.length) {
+  if (item.active === false) {
+    html += '<div class="meta-row">文件存在，但当前运行开关关闭，本轮不会加载正文。</div>';
+  } else if (item.recent_lines && item.recent_lines.length) {
     html += '<div class="line-list">' + item.recent_lines.map(line => '<div>' + esc(line) + '</div>').join('') + '</div>';
   } else if (item.preview) {
     html += '<pre class="mini-pre">' + esc(item.preview) + '</pre>';
@@ -3214,6 +3455,80 @@ async function loadInjection() {
   document.getElementById('injection-sections').innerHTML +=
     renderTextPanel('runtime 7-day-memory.md（背景写入池）', sections.runtime_seven_day) +
     renderTextPanel('runtime pending-promises.md', sections.runtime_pending_promises);
+  renderRuntimePrompt(d.runtime_prompt || {});
+}
+
+function renderRuntimePrompt(prompt) {
+  runtimePromptPayload = prompt;
+  if (!runtimePromptEditing) {
+    runtimePromptOriginal = prompt.content || '';
+    document.getElementById('runtime-prompt-editor').value = runtimePromptOriginal;
+  }
+  const flags = [
+    '模型 ' + (prompt.model || '未知'),
+    'Operations ' + (prompt.operations_enabled ? '开启' : '关闭'),
+    '记忆检索 ' + (prompt.memory_retrieval_enabled ? '开启' : '关闭'),
+    '背景写入 ' + (prompt.background_write_enabled ? '开启' : '关闭'),
+  ].join(' · ');
+  document.getElementById('runtime-prompt-meta').textContent =
+    (prompt.exists ? '正在生效' : '文件不存在') + ' · ' + (prompt.chars || 0) + ' 字符 · ' + (prompt.lines || 0) + ' 行 · ' +
+    flags + '\n' + (prompt.path || '') + '\n' + (prompt.apply_note || '');
+  const select = document.getElementById('runtime-prompt-backups');
+  const selected = select.value;
+  select.innerHTML = '<option value="">历史版本</option>' + (prompt.backups || []).map(item =>
+    '<option value="' + esc(item.name) + '">' + esc((item.updated_at || '') + ' · ' + item.chars + ' 字') + '</option>'
+  ).join('');
+  if ([...select.options].some(option => option.value === selected)) select.value = selected;
+}
+
+function editRuntimePrompt() {
+  runtimePromptEditing = true;
+  const editor = document.getElementById('runtime-prompt-editor'); editor.readOnly = false; editor.focus();
+  document.getElementById('runtime-prompt-edit').style.display = 'none';
+  document.getElementById('runtime-prompt-save').style.display = '';
+  document.getElementById('runtime-prompt-cancel').style.display = '';
+  document.getElementById('runtime-prompt-status').textContent = '编辑中；尚未写入运行时。';
+}
+
+function cancelRuntimePromptEdit() {
+  runtimePromptEditing = false;
+  const editor = document.getElementById('runtime-prompt-editor'); editor.value = runtimePromptOriginal; editor.readOnly = true;
+  document.getElementById('runtime-prompt-edit').style.display = '';
+  document.getElementById('runtime-prompt-save').style.display = 'none';
+  document.getElementById('runtime-prompt-cancel').style.display = 'none';
+  document.getElementById('runtime-prompt-status').textContent = '';
+}
+
+function previewRuntimePromptSave() {
+  pendingAction = {kind:'prompt-save'};
+  showDiff(runtimePromptOriginal, document.getElementById('runtime-prompt-editor').value);
+}
+
+async function runtimePromptPost(path, payload) {
+  const response = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json','X-Api-Token':getApiToken()}, body:JSON.stringify(payload)});
+  const data = await response.json();
+  if (!response.ok || !data.ok) throw new Error(data.err || data.error || ('HTTP ' + response.status));
+  return data.prompt;
+}
+
+async function commitRuntimePromptSave() {
+  const prompt = await runtimePromptPost('/api/runtime-prompt/save', {
+    content: document.getElementById('runtime-prompt-editor').value,
+    expected_sha256: runtimePromptPayload ? runtimePromptPayload.sha256 : '', source:'520 injection page',
+  });
+  runtimePromptEditing = false; renderRuntimePrompt(prompt); cancelRuntimePromptEdit();
+  document.getElementById('runtime-prompt-status').textContent = '已保存并备份旧版本；新线程生效。';
+}
+
+async function restoreRuntimePrompt() {
+  const backup = document.getElementById('runtime-prompt-backups').value;
+  if (!backup) { document.getElementById('runtime-prompt-status').textContent = '请先选择历史版本。'; return; }
+  if (!confirm('恢复这个提示词版本？当前版本会自动备份。')) return;
+  try {
+    const prompt = await runtimePromptPost('/api/runtime-prompt/restore', {backup, expected_sha256:runtimePromptPayload ? runtimePromptPayload.sha256 : '', source:'520 injection page'});
+    runtimePromptEditing = false; renderRuntimePrompt(prompt); cancelRuntimePromptEdit();
+    document.getElementById('runtime-prompt-status').textContent = '历史版本已恢复；新线程生效。';
+  } catch (error) { document.getElementById('runtime-prompt-status').textContent = '恢复失败：' + error.message; }
 }
 
 async function loadMemoryMap() {
@@ -4213,6 +4528,16 @@ function closeModal() {
 
 async function confirmSave() {
   closeModal();
+  if (pendingAction && pendingAction.kind === 'prompt-save') {
+    try {
+      await commitRuntimePromptSave();
+    } catch (e) {
+      document.getElementById('runtime-prompt-status').textContent = '保存失败：' + e.message;
+    } finally {
+      pendingAction = null;
+    }
+    return;
+  }
   if (pendingAction && pendingAction.kind === 'todo-save') {
     try {
       await commitContextTodoSave();
@@ -4356,6 +4681,12 @@ class H(BaseHTTPRequestHandler):
             try:
                 data = compute_injection_overview()
                 self._send(200, json.dumps(data, ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
+
+        elif u.path == "/api/runtime-prompt":
+            try:
+                self._send(200, json.dumps(get_runtime_prompt_payload(include_content=True), ensure_ascii=False))
             except Exception as e:
                 self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
 
@@ -4541,6 +4872,27 @@ class H(BaseHTTPRequestHandler):
                 "error": "write_frozen",
                 "path": u.path,
             }, ensure_ascii=False))
+            return
+
+        if u.path in ("/api/runtime-prompt/save", "/api/runtime-prompt/restore"):
+            if not self._check_token():
+                return
+            obj, err = self._read_json_body()
+            if err or not isinstance(obj, dict):
+                self._send(400, json.dumps({"ok": False, "error": "invalid_body", "err": err}, ensure_ascii=False))
+                return
+            try:
+                if u.path.endswith("/save"):
+                    prompt = save_runtime_prompt(obj.get("content"), obj.get("expected_sha256"), obj.get("source"))
+                else:
+                    prompt = restore_runtime_prompt(obj.get("backup"), obj.get("expected_sha256"), obj.get("source"))
+                self._send(200, json.dumps({"ok": True, "prompt": prompt}, ensure_ascii=False))
+            except (ValueError, FileNotFoundError) as e:
+                self._send(400, json.dumps({"ok": False, "error": "invalid_prompt", "err": str(e)}, ensure_ascii=False))
+            except RuntimeError as e:
+                self._send(409, json.dumps({"ok": False, "error": "prompt_conflict", "err": str(e)}, ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"ok": False, "error": "prompt_write_failed", "err": str(e)}, ensure_ascii=False))
             return
 
         if u.path == "/api/context-layout/save":
