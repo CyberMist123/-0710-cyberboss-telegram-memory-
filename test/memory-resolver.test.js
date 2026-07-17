@@ -107,6 +107,17 @@ test("app memory context retrieval returns matched lines", async () => {
   assert.deepEqual(result.lines, ["preferences: 喜欢直接一点"]);
 });
 
+test("manual memory-context override replaces automatic retrieval exactly", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-memory-override-"));
+  const overrideFile = path.join(root, "context-memory-override.md");
+  fs.writeFileSync(overrideFile, "她正在等我接住上一句话。\n不要把旧结论当成规则。\n", "utf8");
+  const result = await CyberbossApp.prototype.resolveMemoryContextForPrepared.call({
+    config: { memoryContextOverrideFile: overrideFile },
+  }, { originalText: "继续" });
+  assert.equal(result.mode, "manual_override");
+  assert.deepEqual(result.lines, ["她正在等我接住上一句话。", "不要把旧结论当成规则。"]);
+});
+
 test("app memory context retrieval includes curated markdown memory lines", async () => {
   const result = await CyberbossApp.prototype.resolveMemoryContextForPrepared.call({
     embeddingService: {

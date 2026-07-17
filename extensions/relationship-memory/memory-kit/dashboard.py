@@ -97,6 +97,7 @@ CONTEXT_SNAPSHOT_DIR = DASHBOARD_STATE_DIR / "context-layout-snapshots"
 CONTEXT_META_FILE = DASHBOARD_STATE_DIR / "context-layout-meta.json"
 PROMPT_BACKUP_DIR = DASHBOARD_STATE_DIR / "prompt-backups"
 PROMPT_AUDIT_FILE = DASHBOARD_STATE_DIR / "prompt-change-log.jsonl"
+CONTEXT_SOURCE_BACKUP_DIR = DASHBOARD_STATE_DIR / "context-source-backups"
 
 DEFAULT_CONTEXT_LAYOUT = {
     "version": 1,
@@ -1621,7 +1622,7 @@ def get_runtime_prompt_payload(include_content=True):
         "operations_enabled": is_truthy_env(runtime_env.get("CYBERBOSS_INCLUDE_OPERATIONS_PROMPT")),
         "memory_retrieval_enabled": is_truthy_env(runtime_env.get("CYBERBOSS_MEMORY_RETRIEVAL")),
         "background_write_enabled": is_truthy_env(runtime_env.get("CYBERBOSS_MEMORY_BACKGROUND_WRITE")),
-        "apply_note": "保存后，新线程会读取新版本；已存在的线程需执行 /reread 或重新开线程。",
+        "apply_note": "保存后，Telegram 会在下一条消息自动换干净线程并载入新版本。",
         "backups": list_prompt_backups(),
     }
     if include_content:
@@ -1671,6 +1672,118 @@ def restore_runtime_prompt(backup_name, expected_sha256="", source="520"):
     if not backup.is_file():
         raise FileNotFoundError("备份版本不存在。")
     return save_runtime_prompt(read_text(backup), expected_sha256=expected_sha256, source=f"{source}:restore:{safe_name}")
+
+
+def _context_source_paths():
+    state_dir = resolve_runtime_state_dir()
+    return {
+        "reentry": ROOT / "reentry.md",
+        "current_state": state_dir / "context-current-state.md",
+        "memory_context": state_dir / "context-memory-override.md",
+    }
+
+
+def _summarize_current_state_for_context():
+    payload = load_desire_state()
+    data = payload.get("data") if isinstance(payload, dict) else {}
+    if not isinstance(data, dict):
+        return ""
+    intent = data.get("intent") if isinstance(data.get("intent"), dict) else {}
+    parts = []
+    drive = str(intent.get("drive_key") or "").strip()
+    action = str(intent.get("want_action") or intent.get("action") or "").strip()
+    reason = str(intent.get("reason") or "").strip()
+    if drive:
+        parts.append(f"姿态:{drive}")
+    if action and action != "none":
+        parts.append(f"倾向:{action}")
+    if reason:
+        parts.append(f"缘由:{reason}")
+    if parts:
+        return "；".join(parts)[:100]
+    most_want = re.sub(r"\s+", " ", str(data.get("most_want") or "")).strip()[:70]
+    drives = data.get("drives") if isinstance(data.get("drives"), list) else []
+    scored = [row for row in drives if isinstance(row, dict) and row.get("label") and isinstance(row.get("score"), (int, float))]
+    scored.sort(key=lambda row: float(row.get("score") or 0), reverse=True)
+    drive_text = " ".join(f"{row['label']}{row['score']}{'↑' if row.get('change') == 'up' else ('↓' if row.get('change') == 'down' else '')}" for row in scored[:2])
+    return "；".join(item for item in (f"此刻:{most_want}" if most_want else "", drive_text) if item)[:100]
+
+
+def get_context_sources_payload():
+    gates = load_context_gates()
+    prompt = get_runtime_prompt_payload(include_content=True)
+    paths = _context_source_paths()
+    reentry_text = read_text(paths["reentry"])
+    current_override = read_text(paths["current_state"])
+    memory_override = read_text(paths["memory_context"])
+    sources = [
+        {
+            "key": "prompt", "label": "System / Persona", "gate": None,
+            "content": prompt.get("content") or "", "effective_content": prompt.get("content") or "",
+            "mode": "固定文件", "budget": 100000, "sha256": prompt.get("sha256") or "",
+            "updated_at": prompt.get("updated_at"), "model": prompt.get("model") or "",
+            "description": "稳定身份、关系边界与回答方式。保存后，下一条消息会自动换干净线程载入。",
+        },
+        {
+            "key": "reentry", "label": "Re-entry", "gate": gates.get("reentry", True),
+            "content": reentry_text, "effective_content": reentry_text if gates.get("reentry", True) else "",
+            "mode": "手写交接", "budget": 300, "sha256": sha256_text(reentry_text),
+            "updated_at": iso_mtime(paths["reentry"]),
+            "description": "新线程的醒来第一包。关闭或保存后，下一条消息会自动换干净线程。",
+        },
+        {
+            "key": "current_state", "label": "Live State", "gate": gates.get("current_state", True),
+            "content": current_override, "effective_content": current_override.strip() or _summarize_current_state_for_context(),
+            "mode": "手动覆盖" if current_override.strip() else "八维自动摘要",
+            "budget": 100, "sha256": sha256_text(current_override), "updated_at": iso_mtime(paths["current_state"]),
+            "description": "留空时自动读取八维摘要；填写后使用这里的文字。保存后下一条消息重建上下文。",
+        },
+        {
+            "key": "memory_context", "label": "Memory Context", "gate": gates.get("memory_context", True),
+            "content": memory_override, "effective_content": memory_override.strip(),
+            "mode": "手动覆盖" if memory_override.strip() else "按话题自动检索",
+            "budget": 4000, "sha256": sha256_text(memory_override), "updated_at": iso_mtime(paths["memory_context"]),
+            "description": "留空时按本轮话题检索；填写后只使用这里的非空行。下一轮即时生效。",
+        },
+    ]
+    return {"sources": sources, "gates": gates, "thread_rebuild_policy": "hard_context_change_on_next_turn"}
+
+
+def save_context_source(key, content, expected_sha256="", source="520"):
+    key = str(key or "").strip()
+    text = str(content or "")
+    if "\x00" in text:
+        raise ValueError("内容不能包含空字符。")
+    if key == "prompt":
+        save_runtime_prompt(text, expected_sha256=expected_sha256, source=source)
+        return get_context_sources_payload()
+    paths = _context_source_paths()
+    if key not in paths:
+        raise ValueError("不支持的上下文来源。")
+    limits = {"reentry": 300, "current_state": 100, "memory_context": 4000}
+    chars = len(re.sub(r"\s+", "", text))
+    if chars > limits[key]:
+        raise ValueError(f"内容超过 {limits[key]} 个非空白字符预算。")
+    path = paths[key]
+    current = read_text(path)
+    current_sha = sha256_text(current)
+    if expected_sha256 and expected_sha256 != current_sha:
+        raise RuntimeError("内容已被其他进程修改，请刷新后重试。")
+    if text == current:
+        return get_context_sources_payload()
+    backup_dir = CONTEXT_SOURCE_BACKUP_DIR / key
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    backup = backup_dir / f"{stamp}-{current_sha[:10]}.txt"
+    write_text_atomic(backup, current)
+    write_text_atomic(path, text)
+    append_prompt_audit({
+        "ts": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "event": "context_source_saved", "context_key": key,
+        "source": str(source or "520"), "before_sha256": current_sha,
+        "after_sha256": sha256_text(text), "backup": str(backup.relative_to(DASHBOARD_STATE_DIR)),
+    })
+    return get_context_sources_payload()
 
 
 def build_entry(path, *, key, label, writer, cadence, purpose, layer,
@@ -1994,10 +2107,12 @@ def compute_memory_overview():
         ],
         "recent_formal_episodes": [
             {
-                "time": str(item.get("time", "")),
-                "title": str(item.get("title", "")),
+                "time": str(item.get("time") or item.get("ts") or ""),
+                "title": str(item.get("title") or ""),
+                "body": str(item.get("body") or item.get("what_happened") or ""),
                 "importance": item.get("importance"),
-                "id": str(item.get("id", "")),
+                "id": str(item.get("id") or item.get("ep_id") or ""),
+                "author_role": str(item.get("author_role") or ""),
             }
             for item in list(reversed(read_jsonl(ROOT / "episodes.jsonl")))[:6]
         ],
@@ -2852,6 +2967,24 @@ PAGE = r"""<!doctype html>
   .context-step.fixed { border-color:#354064; background:#202432; }
   .context-step.off { opacity:.62; }
   .context-note { margin-top:10px; color:var(--text-faint); font-size:10.5px; line-height:1.6; }
+  .context-sources { display:flex; flex-direction:column; gap:10px; }
+  .context-source { border:1px solid var(--line-soft); border-radius:11px; background:#1b1e27; overflow:hidden; }
+  .context-source-head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; padding:13px 14px; }
+  .context-source-title { color:#f0f1f5; font-size:13px; font-weight:650; }
+  .context-source-meta { margin-top:4px; color:var(--text-faint); font-size:10.5px; line-height:1.5; }
+  .context-source-preview { padding:0 14px 13px; color:#c7c9d4; font:11.5px/1.65 "Microsoft YaHei",sans-serif;
+                            white-space:pre-wrap; max-height:150px; overflow:auto; }
+  .context-source-editor { display:none; padding:0 14px 14px; }
+  .context-source.editing .context-source-preview { display:none; }
+  .context-source.editing .context-source-editor { display:block; }
+  .context-source-editor textarea { min-height:220px; resize:vertical; }
+  .context-source-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:9px; }
+  .context-source-status { color:var(--text-faint); font-size:10.5px; }
+  .memory-episode { padding:14px 15px; border:1px solid var(--line); border-radius:10px; background:var(--surface-2); }
+  .memory-episode .when { color:var(--text-faint); font-size:10.5px; }
+  .memory-episode h3 { margin:6px 0 7px; color:#eef0f6; font-size:13px; }
+  .memory-episode p { margin:0; color:#c9ccd5; font-size:12px; line-height:1.75; white-space:pre-wrap; }
+  .memory-episode .origin { margin-top:8px; color:#777e90; font-size:10px; }
   @media (max-width:840px) {
       #tabs { overflow-x:auto; padding:8px 10px; }
       #tabs .brand-copy, #tabs .hint, #tabs .spacer { display:none; }
@@ -2884,8 +3017,7 @@ PAGE = r"""<!doctype html>
     <div class="tab" data-view="context">上下文控制</div>
     <div class="tab" data-view="continuity">事件流水</div>
     <div class="tab" data-view="octant">八维状态</div>
-    <div class="tab" data-view="timeline">时间线</div>
-    <div class="tab" data-view="injection">模型与提示词</div>
+    <div class="tab" data-view="timeline">Timeline</div>
     <div class="nav-divider"></div>
     <div class="tab secondary" data-view="care">关怀</div>
     <div class="tab secondary" data-view="theater">剧场</div>
@@ -2900,10 +3032,10 @@ PAGE = r"""<!doctype html>
     <div class="view on" id="view-health">
       <div id="core-health-summary"></div>
       <div class="quick-nav">
-        <button class="quick-link" onclick="switchView('memorymap')"><strong>查看记忆怎么运转</strong><small>Episode、Re-entry、Self-note 与候选层</small></button>
+        <button class="quick-link" onclick="switchView('memorymap')"><strong>查看记忆怎么运转</strong><small>Episode、Portrait、Self-note 与候选层</small></button>
         <button class="quick-link" onclick="switchView('context')"><strong>控制本轮加载内容</strong><small>三个真实开关与固定载入顺序</small></button>
         <button class="quick-link" onclick="switchView('continuity')"><strong>查看刚才发生了什么</strong><small>可读事件、Review 决策与正式 Canon</small></button>
-        <button class="quick-link" onclick="switchView('injection')"><strong>模型与实际提示词</strong><small>查看当前模型，编辑真正加载的提示词</small></button>
+        <button class="quick-link" onclick="switchView('context')"><strong>编辑所有缝入内容</strong><small>Persona、Re-entry、Live State 与 Memory Context</small></button>
       </div>
       <details class="advanced-details"><summary>详细诊断与原始指标</summary>
         <div class="details-body"><div id="alertbar"></div><div class="cardgrid" id="health-cards"></div></div>
@@ -2977,7 +3109,7 @@ PAGE = r"""<!doctype html>
         </section>
         <div class="cardgrid" id="memory-head"></div>
         <div>
-          <div class="section-head">当前可读到的正式记忆</div>
+          <div class="section-head">最近正式 Episodes 与主体记忆</div>
           <div class="cardgrid" id="memory-current"></div>
         </div>
         <details class="advanced-details"><summary>正式层文件状态</summary><div class="details-body"><div class="cardgrid" id="memory-formal"></div></div></details>
@@ -2990,7 +3122,6 @@ PAGE = r"""<!doctype html>
     <!-- 2 时间线 -->
     <div class="view" id="view-timeline">
       <div id="timeline-meta" class="notice"></div>
-      <div id="timeline-latest" class="cardgrid"></div>
       <div id="timeline-body"></div>
     </div>
 
@@ -3052,10 +3183,9 @@ PAGE = r"""<!doctype html>
           <div class="ctx-kicker">Context Control</div>
           <h2 class="ctx-title">本轮模型会看到什么</h2>
           <div class="ctx-lead">
-            这里优先显示真实运行顺序。三个开关会直接影响下一轮 Telegram 对话；顺序目前由 runtime 固定，页面不会把“仅保存的拖拽方案”伪装成已生效。
+            这里是上下文的唯一控制入口。修改硬上下文或开关后，Telegram 会在下一条消息自动换一个干净线程，旧内容不会继续留在模型上下文里。
           </div>
           <div class="ctx-toolbar">
-            <button onclick="switchView('injection')">查看当前模型与提示词</button>
             <span class="ctx-meta" id="ctx-runtime-summary">读取中…</span>
           </div>
         </section>
@@ -3072,44 +3202,12 @@ PAGE = r"""<!doctype html>
           <div class="ctx-section-body"><div class="ctx-gates" id="ctx-gates"></div></div>
         </section>
 
-        <details class="advanced-details">
-          <summary>实验性编排（目前不改变 Telegram 的真实顺序）</summary>
-          <div class="details-body">
-            <div class="ctx-warning">这里保存的是未来编排草案。真实生效项只有上方三个开关；拖动、重命名和快照不会改变当前 TG prompt 顺序。</div>
-            <div class="ctx-toolbar">
-              <select id="ctx-snapshot-select" aria-label="选择上下文快照"></select>
-              <button onclick="saveSelectedContextSnapshot()">存档</button>
-              <button class="ghost" onclick="restoreSelectedContextSnapshot()">载入</button>
-              <button class="ghost" onclick="toggleContextResetMenu()">重置选项</button>
-              <span class="ctx-meta" id="ctx-layout-meta">读取中…</span>
-            </div>
-            <div class="ctx-reset-menu" id="ctx-reset-menu">
-              <button class="ghost" onclick="restoreContextSnapshot('default')">恢复默认</button>
-              <button class="ghost" onclick="restoreContextSnapshot('last_auto')">上次自动快照</button>
-              <button class="ghost" onclick="restoreContextSnapshot('slot1')">快照 1</button>
-              <button class="ghost" onclick="restoreContextSnapshot('slot2')">快照 2</button>
-              <button class="ghost" onclick="restoreContextSnapshot('slot3')">快照 3</button>
-            </div>
-            <span class="ctx-save-state" id="ctx-layout-save-state"></span>
-            <div class="ctx-board" id="ctx-board" style="margin-top:11px;"></div>
-          </div>
-        </details>
+        <section class="ctx-section">
+          <div class="ctx-section-head"><div><h3 class="ctx-section-title">实际缝入内容</h3>
+            <div class="ctx-section-copy">四个入口对应四种真实来源。Live State 和 Memory Context 留空时恢复自动模式。</div></div></div>
+          <div class="ctx-section-body"><div class="context-sources" id="context-sources">读取中…</div></div>
+        </section>
 
-        <details class="advanced-details">
-          <summary>开发任务单（CODING_TODO）</summary>
-          <div class="details-body">
-          <div class="ctx-section-head"><div><h3 class="ctx-section-title">仅供开发维护</h3>
-            <div class="ctx-section-copy">这不是记忆或上下文的一部分；仅在需要维护项目时使用。</div></div>
-            <span class="ctx-meta" id="ctx-todo-meta"></span></div>
-            <div class="ctx-todo-actions">
-              <button id="ctx-todo-edit" onclick="enterContextTodoEdit()">编辑</button>
-              <button id="ctx-todo-save" style="display:none" onclick="showContextTodoDiff()">保存</button>
-              <button class="ghost" id="ctx-todo-cancel" style="display:none" onclick="cancelContextTodoEdit()">取消</button>
-              <span id="ctx-todo-status"></span>
-            </div>
-            <textarea id="ctx-todo-editor" spellcheck="false" readonly></textarea>
-          </div>
-        </details>
       </div>
     </div>
 
@@ -3155,6 +3253,8 @@ let contextLayoutSaveTimer = null;
 let contextDraggedGroup = null;
 let contextTodoOriginal = '';
 let contextTodoEditing = false;
+let contextSourcesPayload = null;
+let contextSourceEditingKey = '';
 let runtimePromptOriginal = '';
 let runtimePromptPayload = null;
 let runtimePromptEditing = false;
@@ -3271,10 +3371,14 @@ function describeContinuityEvent(row, targetId) {
   }
   if ((targetId || '').includes('candidates') || (row.candidate_id && !row.ep_id)) {
     const authority = row.author_role === 'subject_ai' ? '主体 AI 执笔' : (row.author_role === 'background_proxy' ? '后台代理草稿' : '待确认来源');
-    return {title:continuityTypeLabel(row.type) + '候选', meta:[when,id,authority,source].filter(Boolean).join(' · '), body:row.body || row.what_happened || row.summary || '候选已生成，尚未看到可展示的正文。'};
+    return {title:continuityTypeLabel(row.type) + '候选', meta:[when,id,authority,source].filter(Boolean).join(' · '), body:humanizeEpisodeText(row.body || row.what_happened || row.summary || '候选已生成，尚未看到可展示的正文。')};
   }
-  if (targetId === 'continuity-canon' || row.ep_id || row.title || row.what_happened) return {title:'正式事件 · ' + (row.title || row.ep_id || row.candidate_id || 'Episode'), meta:[when,row.ep_id || id,source].filter(Boolean).join(' · '), body:row.what_happened || row.body || row.summary || '已发布到正式记忆。'};
-  if (targetId === 'continuity-config-events' || row.event === 'prompt_saved') return {title:'实际模型提示词已更新', meta:[when,row.after_sha256 ? ('新版本 ' + row.after_sha256.slice(0,12)) : ''].filter(Boolean).join(' · '), body:'修改来源：' + (row.source || '520') + '\n旧版本备份：' + (row.backup || '无')};
+  if (targetId === 'continuity-canon' || row.ep_id || row.title || row.what_happened) return {title:'正式事件 · ' + humanizeEpisodeText(row.title || row.ep_id || row.candidate_id || 'Episode'), meta:[when,row.ep_id || id,source].filter(Boolean).join(' · '), body:humanizeEpisodeText(row.what_happened || row.body || row.summary || '已发布到正式记忆。')};
+  if (targetId === 'continuity-config-events' || ['prompt_saved','context_source_saved'].includes(row.event)) {
+    const labels = {prompt:'System / Persona',reentry:'Re-entry',current_state:'Live State',memory_context:'Memory Context'};
+    const label = row.event === 'prompt_saved' ? 'System / Persona' : (labels[row.context_key] || row.context_key || '上下文');
+    return {title:label + ' 已更新', meta:[when,row.after_sha256 ? ('新版本 ' + row.after_sha256.slice(0,12)) : ''].filter(Boolean).join(' · '), body:'修改来源：' + (row.source || '520') + '\n旧版本已自动备份。'};
+  }
   const summaryText = row.body || row.text || row.note || row.summary || row.reason || '';
   return {title:'系统事件' + (id ? (' · ' + id) : ''), meta:[when,source].filter(Boolean).join(' · '), body:summaryText || '这条记录没有标准摘要，可展开查看原始字段。'};
 }
@@ -3548,6 +3652,23 @@ function renderLinePanel(title, lines) {
   return '<div class="hcard"><h3>' + esc(title) + '</h3>' + body + '</div>';
 }
 
+function humanizeEpisodeText(value) {
+  return String(value || '')
+    .replace(/用户发现其AI伴侣/g, '她发现我')
+    .replace(/用户发现AI伴侣/g, '她发现我')
+    .replace(/用户的AI伴侣/g, '她熟悉的我')
+    .replace(/其AI伴侣/g, '我')
+    .replace(/用户/g, '她')
+    .replace(/\bAI\b/g, '我');
+}
+
+function renderMemoryEpisode(item) {
+  const body = humanizeEpisodeText(item.body || '');
+  const title = humanizeEpisodeText(item.title || '') || (body ? body.slice(0, 34) + (body.length > 34 ? '…' : '') : (item.id || 'Episode'));
+  return '<article class="memory-episode"><div class="when">' + esc(item.time || '') + '</div><h3>' + esc(title) + '</h3>' +
+    (body && body !== title ? '<p>' + esc(body) + '</p>' : '') + '<div class="origin">' + esc(item.id || '正式 Episode') + '</div></article>';
+}
+
 async function loadInjection() {
   const r = await fetch('/api/injection');
   const d = await r.json();
@@ -3663,32 +3784,23 @@ async function loadMemoryMap() {
   const formal = d.formal_entries || [];
   const auto = d.auto_entries || [];
   const runtime = d.runtime_entries || [];
-  const formalRe = formal.find(item => item.key === 'reentry') || {};
-  const formalTl = formal.find(item => item.key === 'timeline') || {};
+  const formalEp = formal.find(item => item.key === 'episodes') || {};
+  const selfNotes = formal.find(item => item.key === 'ai_self_notes') || {};
   const autoCand = auto.find(item => item.key === 'episodes_candidates') || {};
-  const runtimeDs = runtime.find(item => item.key === 'desire_state') || {};
-  const runtimeSeven = runtime.find(item => item.key === 'runtime_seven_day') || {};
   const formalization = d.formalization_status || {};
-  const bgWrite = formalization.background_write_enabled ? '已开启' : '未开启';
 
   document.getElementById('memory-head').innerHTML =
-    '<div class="hcard"><h3>reentry 最新</h3><div class="big" style="font-size:18px;">' + esc(formalRe.updated_at || '(无记录)') + '</div></div>' +
-    '<div class="hcard"><h3>正式 timeline 最新</h3><div class="big" style="font-size:18px;">' + esc(formalTl.updated_at || '(无记录)') + '</div></div>' +
-    '<div class="hcard"><h3>候选层最新</h3><div class="big" style="font-size:18px;">' + esc(autoCand.updated_at || '(无记录)') + '</div></div>' +
-    '<div class="hcard"><h3>实时八维最新</h3><div class="big" style="font-size:18px;">' + esc(runtimeDs.updated_at || '(无记录)') + '</div></div>';
-
-  document.getElementById('memory-head').innerHTML +=
-    '<div class="hcard"><h3>runtime 7-day 最新</h3><div class="big" style="font-size:18px;">' + esc(runtimeSeven.updated_at || '(无记录)') + '</div><div class="sub">背景写入 ' + esc(bgWrite) + '</div></div>' +
-    '<div class="hcard"><h3>正式层吸收模式</h3><div class="big" style="font-size:18px;">' + esc(formalization.mode || 'AI closeout') + '</div><div class="sub">候选 ' + esc(formalization.candidate_count || 0) + ' 条；当前没有独立 auto-promote 正式层的后台工人</div></div>';
+    '<div class="hcard"><h3>正式 Episodes</h3><div class="big" style="font-size:18px;">' + esc(formalEp.rows || 0) + ' 条</div><div class="sub">最近更新 ' + esc(formalEp.updated_at || '(无记录)') + '</div></div>' +
+    '<div class="hcard"><h3>AI Self-note</h3><div class="big" style="font-size:18px;">' + esc(selfNotes.updated_at || '(无记录)') + '</div><div class="sub">只写给未来的我，不作为用户画像展示</div></div>' +
+    '<div class="hcard"><h3>待审候选</h3><div class="big" style="font-size:18px;">' + esc(formalization.candidate_count || 0) + ' 条</div><div class="sub">候选层最新 ' + esc(autoCand.updated_at || '(无记录)') + '</div></div>';
 
   const current = d.current || {};
   document.getElementById('memory-current').innerHTML =
-    renderTextPanel('reentry.md（当前醒来会读这一口）', current.reentry) +
-    renderLinePanel('relationship_timeline.md 最近可见行', current.timeline_lines) +
-    renderLinePanel('user_portrait.md 最近可见行', current.user_portrait_lines) +
-    renderLinePanel('ai_self_portrait.md 最近可见行', current.ai_self_portrait_lines) +
-    renderLinePanel('ai_self_notes.md 最近可见行', current.ai_self_notes_lines) +
-    renderLinePanel('rereadings.md 最近可见行', current.rereadings_lines);
+    '<div style="grid-column:1/-1;display:grid;gap:10px;">' + (d.recent_formal_episodes || []).map(renderMemoryEpisode).join('') + '</div>' +
+    renderLinePanel('她的长期画像', current.user_portrait_lines) +
+    renderLinePanel('我的自我画像', current.ai_self_portrait_lines) +
+    renderLinePanel('我的 Self-note', current.ai_self_notes_lines) +
+    renderLinePanel('后来重新理解的事', current.rereadings_lines);
 
   document.getElementById('memory-formal').innerHTML = formal.map(renderAuditCard).join('');
   document.getElementById('memory-auto').innerHTML = auto.map(renderAuditCard).join('');
@@ -3715,48 +3827,17 @@ async function loadMemoryMap() {
 // ---------- 2 时间线 ----------
 let episodesIndex = {}, rereadingsIndex = {};
 async function loadTimeline() {
-  const [tlRes, epRes, rrRes, metaRes] = await Promise.all([
+  const [tlRes, epRes, rrRes] = await Promise.all([
     fetch('/api/file?f=relationship_timeline.md'),
     fetch('/api/episodes_index'),
     fetch('/api/rereadings_index'),
-    fetch('/api/memory_overview'),
   ]);
   const tl = await tlRes.json();
   episodesIndex = await epRes.json();
   rereadingsIndex = await rrRes.json();
-  const meta = await metaRes.json();
-  const tm = meta.timeline_meta || {};
-  const recentCandidates = meta.recent_candidates || [];
-  const recentFormal = meta.recent_formal_episodes || [];
 
   const metaBox = document.getElementById('timeline-meta');
-  metaBox.textContent = '这页是正式 relationship_timeline.md，不是实时对话流。'
-    + ' 最后文件更新时间: ' + (tm.updated_at || '(无记录)')
-    + (tm.hours_since_update != null ? ('，距今 ' + tm.hours_since_update + ' 小时') : '')
-    + (tm.latest_formal_episode_day ? ('。正式 episodes 最新日期: ' + tm.latest_formal_episode_day) : '');
-
-  const latestBox = document.getElementById('timeline-latest');
-  const autoLatestDay = recentCandidates.length ? String(recentCandidates[0].time || '').slice(0, 10) : '';
-  const formalLatestDay = recentFormal.length ? String(recentFormal[0].time || '').slice(0, 10) : '';
-  const autoLines = recentCandidates.length
-    ? '<div class="line-list">' + recentCandidates.map(item =>
-        '<div>' + esc(item.time || '') + ' · ' + esc(item.title || '') + (item.id ? (' · ' + esc(item.id)) : '') + '</div>'
-      ).join('') + '</div>'
-    : '<div class="meta-row">(暂无自动候选)</div>';
-  const formalLines = recentFormal.length
-    ? '<div class="line-list">' + recentFormal.map(item =>
-        '<div>' + esc(item.time || '') + ' · ' + esc(item.title || '') + (item.id ? (' · ' + esc(item.id)) : '') + '</div>'
-      ).join('') + '</div>'
-    : '<div class="meta-row">(暂无正式 episodes)</div>';
-  latestBox.innerHTML =
-    '<div class="hcard"><h3>自动层最新（还没进正式时间线）</h3>' +
-      '<div class="big" style="font-size:18px;">' + esc(autoLatestDay || '(无记录)') + '</div>' +
-      '<div class="sub">来源: episodes.candidates.jsonl / reentry.extracted.md。这里更接近“最新发生了什么”。</div>' +
-      autoLines + '</div>' +
-    '<div class="hcard"><h3>正式层最新（已沉淀）</h3>' +
-      '<div class="big" style="font-size:18px;">' + esc(formalLatestDay || '(无记录)') + '</div>' +
-      '<div class="sub">来源: episodes.jsonl / relationship_timeline.md。这里故意更慢，但更稳定。</div>' +
-      formalLines + '</div>';
+  metaBox.textContent = 'Timeline 只讲我们关系真正发生变化的节点。Episode 是脚注，点击编号再展开；候选和处理状态不在这里重复。';
 
   const body = document.getElementById('timeline-body');
   body.innerHTML = '';
@@ -3804,10 +3885,10 @@ function toggleEpCard(el) {
     card.innerHTML = '<span class="epclose">×</span><div class="epwhat">找不到 ' + esc(eid) + ' 对应的 episode。</div>';
   } else {
     let html = '<span class="epclose">×</span>';
-    html += '<div class="eptitle">' + esc(eid) + ' · ' + esc(ep.title || '') + '</div>';
+    html += '<div class="eptitle">' + esc(eid) + ' · ' + esc(humanizeEpisodeText(ep.title || '')) + '</div>';
     html += '<div class="eptime">' + esc(ep.time || '') + '</div>';
-    if (ep.what_happened) html += '<div class="epwhat">' + esc(ep.what_happened) + '</div>';
-    if (ep.misread_repair) html += '<div class="epwhat">误读与修复:' + esc(ep.misread_repair) + '</div>';
+    if (ep.what_happened) html += '<div class="epwhat">' + esc(humanizeEpisodeText(ep.what_happened)) + '</div>';
+    if (ep.misread_repair) html += '<div class="epwhat">误读与修复:' + esc(humanizeEpisodeText(ep.misread_repair)) + '</div>';
     (ep.anchor_quotes || []).forEach(q => {
       html += '<blockquote>' + esc(q) + '</blockquote>';
     });
@@ -4238,9 +4319,68 @@ function renderContextGates(gates) {
       '<label class="ctx-switch" title="下一轮 Telegram 对话生效"><input type="checkbox" data-gate="' + key + '" ' +
       (on ? 'checked' : '') + ' onchange="setContextGate(\'' + key + '\', this.checked)"><span></span></label></div>';
   }).join('');
-  host.innerHTML = fixedStep('01','System / Persona','实际模型提示词与稳定身份','每轮固定加载；在“模型与提示词”页编辑') +
+  host.innerHTML = fixedStep('01','System / Persona','实际模型提示词与稳定身份','每轮固定加载；在下方“实际缝入内容”编辑') +
     gateSteps + fixedStep('05','Current Context / 当前对话','最近消息、工具结果与本轮用户输入','每轮固定加载，位于上下文末端') +
-    '<div class="context-note">开关是唯一会即时改变 Telegram 上下文的页面操作。顺序仍由 runtime 固定；实验性拖拽仅保存草案。</div>';
+    '<div class="context-note">开关会真实改变 Telegram 上下文；顺序由 runtime 固定，所有可编辑来源都集中在本页下方。</div>';
+}
+
+function renderContextSources(payload) {
+  contextSourcesPayload = payload || {sources:[]};
+  const host = document.getElementById('context-sources');
+  host.innerHTML = (contextSourcesPayload.sources || []).map(source => {
+    const gateOff = source.gate === false;
+    const effective = gateOff ? '当前开关已关闭：这部分不会进入下一条消息。' :
+      (source.effective_content || (source.mode === '按话题自动检索' ? '下一轮会根据消息内容自动检索；当前没有固定文本。' : '(当前为空)'));
+    const model = source.model ? (' · 模型 ' + source.model) : '';
+    return '<div class="context-source" id="context-source-' + esc(source.key) + '">' +
+      '<div class="context-source-head"><div><div class="context-source-title">' + esc(source.label) + '</div>' +
+      '<div class="context-source-meta">' + esc(source.mode) + ' · ' + esc(source.content.length) + ' 字符 / 预算 ' + esc(source.budget) + model +
+      '<br>' + esc(source.description) + '</div></div><button class="ghost" onclick="editContextSource(\'' + source.key + '\')">修改</button></div>' +
+      '<div class="context-source-preview">' + esc(effective) + '</div>' +
+      '<div class="context-source-editor"><textarea id="context-source-editor-' + esc(source.key) + '" spellcheck="false"></textarea>' +
+      '<div class="context-source-actions"><button onclick="previewContextSourceSave(\'' + source.key + '\')">查看差异并保存</button>' +
+      '<button class="ghost" onclick="cancelContextSourceEdit()">取消</button><span class="context-source-status" id="context-source-status-' + esc(source.key) + '"></span></div></div></div>';
+  }).join('') || '<div class="meta-row">没有可编辑的上下文来源。</div>';
+}
+
+function contextSourceByKey(key) {
+  return ((contextSourcesPayload || {}).sources || []).find(source => source.key === key);
+}
+
+function editContextSource(key) {
+  contextSourceEditingKey = key;
+  document.querySelectorAll('.context-source').forEach(node => node.classList.remove('editing'));
+  const source = contextSourceByKey(key);
+  const card = document.getElementById('context-source-' + key);
+  const editor = document.getElementById('context-source-editor-' + key);
+  if (!source || !card || !editor) return;
+  card.classList.add('editing'); editor.value = source.content || ''; editor.focus();
+}
+
+function cancelContextSourceEdit() {
+  contextSourceEditingKey = '';
+  document.querySelectorAll('.context-source').forEach(node => node.classList.remove('editing'));
+}
+
+function previewContextSourceSave(key) {
+  const source = contextSourceByKey(key);
+  const editor = document.getElementById('context-source-editor-' + key);
+  if (!source || !editor) return;
+  pendingAction = {kind:'context-source-save', key};
+  showDiff(source.content || '', editor.value);
+}
+
+async function commitContextSourceSave(key) {
+  const source = contextSourceByKey(key);
+  const editor = document.getElementById('context-source-editor-' + key);
+  if (!source || !editor) return;
+  const data = await contextPost('/api/context-source/save', {
+    key, content:editor.value, expected_sha256:source.sha256 || '', source:'520 context control',
+  });
+  contextSourceEditingKey = '';
+  renderContextSources(data.context_sources || {});
+  const status = document.getElementById('ctx-gate-status');
+  status.textContent = key === 'memory_context' ? '已保存；下一轮生效' : '已保存；下一条消息会重建上下文';
 }
 
 async function setContextGate(key, enabled) {
@@ -4248,9 +4388,11 @@ async function setContextGate(key, enabled) {
   status.textContent = '保存中…';
   try {
     const body = {}; body[key] = !!enabled;
-    await contextPost('/api/context-gates', body);
-    status.textContent = '已生效';
-    setTimeout(() => { if (status.textContent === '已生效') status.textContent = ''; }, 1400);
+    const result = await contextPost('/api/context-gates', body);
+    status.textContent = result.thread_rebuild ? '已保存；下一条消息会换干净线程' : '已保存；下一轮即时生效';
+    await loadContextGatesForManager();
+    const sourceResponse = await fetch('/api/context-sources');
+    renderContextSources(await sourceResponse.json());
   } catch (e) {
     status.textContent = '失败：' + e.message;
     await loadContextGatesForManager();
@@ -4520,14 +4662,14 @@ async function commitContextTodoSave() {
 
 async function loadContextManager() {
   try {
-    const [overviewRes, injectionRes] = await Promise.all([
+    const [overviewRes, injectionRes, sourcesRes] = await Promise.all([
       fetch('/api/context-overview'),
       fetch('/api/injection'),
+      fetch('/api/context-sources'),
       loadContextGatesForManager(),
-      loadContextLayout(),
-      loadContextTodo(),
     ]);
     renderContextRuntime(await overviewRes.json(), await injectionRes.json());
+    renderContextSources(await sourcesRes.json());
   } catch (e) {
     setContextSaveState('加载失败：' + e.message, true);
   }
@@ -4670,6 +4812,18 @@ function closeModal() {
 
 async function confirmSave() {
   closeModal();
+  if (pendingAction && pendingAction.kind === 'context-source-save') {
+    const key = pendingAction.key;
+    try {
+      await commitContextSourceSave(key);
+    } catch (e) {
+      const status = document.getElementById('context-source-status-' + key);
+      if (status) status.textContent = '保存失败：' + e.message;
+    } finally {
+      pendingAction = null;
+    }
+    return;
+  }
   if (pendingAction && pendingAction.kind === 'prompt-save') {
     try {
       await commitRuntimePromptSave();
@@ -4829,6 +4983,12 @@ class H(BaseHTTPRequestHandler):
         elif u.path == "/api/runtime-prompt":
             try:
                 self._send(200, json.dumps(get_runtime_prompt_payload(include_content=True), ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
+
+        elif u.path == "/api/context-sources":
+            try:
+                self._send(200, json.dumps(get_context_sources_payload(), ensure_ascii=False))
             except Exception as e:
                 self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
 
@@ -5037,6 +5197,24 @@ class H(BaseHTTPRequestHandler):
                 self._send(500, json.dumps({"ok": False, "error": "prompt_write_failed", "err": str(e)}, ensure_ascii=False))
             return
 
+        if u.path == "/api/context-source/save":
+            if not self._check_token():
+                return
+            obj, err = self._read_json_body()
+            if err or not isinstance(obj, dict):
+                self._send(400, json.dumps({"ok": False, "error": "invalid_body", "err": err}, ensure_ascii=False))
+                return
+            try:
+                payload = save_context_source(obj.get("key"), obj.get("content"), obj.get("expected_sha256"), obj.get("source"))
+                self._send(200, json.dumps({"ok": True, "context_sources": payload}, ensure_ascii=False))
+            except ValueError as e:
+                self._send(400, json.dumps({"ok": False, "error": "invalid_context_source", "err": str(e)}, ensure_ascii=False))
+            except RuntimeError as e:
+                self._send(409, json.dumps({"ok": False, "error": "context_source_conflict", "err": str(e)}, ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"ok": False, "error": "context_source_write_failed", "err": str(e)}, ensure_ascii=False))
+            return
+
         if u.path == "/api/context-layout/save":
             if not self._check_token():
                 return
@@ -5095,7 +5273,7 @@ class H(BaseHTTPRequestHandler):
 
         if u.path == "/api/context-gates":
             # 上下文缝入开关:只写 CYBERBOSS_STATE_DIR/context-gates.json,
-            # 不碰 memory / Desire / canon。runtime 每轮读取,即时生效。
+            # 不碰 Desire / canon。Memory Context 下一轮即时生效；硬上下文变化由 runtime 下一轮换干净线程。
             if not self._check_token():
                 return
             obj, err = self._read_json_body()
@@ -5109,9 +5287,12 @@ class H(BaseHTTPRequestHandler):
                         gates[key] = bool(obj[key])
                 gates["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 gate_file = resolve_runtime_state_dir() / "context-gates.json"
-                gate_file.parent.mkdir(parents=True, exist_ok=True)
-                gate_file.write_text(json.dumps(gates, ensure_ascii=False, indent=2), encoding="utf-8")
-                self._send(200, json.dumps({"ok": True, **gates}, ensure_ascii=False))
+                write_text_atomic(gate_file, json.dumps(gates, ensure_ascii=False, indent=2))
+                self._send(200, json.dumps({
+                    "ok": True, **gates,
+                    "thread_rebuild": any(key in obj for key in ("reentry", "current_state")),
+                    "apply_note": "硬上下文改变后，Telegram 会在下一条消息自动换干净线程。",
+                }, ensure_ascii=False))
             except Exception as e:
                 self._send(500, json.dumps({"ok": False, "err": str(e)}, ensure_ascii=False))
             return

@@ -122,6 +122,31 @@ test("current state summarizes the desire report shape without intent", () => {
   assert.match(truncated.text, /…$/u);
 });
 
+test("manual current-state override is the exact bounded injected text", () => {
+  const root = fixtureRoot();
+  const desireStateFile = path.join(root, "desire-state.json");
+  const overrideFilePath = path.join(root, "context-current-state.md");
+  fs.writeFileSync(desireStateFile, JSON.stringify({ intent: { drive_key: "duty" } }), "utf8");
+  fs.writeFileSync(overrideFilePath, "此刻我想先听她把话说完。", "utf8");
+  const currentState = loadCurrentState({ filePath: desireStateFile, overrideFilePath });
+  assert.equal(currentState.text, "此刻我想先听她把话说完。");
+  assert.equal(currentState.source, "manual_override");
+  fs.writeFileSync(overrideFilePath, "", "utf8");
+  assert.match(loadCurrentState({ filePath: desireStateFile, overrideFilePath }).text, /姿态:duty/u);
+});
+
+test("session store persists the hard-context fingerprint per runtime and workspace", () => {
+  const root = fixtureRoot();
+  const sessionsFile = path.join(root, "state", "sessions.json");
+  fs.mkdirSync(path.dirname(sessionsFile), { recursive: true });
+  let store = new SessionStore({ filePath: sessionsFile, runtimeId: "claudecode" });
+  store.setContextFingerprintForWorkspace("binding", "/workspace", "fingerprint-a");
+  store = new SessionStore({ filePath: sessionsFile, runtimeId: "claudecode" });
+  assert.equal(store.getContextFingerprintForWorkspace("binding", "/workspace"), "fingerprint-a");
+  const codexStore = new SessionStore({ filePath: sessionsFile, runtimeId: "codex" });
+  assert.equal(codexStore.getContextFingerprintForWorkspace("binding", "/workspace"), "");
+});
+
 test("context trace records evidence only and defaults old archives to hidden", async () => {
   const root = fixtureRoot();
   const filePath = path.join(root, "trace", "context_trace.jsonl");

@@ -1,26 +1,44 @@
 const crypto = require("crypto");
+const fs = require("fs");
 const { countNonWhitespace } = require("./reentry-loader");
 const { readDesireRuntimeState } = require("../services/desire-service");
 
 const CURRENT_STATE_CHAR_BUDGET = 100;
 
-function loadCurrentState({ filePath } = {}) {
+function loadCurrentState({ filePath, overrideFilePath = "" } = {}) {
   try {
+    const overrideText = readOverrideText(overrideFilePath);
+    if (overrideText) return buildCurrentStatePayload(overrideText, "manual_override");
     const parsed = readDesireRuntimeState(filePath);
     if (!parsed) return { skipped: "missing" };
     const text = summarizeCurrentState(parsed);
     if (!text) return { skipped: "missing" };
-    const chars = countNonWhitespace(text);
-    if (chars > CURRENT_STATE_CHAR_BUDGET) return { skipped: "over_budget", chars };
-    return {
-      text,
-      chars,
-      hash: crypto.createHash("sha256").update(text, "utf8").digest("hex"),
-    };
+    return buildCurrentStatePayload(text, "desire_runtime");
   } catch (error) {
     console.warn(`[continuity] current state read failed: ${error.message || String(error)}`);
     return { skipped: "missing" };
   }
+}
+
+function readOverrideText(filePath = "") {
+  const normalized = typeof filePath === "string" ? filePath.trim() : "";
+  if (!normalized) return "";
+  try {
+    return fs.readFileSync(normalized, "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+function buildCurrentStatePayload(text, source) {
+  const chars = countNonWhitespace(text);
+  if (chars > CURRENT_STATE_CHAR_BUDGET) return { skipped: "over_budget", chars, source };
+  return {
+    text,
+    chars,
+    source,
+    hash: crypto.createHash("sha256").update(text, "utf8").digest("hex"),
+  };
 }
 
 function summarizeCurrentState(state = {}) {

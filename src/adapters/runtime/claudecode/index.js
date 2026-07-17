@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { ClaudeCodeProcessClient } = require("./process-client");
 const { mapClaudeCodeMessageToRuntimeEvent } = require("./events");
 const { ensureClaudeProjectMcpConfig } = require("./project-settings");
@@ -8,6 +9,7 @@ const { buildOpeningTurnText, buildInstructionRefreshText } = require("../shared
 const { ClaudeCodeIpcServer } = require("./ipc-server");
 const {
   finalizeOpeningContext,
+  loadContextGates,
   prepareOpeningContext,
   prepareOrdinaryContext,
   prepareRefreshContext,
@@ -386,8 +388,19 @@ function createClaudeCodeRuntimeAdapter(config) {
           modelProvider: "",
         });
       }
+      const contextFingerprint = computeHardContextFingerprint(config);
+      const appliedFingerprint = sessionStore.getContextFingerprintForWorkspace(bindingKey, workspaceRoot);
+      const previousReentry = threadId ? sessionStore.getReentryInjection(threadId) : null;
+      const reentryNowEnabled = loadContextGates(config).reentry;
+      const legacyOffMismatch = Boolean(threadId && !appliedFingerprint && !reentryNowEnabled && previousReentry?.reentry_injected);
+      const contextChanged = Boolean(threadId && ((appliedFingerprint && appliedFingerprint !== contextFingerprint) || legacyOffMismatch));
+      if (contextChanged) {
+        await closeWorkspaceClient(workspaceRoot);
+        sessionStore.clearThreadIdForWorkspace(bindingKey, workspaceRoot);
+        threadId = "";
+      }
       let openingTurn = !threadId;
-      let openingReason = "new_thread";
+      let openingReason = contextChanged ? "context_changed" : "new_thread";
       let attached;
       try {
         attached = await attachClientToThread(workspaceRoot, threadId, desiredModel);
@@ -451,6 +464,7 @@ function createClaudeCodeRuntimeAdapter(config) {
         returnedThreadId,
         metadata,
       );
+      sessionStore.setContextFingerprintForWorkspace(bindingKey, workspaceRoot, contextFingerprint);
       rememberModelForBinding(bindingKey, workspaceRoot, pendingModelByWorkspaceRoot.get(normalizeText(workspaceRoot)));
       return {
         threadId: returnedThreadId,
@@ -509,6 +523,31 @@ function createClaudeCodeRuntimeAdapter(config) {
       model: normalizedModel,
       modelProvider: "",
     });
+  }
+}
+
+function computeHardContextFingerprint(config = {}) {
+  const gates = loadContextGates(config);
+  const files = {
+    prompt: fileContentHash(config.weixinInstructionsFile),
+    operations: config.includeOperationsPrompt ? fileContentHash(config.weixinOperationsFile) : "off",
+    reentry: gates.reentry ? fileContentHash(config.reentryFile) : "off",
+    current_state_override: gates.current_state ? fileContentHash(config.currentStateOverrideFile) : "off",
+  };
+  return crypto.createHash("sha256").update(JSON.stringify({
+    reentry: gates.reentry,
+    current_state: gates.current_state,
+    files,
+  }), "utf8").digest("hex");
+}
+
+function fileContentHash(filePath = "") {
+  const normalizedPath = normalizeText(filePath);
+  if (!normalizedPath) return "missing";
+  try {
+    return crypto.createHash("sha256").update(fs.readFileSync(normalizedPath)).digest("hex");
+  } catch {
+    return "missing";
   }
 }
 

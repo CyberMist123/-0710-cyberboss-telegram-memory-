@@ -46,7 +46,7 @@ function prepareOpeningContext({ config = {}, sessionStore, threadId, reason = "
   }
 
   const currentState = gates.current_state
-    ? loadCurrentState({ filePath: config.desireStateFile })
+    ? loadCurrentState({ filePath: config.desireStateFile, overrideFilePath: config.currentStateOverrideFile })
     : { skipped: "gated_off" };
   if (currentState?.text) {
     blocks.push({ type: "current_state", loaded: true, reason, ...pickEvidence(currentState) });
@@ -59,7 +59,7 @@ function prepareOpeningContext({ config = {}, sessionStore, threadId, reason = "
 function prepareRefreshContext({ config = {}, reason = "refresh" } = {}) {
   const gates = loadContextGates(config);
   const currentState = gates.current_state
-    ? loadCurrentState({ filePath: config.desireStateFile })
+    ? loadCurrentState({ filePath: config.desireStateFile, overrideFilePath: config.currentStateOverrideFile })
     : { skipped: "gated_off" };
   const blocks = [];
   const skipped = [{ type: "reentry", reason: "existing_thread" }];

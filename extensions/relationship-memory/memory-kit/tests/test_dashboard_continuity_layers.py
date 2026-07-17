@@ -74,12 +74,11 @@ def test_layered_continuity_view():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    assert "技术断档" in module.legacy.PAGE
-    assert "证据材料" in module.legacy.PAGE
-    assert "主体 AI 候选" in module.legacy.PAGE
-    assert "后台代理候选" in module.legacy.PAGE
-    assert "冻结的旧候选" in module.legacy.PAGE
-    assert "已发布 Canon" in module.legacy.PAGE
+    assert 'id="continuity-feed"' in module.legacy.PAGE
+    assert "上下文载入" in module.legacy.PAGE
+    assert "记忆处理" in module.legacy.PAGE
+    assert "断档与异常" in module.legacy.PAGE
+    assert "filterContinuityFeed" in module.legacy.PAGE
     assert "fetch('/api/continuity/layers?limit=30')" in module.legacy.PAGE
     assert "row.result || row.action" in module.legacy.PAGE
     assert "continuity: loadContinuity" in module.legacy.PAGE

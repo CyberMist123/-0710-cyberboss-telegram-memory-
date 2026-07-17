@@ -170,6 +170,30 @@ class SessionStore {
     return this.updateBinding(bindingKey, nextBinding);
   }
 
+  getContextFingerprintForWorkspace(bindingKey, workspaceRoot) {
+    const normalizedWorkspaceRoot = normalizeValue(workspaceRoot);
+    if (!normalizedWorkspaceRoot) return "";
+    const current = this.getBinding(bindingKey) || {};
+    const runtimeId = normalizeValue(this.runtimeId) || "default";
+    return normalizeValue(current.contextFingerprintByWorkspaceRootByRuntime?.[runtimeId]?.[normalizedWorkspaceRoot]);
+  }
+
+  setContextFingerprintForWorkspace(bindingKey, workspaceRoot, fingerprint = "") {
+    const normalizedWorkspaceRoot = normalizeValue(workspaceRoot);
+    if (!normalizedWorkspaceRoot) return this.getBinding(bindingKey);
+    const current = this.getBinding(bindingKey) || {};
+    const runtimeId = normalizeValue(this.runtimeId) || "default";
+    return this.updateBinding(bindingKey, {
+      contextFingerprintByWorkspaceRootByRuntime: {
+        ...(current.contextFingerprintByWorkspaceRootByRuntime || {}),
+        [runtimeId]: {
+          ...(current.contextFingerprintByWorkspaceRootByRuntime?.[runtimeId] || {}),
+          [normalizedWorkspaceRoot]: normalizeValue(fingerprint),
+        },
+      },
+    });
+  }
+
   clearThreadIdForWorkspace(bindingKey, workspaceRoot, runtimeId = this.runtimeId) {
     const normalizedWorkspaceRoot = normalizeValue(workspaceRoot);
     if (!normalizedWorkspaceRoot) {

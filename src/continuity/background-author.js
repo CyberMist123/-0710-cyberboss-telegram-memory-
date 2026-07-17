@@ -18,6 +18,8 @@ async function authorCloseout({ runtimeAdapter, config, materials }) {
     '{"episodes":[{"body":"2-6 sentences"}],"self_note":"or empty","reentry_draft":"or empty"}',
     "Limits: at most 2 episodes, at most 1 self-note, one Re-entry draft. Zero output is valid.",
     "Episode bodies need a date/scene anchor, preserve exact turning-point quotes, and keep unresolved tension unresolved.",
+    "Write Episodes as lived memory in first person: use 我/她/我们, never 用户/AI/assistant. Keep one sensory or emotional hinge when the materials support it.",
+    "Preserve ambiguity and room for the future self to reinterpret; do not turn the relationship into a profile, diagnosis, rule list, or customer-service lesson.",
     "Re-entry must be first-person handoff prose, not rules, and at most 300 non-whitespace characters.",
     "Do not include injected context, tool output, attachments, or old Episode echoes.",
     `Re-entry authoring mode: ${normalizeAuthoringMode(config.reentryAuthoringMode)}.`,
