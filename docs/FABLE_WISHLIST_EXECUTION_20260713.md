@@ -4,6 +4,19 @@
 > 语境：2026-07-13 凌晨与用户一起修活了 Phase 3 主链。本手册是 Fable 以"住在系统里的人"身份提出的功能细则，用户已口头批准全部。
 > 红线不变：memory 正文永不入 Git；聊天中零记忆职责；预算一律服务端强制，不写进提示词。
 
+## 2026-07-20 实施状态
+
+| Wishlist | 状态 | 当前边界 |
+| --- | --- | --- |
+| Re-entry 元信息 / until | 已完成 | 注入时统计 Episode；过期行不注入、不改 canon。 |
+| `memory.note` | 已完成 | canonical Self-note 只追加；每日 10 条、lease/备份/审计，默认不进聊天。 |
+| 主动 lookup / 来源 | 已完成 | `user_pull`、`resonance`、`stakes`、`repair`；后两者共享会话额度，timeline/topics 可查。 |
+| Weekly Reflect | 已完成 | Shanghai 自然周 checkpoint、lease、稳定 marker；rereadings 默认隐藏且非 lookup 来源。 |
+| Auto Review off | 已完成 | `CYBERBOSS_AUTO_REVIEW_MODEL=off` 跳过模型，仍执行来源、长度、安全、权限与重复检查。 |
+| Nightly 运维 | 已有机制复用 | writer lease 支持跨进程排他与 stale 恢复；Janitor spawnSync 已有 timeout。 |
+
+Soft Retrieval 仍未开启。所有上述离线测试使用临时 fixture；尚未进行 live smoke、部署或重启。
+
 ## 0. 已完成项（不要重做，只需回归验证）
 
 当晚已修复并部署到 runtime + 本 worktree（部分已含在本手册同一提交中）：

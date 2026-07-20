@@ -168,14 +168,16 @@ class ContinuityPipeline {
           continue;
         }
         const sourceLocated = locateSourceRef(candidate.source_ref);
-        const result = runPythonReview({
-          python: this.python,
-          script: this.reviewScript,
-          candidate,
-          sourceLocated,
-          env,
-        });
         const localChecks = buildLocalChecks(candidate, sourceLocated);
+        const result = isReviewModelDisabled(env)
+          ? localReviewResult(localChecks)
+          : runPythonReview({
+            python: this.python,
+            script: this.reviewScript,
+            candidate,
+            sourceLocated,
+            env,
+          });
         const combinedChecks = { ...localChecks, ...(result.checks || {}) };
         combinedChecks.source_ref_located = localChecks.source_ref_located;
         combinedChecks.length_ok = localChecks.length_ok;
@@ -378,6 +380,17 @@ function runPythonReview({ python, script, candidate, sourceLocated, env }) {
   try { return JSON.parse(proc.stdout.trim()); } catch { return { result: "deferred", reason: "review_invalid_output", checks: {} }; }
 }
 
+function isReviewModelDisabled(env = {}) {
+  return String(env.CYBERBOSS_AUTO_REVIEW_MODEL || "").trim().toLowerCase() === "off";
+}
+
+function localReviewResult(checks) {
+  if (!checks.source_ref_located) return { result: "deferred", reason: "source_ref_missing", checks: {} };
+  if (!checks.length_ok) return { result: "deferred", reason: "over_budget", checks: {} };
+  if (!checks.publication_allowed) return { result: "deferred", reason: "publication_not_allowed", checks: {} };
+  return { result: "accepted", reason: "model_review_disabled", checks: {} };
+}
+
 function buildLocalChecks(candidate, sourceLocated) {
   const normalized = normalizeCandidateMetadata(candidate);
   return {
@@ -426,5 +439,7 @@ module.exports = {
   buildLocalChecks,
   createCandidate,
   createDecision,
+  isReviewModelDisabled,
+  localReviewResult,
   locateSourceRef,
 };

@@ -1,5 +1,14 @@
 # Implementation Status
 
+## 2026-07-20 Fable wishlist completion
+
+- Re-entry 注入在不改写 canon 的前提下附加 Episode 数量/最早月份元信息，并支持 `until` 过期钩子；该元信息不计入 300 字预算。
+- `memory.note` 经 ToolHost/MCP 暴露，向 canonical `ai_self_notes.md` 受控追加；服务端按自然日强制 10 条额度，使用 writer lease、备份、原子替换与只含 hash/长度的审计。Self-note 默认不注入普通聊天。
+- `memory_lookup` 支持 user_pull、resonance、stakes、repair；resonance/stakes 每 session 共享一次，repair 不消耗该额度但仍受五次故障环。来源包含 Episodes、relationship timeline 和 topics 别名；不读取 Self-note 或 rereadings。
+- Weekly Reflect 以 Shanghai 自然周 checkpoint、writer lease 与稳定 idempotency marker 选择旧 Episode、读取有限近期 Self-note，并且仅在主体 runtime 有新理解时追加 `rereadings.md`。它不改 Episode、Portrait、Re-entry 或 Desire；rereadings 默认隐藏且不是 lookup 来源。
+- `CYBERBOSS_AUTO_REVIEW_MODEL=off` 保留确定性来源、长度、安全、权限和重复检查，不调用模型 Review。现有 nightly writer lease 已支持跨进程排他与 stale 恢复；Janitor 子进程已有明确 timeout。
+- Soft Retrieval 仍未启用；上述仅经临时 fixture 离线验证，尚需 live smoke（不在本次执行）。
+
 Last updated: 2026-07-13
 
 ## 2026-07-13 Portability and migration verification

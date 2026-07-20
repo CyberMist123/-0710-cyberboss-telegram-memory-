@@ -15,7 +15,7 @@ const {
   prepareOrdinaryContext,
   prepareRefreshContext,
 } = require("../src/core/hard-context");
-const { loadReentry } = require("../src/core/reentry-loader");
+const { countNonWhitespace, loadReentry } = require("../src/core/reentry-loader");
 const { validateStartupPreflight } = require("../src/core/startup-preflight");
 const { CyberbossApp } = require("../src/core/app");
 
@@ -79,6 +79,47 @@ test("reentry hash matches the original injected file bytes", () => {
   const result = loadReentry({ filePath });
   assert.equal(result.text, bytes.toString("utf8"));
   assert.equal(result.hash, crypto.createHash("sha256").update(bytes).digest("hex"));
+});
+
+test("reentry metadata is a fresh injection view and expiry hooks respect the injected clock", () => {
+  const root = fixtureRoot();
+  const continuityDir = path.join(root, "continuity");
+  const filePath = path.join(continuityDir, "reentry.md");
+  const episodesFile = path.join(continuityDir, "episodes.jsonl");
+  fs.mkdirSync(continuityDir, { recursive: true });
+  const original = [
+    "今天仍有效 <!-- until: 2026-07-20 -->",
+    "昨天失效 <!-- until: 2026-07-19 -->",
+    "没有期限",
+  ].join("\n");
+  fs.writeFileSync(filePath, original, "utf8");
+  fs.writeFileSync(episodesFile, [
+    JSON.stringify({ id: "ep-2", time: "2026-07-14T09:00:00+08:00" }),
+    "{broken",
+    JSON.stringify({ id: "ep-1", created_at: "2026-06-30" }),
+  ].join("\n"), "utf8");
+
+  const result = loadReentry({ filePath, episodesFile, now: new Date("2026-07-20T10:00:00+10:00") });
+  assert.match(result.text, /^今天仍有效\s*\n没有期限/mu);
+  assert.doesNotMatch(result.text, /until:|昨天失效/u);
+  assert.match(result.text, /episodes 共 2 条，最早至 2026-06，细节你现在读不到/u);
+  assert.equal(result.chars, countNonWhitespace("今天仍有效\n没有期限"));
+  assert.equal(fs.readFileSync(filePath, "utf8"), original);
+
+  const gated = prepareOpeningContext({
+    config: { reentryFile: filePath, continuityDir, desireStateFile: path.join(root, "missing.json"), stateDir: path.join(root, "state") },
+    sessionStore: { getReentryInjection: () => null }, threadId: "thread-meta",
+  });
+  assert.match(gated.reentry.text, /episodes 共 2 条/u);
+  const stateDir = path.join(root, "state");
+  fs.mkdirSync(stateDir, { recursive: true });
+  fs.writeFileSync(path.join(stateDir, "context-gates.json"), JSON.stringify({ reentry: false }), "utf8");
+  const off = prepareOpeningContext({
+    config: { reentryFile: filePath, continuityDir, desireStateFile: path.join(root, "missing.json"), stateDir },
+    sessionStore: { getReentryInjection: () => null }, threadId: "thread-off",
+  });
+  assert.equal(off.reentry, null);
+  assert.deepEqual(off.skipped.find((item) => item.type === "reentry"), { type: "reentry", reason: "gated_off" });
 });
 
 test("current state is read-only, bounded, and appears only in opening or refresh", () => {
@@ -209,7 +250,7 @@ test("builder source has no default-hidden archive read path", () => {
     "../src/core/hard-context.js",
     "../src/core/reentry-loader.js",
   ].map((relative) => fs.readFileSync(path.resolve(__dirname, relative), "utf8")).join("\n");
-  for (const forbidden of ["episodes.jsonl", "relationship_timeline.md", "user_portrait.md", "ai_self_notes.md", "rereadings.md"]) {
+  for (const forbidden of ["relationship_timeline.md", "user_portrait.md", "ai_self_notes.md", "rereadings.md"]) {
     assert.doesNotMatch(sources, new RegExp(forbidden.replace(".", "\\.")));
   }
 });

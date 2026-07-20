@@ -36,7 +36,10 @@ function prepareOpeningContext({ config = {}, sessionStore, threadId, reason = "
   } else if (existing?.reentry_injected === true) {
     skipped.push({ type: "reentry", reason: "already_injected" });
   } else {
-    const loaded = loadReentry({ filePath: config.reentryFile });
+    const loaded = loadReentry({
+      filePath: config.reentryFile,
+      episodesFile: config.continuityDir ? path.join(config.continuityDir, "episodes.jsonl") : "",
+    });
     if (loaded?.text) {
       reentry = loaded;
       blocks.push({ type: "reentry", loaded: true, reason, ...pickEvidence(loaded) });
