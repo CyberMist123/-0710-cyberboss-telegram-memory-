@@ -1,5 +1,14 @@
 # Implementation Status
 
+## 2026-07-20 Configurable desire schedule and 520 time display
+
+- Desire check-ins remain on the existing model, Telegram binding, SessionStore thread, MCP configuration, tool set, and full eight-dimensional prompt/context. No short thread, model switch, retry/fallback, input/output cap, or MCP reduction was added.
+- The scheduler uses a fixed 55-minute plan clock. The next plan is derived from the prior planned start, not completion time; after sleep/resume missed intervals are skipped rather than replayed. A pending queue or active marker produces privacy-safe `overlap_skipped` telemetry and never queues a concurrent run.
+- 520 now exposes an authenticated controlled schedule endpoint and form. It stores `timezone` as IANA (default `Australia/Sydney`), `night_skip_enabled`, `night_start`, `night_end`, and fixed `interval_minutes: 55` under the existing dashboard state directory. Saves use atomic replacement, backup, revision conflict protection, and audit rows containing only hashes, source, and IANA timezone.
+- Night intervals support cross-midnight windows; equal start/end explicitly means no active skip interval. Backend and frontend use the same IANA zone. API timestamps are explicit UTC ISO 8601, while schedule-related display uses the configured zone and actual offset, including DST.
+- The page displays enabled state, cadence, night settings, IANA zone, Windows-style searchable timezone options, actual offset, local time, current night status, next plan, and last telemetry outcome. Saved changes report “next round” dynamic effect and do not interrupt an active call.
+- New fixture coverage includes 55-minute no-drift planning, overlap/night/equal-boundary behavior, Sydney offset handling, schedule validation/backup/revision/audit, authenticated dashboard save/conflict behavior, and UTC-to-configured-zone display.
+
 ## 2026-07-20 Conversational runtime cost boundaries
 
 - `CYBERBOSS_WORKSPACE` remains the formal system workspace: it continues to own Telegram bindings, SessionStore identity, `.mcp.json` generation, tool registration, source and deployment lookup. `CYBERBOSS_AGENT_CWD` is a separate conversation-process cwd and defaults to the canonical `CYBERBOSS_MEMORY_DIR` (the manifest memory path); it is never substituted into SessionStore or MCP configuration.
