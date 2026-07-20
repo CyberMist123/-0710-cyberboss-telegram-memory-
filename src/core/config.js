@@ -16,6 +16,9 @@ function readConfig() {
   const diaryDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_DIARY_DIR")) || joinIfBase(stateDir, "diary");
   const sourceLabel = readTextEnv("CYBERBOSS_SOURCE_LABEL");
   const memoryDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_MEMORY_DIR") || joinIfBase(stateDir, "memory"));
+  // The agent's process may be deliberately narrower than the workspace used
+  // for bindings, source discovery, and MCP configuration.
+  const agentCwd = resolveConfiguredPath(readTextEnv("CYBERBOSS_AGENT_CWD")) || memoryDir;
   const operationsFile = resolveConfiguredPath(readTextEnv("CYBERBOSS_OPERATIONS_FILE"));
   const continuityDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_CONTINUITY_DIR"));
 
@@ -58,6 +61,7 @@ function readConfig() {
     projectToolContextFile: joinIfBase(stateDir, "project-tool-runtime-context.json"),
     weixinInstructionsFile: promptFile,
     memoryDir,
+    agentCwd,
     continuityDir,
     reentryFile: joinIfBase(continuityDir, "reentry.md"),
     contextTraceFile: joinIfBase(continuityDir, "trace", "context_trace.jsonl"),
