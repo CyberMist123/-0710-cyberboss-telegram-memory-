@@ -10,6 +10,7 @@ const { SystemMessageService } = require("../services/system-message-service");
 const { TimelineService } = require("../services/timeline-service");
 const { createWeatherService } = require("../services/weather-service");
 const { MemoryLookupService } = require("../services/memory-lookup-service");
+const { MemoryNoteService } = require("../services/memory-note-service");
 const { createAmapClient } = require("../location/amap-client");
 const { LocationEventStore } = require("../location/event-store");
 const { createPlaceResolver } = require("../location/place-resolver");
@@ -49,6 +50,7 @@ function createProjectTooling(config, options = {}) {
     timeline: new TimelineService({ config, timelineIntegration, sessionStore }),
     weather: createWeatherService({ config }),
     memoryLookup: new MemoryLookupService({ continuityDir: config.continuityDir }),
+    memoryNote: new MemoryNoteService({ continuityDir: config.continuityDir }),
     locationConfig: {
       v2Enabled: config.locationV2Enabled === true,
     },
