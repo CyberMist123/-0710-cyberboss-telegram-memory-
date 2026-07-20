@@ -159,6 +159,7 @@ def test_ui_and_process_isolation():
     assert 'data-view="continuity"' in dashboard.PAGE
     assert 'id="octant-source"' in dashboard.PAGE
     assert "renderOctantSource" in dashboard.PAGE
+    assert dashboard.PAGE.count("async function loadDesireSchedule() {") == 1
     assert "run-janitor-btn" not in dashboard.PAGE
     assert "method: 'POST',\n      headers: { 'Content-Type': 'application/json', 'X-Api-Token': getApiToken()" not in dashboard.PAGE
     watchdog = (REPO / "extensions" / "relationship-memory" / "launcher" / "watchdog.py").read_text(encoding="utf-8")
