@@ -1,5 +1,23 @@
 # Implementation Status
 
+## 2026-07-20 Configurable desire schedule and 520 time display
+
+- Desire check-ins remain on the existing model, Telegram binding, SessionStore thread, MCP configuration, tool set, and full eight-dimensional prompt/context. No short thread, model switch, retry/fallback, input/output cap, or MCP reduction was added.
+- The scheduler uses a fixed 55-minute plan clock. The next plan is derived from the prior planned start, not completion time; after sleep/resume missed intervals are skipped rather than replayed. A pending queue or active marker produces privacy-safe `overlap_skipped` telemetry and never queues a concurrent run.
+- 520 now exposes an authenticated controlled schedule endpoint and form. It stores `timezone` as IANA (default `Australia/Sydney`), `night_skip_enabled`, `night_start`, `night_end`, and fixed `interval_minutes: 55` under the existing dashboard state directory. Saves use atomic replacement, backup, revision conflict protection, and audit rows containing only hashes, source, and IANA timezone.
+- Night intervals support cross-midnight windows; equal start/end explicitly means no active skip interval. Backend and frontend use the same IANA zone. API timestamps are explicit UTC ISO 8601, while schedule-related display uses the configured zone and actual offset, including DST.
+- The page displays enabled state, cadence, night settings, IANA zone, Windows-style searchable timezone options, actual offset, local time, current night status, next plan, and last telemetry outcome. Saved changes report “next round” dynamic effect and do not interrupt an active call.
+- New fixture coverage includes 55-minute no-drift planning, overlap/night/equal-boundary behavior, Sydney offset handling, schedule validation/backup/revision/audit, authenticated dashboard save/conflict behavior, and UTC-to-configured-zone display.
+
+## 2026-07-20 Conversational runtime cost boundaries
+
+- `CYBERBOSS_WORKSPACE` remains the formal system workspace: it continues to own Telegram bindings, SessionStore identity, `.mcp.json` generation, tool registration, source and deployment lookup. `CYBERBOSS_AGENT_CWD` is a separate conversation-process cwd and defaults to the canonical `CYBERBOSS_MEMORY_DIR` (the manifest memory path); it is never substituted into SessionStore or MCP configuration.
+- New Claude conversation and isolated background processes use `agentCwd`; the fixture confirms the system workspace keeps `.mcp.json` while the memory cwd does not acquire it. This prevents a new conversation from naturally listing sibling project directories through its cwd. The existing Re-entry, Live State, persona, continuity and 520 paths are unchanged.
+- Offline fixture measurement, before/after: opening prompt `15 -> 15` characters; opening context blocks `2 -> 2`; explicit files read before startup `0 -> 0`; cwd-visible top-level paths `3 -> 0`; the fixture prompt contains no project/directory exploration instruction. These are local fixture measurements only, not API billing, token savings, cache rates, or live-model cost claims.
+- `desire_checkin` can now append privacy-limited usage telemetry only when `CYBERBOSS_DESIRE_TELEMETRY=1`; when disabled it does not create or write a file. Fields are timestamp, event type, irreversible event-ID hash, model, reused-session flag, input/cache-read/cache-create/output/reasoning tokens (unavailable values are `null`), duration, and success/error outcome. It never writes message/prompt/thought/memory/tool-output text, paths, credentials, or environment values.
+- `CYBERBOSS_DESIRE_DRIVEN` remains unchanged and is still the master zero-call gate: when it is `0`, the hourly desire poller exits before resolving targets, queueing, or invoking a model. This work does not enable eight-dimensional desire, change the 55-minute cadence, alter live scheduling, switch models, deploy, or run a live smoke.
+- User decision remains required before any future policy change: (1) 55-minute frequency, (2) skip or lower frequency overnight, (3) reuse a long thread versus a separate short context and/or a cheaper model.
+
 ## 2026-07-20 Fable wishlist completion
 
 - Re-entry 注入在不改写 canon 的前提下附加 Episode 数量/最早月份元信息，并支持 `until` 过期钩子；该元信息不计入 300 字预算。

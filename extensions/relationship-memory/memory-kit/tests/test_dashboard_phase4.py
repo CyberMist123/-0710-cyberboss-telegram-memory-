@@ -88,6 +88,32 @@ def test_http_contract():
         assert modules["modules"]["memory_lookup"] in ("available", "on")
         assert modules["modules"]["soft_retrieval"] == "not_implemented"
 
+        code, schedule = request(server.server_port, "/api/desire-schedule")
+        assert code == 200 and schedule["interval_minutes"] == 55
+        code, _ = request(server.server_port, "/api/desire-schedule", "POST", {"timezone": "Australia/Sydney"})
+        assert code == 401
+        code, saved_schedule = request(
+            server.server_port,
+            "/api/desire-schedule",
+            "POST",
+            {
+                "enabled": True,
+                "interval_minutes": 55,
+                "night_skip_enabled": True,
+                "night_start": "23:00",
+                "night_end": "06:00",
+                "timezone": "Australia/Sydney",
+                "expected_revision": schedule["revision"],
+            },
+            dashboard.API_TOKEN,
+        )
+        assert code == 200 and saved_schedule["schedule"]["interval_minutes"] == 55
+        code, _ = request(
+            server.server_port, "/api/desire-schedule", "POST",
+            {"timezone": "Asia/Tokyo", "expected_revision": schedule["revision"]}, dashboard.API_TOKEN,
+        )
+        assert code == 409
+
         code, octant = request(server.server_port, "/api/state_rows?n=20")
         assert code == 200
         assert octant["history_source"] == "desire_history"
@@ -133,6 +159,7 @@ def test_ui_and_process_isolation():
     assert 'data-view="continuity"' in dashboard.PAGE
     assert 'id="octant-source"' in dashboard.PAGE
     assert "renderOctantSource" in dashboard.PAGE
+    assert dashboard.PAGE.count("async function loadDesireSchedule() {") == 1
     assert "run-janitor-btn" not in dashboard.PAGE
     assert "method: 'POST',\n      headers: { 'Content-Type': 'application/json', 'X-Api-Token': getApiToken()" not in dashboard.PAGE
     watchdog = (REPO / "extensions" / "relationship-memory" / "launcher" / "watchdog.py").read_text(encoding="utf-8")

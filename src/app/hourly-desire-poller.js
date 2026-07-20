@@ -1,6 +1,11 @@
 const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
+const { loadDesireSchedule, isNightSkipAt, nextPlannedAt } = require("../core/desire-schedule");
+const { appendDesireTelemetry } = require("../core/desire-telemetry");
+const { acquireWriterLease, releaseWriterLease } = require("../orchestration/writer-lease");
 
-const SHANGHAI_TZ = "Asia/Shanghai";
+const ACTIVE_MARKER_STALE_MS = 2 * 60 * 60 * 1000;
 
 async function runHourlyDesirePoller(config = {}) {
   if (!config.desireDriven) {
@@ -19,28 +24,152 @@ async function runHourlyDesirePoller(config = {}) {
     return;
   }
 
-  const now = Date.now();
-  const waitMs = nextHourlyTickMs(now);
-  console.log(`[desire] hourly poller starts, next tick in ${Math.round(waitMs / 60000)}m`);
-  await sleep(waitMs);
-
+  let plannedAt = nextPlannedAt(null, 55, Date.now());
+  writePlanMarker(config.desirePlanFile, plannedAt);
+  console.log(`[desire] poller starts, next planned tick in ${Math.round(Math.max(0, plannedAt - Date.now()) / 60000)}m`);
   while (true) {
+    await sleep(Math.max(0, plannedAt - Date.now()));
     const tickTime = Date.now();
-    if (isDesireWindow(tickTime) && !queue.hasPendingForAccount(accountId)) {
+    const schedule = loadDesireSchedule(config.desireScheduleFile);
+    if (schedule.enabled && !isNightSkipAt(tickTime, schedule)) {
       const id = crypto.randomUUID();
-      queue.enqueue({
-        id,
-        accountId,
-        senderId,
-        workspaceRoot,
-        text: buildDesireTriggerText(config),
-        sourceType: "desire_checkin",
-        createdAt: new Date().toISOString(),
-      });
-      console.log(`[desire] hourly checkin queued id=${id} at=${formatShanghai(tickTime)}`);
+      const marker = { owner: `${process.pid}:${crypto.randomUUID()}`, eventId: id, startedAt: tickTime };
+      if (queue.hasPendingForAccount(accountId) || !tryAcquireActiveMarker(config.desireActiveFile, marker)) {
+        appendDesireTelemetry({ enabled: config.desireTelemetry, filePath: config.desireTelemetryFile, eventId: id, eventType: "overlap_skipped", outcome: "success", configuredTimezone: schedule.timezone, intervalMinutes: schedule.intervalMinutes });
+      } else {
+        try {
+          queue.enqueue({
+            id,
+            markerOwner: marker.owner,
+            markerEventId: marker.eventId,
+            accountId,
+            senderId,
+            workspaceRoot,
+            text: buildDesireTriggerText(config),
+            sourceType: "desire_checkin",
+            createdAt: new Date().toISOString(),
+          });
+          console.log(`[desire] checkin queued id=${id} at=${new Date(tickTime).toISOString()}`);
+        } catch (error) {
+          releaseActiveMarker(config.desireActiveFile, marker);
+          throw error;
+        }
+      }
+    } else if (schedule.enabled && isNightSkipAt(tickTime, schedule)) {
+      appendDesireTelemetry({ enabled: config.desireTelemetry, filePath: config.desireTelemetryFile, eventId: crypto.randomUUID(), eventType: "night_skipped", outcome: "success", configuredTimezone: schedule.timezone, intervalMinutes: schedule.intervalMinutes });
     }
-    await sleep(60 * 60 * 1000);
+    // Advance from the planned start, not from completion, and skip missed
+    // intervals after sleep/resume instead of replaying them in a burst.
+    plannedAt = nextPlannedAt(plannedAt, schedule.intervalMinutes, Date.now());
+    writePlanMarker(config.desirePlanFile, plannedAt);
   }
+}
+
+function writePlanMarker(filePath, plannedAt) {
+  if (!filePath) return;
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify({ nextPlannedAt: new Date(plannedAt).toISOString() }), "utf8");
+  } catch {}
+}
+
+function isActiveMarkerFresh(filePath, now = Date.now()) {
+  if (!filePath) return false;
+  try {
+    return markerIsFresh(JSON.parse(fs.readFileSync(filePath, "utf8")), now);
+  } catch {
+    return false;
+  }
+}
+
+function tryAcquireActiveMarker(filePath, marker, now = Date.now()) {
+  if (!filePath) return true;
+  const result = withActiveMarkerLease(filePath, () => {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    let current = null;
+    try {
+      current = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    } catch (error) {
+      if (error?.code !== "ENOENT") return false;
+    }
+    if (current && markerIsFresh(current, now)) return false;
+    if (current) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch (error) {
+        if (error?.code !== "ENOENT") return false;
+      }
+    }
+    let handle;
+    try {
+      handle = fs.openSync(filePath, "wx");
+      fs.writeFileSync(handle, JSON.stringify(marker), "utf8");
+      fs.fsyncSync(handle);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      if (handle !== undefined) fs.closeSync(handle);
+    }
+  });
+  return result.acquired && result.value === true;
+}
+
+function releaseActiveMarker(filePath, marker) {
+  if (!filePath || !marker) return false;
+  const result = withActiveMarkerLease(filePath, () => {
+    let current;
+    try {
+      current = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    } catch {
+      return false;
+    }
+    if (current.owner !== marker.owner || current.eventId !== marker.eventId) return false;
+    try {
+      fs.unlinkSync(filePath);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  return result.acquired && result.value === true;
+}
+
+function withActiveMarkerLease(filePath, action) {
+  const leaseFile = `${filePath}.lease`;
+  let lease;
+  try {
+    lease = acquireWriterLease(leaseFile, {
+      writer: "desire-poller",
+      model: "runtime",
+      phase: "active-marker",
+      branch: "runtime",
+      worktree: path.dirname(filePath),
+      base_sha: "runtime",
+    }, {
+      recoverStale: true,
+      staleArchiveDir: path.join(path.dirname(filePath), ".stale-desire-marker-leases"),
+    });
+  } catch {
+    return { acquired: false, value: false };
+  }
+  try {
+    return { acquired: true, value: action() };
+  } finally {
+    try {
+      releaseWriterLease(leaseFile, lease.lease_id);
+    } catch {}
+  }
+}
+
+function markerIsFresh(marker, now = Date.now()) {
+  return Boolean(
+    marker
+    && marker.owner
+    && marker.eventId
+    && Number.isFinite(Number(marker.startedAt))
+    && Number(now) - Number(marker.startedAt) <= ACTIVE_MARKER_STALE_MS
+  );
 }
 
 function resolveDesirePollerTargets({ config, sessionStore }) {
@@ -68,36 +197,15 @@ function buildDesireTriggerText(config) {
   return `${userName}又过了一小时。回顾这一小时，你内心有什么变化？此刻最想做的事是什么？各维度的感受和上小时比有什么变化？`;
 }
 
-function isDesireWindow(value) {
-  const date = value instanceof Date ? value : new Date(value);
-  const hour = Number(
-    new Intl.DateTimeFormat("en-GB", {
-      timeZone: SHANGHAI_TZ,
-      hour: "2-digit",
-      hour12: false,
-    }).format(date)
-  );
-  return hour >= 6 && hour < 22;
-}
-
-function nextHourlyTickMs(now) {
-  const OFFSET_MS = 8 * 60 * 60 * 1000;
-  const localMs = now + OFFSET_MS;
-  const nextLocalMs = Math.floor(localMs / 3_600_000) * 3_600_000 + 3_600_000;
-  return Math.max(0, nextLocalMs - OFFSET_MS - now);
-}
-
-function formatShanghai(value) {
-  return new Intl.DateTimeFormat("zh-CN", {
-    timeZone: SHANGHAI_TZ,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(new Date(value));
-}
-
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-module.exports = { runHourlyDesirePoller };
+module.exports = {
+  runHourlyDesirePoller,
+  isNightSkipAt,
+  nextPlannedAt,
+  isActiveMarkerFresh,
+  tryAcquireActiveMarker,
+  releaseActiveMarker,
+};
