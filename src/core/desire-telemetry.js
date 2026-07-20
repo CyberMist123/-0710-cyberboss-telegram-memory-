@@ -1,11 +1,11 @@
 const crypto = require("crypto");
 const fs = require("fs");
 
-function appendDesireTelemetry({ enabled = false, filePath = "", eventId = "", model = "", reusedSession = false, usage = {}, durationMs = null, outcome = "success" } = {}) {
+function appendDesireTelemetry({ enabled = false, filePath = "", eventId = "", eventType = "desire_checkin", model = "", reusedSession = false, usage = {}, durationMs = null, outcome = "success", configuredTimezone = null, intervalMinutes = null } = {}) {
   if (!enabled || !filePath) return false;
   const row = {
     timestamp: new Date().toISOString(),
-    event_type: "desire_checkin",
+    event_type: String(eventType || "desire_checkin"),
     event_id_hash: hashEventId(eventId),
     model: textOrNull(model),
     reused_session: Boolean(reusedSession),
@@ -17,6 +17,8 @@ function appendDesireTelemetry({ enabled = false, filePath = "", eventId = "", m
     duration_ms: numberOrNull(durationMs),
     outcome: normalizeOutcome(outcome),
   };
+  if (configuredTimezone) row.configured_timezone = String(configuredTimezone);
+  if (intervalMinutes !== null && intervalMinutes !== undefined && Number.isFinite(Number(intervalMinutes))) row.interval_minutes = Number(intervalMinutes);
   try {
     fs.mkdirSync(require("path").dirname(filePath), { recursive: true });
     fs.appendFileSync(filePath, `${JSON.stringify(row)}\n`, "utf8");

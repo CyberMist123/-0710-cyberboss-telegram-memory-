@@ -723,6 +723,19 @@ class CyberbossApp {
     } catch (error) {
       this.turnGateStore.releaseScope(bindingKey, workspaceRoot);
       const messageText = error instanceof Error ? error.message : String(error || "unknown error");
+      if (pendingOperation?.kind === "desire_checkin") {
+        const { appendDesireTelemetry } = require("./desire-telemetry");
+        appendDesireTelemetry({
+          enabled: this.config.desireTelemetry,
+          filePath: this.config.desireTelemetryFile,
+          eventId: pendingOperation.eventId,
+          eventType: "desire_checkin",
+          reusedSession: pendingOperation.reusedSession,
+          durationMs: Date.now() - pendingOperation.startedAt,
+          outcome: "error",
+        });
+        try { if (this.config.desireActiveFile) require("fs").unlinkSync(this.config.desireActiveFile); } catch {}
+      }
       await this.channelAdapter.sendText({
         userId: prepared.senderId,
         text: `❌ Request failed\n${messageText}`,
@@ -2230,6 +2243,11 @@ class CyberbossApp {
           durationMs: Date.now() - pendingOperation.startedAt,
           outcome: event.type === "runtime.turn.completed" ? "success" : "error",
         });
+        try {
+          if (this.config.desireActiveFile && require("fs").existsSync(this.config.desireActiveFile)) {
+            require("fs").unlinkSync(this.config.desireActiveFile);
+          }
+        } catch {}
       }
       const sessionStore = this.runtimeAdapter.getSessionStore();
       sessionStore.clearApprovalPrompt(event.payload.threadId);

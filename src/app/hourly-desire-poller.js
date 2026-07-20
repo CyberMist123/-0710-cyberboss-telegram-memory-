@@ -1,4 +1,7 @@
 const crypto = require("crypto");
+const fs = require("fs");
+const { loadDesireSchedule, isNightSkipAt, nextPlannedAt } = require("../core/desire-schedule");
+const { appendDesireTelemetry } = require("../core/desire-telemetry");
 
 const SHANGHAI_TZ = "Asia/Shanghai";
 
@@ -19,15 +22,19 @@ async function runHourlyDesirePoller(config = {}) {
     return;
   }
 
-  const now = Date.now();
-  const waitMs = nextHourlyTickMs(now);
-  console.log(`[desire] hourly poller starts, next tick in ${Math.round(waitMs / 60000)}m`);
-  await sleep(waitMs);
-
+  let plannedAt = nextPlannedAt(null, 55, Date.now());
+  writePlanMarker(config.desirePlanFile, plannedAt);
+  console.log(`[desire] poller starts, next planned tick in ${Math.round(Math.max(0, plannedAt - Date.now()) / 60000)}m`);
   while (true) {
+    await sleep(Math.max(0, plannedAt - Date.now()));
     const tickTime = Date.now();
-    if (isDesireWindow(tickTime) && !queue.hasPendingForAccount(accountId)) {
+    const schedule = loadDesireSchedule(config.desireScheduleFile);
+    if (schedule.enabled && !isNightSkipAt(tickTime, schedule)) {
       const id = crypto.randomUUID();
+      if (queue.hasPendingForAccount(accountId) || isActiveMarkerFresh(config.desireActiveFile)) {
+        appendDesireTelemetry({ enabled: config.desireTelemetry, filePath: config.desireTelemetryFile, eventId: id, eventType: "overlap_skipped", outcome: "success", configuredTimezone: schedule.timezone, intervalMinutes: schedule.intervalMinutes });
+      } else {
+        writeActiveMarker(config.desireActiveFile, id, tickTime);
       queue.enqueue({
         id,
         accountId,
@@ -38,9 +45,43 @@ async function runHourlyDesirePoller(config = {}) {
         createdAt: new Date().toISOString(),
       });
       console.log(`[desire] hourly checkin queued id=${id} at=${formatShanghai(tickTime)}`);
+      }
+    } else if (schedule.enabled && isNightSkipAt(tickTime, schedule)) {
+      appendDesireTelemetry({ enabled: config.desireTelemetry, filePath: config.desireTelemetryFile, eventId: crypto.randomUUID(), eventType: "night_skipped", outcome: "success", configuredTimezone: schedule.timezone, intervalMinutes: schedule.intervalMinutes });
     }
-    await sleep(60 * 60 * 1000);
+    // Advance from the planned start, not from completion, and skip missed
+    // intervals after sleep/resume instead of replaying them in a burst.
+    plannedAt = nextPlannedAt(plannedAt, schedule.intervalMinutes, Date.now());
+    writePlanMarker(config.desirePlanFile, plannedAt);
   }
+}
+
+function writePlanMarker(filePath, plannedAt) {
+  if (!filePath) return;
+  try {
+    fs.mkdirSync(require("path").dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify({ nextPlannedAt: new Date(plannedAt).toISOString() }), "utf8");
+  } catch {}
+}
+
+function isActiveMarkerFresh(filePath, now = Date.now()) {
+  if (!filePath) return false;
+  try {
+    const marker = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    if (Number(now) - Number(marker.startedAt) > 2 * 60 * 60 * 1000) {
+      fs.unlinkSync(filePath);
+      return false;
+    }
+    return Boolean(marker.id);
+  } catch { return false; }
+}
+
+function writeActiveMarker(filePath, id, startedAt) {
+  if (!filePath) return;
+  try {
+    fs.mkdirSync(require("path").dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify({ id, startedAt }), "utf8");
+  } catch {}
 }
 
 function resolveDesirePollerTargets({ config, sessionStore }) {
@@ -100,4 +141,4 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-module.exports = { runHourlyDesirePoller };
+module.exports = { runHourlyDesirePoller, isNightSkipAt, nextPlannedAt, isActiveMarkerFresh };
