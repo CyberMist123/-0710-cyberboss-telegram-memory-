@@ -1887,6 +1887,13 @@ class CyberbossApp {
   async handleTelegramMessage(normalized) {
     this.logTelegramDebug(`handleTelegramMessage messageId=${normalized.messageId} senderId=${normalized.senderId}`);
     if (this.config.channel === "telegram") {
+      if (normalized?.telegram?.voice && this.projectServices?.voice) {
+        await this.projectServices.voice
+          .processInboundVoice({ normalized, channelAdapter: this.telegramChannelAdapter })
+          .catch((error) => {
+            this.logTelegramDebug(`voice inbound failed messageId=${normalized.messageId} error=${error instanceof Error ? error.message : String(error)}`);
+          });
+      }
       this.recordInboundMessage(normalized);
       await this.handlePreparedMessage(normalized, { allowCommands: true });
       return;
