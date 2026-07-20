@@ -734,7 +734,7 @@ class CyberbossApp {
           durationMs: Date.now() - pendingOperation.startedAt,
           outcome: "error",
         });
-        try { if (this.config.desireActiveFile) require("fs").unlinkSync(this.config.desireActiveFile); } catch {}
+        this.releaseDesireMarker(pendingOperation);
       }
       await this.channelAdapter.sendText({
         userId: prepared.senderId,
@@ -1323,6 +1323,8 @@ class CyberbossApp {
       pendingOperation: message?.sourceType === "desire_checkin" ? {
         kind: "desire_checkin",
         eventId: message.id,
+        markerOwner: message.markerOwner,
+        markerEventId: message.markerEventId,
         startedAt: Date.now(),
         reusedSession: Boolean(this.runtimeAdapter.getSessionStore().getThreadIdForWorkspace(bindingKey, workspaceRoot)),
       } : null,
@@ -2243,11 +2245,7 @@ class CyberbossApp {
           durationMs: Date.now() - pendingOperation.startedAt,
           outcome: event.type === "runtime.turn.completed" ? "success" : "error",
         });
-        try {
-          if (this.config.desireActiveFile && require("fs").existsSync(this.config.desireActiveFile)) {
-            require("fs").unlinkSync(this.config.desireActiveFile);
-          }
-        } catch {}
+        this.releaseDesireMarker(pendingOperation);
       }
       const sessionStore = this.runtimeAdapter.getSessionStore();
       sessionStore.clearApprovalPrompt(event.payload.threadId);
@@ -2559,6 +2557,17 @@ class CyberbossApp {
   }
 
   maybeCloseDesireLoopForPendingOperation(pendingOperation, payload = {}) {
+  }
+
+  releaseDesireMarker(pendingOperation) {
+    if (!pendingOperation?.markerOwner || !pendingOperation?.markerEventId) return;
+    try {
+      const { releaseActiveMarker } = require("../app/hourly-desire-poller");
+      releaseActiveMarker(this.config.desireActiveFile, {
+        owner: pendingOperation.markerOwner,
+        eventId: pendingOperation.markerEventId,
+      });
+    } catch {}
   }
 
   maybeSaveDesireStateFromTurnText(text) {

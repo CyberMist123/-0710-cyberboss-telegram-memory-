@@ -34,6 +34,8 @@ class DesireScheduleTests(unittest.TestCase):
         cfg = dashboard.load_desire_schedule_config()
         assert cfg["interval_minutes"] == 55
         assert cfg["timezone"] == "Australia/Sydney"
+        assert len(cfg["timezone_options"]) > 4
+        assert any(item["iana"] == "Asia/Shanghai" and "北京" in item["label"] for item in cfg["timezone_options"])
         assert dashboard.validate_desire_schedule_body({"timezone": "Not/AZone"})[0] is False
         dashboard.DESIRE_SCHEDULE_FILE.write_text(json.dumps(cfg), encoding="utf-8")
         saved = dashboard.save_desire_schedule_config({
@@ -50,6 +52,7 @@ class DesireScheduleTests(unittest.TestCase):
         audit = dashboard.DESIRE_SCHEDULE_AUDIT_FILE.read_text(encoding="utf-8")
         assert "Australia/Sydney" in audit
         assert dashboard.desire_schedule_is_night(__import__("datetime").datetime(2026, 7, 20, 23, tzinfo=__import__("zoneinfo").ZoneInfo("Australia/Sydney")), saved)
+        self.assertFalse(dashboard.desire_schedule_is_night(__import__("datetime").datetime(2026, 7, 20, 12, tzinfo=__import__("zoneinfo").ZoneInfo("Australia/Sydney")), {**saved, "night_start": "12:00", "night_end": "12:00"}))
 
 
   def test_schedule_time_payload_uses_actual_dst_offset(self):

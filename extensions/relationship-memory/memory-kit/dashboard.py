@@ -44,9 +44,10 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 try:
-    from zoneinfo import ZoneInfo
+    from zoneinfo import ZoneInfo, available_timezones
 except ImportError:  # pragma: no cover
     ZoneInfo = None
+    available_timezones = lambda: set()
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, unquote
@@ -118,12 +119,45 @@ DESIRE_SCHEDULE_DEFAULTS = {
     "timezone": "Australia/Sydney",
 }
 
-DESIRE_TIMEZONE_OPTIONS = [
-    {"iana": "Australia/Sydney", "label": "(UTC+10:00) 堪培拉，墨尔本，悉尼"},
-    {"iana": "Asia/Shanghai", "label": "(UTC+08:00) 北京，重庆，香港特别行政区，乌鲁木齐"},
-    {"iana": "Asia/Tokyo", "label": "(UTC+09:00) 大阪，札幌，东京"},
-    {"iana": "Pacific/Auckland", "label": "(UTC+12:00) 奥克兰，惠灵顿"},
-]
+DESIRE_TIMEZONE_COMMON_NAMES = {
+    "Asia/Shanghai": "(UTC+08:00) 北京，重庆，香港特别行政区，乌鲁木齐",
+    "Asia/Tokyo": "(UTC+09:00) 大阪，札幌，东京",
+    "Australia/Sydney": "(UTC+10:00) 堪培拉，墨尔本，悉尼",
+    "Australia/Melbourne": "(UTC+10:00) 墨尔本，悉尼",
+    "Australia/Brisbane": "(UTC+10:00) 布里斯班",
+    "Pacific/Auckland": "(UTC+12:00) 奥克兰，惠灵顿",
+    "Asia/Singapore": "(UTC+08:00) 新加坡",
+    "Asia/Seoul": "(UTC+09:00) 首尔",
+    "Asia/Kolkata": "(UTC+05:30) 钦奈，加尔各答，孟买，新德里",
+    "Europe/London": "(UTC+00:00) 都柏林，爱丁堡，里斯本，伦敦",
+    "Europe/Paris": "(UTC+01:00) 布鲁塞尔，哥本哈根，马德里，巴黎",
+    "Europe/Berlin": "(UTC+01:00) 阿姆斯特丹，柏林，罗马",
+    "America/New_York": "(UTC-05:00) 东部时间（美国和加拿大）",
+    "America/Chicago": "(UTC-06:00) 中部时间（美国和加拿大）",
+    "America/Denver": "(UTC-07:00) 山地时间（美国和加拿大）",
+    "America/Los_Angeles": "(UTC-08:00) 太平洋时间（美国和加拿大）",
+    "America/Toronto": "(UTC-05:00) 多伦多",
+    "America/Vancouver": "(UTC-08:00) 温哥华",
+    "America/Sao_Paulo": "(UTC-03:00) 巴西利亚",
+    "Pacific/Honolulu": "(UTC-10:00) 檀香山",
+}
+
+def _timezone_options():
+    try:
+        zones = set(available_timezones()) if ZoneInfo is not None else set()
+    except Exception:
+        zones = set()
+    def with_current_offset(iana, label):
+        try:
+            offset = datetime.now(timezone.utc).astimezone(ZoneInfo(iana)).strftime("%z")
+            shown = f"UTC{offset[:3]}:{offset[3:]}" if len(offset) == 5 else "UTC"
+            return re.sub(r"\(UTC[^)]*\)", f"({shown})", label, count=1)
+        except Exception:
+            return label
+    options = [{"iana": iana, "label": with_current_offset(iana, label)} for iana, label in DESIRE_TIMEZONE_COMMON_NAMES.items() if not zones or iana in zones]
+    known = {item["iana"] for item in options}
+    options.extend({"iana": iana, "label": f"IANA 时区 · {iana}"} for iana in sorted(zones - known))
+    return options
 
 DEFAULT_CONTEXT_LAYOUT = {
     "version": 1,
@@ -593,7 +627,12 @@ def load_desire_schedule_config():
     config["night_skip_enabled"] = config.get("night_skip_enabled") is not False
     config["revision"] = _schedule_revision(config)
     config["path"] = str(DESIRE_SCHEDULE_FILE)
-    config["timezone_options"] = DESIRE_TIMEZONE_OPTIONS
+    config["timezone_options"] = _timezone_options()
+    try:
+        runtime_env = resolve_runtime_env(resolve_runtime_state_dir())
+    except Exception:
+        runtime_env = os.environ
+    config["master_enabled"] = str(runtime_env.get("CYBERBOSS_DESIRE_DRIVEN", "0")).strip().lower() in {"1", "true", "yes", "on"}
     config["now"] = _schedule_now_payload(config)
     telemetry = read_jsonl(DESIRE_TELEMETRY_FILE)
     config["last_call"] = telemetry[-1] if telemetry else None
@@ -4140,7 +4179,7 @@ async function loadOctant() {
     if (r._gap && r._gap_hours != null) gapCell += '<span class="gaptag">断档 ' + r._gap_hours + 'h</span>';
     if (r._realtime) gapCell += (gapCell ? '<br>' : '') + '<span class="livetag">实时</span>';
     body += '<tr class="' + rowClasses.join(' ') + '">';
-    body += '<td>' + esc(r.time || '') + '</td>';
+    body += '<td>' + esc(formatScheduleTime(r.time, desireSchedulePayload && desireSchedulePayload.timezone)) + '</td>';
     for (const dim of dims) body += '<td>' + esc(r[dim] == null ? '' : r[dim]) + '</td>';
     body += '<td>' + esc(r.most_want || '') + '</td>';
     body += '<td>' + esc(r.note || '') + '</td>';
@@ -4171,6 +4210,23 @@ function formatScheduleTime(value, timezone) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return String(value || '');
   return parsed.toLocaleString('zh-CN', {timeZone: timezone || 'Australia/Sydney', timeZoneName: 'shortOffset', hour12: false}) + ` (${timezone || 'Australia/Sydney'})`;
+}
+
+async function loadDesireSchedule() {
+  const response = await fetch('/api/desire-schedule');
+  if (!response.ok) return;
+  const data = await response.json(); desireSchedulePayload = data;
+  const set = (id, value) => { const el = document.getElementById(id); if (el != null) el.value = value; };
+  document.getElementById('desire-schedule-enabled').checked = data.enabled !== false;
+  document.getElementById('desire-schedule-night-enabled').checked = data.night_skip_enabled !== false;
+  set('desire-schedule-night-start', data.night_start); set('desire-schedule-night-end', data.night_end); set('desire-schedule-timezone', data.timezone);
+  const list = document.getElementById('desire-timezone-options');
+  list.innerHTML = (data.timezone_options || []).map(item => `<option value="${esc(item.iana)}">${esc(item.label)} · ${esc(item.iana)}</option>`).join('');
+  const now = data.now || {};
+  const last = data.last_call ? ` · 上次：${formatScheduleTime(data.last_call.timestamp, data.timezone)} · ${data.last_call.outcome || ''}` : ' · 尚无调用记录';
+  const next = data.next_planned_at ? ` · 下一次预计：${formatScheduleTime(data.next_planned_at, data.timezone)}` : '';
+  const master = data.master_enabled ? '开启' : '关闭';
+  document.getElementById('desire-schedule-current').textContent = `当前调度时区：${data.timezone} · ${now.offset || ''} · 当地时间 ${formatScheduleTime(now.utc_now, data.timezone)} · ${now.is_night_skip ? '当前处于夜间跳过区间' : '当前不在夜间跳过区间'} · cadence ${data.interval_minutes} 分钟${next}${last} · 总开关 CYBERBOSS_DESIRE_DRIVEN：${master}（schedule enabled 只是子开关）`;
 }
 
 async function saveDesireSchedule() {
@@ -5129,6 +5185,14 @@ function scheduleAutoRefresh() {
 })();
 updateAutoIndicator();
 scheduleAutoRefresh();
+const _renderOctantRealtimeWithTimezone = renderOctantRealtime;
+renderOctantRealtime = function(ds, historyLastTime, historySource) {
+  _renderOctantRealtimeWithTimezone(ds, historyLastTime, historySource);
+  const timezone = desireSchedulePayload && desireSchedulePayload.timezone;
+  document.querySelectorAll('#octant-live .meta').forEach(node => {
+    node.textContent = node.textContent.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g, value => formatScheduleTime(value, timezone));
+  });
+};
 </script>
 </body>
 </html>
