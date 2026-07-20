@@ -26,6 +26,7 @@ function createClaudeCodeRuntimeAdapter(config) {
   const pendingApprovals = new Map();
   const pendingModelByWorkspaceRoot = new Map();
   const configuredModel = normalizeText(config.claudeModel);
+  const configuredAgentCwd = normalizeText(config.agentCwd);
   let globalListener = null;
   const ipcSocketPath = path.join(
     stateDir,
@@ -142,12 +143,13 @@ function createClaudeCodeRuntimeAdapter(config) {
       workspaceRoot,
       cyberbossHome: process.env.CYBERBOSS_HOME || path.resolve(__dirname, "..", "..", "..", ".."),
     });
+    const agentCwd = resolveAgentCwd(configuredAgentCwd, workspaceRoot);
     console.log(
       `[claudecode-runtime] workspace=${workspaceRoot} mcp_config=${projectSettings.configPath} server=${projectSettings.serverName}`
     );
     const client = new ClaudeCodeProcessClient({
       command: config.claudeCommand || "claude",
-      cwd: workspaceRoot,
+      cwd: agentCwd,
       env: filterClaudeCodeEnv(process.env),
       model: desiredModel,
       permissionMode: config.claudePermissionMode || "default",
@@ -342,7 +344,7 @@ function createClaudeCodeRuntimeAdapter(config) {
       });
       const client = new ClaudeCodeProcessClient({
         command: config.claudeCommand || "claude",
-        cwd: normalizedWorkspaceRoot,
+        cwd: resolveAgentCwd(configuredAgentCwd, normalizedWorkspaceRoot),
         env: filterClaudeCodeEnv(process.env),
         model: resolveModel(model),
         permissionMode: config.claudePermissionMode || "default",
@@ -561,7 +563,11 @@ function filterClaudeCodeEnv(env) {
   return out;
 }
 
-module.exports = { createClaudeCodeRuntimeAdapter };
+function resolveAgentCwd(agentCwd, workspaceRoot) {
+  return normalizeText(agentCwd) || normalizeText(workspaceRoot);
+}
+
+module.exports = { createClaudeCodeRuntimeAdapter, resolveAgentCwd };
 
 function normalizeThreadId(value) {
   return typeof value === "string" ? value.replace(/\s+/g, "").trim() : "";

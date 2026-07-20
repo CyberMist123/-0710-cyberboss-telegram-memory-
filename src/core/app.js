@@ -129,6 +129,7 @@ class CyberbossApp {
       onSystemReplySent: (threadId, turnId, replyText) => this.handleSystemReplySent(threadId, turnId, replyText),
     });
     this.pendingOperationByRunKey = new Map();
+    this.desireUsageByRunKey = new Map();
     this.runtimeEventChain = Promise.resolve();
     this.runtimeAdapter.onEvent((event) => {
       this.threadStateStore.applyRuntimeEvent(event);
@@ -722,6 +723,19 @@ class CyberbossApp {
     } catch (error) {
       this.turnGateStore.releaseScope(bindingKey, workspaceRoot);
       const messageText = error instanceof Error ? error.message : String(error || "unknown error");
+      if (pendingOperation?.kind === "desire_checkin") {
+        const { appendDesireTelemetry } = require("./desire-telemetry");
+        appendDesireTelemetry({
+          enabled: this.config.desireTelemetry,
+          filePath: this.config.desireTelemetryFile,
+          eventId: pendingOperation.eventId,
+          eventType: "desire_checkin",
+          reusedSession: pendingOperation.reusedSession,
+          durationMs: Date.now() - pendingOperation.startedAt,
+          outcome: "error",
+        });
+        this.releaseDesireMarker(pendingOperation);
+      }
       await this.channelAdapter.sendText({
         userId: prepared.senderId,
         text: `❌ Request failed\n${messageText}`,
@@ -1306,6 +1320,14 @@ class CyberbossApp {
       bindingKey,
       workspaceRoot,
       prepared,
+      pendingOperation: message?.sourceType === "desire_checkin" ? {
+        kind: "desire_checkin",
+        eventId: message.id,
+        markerOwner: message.markerOwner,
+        markerEventId: message.markerEventId,
+        startedAt: Date.now(),
+        reusedSession: Boolean(this.runtimeAdapter.getSessionStore().getThreadIdForWorkspace(bindingKey, workspaceRoot)),
+      } : null,
     });
   }
 
@@ -2181,6 +2203,9 @@ class CyberbossApp {
   }
 
   async handleRuntimeEvent(event) {
+    if (event?.type === "runtime.context.updated") {
+      this.desireUsageByRunKey.set(buildRunKey(event?.payload?.threadId, event?.payload?.turnId), event.payload);
+    }
     const failureReplyTarget = event?.type === "runtime.turn.failed"
       ? this.streamDelivery.resolveReplyTargetForRun({
           threadId: event?.payload?.threadId,
@@ -2202,12 +2227,32 @@ class CyberbossApp {
       const completedRunKey = buildRunKey(event.payload.threadId, event.payload.turnId);
       const pendingOperations = this.pendingOperationByRunKey;
       const pendingOperation = pendingOperations?.get?.(completedRunKey) || null;
+      const usage = this.desireUsageByRunKey.get(completedRunKey) || {};
+      this.desireUsageByRunKey.delete(completedRunKey);
       if (pendingOperation && pendingOperations?.delete) {
         pendingOperations.delete(completedRunKey);
       }
       if (event.type === "runtime.turn.completed") {
         this.maybeCloseDesireLoopForPendingOperation(pendingOperation, event?.payload);
         this.maybeSaveDesireStateFromTurnText(event?.payload?.text || "");
+      }
+      if (pendingOperation?.kind === "desire_checkin") {
+        const { appendDesireTelemetry } = require("./desire-telemetry");
+        const linkedForTelemetry = this.runtimeAdapter.getSessionStore().findBindingForThreadId(event.payload.threadId);
+        const model = linkedForTelemetry
+          ? this.runtimeAdapter.getSessionStore().getRuntimeParamsForWorkspace(linkedForTelemetry.bindingKey, linkedForTelemetry.workspaceRoot).model
+          : "";
+        appendDesireTelemetry({
+          enabled: this.config.desireTelemetry,
+          filePath: this.config.desireTelemetryFile,
+          eventId: pendingOperation.eventId,
+          model,
+          reusedSession: pendingOperation.reusedSession,
+          usage,
+          durationMs: Date.now() - pendingOperation.startedAt,
+          outcome: event.type === "runtime.turn.completed" ? "success" : "error",
+        });
+        this.releaseDesireMarker(pendingOperation);
       }
       const sessionStore = this.runtimeAdapter.getSessionStore();
       sessionStore.clearApprovalPrompt(event.payload.threadId);
@@ -2519,6 +2564,17 @@ class CyberbossApp {
   }
 
   maybeCloseDesireLoopForPendingOperation(pendingOperation, payload = {}) {
+  }
+
+  releaseDesireMarker(pendingOperation) {
+    if (!pendingOperation?.markerOwner || !pendingOperation?.markerEventId) return;
+    try {
+      const { releaseActiveMarker } = require("../app/hourly-desire-poller");
+      releaseActiveMarker(this.config.desireActiveFile, {
+        owner: pendingOperation.markerOwner,
+        eventId: pendingOperation.markerEventId,
+      });
+    } catch {}
   }
 
   maybeSaveDesireStateFromTurnText(text) {

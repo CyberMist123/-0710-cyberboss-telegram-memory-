@@ -16,6 +16,9 @@ function readConfig() {
   const diaryDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_DIARY_DIR")) || joinIfBase(stateDir, "diary");
   const sourceLabel = readTextEnv("CYBERBOSS_SOURCE_LABEL");
   const memoryDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_MEMORY_DIR") || joinIfBase(stateDir, "memory"));
+  // The agent's process may be deliberately narrower than the workspace used
+  // for bindings, source discovery, and MCP configuration.
+  const agentCwd = resolveConfiguredPath(readTextEnv("CYBERBOSS_AGENT_CWD")) || memoryDir;
   const operationsFile = resolveConfiguredPath(readTextEnv("CYBERBOSS_OPERATIONS_FILE"));
   const continuityDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_CONTINUITY_DIR"));
 
@@ -70,6 +73,7 @@ function readConfig() {
     projectToolContextFile: joinIfBase(stateDir, "project-tool-runtime-context.json"),
     weixinInstructionsFile: promptFile,
     memoryDir,
+    agentCwd,
     continuityDir,
     reentryFile: joinIfBase(continuityDir, "reentry.md"),
     contextTraceFile: joinIfBase(continuityDir, "trace", "context_trace.jsonl"),
@@ -147,6 +151,11 @@ function readConfig() {
     desireBaselineDrift: resolveFeatureGate("CYBERBOSS_DESIRE_BASELINE_DRIFT"),
     heartbeatAutonomy: resolveFeatureGate("CYBERBOSS_HEARTBEAT_AUTONOMY"),
     desireSelfDrive: resolveFeatureGate("CYBERBOSS_DESIRE_SELF_DRIVE"),
+    desireScheduleFile: joinIfBase(stateDir, "desire-schedule.json"),
+    desireActiveFile: joinIfBase(stateDir, "desire-checkin-active.json"),
+    desirePlanFile: joinIfBase(stateDir, "desire-checkin-plan.json"),
+    desireTelemetry: resolveFeatureGate("CYBERBOSS_DESIRE_TELEMETRY"),
+    desireTelemetryFile: resolveConfiguredPath(readTextEnv("CYBERBOSS_DESIRE_TELEMETRY_FILE")) || joinIfBase(stateDir, "desire-usage.jsonl"),
     desireThoughtMax: readIntEnv("CYBERBOSS_DESIRE_THOUGHT_MAX")
       || readIntEnv("TWIN_DESIRE_THOUGHT_MAX")
       || 80,

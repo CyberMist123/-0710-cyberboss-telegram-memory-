@@ -182,6 +182,13 @@ const PROJECT_TOOLS = [
     },
   },
   {
+    name: "memory_note",
+    description: "Append a bounded private Self-note for a future Reflect; it never becomes ordinary chat context.",
+    shortHint: "Append one private self-note.", topics: ["memory", "continuity"],
+    inputSchema: { type: "object", required: ["text"], properties: { text: { type: "string", maxLength: 1000 }, quote: { type: "string", maxLength: 500 } }, additionalProperties: false },
+    async handler({ services, args }) { const result = services.memoryNote?.note(args) || { error: "note_unavailable" }; return { text: result.error ? `Memory note ${result.error}.` : "Memory note appended.", data: result }; },
+  },
+  {
     name: "memory_lookup",
     description: "Call memory.lookup only when the user explicitly pulls on an earlier event. This is a user_pull string lookup, not automatic retrieval. Say that you checked the record; never present a lookup-only hit as something you continuously remembered.",
     shortHint: "Look up old episodes only after an explicit user_pull; never call for ordinary chat.",
@@ -910,6 +917,7 @@ function createExtraToolHosts(services = {}) {
 
 const TOOL_ALIASES = {
   "memory.lookup": { name: "memory_lookup" },
+  "memory.note": { name: "memory_note" },
   cyberboss_sleep_schedule: { name: "cyberboss_sleep_mode" },
   cyberboss_reminder_create: { name: "cyberboss_reminder", command: "create" },
   cyberboss_sleep_schedule_enable: { name: "cyberboss_sleep_mode", command: "enable" },
