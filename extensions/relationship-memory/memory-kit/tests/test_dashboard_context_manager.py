@@ -17,15 +17,18 @@ MEMORY = TEMP / "memory"
 CONTINUITY = TEMP / "continuity"
 WORKSPACE = TEMP / "workspace"
 TODO = WORKSPACE / "settings" / "CODING_TODO.md"
-for path in (STATE, MEMORY, CONTINUITY, TODO.parent):
+PROMPT = WORKSPACE / "templates" / "weixin-instructions.md"
+for path in (STATE, MEMORY, CONTINUITY, TODO.parent, PROMPT.parent):
     path.mkdir(parents=True, exist_ok=True)
 TODO.write_text("# TODO\n\n- [ ] first\n", encoding="utf-8")
+PROMPT.write_text("# System / Persona\n\nStay present.\n", encoding="utf-8")
 
 os.environ["CYBERBOSS_DASHBOARD_KEYS_FILE"] = str(TEMP / "keys.local.json")
 os.environ["CYBERBOSS_STATE_DIR"] = str(STATE)
 os.environ["CYBERBOSS_MEMORY_DIR"] = str(MEMORY)
 os.environ["CYBERBOSS_CONTINUITY_DIR"] = str(CONTINUITY)
 os.environ["CYBERBOSS_WORKSPACE_ROOT"] = str(WORKSPACE)
+os.environ["CYBERBOSS_PROJECT_ROOT"] = str(WORKSPACE)
 os.environ["CYBERBOSS_TODO_FILE"] = str(TODO)
 
 sys.path.insert(0, str(KIT))
@@ -102,6 +105,48 @@ def test_http_and_ui_contract():
         assert code == 200
         assert context["layout"]["groups"][0]["id"] == "base"
 
+        code, sources = request(server.server_port, "/api/context-sources")
+        assert code == 200
+        assert [item["key"] for item in sources["sources"]] == ["prompt", "reentry", "current_state", "memory_context"]
+
+        code, payload = request(
+            server.server_port,
+            "/api/context-source/save",
+            "POST",
+            {"key": "reentry", "content": "她刚刚说过，下一次先接住这条线。"},
+        )
+        assert code == 401
+
+        code, payload = request(
+            server.server_port,
+            "/api/context-source/save",
+            "POST",
+            {"key": "reentry", "content": "她刚刚说过，下一次先接住这条线。", "source": "http-test"},
+            dashboard.API_TOKEN,
+        )
+        assert code == 200 and payload["ok"]
+        assert (MEMORY / "reentry.md").read_text(encoding="utf-8") == "她刚刚说过，下一次先接住这条线。"
+        backups = list((STATE / "context-source-backups" / "reentry").glob("*.txt"))
+        assert backups and backups[-1].read_text(encoding="utf-8") == ""
+        audit_rows = [json.loads(line) for line in (STATE / "prompt-change-log.jsonl").read_text(encoding="utf-8").splitlines()]
+        assert audit_rows[-1]["event"] == "context_source_saved"
+        assert audit_rows[-1]["context_key"] == "reentry"
+
+        code, payload = request(
+            server.server_port,
+            "/api/context-source/save",
+            "POST",
+            {
+                "key": "reentry",
+                "content": "不应覆盖已有内容。",
+                "expected_sha256": dashboard.sha256_text(""),
+                "source": "http-test-conflict",
+            },
+            dashboard.API_TOKEN,
+        )
+        assert code == 409 and payload["error"] == "context_source_conflict"
+        assert (MEMORY / "reentry.md").read_text(encoding="utf-8") == "她刚刚说过，下一次先接住这条线。"
+
         code, payload = request(
             server.server_port,
             "/api/context-layout/snapshot",
@@ -130,8 +175,9 @@ def test_http_and_ui_contract():
 
         assert 'data-view="context"' in dashboard.PAGE
         assert 'data-view="files"' in dashboard.PAGE
-        assert 'id="ctx-board"' in dashboard.PAGE
-        assert "context-layout/snapshot" in dashboard.PAGE
+        assert 'data-view="injection"' not in dashboard.PAGE
+        assert 'data-view="timeline">Timeline' in dashboard.PAGE
+        assert 'id="context-sources"' in dashboard.PAGE
         assert "真实注入开关" in dashboard.PAGE
         assert "Current Context" in dashboard.PAGE
         assert "OLD_CONTINUITY_HTML" not in dashboard.PAGE

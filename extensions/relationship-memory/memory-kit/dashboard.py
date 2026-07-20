@@ -33,6 +33,7 @@ API 桥永不让外部直接写 episodes.jsonl 正式文件——候选与正式
 关怀页边界:cycle 只由她录入,数据永不进 user_portrait / episodes,不做经期分析图表。
 """
 import atexit
+import hashlib
 import json
 import os
 import re
@@ -94,6 +95,9 @@ TODO_BACKUP_DIR = DASHBOARD_STATE_DIR / "todo-backups"
 CONTEXT_LAYOUT_FILE = DASHBOARD_STATE_DIR / "context-layout.json"
 CONTEXT_SNAPSHOT_DIR = DASHBOARD_STATE_DIR / "context-layout-snapshots"
 CONTEXT_META_FILE = DASHBOARD_STATE_DIR / "context-layout-meta.json"
+PROMPT_BACKUP_DIR = DASHBOARD_STATE_DIR / "prompt-backups"
+PROMPT_AUDIT_FILE = DASHBOARD_STATE_DIR / "prompt-change-log.jsonl"
+CONTEXT_SOURCE_BACKUP_DIR = DASHBOARD_STATE_DIR / "context-source-backups"
 
 DEFAULT_CONTEXT_LAYOUT = {
     "version": 1,
@@ -319,7 +323,7 @@ def get_continuity_rows(kind, limit=50):
     if kind not in ("trace", "candidates", "decisions"):
         raise ValueError("invalid continuity row kind")
     rows = read_jsonl(paths[kind])
-    return rows[-max(1, min(int(limit), 200)):]
+    return normalize_display_value(rows[-max(1, min(int(limit), 200)):])
 
 
 def run_review_retry(candidate_id):
@@ -499,6 +503,35 @@ def read_text(path):
     return path.read_text(encoding="utf-8", errors="replace")
 
 
+def sha256_text(content):
+    return hashlib.sha256(str(content or "").encode("utf-8")).hexdigest()
+
+
+def repair_mojibake_text(value):
+    """Repair the common UTF-8-as-GBK corruption for display only."""
+    text = str(value or "")
+    markers = "鍚鐨鏄浠绗鎴濂璇杩锛銆鈥"
+    before = sum(text.count(char) for char in markers)
+    if before < 1:
+        return text
+    try:
+        repaired = text.encode("gb18030").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
+    after = sum(repaired.count(char) for char in markers)
+    return repaired if after < before else text
+
+
+def normalize_display_value(value):
+    if isinstance(value, str):
+        return repair_mojibake_text(value)
+    if isinstance(value, list):
+        return [normalize_display_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: normalize_display_value(item) for key, item in value.items()}
+    return value
+
+
 def write_text_atomic(path, content):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -516,7 +549,7 @@ def read_json_file(path, default=None):
     if not path.exists():
         return {} if default is None else copy_json(default)
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
     except Exception:
         return {} if default is None else copy_json(default)
     return value
@@ -1105,7 +1138,18 @@ def is_truthy_env(value):
 
 def resolve_runtime_env(state_dir=None):
     state_dir = state_dir or resolve_runtime_state_dir()
-    return read_env_file(state_dir / ".env")
+    merged = {}
+    manifest = read_json_file(DASHBOARD_WORKSPACE_ROOT / "settings" / "manifest.json", default={})
+    telegram = manifest.get("telegram") if isinstance(manifest, dict) else {}
+    configured_env = (telegram or {}).get("env_file") if isinstance(telegram, dict) else None
+    if configured_env:
+        merged.update(read_env_file(Path(configured_env)))
+    merged.update(read_env_file(state_dir / ".env"))
+    merged.update(resolve_runtime_launch_env(state_dir))
+    for key, value in os.environ.items():
+        if key.startswith("CYBERBOSS_"):
+            merged[key] = value
+    return merged
 
 
 def resolve_runtime_launch_env(state_dir=None):
@@ -1517,9 +1561,13 @@ def summarize_recent_file_updates(entries, limit=7):
 
 def get_model_overview():
     keys = load_keys()
+    try:
+        runtime_env = resolve_runtime_env()
+    except Exception:
+        runtime_env = {}
     return {
-        "chat_provider": keys.get("chat_provider") or "",
-        "chat_model": keys.get("chat_model") or "",
+        "chat_provider": keys.get("chat_provider") or runtime_env.get("CYBERBOSS_RUNTIME") or "",
+        "chat_model": keys.get("chat_model") or runtime_env.get("CYBERBOSS_CLAUDE_MODEL") or "",
         "extract_provider": keys.get("extract_provider") or keys.get("MEM_PROVIDER") or "",
         "extract_model": keys.get("extract_model") or keys.get("GLM_MODEL") or keys.get("DS_MODEL") or "",
     }
@@ -1531,6 +1579,211 @@ def model_label(provider, model, fallback):
     if provider or model:
         return " / ".join([p for p in (provider, model) if p])
     return fallback
+
+
+def resolve_runtime_prompt_path(state_dir=None, project_dir=None):
+    state_dir = state_dir or resolve_runtime_state_dir()
+    project_dir = project_dir or resolve_cyberboss_project_dir()
+    runtime_env = resolve_runtime_env(state_dir)
+    configured = str(runtime_env.get("CYBERBOSS_PROMPT_FILE") or "").strip()
+    return Path(configured) if configured else (project_dir / "templates" / "weixin-instructions.md")
+
+
+def list_prompt_backups(limit=30):
+    if not PROMPT_BACKUP_DIR.is_dir():
+        return []
+    rows = []
+    for path in sorted(PROMPT_BACKUP_DIR.glob("*.md"), key=lambda item: item.stat().st_mtime, reverse=True)[:limit]:
+        content = read_text(path)
+        rows.append({
+            "name": path.name,
+            "updated_at": iso_mtime(path),
+            "chars": len(content),
+            "sha256": sha256_text(content),
+        })
+    return rows
+
+
+def get_runtime_prompt_payload(include_content=True):
+    state_dir = resolve_runtime_state_dir()
+    project_dir = resolve_cyberboss_project_dir()
+    runtime_env = resolve_runtime_env(state_dir)
+    path = resolve_runtime_prompt_path(state_dir, project_dir)
+    content = read_text(path)
+    payload = {
+        "path": str(path),
+        "exists": path.is_file(),
+        "updated_at": iso_mtime(path),
+        "chars": len(content),
+        "lines": len(content.splitlines()),
+        "sha256": sha256_text(content),
+        "model": runtime_env.get("CYBERBOSS_CLAUDE_MODEL") or "",
+        "runtime": runtime_env.get("CYBERBOSS_RUNTIME") or "",
+        "operations_enabled": is_truthy_env(runtime_env.get("CYBERBOSS_INCLUDE_OPERATIONS_PROMPT")),
+        "memory_retrieval_enabled": is_truthy_env(runtime_env.get("CYBERBOSS_MEMORY_RETRIEVAL")),
+        "background_write_enabled": is_truthy_env(runtime_env.get("CYBERBOSS_MEMORY_BACKGROUND_WRITE")),
+        "apply_note": "保存后，Telegram 会在下一条消息自动换干净线程并载入新版本。",
+        "backups": list_prompt_backups(),
+    }
+    if include_content:
+        payload["content"] = content
+    return payload
+
+
+def append_prompt_audit(event):
+    PROMPT_AUDIT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with PROMPT_AUDIT_FILE.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+
+def save_runtime_prompt(content, expected_sha256="", source="520"):
+    text = str(content or "")
+    if not text.strip() or len(text) > 100000 or "\x00" in text:
+        raise ValueError("提示词不能为空，且必须小于 100000 字符。")
+    path = resolve_runtime_prompt_path()
+    current = read_text(path)
+    current_sha = sha256_text(current)
+    if expected_sha256 and expected_sha256 != current_sha:
+        raise RuntimeError("提示词已被其他进程修改，请刷新后重试。")
+    if text == current:
+        return get_runtime_prompt_payload()
+    PROMPT_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    backup = PROMPT_BACKUP_DIR / f"{stamp}-{current_sha[:10]}.md"
+    write_text_atomic(backup, current)
+    write_text_atomic(path, text)
+    append_prompt_audit({
+        "ts": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "event": "prompt_saved",
+        "source": str(source or "520"),
+        "path": str(path),
+        "before_sha256": current_sha,
+        "after_sha256": sha256_text(text),
+        "backup": backup.name,
+    })
+    return get_runtime_prompt_payload()
+
+
+def restore_runtime_prompt(backup_name, expected_sha256="", source="520"):
+    safe_name = Path(str(backup_name or "")).name
+    if not safe_name or safe_name != str(backup_name or "") or not safe_name.endswith(".md"):
+        raise ValueError("无效的备份版本。")
+    backup = PROMPT_BACKUP_DIR / safe_name
+    if not backup.is_file():
+        raise FileNotFoundError("备份版本不存在。")
+    return save_runtime_prompt(read_text(backup), expected_sha256=expected_sha256, source=f"{source}:restore:{safe_name}")
+
+
+def _context_source_paths():
+    state_dir = resolve_runtime_state_dir()
+    return {
+        "reentry": ROOT / "reentry.md",
+        "current_state": state_dir / "context-current-state.md",
+        "memory_context": state_dir / "context-memory-override.md",
+    }
+
+
+def _summarize_current_state_for_context():
+    payload = load_desire_state()
+    data = payload.get("data") if isinstance(payload, dict) else {}
+    if not isinstance(data, dict):
+        return ""
+    intent = data.get("intent") if isinstance(data.get("intent"), dict) else {}
+    parts = []
+    drive = str(intent.get("drive_key") or "").strip()
+    action = str(intent.get("want_action") or intent.get("action") or "").strip()
+    reason = str(intent.get("reason") or "").strip()
+    if drive:
+        parts.append(f"姿态:{drive}")
+    if action and action != "none":
+        parts.append(f"倾向:{action}")
+    if reason:
+        parts.append(f"缘由:{reason}")
+    if parts:
+        return "；".join(parts)[:100]
+    most_want = re.sub(r"\s+", " ", str(data.get("most_want") or "")).strip()[:70]
+    drives = data.get("drives") if isinstance(data.get("drives"), list) else []
+    scored = [row for row in drives if isinstance(row, dict) and row.get("label") and isinstance(row.get("score"), (int, float))]
+    scored.sort(key=lambda row: float(row.get("score") or 0), reverse=True)
+    drive_text = " ".join(f"{row['label']}{row['score']}{'↑' if row.get('change') == 'up' else ('↓' if row.get('change') == 'down' else '')}" for row in scored[:2])
+    return "；".join(item for item in (f"此刻:{most_want}" if most_want else "", drive_text) if item)[:100]
+
+
+def get_context_sources_payload():
+    gates = load_context_gates()
+    prompt = get_runtime_prompt_payload(include_content=True)
+    paths = _context_source_paths()
+    reentry_text = read_text(paths["reentry"])
+    current_override = read_text(paths["current_state"])
+    memory_override = read_text(paths["memory_context"])
+    sources = [
+        {
+            "key": "prompt", "label": "System / Persona", "gate": None,
+            "content": prompt.get("content") or "", "effective_content": prompt.get("content") or "",
+            "mode": "固定文件", "budget": 100000, "sha256": prompt.get("sha256") or "",
+            "updated_at": prompt.get("updated_at"), "model": prompt.get("model") or "",
+            "description": "稳定身份、关系边界与回答方式。保存后，下一条消息会自动换干净线程载入。",
+        },
+        {
+            "key": "reentry", "label": "Re-entry", "gate": gates.get("reentry", True),
+            "content": reentry_text, "effective_content": reentry_text if gates.get("reentry", True) else "",
+            "mode": "手写交接", "budget": 300, "sha256": sha256_text(reentry_text),
+            "updated_at": iso_mtime(paths["reentry"]),
+            "description": "新线程的醒来第一包。关闭或保存后，下一条消息会自动换干净线程。",
+        },
+        {
+            "key": "current_state", "label": "Live State", "gate": gates.get("current_state", True),
+            "content": current_override, "effective_content": current_override.strip() or _summarize_current_state_for_context(),
+            "mode": "手动覆盖" if current_override.strip() else "八维自动摘要",
+            "budget": 100, "sha256": sha256_text(current_override), "updated_at": iso_mtime(paths["current_state"]),
+            "description": "留空时自动读取八维摘要；填写后使用这里的文字。保存后下一条消息重建上下文。",
+        },
+        {
+            "key": "memory_context", "label": "Memory Context", "gate": gates.get("memory_context", True),
+            "content": memory_override, "effective_content": memory_override.strip(),
+            "mode": "手动覆盖" if memory_override.strip() else "按话题自动检索",
+            "budget": 4000, "sha256": sha256_text(memory_override), "updated_at": iso_mtime(paths["memory_context"]),
+            "description": "留空时按本轮话题检索；填写后只使用这里的非空行。下一轮即时生效。",
+        },
+    ]
+    return {"sources": sources, "gates": gates, "thread_rebuild_policy": "hard_context_change_on_next_turn"}
+
+
+def save_context_source(key, content, expected_sha256="", source="520"):
+    key = str(key or "").strip()
+    text = str(content or "")
+    if "\x00" in text:
+        raise ValueError("内容不能包含空字符。")
+    if key == "prompt":
+        save_runtime_prompt(text, expected_sha256=expected_sha256, source=source)
+        return get_context_sources_payload()
+    paths = _context_source_paths()
+    if key not in paths:
+        raise ValueError("不支持的上下文来源。")
+    limits = {"reentry": 300, "current_state": 100, "memory_context": 4000}
+    chars = len(re.sub(r"\s+", "", text))
+    if chars > limits[key]:
+        raise ValueError(f"内容超过 {limits[key]} 个非空白字符预算。")
+    path = paths[key]
+    current = read_text(path)
+    current_sha = sha256_text(current)
+    if expected_sha256 and expected_sha256 != current_sha:
+        raise RuntimeError("内容已被其他进程修改，请刷新后重试。")
+    if text == current:
+        return get_context_sources_payload()
+    backup_dir = CONTEXT_SOURCE_BACKUP_DIR / key
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    backup = backup_dir / f"{stamp}-{current_sha[:10]}.txt"
+    write_text_atomic(backup, current)
+    write_text_atomic(path, text)
+    append_prompt_audit({
+        "ts": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "event": "context_source_saved", "context_key": key,
+        "source": str(source or "520"), "before_sha256": current_sha,
+        "after_sha256": sha256_text(text), "backup": str(backup.relative_to(DASHBOARD_STATE_DIR)),
+    })
+    return get_context_sources_payload()
 
 
 def build_entry(path, *, key, label, writer, cadence, purpose, layer,
@@ -1568,7 +1821,7 @@ def compute_injection_overview():
     models = get_model_overview()
     runtime_env = resolve_runtime_env(state_dir)
     runtime_memory_status = compute_runtime_memory_status()
-    runtime_instructions = state_dir / "weixin-instructions.md"
+    runtime_instructions = resolve_runtime_prompt_path(state_dir, project_dir)
     template_instructions = project_dir / "templates" / "weixin-instructions.md"
     operations_template = project_dir / "templates" / "weixin-operations.md"
     runtime_memory_dir = resolve_runtime_memory_dir(state_dir)
@@ -1587,6 +1840,7 @@ def compute_injection_overview():
     state_text = read_text(workspace_state_relay)
     pending_text = read_text(workspace_pending_promises)
     reentry_text = read_text(reentry_path)
+    operations_enabled = is_truthy_env(runtime_env.get("CYBERBOSS_INCLUDE_OPERATIONS_PROMPT"))
 
     runtime_memory_block = extract_h2_block(runtime_text, "记忆与连续性")
     template_memory_block = extract_h2_block(template_text, "记忆与连续性")
@@ -1670,6 +1924,17 @@ def compute_injection_overview():
             recent_lines_limit=6,
         ),
     ]
+    active_by_key = {
+        "runtime_instructions": True,
+        "operations_template": operations_enabled,
+        "runtime_seven_day": is_truthy_env(runtime_env.get("CYBERBOSS_MEMORY_BACKGROUND_WRITE")),
+        "runtime_pending_promises": is_truthy_env(runtime_env.get("CYBERBOSS_LEGACY_PROMISE_RELAY")),
+        "workspace_state_relay": is_truthy_env(runtime_env.get("CYBERBOSS_LEGACY_STATE_RELAY")),
+        "workspace_pending_promises": is_truthy_env(runtime_env.get("CYBERBOSS_LEGACY_PROMISE_RELAY")),
+        "reentry": True,
+    }
+    for entry in runtime_chain:
+        entry["active"] = bool(active_by_key.get(entry.get("key"), False))
 
     source_files = [
         build_entry(
@@ -1701,15 +1966,17 @@ def compute_injection_overview():
         "runtime_state_dir": str(state_dir),
         "runtime_memory_status": runtime_memory_status,
         "runtime_background_write_enabled": is_runtime_background_write_enabled(state_dir),
+        "operations_enabled": operations_enabled,
         "project_dir": str(project_dir),
         "memory_block_sync": memory_block_sync,
         "runtime_chain": runtime_chain,
         "source_files": source_files,
+        "runtime_prompt": get_runtime_prompt_payload(include_content=True),
         "sections": {
             "role_card": extract_h2_block(runtime_text, "人格与关系"),
             "memory_continuity": runtime_memory_block,
             "thinking_style": extract_h2_block(runtime_text, "思考方式"),
-            "operations_excerpt": preview_block(operations_text, limit_chars=1800, limit_lines=24),
+            "operations_excerpt": preview_block(operations_text, limit_chars=1800, limit_lines=24) if operations_enabled else "",
             "runtime_seven_day": preview_block(seven_day_text, limit_chars=1600, limit_lines=20),
             "runtime_pending_promises": preview_block(runtime_pending_text, limit_chars=1200, limit_lines=16),
             "state_relay": preview_block(state_text, limit_chars=1200, limit_lines=16),
@@ -1840,10 +2107,12 @@ def compute_memory_overview():
         ],
         "recent_formal_episodes": [
             {
-                "time": str(item.get("time", "")),
-                "title": str(item.get("title", "")),
+                "time": str(item.get("time") or item.get("ts") or ""),
+                "title": str(item.get("title") or ""),
+                "body": str(item.get("body") or item.get("what_happened") or ""),
                 "importance": item.get("importance"),
-                "id": str(item.get("id", "")),
+                "id": str(item.get("id") or item.get("ep_id") or ""),
+                "author_role": str(item.get("author_role") or ""),
             }
             for item in list(reversed(read_jsonl(ROOT / "episodes.jsonl")))[:6]
         ],
@@ -2267,6 +2536,12 @@ PAGE = r"""<!doctype html>
           background: rgba(20,21,26,.72); backdrop-filter: blur(10px);
           border-bottom:1px solid var(--line); flex-shrink:0;
           box-shadow: 0 1px 0 rgba(255,255,255,.02); }
+  #tabs .brand { display:flex; align-items:center; gap:8px; padding-right:12px; margin-right:4px;
+                 border-right:1px solid var(--line); white-space:nowrap; }
+  #tabs .brand-mark { width:25px; height:25px; display:grid; place-items:center; border-radius:8px;
+                      color:#f4f5fb; font-size:11px; font-weight:800; background:linear-gradient(145deg,#59689e,#343d62); }
+  #tabs .brand-copy strong { display:block; color:#f0f1f5; font-size:12px; line-height:1.1; }
+  #tabs .brand-copy small { display:block; margin-top:3px; color:var(--text-faint); font-size:9px; letter-spacing:.07em; }
   #tabs .tab { padding:7px 16px; cursor:pointer; border-radius:8px; font-size:13.5px;
                color: var(--text-dim); font-weight:500; letter-spacing:.02em;
                transition: background .18s var(--ease), color .18s var(--ease), transform .12s var(--ease); }
@@ -2274,6 +2549,8 @@ PAGE = r"""<!doctype html>
   #tabs .tab:active { transform: translateY(1px); }
   #tabs .tab.on { background: linear-gradient(180deg,#454f78,#3a4266);
                   color:#fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 2px 8px rgba(60,69,104,.4); }
+  #tabs .tab.secondary { color:#777d8d; padding-left:11px; padding-right:11px; }
+  #tabs .nav-divider { width:1px; height:22px; margin:0 4px; background:var(--line); flex:0 0 auto; }
   #tabs .spacer { flex:1; }
   #tabs .hint { font-size:11.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
 
@@ -2310,6 +2587,52 @@ PAGE = r"""<!doctype html>
   .hcard .big { font-size:28px; color:#fff; font-weight:600; letter-spacing:-.01em;
                 font-variant-numeric: tabular-nums; }
   .hcard .sub { font-size:12px; color: var(--text-faint); margin-top:5px; line-height:1.5; }
+
+  /* ---- 核心工作台 ---- */
+  .core-hero { padding:20px; margin-bottom:15px; border:1px solid #343a52; border-radius:14px;
+               background:radial-gradient(620px 230px at 86% -25%,rgba(122,134,194,.23),transparent 65%),
+                          linear-gradient(145deg,#202433,#181b25 72%); box-shadow:var(--shadow); }
+  .core-hero-top { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; }
+  .core-eyebrow { color:#aeb8e8; font-size:10px; letter-spacing:.13em; text-transform:uppercase; }
+  .core-title { margin:6px 0 5px; color:#f5f6fa; font-size:23px; font-weight:650; }
+  .core-copy { color:var(--text-dim); font-size:12.5px; line-height:1.7; }
+  .core-state { flex:0 0 auto; padding:8px 12px; border-radius:999px; font-size:12px; border:1px solid #75612f;
+                color:#ffd98a; background:#302712; }
+  .core-state.ok { color:#a8e7b7; border-color:#3b754b; background:#183322; }
+  .core-state.bad { color:#ffb4bd; border-color:#8a3040; background:#351b21; }
+  .core-status-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-top:17px; }
+  .core-status { min-height:92px; padding:12px 13px; border:1px solid var(--line-soft); border-radius:10px; background:rgba(22,24,32,.7); }
+  .core-status .label { color:var(--text-faint); font-size:10.5px; }
+  .core-status strong { display:block; margin-top:7px; color:#f0f1f5; font-size:14px; line-height:1.35; }
+  .core-status small { display:block; margin-top:5px; color:var(--text-faint); font-size:10.5px; line-height:1.45; }
+  .core-status.warn strong { color:#ffd98a; }
+  .core-status.bad strong { color:#ffb4bd; }
+  .quick-nav { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-bottom:16px; }
+  .quick-link { text-align:left; padding:12px 13px; border:1px solid var(--line); border-radius:10px; background:var(--surface-2);
+                color:var(--text); box-shadow:none; }
+  .quick-link:hover { border-color:#596691; background:#232735; filter:none; }
+  .quick-link strong,.quick-link small { display:block; }
+  .quick-link strong { font-size:12.5px; }
+  .quick-link small { margin-top:4px; color:var(--text-faint); font-size:10.5px; line-height:1.45; }
+  details.advanced-details { border:1px solid var(--line); border-radius:11px; background:rgba(24,26,34,.7); overflow:hidden; }
+  details.advanced-details > summary { cursor:pointer; list-style:none; padding:13px 15px; color:var(--text-dim); font-size:12px; }
+  details.advanced-details > summary::-webkit-details-marker { display:none; }
+  details.advanced-details > summary::before { content:"＋"; display:inline-block; width:20px; color:#8793c8; }
+  details.advanced-details[open] > summary::before { content:"−"; }
+  details.advanced-details > .details-body { padding:2px 15px 15px; }
+
+  .memory-map { display:grid; grid-template-columns:repeat(5,minmax(130px,1fr)); gap:9px; }
+  .memory-stage { position:relative; min-height:122px; padding:13px; border:1px solid var(--line); border-radius:10px; background:var(--surface-2); }
+  .memory-stage:not(:last-child)::after { content:"→"; position:absolute; right:-15px; top:44px; z-index:2; color:#65709f; font-size:17px; }
+  .memory-stage .num { color:#7f8bc3; font:600 10px Consolas,monospace; }
+  .memory-stage strong { display:block; margin-top:6px; color:#f0f1f5; font-size:13px; }
+  .memory-stage p { margin:5px 0 0; color:var(--text-faint); font-size:10.5px; line-height:1.55; }
+  .read-policy { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; margin-top:10px; }
+  .policy-card { padding:11px 12px; border:1px solid var(--line-soft); border-radius:9px; background:#191b23; }
+  .policy-card strong { color:#e9ebf1; font-size:11.5px; }
+  .policy-card span { display:block; margin-top:5px; color:var(--text-faint); font-size:10.5px; line-height:1.5; }
+  .policy-pill { display:inline-flex !important; width:auto; margin:0 0 6px !important; padding:2px 7px; border-radius:999px;
+                 color:#a8e7b7 !important; border:1px solid #356344; background:#172c1e; font-size:9.5px !important; }
 
   .barwrap { background:#0c0d12; border-radius:7px; height:14px; overflow:hidden; margin-top:10px;
              box-shadow: inset 0 1px 2px rgba(0,0,0,.5); }
@@ -2487,6 +2810,11 @@ PAGE = r"""<!doctype html>
   #editbtn, #savebtn, #cancelbtn { display:none !important; }
   .continuity-row { background:var(--surface-2); border:1px solid var(--line); border-radius:8px;
                     padding:10px 12px; margin-bottom:8px; font-size:12px; overflow-wrap:anywhere; }
+  .continuity-row .event-title { font-weight:700; color:var(--text); margin-bottom:5px; }
+  .continuity-row .event-meta { color:var(--muted); margin-bottom:7px; }
+  .continuity-row .event-body { white-space:pre-wrap; line-height:1.65; }
+  .continuity-row details { margin-top:8px; color:var(--muted); }
+  .continuity-row details pre { margin-top:6px; max-height:260px; overflow:auto; white-space:pre-wrap; }
   .module-state { display:inline-block; margin:3px 6px 3px 0; padding:5px 8px;
                   border:1px solid var(--line); border-radius:6px; font-size:12px; }
   .module-state.on { border-color:#4f7658; color:#9be3ab; }
@@ -2628,26 +2956,72 @@ PAGE = r"""<!doctype html>
       padding:9px 11px; border-radius:8px; font-size:11px; line-height:1.55;
       color:#c9b98a; border:1px solid #4a4234; background:#232120;
   }
+  .context-flow { display:flex; flex-direction:column; gap:8px; }
+  .context-step { display:grid; grid-template-columns:42px minmax(145px,210px) 1fr auto; align-items:center; gap:12px;
+                  padding:12px; border:1px solid var(--line-soft); border-radius:10px; background:#1b1e27; }
+  .context-step .step-no { width:32px; height:32px; display:grid; place-items:center; border-radius:9px; background:#11131a;
+                           color:#8793c8; font:600 11px Consolas,monospace; border:1px solid #2c3140; }
+  .context-step strong { color:#edf0f7; font-size:12.5px; }
+  .context-step small { display:block; margin-top:4px; color:var(--text-faint); font-size:10.5px; line-height:1.45; }
+  .context-step .load-rule { color:#aeb8e8; font-size:10.5px; line-height:1.5; }
+  .context-step.fixed { border-color:#354064; background:#202432; }
+  .context-step.off { opacity:.62; }
+  .context-note { margin-top:10px; color:var(--text-faint); font-size:10.5px; line-height:1.6; }
+  .context-sources { display:flex; flex-direction:column; gap:10px; }
+  .context-source { border:1px solid var(--line-soft); border-radius:11px; background:#1b1e27; overflow:hidden; }
+  .context-source-head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; padding:13px 14px; }
+  .context-source-title { color:#f0f1f5; font-size:13px; font-weight:650; }
+  .context-source-meta { margin-top:4px; color:var(--text-faint); font-size:10.5px; line-height:1.5; }
+  .context-source-preview { padding:0 14px 13px; color:#c7c9d4; font:11.5px/1.65 "Microsoft YaHei",sans-serif;
+                            white-space:pre-wrap; max-height:150px; overflow:auto; }
+  .context-source-editor { display:none; padding:0 14px 14px; }
+  .context-source.editing .context-source-preview { display:none; }
+  .context-source.editing .context-source-editor { display:block; }
+  .context-source-editor textarea { min-height:220px; resize:vertical; }
+  .context-source-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:9px; }
+  .context-source-status { color:var(--text-faint); font-size:10.5px; }
+  .memory-episode { padding:14px 15px; border:1px solid var(--line); border-radius:10px; background:var(--surface-2); }
+  .memory-episode .when { color:var(--text-faint); font-size:10.5px; }
+  .memory-episode h3 { margin:6px 0 7px; color:#eef0f6; font-size:13px; }
+  .memory-episode p { margin:0; color:#c9ccd5; font-size:12px; line-height:1.75; white-space:pre-wrap; }
+  .memory-episode .origin { margin-top:8px; color:#777e90; font-size:10px; }
   @media (max-width:840px) {
+      #tabs { overflow-x:auto; padding:8px 10px; }
+      #tabs .brand-copy, #tabs .hint, #tabs .spacer { display:none; }
+      #tabs .tab { flex:0 0 auto; padding:7px 10px; }
+      .view { padding:14px 12px; }
+      .core-status-grid,.quick-nav,.read-policy { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .memory-map { grid-template-columns:1fr; }
+      .memory-stage:not(:last-child)::after { content:"↓"; top:auto; right:50%; bottom:-17px; }
+      .context-step { grid-template-columns:36px 1fr auto; }
+      .context-step .load-rule { grid-column:2 / -1; }
       .ctx-layer { grid-template-columns:36px 1fr auto; }
       .ctx-items { grid-column:2 / -1; }
       .ctx-layer-actions { grid-column:2 / -1; flex-direction:row; align-items:center; justify-content:space-between; }
+  }
+  @media (max-width:520px) {
+      .core-hero-top { display:block; }
+      .core-state { display:inline-block; margin-top:12px; }
+      .core-status-grid,.quick-nav,.read-policy { grid-template-columns:1fr; }
+      .cardgrid { grid-template-columns:1fr; }
+      .nav-divider { display:none; }
   }
 </style>
 </head>
 <body>
 <div id="app">
   <div id="tabs">
-    <div class="tab on" data-view="health">健康度</div>
-    <div class="tab" data-view="continuity">Continuity</div>
-    <div class="tab" data-view="injection">注入</div>
-    <div class="tab" data-view="memorymap">记忆</div>
-    <div class="tab" data-view="timeline">时间线</div>
-    <div class="tab" data-view="octant">八维</div>
-    <div class="tab" data-view="care">关怀</div>
-    <div class="tab" data-view="theater">剧场</div>
-    <div class="tab" data-view="context">上下文</div>
-    <div class="tab" data-view="files">文件</div>
+    <div class="brand"><span class="brand-mark">520</span><span class="brand-copy"><strong>Cyberlink</strong><small>MEMORY CONSOLE</small></span></div>
+    <div class="tab on" data-view="health">总览</div>
+    <div class="tab" data-view="memorymap">记忆数据</div>
+    <div class="tab" data-view="context">上下文控制</div>
+    <div class="tab" data-view="continuity">事件流水</div>
+    <div class="tab" data-view="octant">八维状态</div>
+    <div class="tab" data-view="timeline">Timeline</div>
+    <div class="nav-divider"></div>
+    <div class="tab secondary" data-view="care">关怀</div>
+    <div class="tab secondary" data-view="theater">剧场</div>
+    <div class="tab secondary" data-view="files">文件</div>
     <div class="spacer"></div>
     <div id="auto-indicator" onclick="toggleAutoRefresh()" title="20 秒自动刷新中(点击暂停)" style="cursor:pointer;font-size:14px;padding:0 10px;user-select:none;">●</div>
     <div class="hint">记忆面板 v3 · 127.0.0.1:520</div>
@@ -2656,8 +3030,16 @@ PAGE = r"""<!doctype html>
   <div id="views">
     <!-- 1 健康度 -->
     <div class="view on" id="view-health">
-      <div id="alertbar"></div>
-      <div class="cardgrid" id="health-cards"></div>
+      <div id="core-health-summary"></div>
+      <div class="quick-nav">
+        <button class="quick-link" onclick="switchView('memorymap')"><strong>查看记忆怎么运转</strong><small>Episode、Portrait、Self-note 与候选层</small></button>
+        <button class="quick-link" onclick="switchView('context')"><strong>控制本轮加载内容</strong><small>三个真实开关与固定载入顺序</small></button>
+        <button class="quick-link" onclick="switchView('continuity')"><strong>查看刚才发生了什么</strong><small>可读事件、Review 决策与正式 Canon</small></button>
+        <button class="quick-link" onclick="switchView('context')"><strong>编辑所有缝入内容</strong><small>Persona、Re-entry、Live State 与 Memory Context</small></button>
+      </div>
+      <details class="advanced-details"><summary>详细诊断与原始指标</summary>
+        <div class="details-body"><div id="alertbar"></div><div class="cardgrid" id="health-cards"></div></div>
+      </details>
     </div>
 
     <div class="view" id="view-continuity">
@@ -2687,41 +3069,59 @@ PAGE = r"""<!doctype html>
           <div class="section-head">当前真正的注入内容</div>
           <div class="cardgrid" id="injection-sections"></div>
         </div>
+        <div>
+          <div class="section-head">实际模型提示词（完整内容）</div>
+          <div class="notice" id="runtime-prompt-meta">读取中…</div>
+          <textarea id="runtime-prompt-editor" readonly style="min-height:420px; margin-top:10px;"></textarea>
+          <div class="row" style="margin-top:10px;">
+            <button id="runtime-prompt-edit" onclick="editRuntimePrompt()">修改实际提示词</button>
+            <button id="runtime-prompt-save" onclick="previewRuntimePromptSave()" style="display:none;">查看差异并保存</button>
+            <button class="ghost" id="runtime-prompt-cancel" onclick="cancelRuntimePromptEdit()" style="display:none;">取消</button>
+            <select id="runtime-prompt-backups" aria-label="历史提示词版本"></select>
+            <button class="ghost" onclick="restoreRuntimePrompt()">恢复所选版本</button>
+            <span id="runtime-prompt-status" class="status"></span>
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- 记忆 -->
     <div class="view" id="view-memorymap">
-      <div class="notice">这里看“它真正记住了什么”。这套系统没有单独的“每日总结.md”；每晚 closeout 会把内容分散写进 reentry / timeline / portrait / episodes / ai_self_notes，而自动补记会写进 candidates / extracted。注意：候选层不会自动转正，正式层目前仍依赖 AI 自己做 closeout 吸收。</div>
       <div class="view-stack">
+        <section class="ctx-section">
+          <div class="ctx-section-head"><div><h3 class="ctx-section-title">记忆是怎么流动的</h3>
+            <div class="ctx-section-copy">先看流程，再看每层真实数据。候选不会自动冒充正式记忆。</div></div></div>
+          <div class="ctx-section-body">
+            <div class="memory-map">
+              <div class="memory-stage"><span class="num">01</span><strong>对话与运行事件</strong><p>Telegram 对话、上下文 Trace 和八维状态是原始来源。</p></div>
+              <div class="memory-stage"><span class="num">02</span><strong>证据与候选</strong><p>Janitor 补漏，只形成待审材料，不直接改变 AI 的长期记忆。</p></div>
+              <div class="memory-stage"><span class="num">03</span><strong>Review</strong><p>判断接受、合并、延后或拒绝，并保留决定依据。</p></div>
+              <div class="memory-stage"><span class="num">04</span><strong>正式记忆</strong><p>Episode、Timeline、Portrait 与 Self-note 分工保存。</p></div>
+              <div class="memory-stage"><span class="num">05</span><strong>下次载入</strong><p>Re-entry、八维摘要和按需回忆经真实 gate 进入上下文。</p></div>
+            </div>
+            <div class="read-policy">
+              <div class="policy-card"><span class="policy-pill">新线程首轮</span><strong>Re-entry</strong><span>醒来第一包，短、慢变化，受 Re-entry 开关控制。</span></div>
+              <div class="policy-card"><span class="policy-pill">首轮 / 刷新</span><strong>八维与当前状态</strong><span>告诉模型“现在是什么状态”，不是长期事实。</span></div>
+              <div class="policy-card"><span class="policy-pill">按需读取</span><strong>Episode / Timeline</strong><span>需要回忆时检索，不应每轮把全部历史塞进上下文。</span></div>
+              <div class="policy-card"><span class="policy-pill">后台私有</span><strong>AI Self-note</strong><span>AI 的反思日记，普通对话默认不整本载入。</span></div>
+            </div>
+          </div>
+        </section>
         <div class="cardgrid" id="memory-head"></div>
         <div>
-          <div class="section-head">当前可读到的正式记忆</div>
+          <div class="section-head">最近正式 Episodes 与主体记忆</div>
           <div class="cardgrid" id="memory-current"></div>
         </div>
-        <div>
-          <div class="section-head">正式层（会留下来）</div>
-          <div class="cardgrid" id="memory-formal"></div>
-        </div>
-        <div>
-          <div class="section-head">自动层（待审 / 补记）</div>
-          <div class="cardgrid" id="memory-auto"></div>
-        </div>
-        <div>
-          <div class="section-head">运行时 / 历史归档</div>
-          <div class="cardgrid" id="memory-runtime"></div>
-        </div>
-        <div>
-          <div class="section-head">最近几天的更新痕迹</div>
-          <div id="memory-daily"></div>
-        </div>
+        <details class="advanced-details"><summary>正式层文件状态</summary><div class="details-body"><div class="cardgrid" id="memory-formal"></div></div></details>
+        <details class="advanced-details"><summary>自动补记与待审候选</summary><div class="details-body"><div class="cardgrid" id="memory-auto"></div></div></details>
+        <details class="advanced-details"><summary>运行时缓存与历史归档</summary><div class="details-body"><div class="cardgrid" id="memory-runtime"></div></div></details>
+        <details class="advanced-details"><summary>最近几天的文件更新痕迹</summary><div class="details-body"><div id="memory-daily"></div></div></details>
       </div>
     </div>
 
     <!-- 2 时间线 -->
     <div class="view" id="view-timeline">
       <div id="timeline-meta" class="notice"></div>
-      <div id="timeline-latest" class="cardgrid"></div>
       <div id="timeline-body"></div>
     </div>
 
@@ -2780,66 +3180,34 @@ PAGE = r"""<!doctype html>
     <div class="view" id="view-context">
       <div class="ctx-shell">
         <section class="ctx-hero">
-          <div class="ctx-kicker">Context Orchestration</div>
-          <h2 class="ctx-title">上下文管理</h2>
+          <div class="ctx-kicker">Context Control</div>
+          <h2 class="ctx-title">本轮模型会看到什么</h2>
           <div class="ctx-lead">
-            把稳定身份、Re-entry、鲜活状态、会话连续、按需检索与当轮上下文放在同一张编排图里。
-            三个标记为“实时生效”的开关会直接写入 runtime gate；其余排序与小模块配置保存为编排配置，不会改写记忆 Canon。
+            这里是上下文的唯一控制入口。修改硬上下文或开关后，Telegram 会在下一条消息自动换一个干净线程，旧内容不会继续留在模型上下文里。
           </div>
           <div class="ctx-toolbar">
-            <select id="ctx-snapshot-select" aria-label="选择上下文快照"></select>
-            <button onclick="saveSelectedContextSnapshot()">存档</button>
-            <button class="ghost" onclick="restoreSelectedContextSnapshot()">载入存档</button>
-            <button class="ghost" onclick="toggleContextResetMenu()">Reset</button>
-            <span class="spacer"></span>
-            <span class="ctx-meta" id="ctx-layout-meta">读取中…</span>
-          </div>
-          <div class="ctx-reset-menu" id="ctx-reset-menu">
-            <button class="ghost" onclick="restoreContextSnapshot('default')">恢复默认</button>
-            <button class="ghost" onclick="restoreContextSnapshot('last_auto')">上次自动快照</button>
-            <button class="ghost" onclick="restoreContextSnapshot('slot1')">快照 1</button>
-            <button class="ghost" onclick="restoreContextSnapshot('slot2')">快照 2</button>
-            <button class="ghost" onclick="restoreContextSnapshot('slot3')">快照 3</button>
+            <span class="ctx-meta" id="ctx-runtime-summary">读取中…</span>
           </div>
         </section>
 
-        <section class="ctx-section">
-          <div class="ctx-section-head"><div><h3 class="ctx-section-title">当前运行结构</h3>
-            <div class="ctx-section-copy">只读显示当前 repo、路径与模块状态，便于判断网页正在管理哪套 runtime。</div></div></div>
-          <div class="ctx-section-body"><div class="ctx-runtime-grid" id="ctx-runtime-grid"></div></div>
-        </section>
+        <details class="advanced-details">
+          <summary>运行路径与模块诊断</summary>
+          <div class="details-body"><div class="ctx-runtime-grid" id="ctx-runtime-grid"></div></div>
+        </details>
 
         <section class="ctx-section">
-          <div class="ctx-section-head"><div><h3 class="ctx-section-title">真实注入开关</h3>
-            <div class="ctx-section-copy">这些开关调用现有 context-gates API，下一轮对话即时生效。</div></div>
+          <div class="ctx-section-head"><div><h3 class="ctx-section-title">实际载入顺序与真实注入开关</h3>
+            <div class="ctx-section-copy">从上到下进入模型上下文；固定层不能关闭，记忆层可即时开关。</div></div>
             <span class="ctx-save-state" id="ctx-gate-status"></span></div>
           <div class="ctx-section-body"><div class="ctx-gates" id="ctx-gates"></div></div>
         </section>
 
         <section class="ctx-section">
-          <div class="ctx-section-head"><div><h3 class="ctx-section-title">上下文载入顺序</h3>
-            <div class="ctx-section-copy">Base 固定最前，Current Context 固定最后；拖动中间层，编辑、开关或删除其中的小模块。</div></div>
-            <span class="ctx-save-state" id="ctx-layout-save-state"></span></div>
-          <div class="ctx-section-body">
-            <div class="ctx-warning">带“编排配置”标记的层目前只保存配置，不会擅自改动 TG prompt；带“实时 gate 对应层”标记的层同时受上方 runtime gate 控制。</div>
-            <div class="ctx-board" id="ctx-board" style="margin-top:11px;"></div>
-          </div>
+          <div class="ctx-section-head"><div><h3 class="ctx-section-title">实际缝入内容</h3>
+            <div class="ctx-section-copy">四个入口对应四种真实来源。Live State 和 Memory Context 留空时恢复自动模式。</div></div></div>
+          <div class="ctx-section-body"><div class="context-sources" id="context-sources">读取中…</div></div>
         </section>
 
-        <section class="ctx-section">
-          <div class="ctx-section-head"><div><h3 class="ctx-section-title">当前任务单</h3>
-            <div class="ctx-section-copy">读取实际 CODING_TODO.md；保存前显示 diff，并把旧版备份到 runtime state。</div></div>
-            <span class="ctx-meta" id="ctx-todo-meta"></span></div>
-          <div class="ctx-section-body">
-            <div class="ctx-todo-actions">
-              <button id="ctx-todo-edit" onclick="enterContextTodoEdit()">编辑</button>
-              <button id="ctx-todo-save" style="display:none" onclick="showContextTodoDiff()">保存</button>
-              <button class="ghost" id="ctx-todo-cancel" style="display:none" onclick="cancelContextTodoEdit()">取消</button>
-              <span id="ctx-todo-status"></span>
-            </div>
-            <textarea id="ctx-todo-editor" spellcheck="false" readonly></textarea>
-          </div>
-        </section>
       </div>
     </div>
 
@@ -2885,6 +3253,11 @@ let contextLayoutSaveTimer = null;
 let contextDraggedGroup = null;
 let contextTodoOriginal = '';
 let contextTodoEditing = false;
+let contextSourcesPayload = null;
+let contextSourceEditingKey = '';
+let runtimePromptOriginal = '';
+let runtimePromptPayload = null;
+let runtimePromptEditing = false;
 let pendingAction = null;
 
 // ---------- tab 切换 ----------
@@ -2936,13 +3309,78 @@ function renderContinuityRows(targetId, rows, allowRetry) {
   }
   rows.slice().reverse().forEach(row => {
     const box = document.createElement('div'); box.className = 'continuity-row';
-    const pre = document.createElement('pre'); pre.textContent = JSON.stringify(row, null, 2); box.appendChild(pre);
-    if (allowRetry && ['deferred', 'rejected'].includes(row.action) && row.candidate_id) {
+    const event = describeContinuityEvent(row, targetId);
+    const title = document.createElement('div'); title.className = 'event-title'; title.textContent = event.title; box.appendChild(title);
+    if (event.meta) { const meta = document.createElement('div'); meta.className = 'event-meta'; meta.textContent = event.meta; box.appendChild(meta); }
+    if (event.body) { const body = document.createElement('div'); body.className = 'event-body'; body.textContent = event.body; box.appendChild(body); }
+    const details = document.createElement('details');
+    const summary = document.createElement('summary'); summary.textContent = '查看原始记录'; details.appendChild(summary);
+    const pre = document.createElement('pre'); pre.textContent = JSON.stringify(row, null, 2); details.appendChild(pre); box.appendChild(details);
+    if (allowRetry && ['deferred', 'rejected'].includes(row.result || row.action) && row.candidate_id) {
       const button = document.createElement('button'); button.className = 'ghost'; button.textContent = 'Re-review';
       button.onclick = () => retryContinuityReview(row.candidate_id, button); box.appendChild(button);
     }
     target.appendChild(box);
   });
+}
+
+function continuityTypeLabel(value) {
+  return ({episode:'事件记忆', self_note:'AI 私人日记', reentry_draft:'下次醒来交接稿',
+    accepted:'已接受', rejected:'已拒绝', deferred:'已延后', merged:'已合并'})[value] || value || '';
+}
+
+function continuityReasonLabel(value) {
+  return ({default_hidden:'默认不加载', existing_thread:'已是现有线程', already_injected:'本线程已经加载过',
+    gated_off:'运行开关已关闭', missing:'来源不存在', reviewed:'证据与边界检查通过',
+    subject_review_required:'需要主体 AI 复核', boundary_touch:'涉及边界内容，需要复核',
+    semantic_authority_missing:'来源没有语义执笔权', legacy_uncovered:'历史会话区间尚未覆盖'})[value] || value || '';
+}
+
+function continuityCheckLabel(value) {
+  return ({source_ref_located:'来源可定位', length_ok:'长度合规', safety_ok:'安全检查通过',
+    imperative_warning:'含命令式措辞', duplicate_of:'重复于', publication_allowed:'允许发布'})[value] || value;
+}
+
+function sourceRefText(ref) {
+  if (!ref) return '';
+  if (typeof ref === 'string') return ref;
+  const file = ref.file ? String(ref.file).split(/[\\/]/).pop() : '';
+  return [file, ref.window ? ('行 ' + ref.window) : ''].filter(Boolean).join(' · ');
+}
+
+function describeContinuityEvent(row, targetId) {
+  const when = row.ts || row.time || row.detected_at || row.created_at || row.updated_at || '';
+  const id = row.trace_entry_id || row.gap_id || row.evidence_id || row.candidate_id || row.decision_id || row.ep_id || row.id || '';
+  const source = sourceRefText(row.source_ref);
+  if (targetId === 'continuity-trace' || Array.isArray(row.blocks) || Array.isArray(row.skipped)) {
+    const loaded = (row.blocks || []).map(item => typeof item === 'string' ? item : item.type).filter(Boolean);
+    const skipped = (row.skipped || []).map(item => typeof item === 'string' ? item : ((item.type || '未知块') + '（' + continuityReasonLabel(item.reason || '未说明') + '）'));
+    const mode = row.opening === true ? '新线程首轮' : (row.opening === false ? '普通对话' : '上下文记录');
+    const lines = [loaded.length ? ('实际载入：' + loaded.join('、')) : '本轮没有额外载入记忆块。',
+      skipped.length ? ('未载入：' + skipped.join('；')) : '',
+      row.recall_calls && row.recall_calls.length ? ('主动回忆调用：' + row.recall_calls.length + ' 次') : '主动回忆：未调用',
+      '受控上下文记录量：' + Number(row.total_chars || 0) + ' 字符' + (row.fallback ? '；使用了回退路径' : '')].filter(Boolean);
+    return {title:'上下文事件 · ' + mode, meta:[when, row.thread ? ('线程 ' + row.thread) : '', row.turn || id].filter(Boolean).join(' · '), body:lines.join('\n')};
+  }
+  if (targetId === 'continuity-evidence' || row.evidence_id) return {title:'已保存证据材料', meta:[when,row.evidence_id || id,source,row.origin].filter(Boolean).join(' · '), body:row.body || row.text || row.excerpt || '材料已保存，但它本身还不是正式记忆。'};
+  if (targetId === 'continuity-gaps' || row.gap_id) return {title:'发现技术断档', meta:[when,id,source].filter(Boolean).join(' · '), body:continuityReasonLabel(row.reason) || row.note || '这段会话尚未被记忆流水线覆盖，等待补取证据。'};
+  if (targetId === 'continuity-decisions' || row.result || row.action) {
+    const result = row.result || row.action || 'unknown'; const checks = row.checks || {};
+    const checkText = Object.keys(checks).length ? Object.entries(checks).map(([key,value]) => continuityCheckLabel(key) + '：' + String(value)).join('；') : '';
+    return {title:'Review 决策 · ' + continuityTypeLabel(result), meta:[when,row.decision_id || id,row.candidate_id].filter(Boolean).join(' · '), body:[row.reason ? ('原因：' + continuityReasonLabel(row.reason)) : '', row.merged_into ? ('合并到：' + row.merged_into) : '', checkText ? ('检查：' + checkText) : ''].filter(Boolean).join('\n') || '审核完成。'};
+  }
+  if ((targetId || '').includes('candidates') || (row.candidate_id && !row.ep_id)) {
+    const authority = row.author_role === 'subject_ai' ? '主体 AI 执笔' : (row.author_role === 'background_proxy' ? '后台代理草稿' : '待确认来源');
+    return {title:continuityTypeLabel(row.type) + '候选', meta:[when,id,authority,source].filter(Boolean).join(' · '), body:humanizeEpisodeText(row.body || row.what_happened || row.summary || '候选已生成，尚未看到可展示的正文。')};
+  }
+  if (targetId === 'continuity-canon' || row.ep_id || row.title || row.what_happened) return {title:'正式事件 · ' + humanizeEpisodeText(row.title || row.ep_id || row.candidate_id || 'Episode'), meta:[when,row.ep_id || id,source].filter(Boolean).join(' · '), body:humanizeEpisodeText(row.what_happened || row.body || row.summary || '已发布到正式记忆。')};
+  if (targetId === 'continuity-config-events' || ['prompt_saved','context_source_saved'].includes(row.event)) {
+    const labels = {prompt:'System / Persona',reentry:'Re-entry',current_state:'Live State',memory_context:'Memory Context'};
+    const label = row.event === 'prompt_saved' ? 'System / Persona' : (labels[row.context_key] || row.context_key || '上下文');
+    return {title:label + ' 已更新', meta:[when,row.after_sha256 ? ('新版本 ' + row.after_sha256.slice(0,12)) : ''].filter(Boolean).join(' · '), body:'修改来源：' + (row.source || '520') + '\n旧版本已自动备份。'};
+  }
+  const summaryText = row.body || row.text || row.note || row.summary || row.reason || '';
+  return {title:'系统事件' + (id ? (' · ' + id) : ''), meta:[when,source].filter(Boolean).join(' · '), body:summaryText || '这条记录没有标准摘要，可展开查看原始字段。'};
 }
 
 async function loadContinuity() {
@@ -2991,8 +3429,36 @@ async function loadContextGates(container) {
 }
 
 // ---------- 1 健康度 ----------
+function renderCoreHealthSummary(h) {
+  const host = document.getElementById('core-health-summary');
+  const alerts = h.alerts || [];
+  const redCount = alerts.filter(item => item.level === 'red').length;
+  const stateClass = redCount ? 'bad' : (alerts.length ? '' : 'ok');
+  const stateText = redCount ? '存在故障' : (alerts.length ? alerts.length + ' 项需要留意' : '运行正常');
+  const bridge = h.bridge_status || {};
+  const bridgeGap = bridge.latest_long_gap;
+  const bridgeClass = bridgeGap ? 'bad' : (bridge.runtime_exit_at ? 'warn' : '');
+  const bridgeTitle = bridgeGap ? '发现长断档' : (bridge.runtime_exit_at ? '近期曾异常退出' : '近 48 小时无长断档');
+  const bridgeDetail = bridgeGap ? (Math.round(Number(bridgeGap.minutes || 0)) + ' 分钟') : 'Telegram 链路观察';
+  const reentryOver = Number(h.reentry_chars || 0) > Number(h.reentry_budget || 0);
+  const octantAge = Number((h.desire_state || {}).hours_since_update || h.hours_since_state || 0);
+  const octantClass = octantAge > 8 ? 'warn' : '';
+  const candidateClass = Number(h.candidates_n || 0) > 50 ? 'warn' : '';
+  host.innerHTML = '<section class="core-hero"><div class="core-hero-top"><div>' +
+    '<div class="core-eyebrow">Cyberlink status</div><h1 class="core-title">现在的系统状态</h1>' +
+    '<div class="core-copy">只显示会影响使用的结论。底层路径、原始 JSON 和开发诊断已收进折叠区。</div></div>' +
+    '<div class="core-state ' + stateClass + '">' + esc(stateText) + '</div></div>' +
+    '<div class="core-status-grid">' +
+      '<div class="core-status ' + bridgeClass + '"><div class="label">TELEGRAM / RUNTIME</div><strong>' + esc(bridgeTitle) + '</strong><small>' + esc(bridgeDetail) + '</small></div>' +
+      '<div class="core-status ' + (reentryOver ? 'bad' : '') + '"><div class="label">RE-ENTRY</div><strong>' + esc(h.reentry_chars) + ' / ' + esc(h.reentry_budget) + ' 字符</strong><small>' + (reentryOver ? '已超过预算，需要收缩' : '醒来第一包在预算内') + '</small></div>' +
+      '<div class="core-status ' + octantClass + '"><div class="label">八维状态</div><strong>' + (octantAge ? esc(octantAge) + ' 小时前' : '暂无时间') + '</strong><small>' + (octantAge > 8 ? '心跳偏旧，但数据结构完整' : '状态刷新正常') + '</small></div>' +
+      '<div class="core-status ' + candidateClass + '"><div class="label">待审候选</div><strong>' + esc(h.candidates_n || 0) + ' 条</strong><small>候选不会自动进入正式记忆</small></div>' +
+    '</div></section>';
+}
+
 async function loadHealth() {
   const r = await fetch('/api/health'); const h = await r.json();
+  renderCoreHealthSummary(h);
   const ab = document.getElementById('alertbar');
   ab.innerHTML = '';
   if (h.alerts.length === 0) {
@@ -3155,10 +3621,15 @@ function renderAuditCard(item) {
   html += '<div class="meta-row">更新节奏: ' + esc(item.cadence || '') + '</div>';
   html += '<div class="meta-row">最后更新: ' + when + '</div>';
   html += '<div class="meta-row">作用: ' + esc(item.purpose || '') + '</div>';
+  if (typeof item.active === 'boolean') {
+    html += '<div class="status-pill ' + (item.active ? 'ok' : 'warn') + '">' + (item.active ? '本轮启用' : '当前未启用') + '</div>';
+  }
   if (item.rows != null) {
     html += '<div class="meta-row">条目数: ' + esc(item.rows) + (item.latest_day ? (' · 最新日期 ' + esc(item.latest_day)) : '') + '</div>';
   }
-  if (item.recent_lines && item.recent_lines.length) {
+  if (item.active === false) {
+    html += '<div class="meta-row">文件存在，但当前运行开关关闭，本轮不会加载正文。</div>';
+  } else if (item.recent_lines && item.recent_lines.length) {
     html += '<div class="line-list">' + item.recent_lines.map(line => '<div>' + esc(line) + '</div>').join('') + '</div>';
   } else if (item.preview) {
     html += '<pre class="mini-pre">' + esc(item.preview) + '</pre>';
@@ -3179,6 +3650,23 @@ function renderLinePanel(title, lines) {
     body = '<div class="line-list">' + lines.map(line => '<div>' + esc(line) + '</div>').join('') + '</div>';
   }
   return '<div class="hcard"><h3>' + esc(title) + '</h3>' + body + '</div>';
+}
+
+function humanizeEpisodeText(value) {
+  return String(value || '')
+    .replace(/用户发现其AI伴侣/g, '她发现我')
+    .replace(/用户发现AI伴侣/g, '她发现我')
+    .replace(/用户的AI伴侣/g, '她熟悉的我')
+    .replace(/其AI伴侣/g, '我')
+    .replace(/用户/g, '她')
+    .replace(/\bAI\b/g, '我');
+}
+
+function renderMemoryEpisode(item) {
+  const body = humanizeEpisodeText(item.body || '');
+  const title = humanizeEpisodeText(item.title || '') || (body ? body.slice(0, 34) + (body.length > 34 ? '…' : '') : (item.id || 'Episode'));
+  return '<article class="memory-episode"><div class="when">' + esc(item.time || '') + '</div><h3>' + esc(title) + '</h3>' +
+    (body && body !== title ? '<p>' + esc(body) + '</p>' : '') + '<div class="origin">' + esc(item.id || '正式 Episode') + '</div></article>';
 }
 
 async function loadInjection() {
@@ -3214,6 +3702,80 @@ async function loadInjection() {
   document.getElementById('injection-sections').innerHTML +=
     renderTextPanel('runtime 7-day-memory.md（背景写入池）', sections.runtime_seven_day) +
     renderTextPanel('runtime pending-promises.md', sections.runtime_pending_promises);
+  renderRuntimePrompt(d.runtime_prompt || {});
+}
+
+function renderRuntimePrompt(prompt) {
+  runtimePromptPayload = prompt;
+  if (!runtimePromptEditing) {
+    runtimePromptOriginal = prompt.content || '';
+    document.getElementById('runtime-prompt-editor').value = runtimePromptOriginal;
+  }
+  const flags = [
+    '模型 ' + (prompt.model || '未知'),
+    'Operations ' + (prompt.operations_enabled ? '开启' : '关闭'),
+    '记忆检索 ' + (prompt.memory_retrieval_enabled ? '开启' : '关闭'),
+    '背景写入 ' + (prompt.background_write_enabled ? '开启' : '关闭'),
+  ].join(' · ');
+  document.getElementById('runtime-prompt-meta').textContent =
+    (prompt.exists ? '正在生效' : '文件不存在') + ' · ' + (prompt.chars || 0) + ' 字符 · ' + (prompt.lines || 0) + ' 行 · ' +
+    flags + '\n' + (prompt.path || '') + '\n' + (prompt.apply_note || '');
+  const select = document.getElementById('runtime-prompt-backups');
+  const selected = select.value;
+  select.innerHTML = '<option value="">历史版本</option>' + (prompt.backups || []).map(item =>
+    '<option value="' + esc(item.name) + '">' + esc((item.updated_at || '') + ' · ' + item.chars + ' 字') + '</option>'
+  ).join('');
+  if ([...select.options].some(option => option.value === selected)) select.value = selected;
+}
+
+function editRuntimePrompt() {
+  runtimePromptEditing = true;
+  const editor = document.getElementById('runtime-prompt-editor'); editor.readOnly = false; editor.focus();
+  document.getElementById('runtime-prompt-edit').style.display = 'none';
+  document.getElementById('runtime-prompt-save').style.display = '';
+  document.getElementById('runtime-prompt-cancel').style.display = '';
+  document.getElementById('runtime-prompt-status').textContent = '编辑中；尚未写入运行时。';
+}
+
+function cancelRuntimePromptEdit() {
+  runtimePromptEditing = false;
+  const editor = document.getElementById('runtime-prompt-editor'); editor.value = runtimePromptOriginal; editor.readOnly = true;
+  document.getElementById('runtime-prompt-edit').style.display = '';
+  document.getElementById('runtime-prompt-save').style.display = 'none';
+  document.getElementById('runtime-prompt-cancel').style.display = 'none';
+  document.getElementById('runtime-prompt-status').textContent = '';
+}
+
+function previewRuntimePromptSave() {
+  pendingAction = {kind:'prompt-save'};
+  showDiff(runtimePromptOriginal, document.getElementById('runtime-prompt-editor').value);
+}
+
+async function runtimePromptPost(path, payload) {
+  const response = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json','X-Api-Token':getApiToken()}, body:JSON.stringify(payload)});
+  const data = await response.json();
+  if (!response.ok || !data.ok) throw new Error(data.err || data.error || ('HTTP ' + response.status));
+  return data.prompt;
+}
+
+async function commitRuntimePromptSave() {
+  const prompt = await runtimePromptPost('/api/runtime-prompt/save', {
+    content: document.getElementById('runtime-prompt-editor').value,
+    expected_sha256: runtimePromptPayload ? runtimePromptPayload.sha256 : '', source:'520 injection page',
+  });
+  runtimePromptEditing = false; renderRuntimePrompt(prompt); cancelRuntimePromptEdit();
+  document.getElementById('runtime-prompt-status').textContent = '已保存并备份旧版本；新线程生效。';
+}
+
+async function restoreRuntimePrompt() {
+  const backup = document.getElementById('runtime-prompt-backups').value;
+  if (!backup) { document.getElementById('runtime-prompt-status').textContent = '请先选择历史版本。'; return; }
+  if (!confirm('恢复这个提示词版本？当前版本会自动备份。')) return;
+  try {
+    const prompt = await runtimePromptPost('/api/runtime-prompt/restore', {backup, expected_sha256:runtimePromptPayload ? runtimePromptPayload.sha256 : '', source:'520 injection page'});
+    runtimePromptEditing = false; renderRuntimePrompt(prompt); cancelRuntimePromptEdit();
+    document.getElementById('runtime-prompt-status').textContent = '历史版本已恢复；新线程生效。';
+  } catch (error) { document.getElementById('runtime-prompt-status').textContent = '恢复失败：' + error.message; }
 }
 
 async function loadMemoryMap() {
@@ -3222,32 +3784,23 @@ async function loadMemoryMap() {
   const formal = d.formal_entries || [];
   const auto = d.auto_entries || [];
   const runtime = d.runtime_entries || [];
-  const formalRe = formal.find(item => item.key === 'reentry') || {};
-  const formalTl = formal.find(item => item.key === 'timeline') || {};
+  const formalEp = formal.find(item => item.key === 'episodes') || {};
+  const selfNotes = formal.find(item => item.key === 'ai_self_notes') || {};
   const autoCand = auto.find(item => item.key === 'episodes_candidates') || {};
-  const runtimeDs = runtime.find(item => item.key === 'desire_state') || {};
-  const runtimeSeven = runtime.find(item => item.key === 'runtime_seven_day') || {};
   const formalization = d.formalization_status || {};
-  const bgWrite = formalization.background_write_enabled ? '已开启' : '未开启';
 
   document.getElementById('memory-head').innerHTML =
-    '<div class="hcard"><h3>reentry 最新</h3><div class="big" style="font-size:18px;">' + esc(formalRe.updated_at || '(无记录)') + '</div></div>' +
-    '<div class="hcard"><h3>正式 timeline 最新</h3><div class="big" style="font-size:18px;">' + esc(formalTl.updated_at || '(无记录)') + '</div></div>' +
-    '<div class="hcard"><h3>候选层最新</h3><div class="big" style="font-size:18px;">' + esc(autoCand.updated_at || '(无记录)') + '</div></div>' +
-    '<div class="hcard"><h3>实时八维最新</h3><div class="big" style="font-size:18px;">' + esc(runtimeDs.updated_at || '(无记录)') + '</div></div>';
-
-  document.getElementById('memory-head').innerHTML +=
-    '<div class="hcard"><h3>runtime 7-day 最新</h3><div class="big" style="font-size:18px;">' + esc(runtimeSeven.updated_at || '(无记录)') + '</div><div class="sub">背景写入 ' + esc(bgWrite) + '</div></div>' +
-    '<div class="hcard"><h3>正式层吸收模式</h3><div class="big" style="font-size:18px;">' + esc(formalization.mode || 'AI closeout') + '</div><div class="sub">候选 ' + esc(formalization.candidate_count || 0) + ' 条；当前没有独立 auto-promote 正式层的后台工人</div></div>';
+    '<div class="hcard"><h3>正式 Episodes</h3><div class="big" style="font-size:18px;">' + esc(formalEp.rows || 0) + ' 条</div><div class="sub">最近更新 ' + esc(formalEp.updated_at || '(无记录)') + '</div></div>' +
+    '<div class="hcard"><h3>AI Self-note</h3><div class="big" style="font-size:18px;">' + esc(selfNotes.updated_at || '(无记录)') + '</div><div class="sub">只写给未来的我，不作为用户画像展示</div></div>' +
+    '<div class="hcard"><h3>待审候选</h3><div class="big" style="font-size:18px;">' + esc(formalization.candidate_count || 0) + ' 条</div><div class="sub">候选层最新 ' + esc(autoCand.updated_at || '(无记录)') + '</div></div>';
 
   const current = d.current || {};
   document.getElementById('memory-current').innerHTML =
-    renderTextPanel('reentry.md（当前醒来会读这一口）', current.reentry) +
-    renderLinePanel('relationship_timeline.md 最近可见行', current.timeline_lines) +
-    renderLinePanel('user_portrait.md 最近可见行', current.user_portrait_lines) +
-    renderLinePanel('ai_self_portrait.md 最近可见行', current.ai_self_portrait_lines) +
-    renderLinePanel('ai_self_notes.md 最近可见行', current.ai_self_notes_lines) +
-    renderLinePanel('rereadings.md 最近可见行', current.rereadings_lines);
+    '<div style="grid-column:1/-1;display:grid;gap:10px;">' + (d.recent_formal_episodes || []).map(renderMemoryEpisode).join('') + '</div>' +
+    renderLinePanel('她的长期画像', current.user_portrait_lines) +
+    renderLinePanel('我的自我画像', current.ai_self_portrait_lines) +
+    renderLinePanel('我的 Self-note', current.ai_self_notes_lines) +
+    renderLinePanel('后来重新理解的事', current.rereadings_lines);
 
   document.getElementById('memory-formal').innerHTML = formal.map(renderAuditCard).join('');
   document.getElementById('memory-auto').innerHTML = auto.map(renderAuditCard).join('');
@@ -3274,48 +3827,17 @@ async function loadMemoryMap() {
 // ---------- 2 时间线 ----------
 let episodesIndex = {}, rereadingsIndex = {};
 async function loadTimeline() {
-  const [tlRes, epRes, rrRes, metaRes] = await Promise.all([
+  const [tlRes, epRes, rrRes] = await Promise.all([
     fetch('/api/file?f=relationship_timeline.md'),
     fetch('/api/episodes_index'),
     fetch('/api/rereadings_index'),
-    fetch('/api/memory_overview'),
   ]);
   const tl = await tlRes.json();
   episodesIndex = await epRes.json();
   rereadingsIndex = await rrRes.json();
-  const meta = await metaRes.json();
-  const tm = meta.timeline_meta || {};
-  const recentCandidates = meta.recent_candidates || [];
-  const recentFormal = meta.recent_formal_episodes || [];
 
   const metaBox = document.getElementById('timeline-meta');
-  metaBox.textContent = '这页是正式 relationship_timeline.md，不是实时对话流。'
-    + ' 最后文件更新时间: ' + (tm.updated_at || '(无记录)')
-    + (tm.hours_since_update != null ? ('，距今 ' + tm.hours_since_update + ' 小时') : '')
-    + (tm.latest_formal_episode_day ? ('。正式 episodes 最新日期: ' + tm.latest_formal_episode_day) : '');
-
-  const latestBox = document.getElementById('timeline-latest');
-  const autoLatestDay = recentCandidates.length ? String(recentCandidates[0].time || '').slice(0, 10) : '';
-  const formalLatestDay = recentFormal.length ? String(recentFormal[0].time || '').slice(0, 10) : '';
-  const autoLines = recentCandidates.length
-    ? '<div class="line-list">' + recentCandidates.map(item =>
-        '<div>' + esc(item.time || '') + ' · ' + esc(item.title || '') + (item.id ? (' · ' + esc(item.id)) : '') + '</div>'
-      ).join('') + '</div>'
-    : '<div class="meta-row">(暂无自动候选)</div>';
-  const formalLines = recentFormal.length
-    ? '<div class="line-list">' + recentFormal.map(item =>
-        '<div>' + esc(item.time || '') + ' · ' + esc(item.title || '') + (item.id ? (' · ' + esc(item.id)) : '') + '</div>'
-      ).join('') + '</div>'
-    : '<div class="meta-row">(暂无正式 episodes)</div>';
-  latestBox.innerHTML =
-    '<div class="hcard"><h3>自动层最新（还没进正式时间线）</h3>' +
-      '<div class="big" style="font-size:18px;">' + esc(autoLatestDay || '(无记录)') + '</div>' +
-      '<div class="sub">来源: episodes.candidates.jsonl / reentry.extracted.md。这里更接近“最新发生了什么”。</div>' +
-      autoLines + '</div>' +
-    '<div class="hcard"><h3>正式层最新（已沉淀）</h3>' +
-      '<div class="big" style="font-size:18px;">' + esc(formalLatestDay || '(无记录)') + '</div>' +
-      '<div class="sub">来源: episodes.jsonl / relationship_timeline.md。这里故意更慢，但更稳定。</div>' +
-      formalLines + '</div>';
+  metaBox.textContent = 'Timeline 只讲我们关系真正发生变化的节点。Episode 是脚注，点击编号再展开；候选和处理状态不在这里重复。';
 
   const body = document.getElementById('timeline-body');
   body.innerHTML = '';
@@ -3363,10 +3885,10 @@ function toggleEpCard(el) {
     card.innerHTML = '<span class="epclose">×</span><div class="epwhat">找不到 ' + esc(eid) + ' 对应的 episode。</div>';
   } else {
     let html = '<span class="epclose">×</span>';
-    html += '<div class="eptitle">' + esc(eid) + ' · ' + esc(ep.title || '') + '</div>';
+    html += '<div class="eptitle">' + esc(eid) + ' · ' + esc(humanizeEpisodeText(ep.title || '')) + '</div>';
     html += '<div class="eptime">' + esc(ep.time || '') + '</div>';
-    if (ep.what_happened) html += '<div class="epwhat">' + esc(ep.what_happened) + '</div>';
-    if (ep.misread_repair) html += '<div class="epwhat">误读与修复:' + esc(ep.misread_repair) + '</div>';
+    if (ep.what_happened) html += '<div class="epwhat">' + esc(humanizeEpisodeText(ep.what_happened)) + '</div>';
+    if (ep.misread_repair) html += '<div class="epwhat">误读与修复:' + esc(humanizeEpisodeText(ep.misread_repair)) + '</div>';
     (ep.anchor_quotes || []).forEach(q => {
       html += '<blockquote>' + esc(q) + '</blockquote>';
     });
@@ -3758,33 +4280,107 @@ function setContextSaveState(text, bad=false) {
   el.style.color = bad ? '#ff9ca8' : '';
 }
 
-function renderContextRuntime(data) {
+function renderContextRuntime(data, injection) {
   const repo = data.repo || {};
-  const paths = data.paths || {};
   const modules = data.modules || {};
+  const prompt = (injection || {}).runtime_prompt || {};
+  const moduleValues = Object.values(modules);
+  const healthyModules = moduleValues.filter(value => value === 'on').length;
+  const promptName = String(prompt.path || '').split(/[\\/]/).pop() || '未识别';
   const cards = [
-    ['Git / 部署来源', repo.path || '(未配置)', (repo.branch || '-') + ' · ' + ((repo.commit || '').slice(0, 12) || '-') + (repo.dirty ? ' · dirty' : '')],
-    ['Memory', paths.memory || '(未配置)', '正式记忆与候选数据目录'],
-    ['Continuity', paths.continuity || '(未配置)', 'Trace / Candidate / Decision / Canon'],
-    ['Runtime State', paths.state || '(未配置)', '开关、上下文配置与快照'],
-    ['CODING_TODO', paths.todo || '(未配置)', '任务单编辑采用原子写入与备份'],
-    ['模块状态', Object.entries(modules).map(([k,v]) => k + ':' + v).join(' · ') || '(无)', '只读状态摘要'],
+    ['运行版本', (repo.branch || '-') + ' · ' + ((repo.commit || '').slice(0, 12) || '-'), repo.dirty ? '工作区包含未提交改动' : '工作区干净'],
+    ['实际提示词', promptName, (prompt.chars || 0) + ' 字符 · ' + (prompt.updated_at || '无时间')],
+    ['核心模块', healthyModules + ' / ' + moduleValues.length + ' 正常', Object.entries(modules).map(([k,v]) => k + ':' + v).join(' · ') || '无模块状态'],
   ];
   const host = document.getElementById('ctx-runtime-grid');
   host.innerHTML = cards.map(([label, value, detail]) =>
     '<div class="ctx-runtime-card"><div class="label">' + esc(label) + '</div>' +
     '<div class="value">' + esc(value) + '</div><div class="detail">' + esc(detail) + '</div></div>'
   ).join('');
+  const summary = document.getElementById('ctx-runtime-summary');
+  if (summary) summary.textContent = '当前模型：' + (prompt.model || '未识别') + ' · ' + promptName;
 }
 
 function renderContextGates(gates) {
   const host = document.getElementById('ctx-gates');
-  host.innerHTML = Object.entries(CONTEXT_GATE_LABELS_V2).map(([key, pair]) => {
+  host.className = 'context-flow';
+  const fixedStep = (number, title, copy, rule) =>
+    '<div class="context-step fixed"><span class="step-no">' + number + '</span><div><strong>' + esc(title) +
+    '</strong><small>' + esc(copy) + '</small></div><div class="load-rule">' + esc(rule) + '</div><span class="status-pill ok">固定</span></div>';
+  const gateSteps = Object.entries(CONTEXT_GATE_LABELS_V2).map(([key, pair], index) => {
     const on = gates[key] !== false;
-    return '<div class="ctx-gate"><div><strong>' + esc(pair[0]) + '</strong><small>' + esc(pair[1]) +
-      '</small></div><label class="ctx-switch"><input type="checkbox" data-gate="' + key + '" ' +
+    const rules = {
+      reentry:'仅新线程首轮；同一线程不会反复注入',
+      current_state:'首轮或状态刷新时提供八维与当前关注',
+      memory_context:'按需检索与连续性缝入，不加载整库',
+    };
+    return '<div class="context-step ' + (on ? '' : 'off') + '"><span class="step-no">0' + (index + 2) + '</span><div><strong>' + esc(pair[0]) +
+      '</strong><small>' + esc(pair[1]) + '</small></div><div class="load-rule">' + esc(rules[key]) + '</div>' +
+      '<label class="ctx-switch" title="下一轮 Telegram 对话生效"><input type="checkbox" data-gate="' + key + '" ' +
       (on ? 'checked' : '') + ' onchange="setContextGate(\'' + key + '\', this.checked)"><span></span></label></div>';
   }).join('');
+  host.innerHTML = fixedStep('01','System / Persona','实际模型提示词与稳定身份','每轮固定加载；在下方“实际缝入内容”编辑') +
+    gateSteps + fixedStep('05','Current Context / 当前对话','最近消息、工具结果与本轮用户输入','每轮固定加载，位于上下文末端') +
+    '<div class="context-note">开关会真实改变 Telegram 上下文；顺序由 runtime 固定，所有可编辑来源都集中在本页下方。</div>';
+}
+
+function renderContextSources(payload) {
+  contextSourcesPayload = payload || {sources:[]};
+  const host = document.getElementById('context-sources');
+  host.innerHTML = (contextSourcesPayload.sources || []).map(source => {
+    const gateOff = source.gate === false;
+    const effective = gateOff ? '当前开关已关闭：这部分不会进入下一条消息。' :
+      (source.effective_content || (source.mode === '按话题自动检索' ? '下一轮会根据消息内容自动检索；当前没有固定文本。' : '(当前为空)'));
+    const model = source.model ? (' · 模型 ' + source.model) : '';
+    return '<div class="context-source" id="context-source-' + esc(source.key) + '">' +
+      '<div class="context-source-head"><div><div class="context-source-title">' + esc(source.label) + '</div>' +
+      '<div class="context-source-meta">' + esc(source.mode) + ' · ' + esc(source.content.length) + ' 字符 / 预算 ' + esc(source.budget) + model +
+      '<br>' + esc(source.description) + '</div></div><button class="ghost" onclick="editContextSource(\'' + source.key + '\')">修改</button></div>' +
+      '<div class="context-source-preview">' + esc(effective) + '</div>' +
+      '<div class="context-source-editor"><textarea id="context-source-editor-' + esc(source.key) + '" spellcheck="false"></textarea>' +
+      '<div class="context-source-actions"><button onclick="previewContextSourceSave(\'' + source.key + '\')">查看差异并保存</button>' +
+      '<button class="ghost" onclick="cancelContextSourceEdit()">取消</button><span class="context-source-status" id="context-source-status-' + esc(source.key) + '"></span></div></div></div>';
+  }).join('') || '<div class="meta-row">没有可编辑的上下文来源。</div>';
+}
+
+function contextSourceByKey(key) {
+  return ((contextSourcesPayload || {}).sources || []).find(source => source.key === key);
+}
+
+function editContextSource(key) {
+  contextSourceEditingKey = key;
+  document.querySelectorAll('.context-source').forEach(node => node.classList.remove('editing'));
+  const source = contextSourceByKey(key);
+  const card = document.getElementById('context-source-' + key);
+  const editor = document.getElementById('context-source-editor-' + key);
+  if (!source || !card || !editor) return;
+  card.classList.add('editing'); editor.value = source.content || ''; editor.focus();
+}
+
+function cancelContextSourceEdit() {
+  contextSourceEditingKey = '';
+  document.querySelectorAll('.context-source').forEach(node => node.classList.remove('editing'));
+}
+
+function previewContextSourceSave(key) {
+  const source = contextSourceByKey(key);
+  const editor = document.getElementById('context-source-editor-' + key);
+  if (!source || !editor) return;
+  pendingAction = {kind:'context-source-save', key};
+  showDiff(source.content || '', editor.value);
+}
+
+async function commitContextSourceSave(key) {
+  const source = contextSourceByKey(key);
+  const editor = document.getElementById('context-source-editor-' + key);
+  if (!source || !editor) return;
+  const data = await contextPost('/api/context-source/save', {
+    key, content:editor.value, expected_sha256:source.sha256 || '', source:'520 context control',
+  });
+  contextSourceEditingKey = '';
+  renderContextSources(data.context_sources || {});
+  const status = document.getElementById('ctx-gate-status');
+  status.textContent = key === 'memory_context' ? '已保存；下一轮生效' : '已保存；下一条消息会重建上下文';
 }
 
 async function setContextGate(key, enabled) {
@@ -3792,9 +4388,11 @@ async function setContextGate(key, enabled) {
   status.textContent = '保存中…';
   try {
     const body = {}; body[key] = !!enabled;
-    await contextPost('/api/context-gates', body);
-    status.textContent = '已生效';
-    setTimeout(() => { if (status.textContent === '已生效') status.textContent = ''; }, 1400);
+    const result = await contextPost('/api/context-gates', body);
+    status.textContent = result.thread_rebuild ? '已保存；下一条消息会换干净线程' : '已保存；下一轮即时生效';
+    await loadContextGatesForManager();
+    const sourceResponse = await fetch('/api/context-sources');
+    renderContextSources(await sourceResponse.json());
   } catch (e) {
     status.textContent = '失败：' + e.message;
     await loadContextGatesForManager();
@@ -4064,13 +4662,14 @@ async function commitContextTodoSave() {
 
 async function loadContextManager() {
   try {
-    const [overviewRes] = await Promise.all([
+    const [overviewRes, injectionRes, sourcesRes] = await Promise.all([
       fetch('/api/context-overview'),
+      fetch('/api/injection'),
+      fetch('/api/context-sources'),
       loadContextGatesForManager(),
-      loadContextLayout(),
-      loadContextTodo(),
     ]);
-    renderContextRuntime(await overviewRes.json());
+    renderContextRuntime(await overviewRes.json(), await injectionRes.json());
+    renderContextSources(await sourcesRes.json());
   } catch (e) {
     setContextSaveState('加载失败：' + e.message, true);
   }
@@ -4213,6 +4812,28 @@ function closeModal() {
 
 async function confirmSave() {
   closeModal();
+  if (pendingAction && pendingAction.kind === 'context-source-save') {
+    const key = pendingAction.key;
+    try {
+      await commitContextSourceSave(key);
+    } catch (e) {
+      const status = document.getElementById('context-source-status-' + key);
+      if (status) status.textContent = '保存失败：' + e.message;
+    } finally {
+      pendingAction = null;
+    }
+    return;
+  }
+  if (pendingAction && pendingAction.kind === 'prompt-save') {
+    try {
+      await commitRuntimePromptSave();
+    } catch (e) {
+      document.getElementById('runtime-prompt-status').textContent = '保存失败：' + e.message;
+    } finally {
+      pendingAction = null;
+    }
+    return;
+  }
   if (pendingAction && pendingAction.kind === 'todo-save') {
     try {
       await commitContextTodoSave();
@@ -4359,6 +4980,18 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
 
+        elif u.path == "/api/runtime-prompt":
+            try:
+                self._send(200, json.dumps(get_runtime_prompt_payload(include_content=True), ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
+
+        elif u.path == "/api/context-sources":
+            try:
+                self._send(200, json.dumps(get_context_sources_payload(), ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
+
         elif u.path == "/api/memory_overview":
             try:
                 data = compute_memory_overview()
@@ -4371,7 +5004,18 @@ class H(BaseHTTPRequestHandler):
                 self._send(200, json.dumps({
                     "modules": compute_module_state(),
                     "continuity_dir": str(CONTINUITY_DIR),
-                    "write_mode": "read_only",
+                    "write_mode": "controlled_context_write",
+                    "capabilities": {
+                        "controlled_context_write": [
+                            "runtime_prompt",
+                            "reentry",
+                            "live_state_override",
+                            "memory_context_override",
+                            "context_gates",
+                            "context_layout",
+                        ],
+                        "frozen": ["canon", "episodes", "portrait", "desire", "candidate_publication"],
+                    },
                 }, ensure_ascii=False))
             except Exception as e:
                 self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
@@ -4543,6 +5187,45 @@ class H(BaseHTTPRequestHandler):
             }, ensure_ascii=False))
             return
 
+        if u.path in ("/api/runtime-prompt/save", "/api/runtime-prompt/restore"):
+            if not self._check_token():
+                return
+            obj, err = self._read_json_body()
+            if err or not isinstance(obj, dict):
+                self._send(400, json.dumps({"ok": False, "error": "invalid_body", "err": err}, ensure_ascii=False))
+                return
+            try:
+                if u.path.endswith("/save"):
+                    prompt = save_runtime_prompt(obj.get("content"), obj.get("expected_sha256"), obj.get("source"))
+                else:
+                    prompt = restore_runtime_prompt(obj.get("backup"), obj.get("expected_sha256"), obj.get("source"))
+                self._send(200, json.dumps({"ok": True, "prompt": prompt}, ensure_ascii=False))
+            except (ValueError, FileNotFoundError) as e:
+                self._send(400, json.dumps({"ok": False, "error": "invalid_prompt", "err": str(e)}, ensure_ascii=False))
+            except RuntimeError as e:
+                self._send(409, json.dumps({"ok": False, "error": "prompt_conflict", "err": str(e)}, ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"ok": False, "error": "prompt_write_failed", "err": str(e)}, ensure_ascii=False))
+            return
+
+        if u.path == "/api/context-source/save":
+            if not self._check_token():
+                return
+            obj, err = self._read_json_body()
+            if err or not isinstance(obj, dict):
+                self._send(400, json.dumps({"ok": False, "error": "invalid_body", "err": err}, ensure_ascii=False))
+                return
+            try:
+                payload = save_context_source(obj.get("key"), obj.get("content"), obj.get("expected_sha256"), obj.get("source"))
+                self._send(200, json.dumps({"ok": True, "context_sources": payload}, ensure_ascii=False))
+            except ValueError as e:
+                self._send(400, json.dumps({"ok": False, "error": "invalid_context_source", "err": str(e)}, ensure_ascii=False))
+            except RuntimeError as e:
+                self._send(409, json.dumps({"ok": False, "error": "context_source_conflict", "err": str(e)}, ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"ok": False, "error": "context_source_write_failed", "err": str(e)}, ensure_ascii=False))
+            return
+
         if u.path == "/api/context-layout/save":
             if not self._check_token():
                 return
@@ -4601,7 +5284,7 @@ class H(BaseHTTPRequestHandler):
 
         if u.path == "/api/context-gates":
             # 上下文缝入开关:只写 CYBERBOSS_STATE_DIR/context-gates.json,
-            # 不碰 memory / Desire / canon。runtime 每轮读取,即时生效。
+            # 不碰 Desire / canon。Memory Context 下一轮即时生效；硬上下文变化由 runtime 下一轮换干净线程。
             if not self._check_token():
                 return
             obj, err = self._read_json_body()
@@ -4615,9 +5298,12 @@ class H(BaseHTTPRequestHandler):
                         gates[key] = bool(obj[key])
                 gates["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 gate_file = resolve_runtime_state_dir() / "context-gates.json"
-                gate_file.parent.mkdir(parents=True, exist_ok=True)
-                gate_file.write_text(json.dumps(gates, ensure_ascii=False, indent=2), encoding="utf-8")
-                self._send(200, json.dumps({"ok": True, **gates}, ensure_ascii=False))
+                write_text_atomic(gate_file, json.dumps(gates, ensure_ascii=False, indent=2))
+                self._send(200, json.dumps({
+                    "ok": True, **gates,
+                    "thread_rebuild": any(key in obj for key in ("reentry", "current_state")),
+                    "apply_note": "硬上下文改变后，Telegram 会在下一条消息自动换干净线程。",
+                }, ensure_ascii=False))
             except Exception as e:
                 self._send(500, json.dumps({"ok": False, "err": str(e)}, ensure_ascii=False))
             return

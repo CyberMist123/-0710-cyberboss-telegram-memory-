@@ -732,21 +732,28 @@ class CyberbossApp {
   }
 
   async resolveMemoryContextForPrepared(prepared) {
+    const runtimeConfig = this.config || {};
     const text = String(prepared?.originalText || prepared?.text || "").trim();
     if (!text) {
       return { lines: [] };
     }
-    if (!loadContextGates(this.config).memory_context) {
+    if (!loadContextGates(runtimeConfig).memory_context) {
       return { lines: [], slots: [], mode: "gated_off" };
     }
-    const locationLines = this.resolveRecentLocationStateMemoryLines();
+    const manualOverrideLines = readManualMemoryContextLines(runtimeConfig.memoryContextOverrideFile);
+    if (manualOverrideLines.length) {
+      return { lines: manualOverrideLines, slots: [], mode: "manual_override" };
+    }
+    const locationLines = typeof this.resolveRecentLocationStateMemoryLines === "function"
+      ? this.resolveRecentLocationStateMemoryLines()
+      : [];
     this.projectServices?.locationStateStore?.recordMemoryInjection?.({
       lines: locationLines,
       source: "location_v2",
-      used: this.config.locationV2Enabled,
+      used: Boolean(runtimeConfig.locationV2Enabled),
       text,
     });
-    if (!this.config.legacyMemoryRetrieval) {
+    if (runtimeConfig.legacyMemoryRetrieval === false) {
       return {
         lines: dedupeMemoryContextLines(locationLines),
         slots: [],
@@ -785,8 +792,9 @@ class CyberbossApp {
       embeddingService,
       memoryService,
     });
+    const targetedMemoryLines = curated.length ? curated : recentMemoryLines;
     return {
-      lines: dedupeMemoryContextLines([...pendingPromiseLines, ...curated, ...recentMemoryLines, ...locationLines]),
+      lines: dedupeMemoryContextLines([...pendingPromiseLines, ...targetedMemoryLines, ...locationLines]),
       slots: retrievalPlan.retrievalSlots,
       mode: retrievalPlan.mode,
     };
@@ -3088,6 +3096,18 @@ function dedupeMemoryContextLines(lines = []) {
     out.push(line);
   }
   return out;
+}
+
+function readManualMemoryContextLines(filePath = "") {
+  const normalizedPath = typeof filePath === "string" ? filePath.trim() : "";
+  if (!normalizedPath) return [];
+  try {
+    const content = fs.readFileSync(normalizedPath, "utf8").trim();
+    if (!content) return [];
+    return dedupeMemoryContextLines(content.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)).slice(0, 30);
+  } catch {
+    return [];
+  }
 }
 
 function formatSevenDayContextLines(entries = [], query = "", limit = 3) {

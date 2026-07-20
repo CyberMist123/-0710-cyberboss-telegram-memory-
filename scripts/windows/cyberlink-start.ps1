@@ -11,13 +11,13 @@ $ErrorActionPreference = "Stop"
 
 function Test-ProcessMatches {
   param(
-    [int]$Pid,
+    [int]$ProcessId,
     [string[]]$ExpectedTokens
   )
 
-  if ($Pid -le 0) { return $false }
+  if ($ProcessId -le 0) { return $false }
   try {
-    $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $Pid" -ErrorAction Stop
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction Stop
   } catch {
     return $false
   }
@@ -51,7 +51,7 @@ function Start-TelegramLine {
   $entry = [string]$Manifest.telegram.entry
   $pidFile = [string]$Manifest.telegram.pid_file
   $currentPid = Read-PidFileValue -Path $pidFile
-  if ($currentPid -gt 0 -and (Test-ProcessMatches -Pid $currentPid -ExpectedTokens @($entry, "cyberboss.js", " start"))) {
+  if ($currentPid -gt 0 -and (Test-ProcessMatches -ProcessId $currentPid -ExpectedTokens @($entry, "cyberboss.js", " start"))) {
     Write-Output "Telegram already running with PID $currentPid"
     return
   }
@@ -65,6 +65,9 @@ function Start-TelegramLine {
   $env:CYBERBOSS_ENV_FILE = [string]$Manifest.telegram.env_file
   $launcher = [string]$Manifest.telegram.watchdog_target
   & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $launcher
+  if ($LASTEXITCODE -ne 0) {
+    throw "Telegram launcher failed with exit code $LASTEXITCODE"
+  }
 }
 
 function Start-DashboardPanel {
@@ -73,7 +76,7 @@ function Start-DashboardPanel {
   $scriptPath = [string]$Manifest.dashboard.script
   $pidFile = [string]$Manifest.dashboard.pid_file
   $currentPid = Read-PidFileValue -Path $pidFile
-  if ($currentPid -gt 0 -and (Test-ProcessMatches -Pid $currentPid -ExpectedTokens @($scriptPath))) {
+  if ($currentPid -gt 0 -and (Test-ProcessMatches -ProcessId $currentPid -ExpectedTokens @($scriptPath))) {
     Write-Output "Dashboard already running with PID $currentPid"
     return
   }
@@ -105,7 +108,7 @@ function Start-WatchdogLoop {
   $scriptPath = Join-Path $PSScriptRoot "cyberlink-watchdog.ps1"
   $pidFile = [string]$Manifest.watchdog.pid_file
   $currentPid = Read-PidFileValue -Path $pidFile
-  if ($currentPid -gt 0 -and (Test-ProcessMatches -Pid $currentPid -ExpectedTokens @($scriptPath))) {
+  if ($currentPid -gt 0 -and (Test-ProcessMatches -ProcessId $currentPid -ExpectedTokens @($scriptPath))) {
     Write-Output "Watchdog already running with PID $currentPid"
     return
   }
@@ -131,7 +134,7 @@ function Show-Status {
     $pidValue = Read-PidFileValue -Path $row.PidFile
     $alive = $false
     if ($pidValue -gt 0) {
-      $alive = Test-ProcessMatches -Pid $pidValue -ExpectedTokens @($row.Path)
+      $alive = Test-ProcessMatches -ProcessId $pidValue -ExpectedTokens @($row.Path)
     }
     [pscustomobject]@{
       service = $row.Service
@@ -169,4 +172,3 @@ switch ($Mode) {
   "InstallStartup" { Install-StartupEntries -Manifest $manifest; break }
   "Status" { Show-Status -Manifest $manifest; break }
 }
-

@@ -51,6 +51,8 @@ function readConfig() {
     sleepScheduleFile: joinIfBase(stateDir, "sleep-schedule.json"),
     timelineScreenshotQueueFile: joinIfBase(stateDir, "timeline-screenshot-queue.json"),
     desireStateFile: joinIfBase(stateDir, "desire-state.json"),
+    currentStateOverrideFile: joinIfBase(stateDir, "context-current-state.md"),
+    memoryContextOverrideFile: joinIfBase(stateDir, "context-memory-override.md"),
     desireHistoryFile: joinIfBase(stateDir, "desire-history.jsonl"),
     desireThoughtsFile: joinIfBase(stateDir, "desire-thoughts.json"),
     projectToolContextFile: joinIfBase(stateDir, "project-tool-runtime-context.json"),

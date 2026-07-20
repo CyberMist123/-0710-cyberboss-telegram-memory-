@@ -81,7 +81,9 @@ def test_http_contract():
     try:
         code, modules = request(server.server_port, "/api/module-state")
         assert code == 200
-        assert modules["write_mode"] == "read_only"
+        assert modules["write_mode"] == "controlled_context_write"
+        assert "reentry" in modules["capabilities"]["controlled_context_write"]
+        assert "canon" in modules["capabilities"]["frozen"]
         assert modules["modules"] and set(modules["modules"].values()) <= ALLOWED_STATES
         assert modules["modules"]["memory_lookup"] in ("available", "on")
         assert modules["modules"]["soft_retrieval"] == "not_implemented"

@@ -357,6 +357,8 @@ test("subject-AI authoring uses the configured runtime in an isolated background
   });
   assert.match(captured.text, /同一 persona source/);
   assert.match(captured.text, /过滤后的事实材料/);
+  assert.match(captured.text, /use 我\/她\/我们, never 用户\/AI\/assistant/);
+  assert.match(captured.text, /room for the future self to reinterpret/);
   assert.equal(captured.workspaceRoot, root);
   assert.equal(result.reentry_draft, "短交接");
 });

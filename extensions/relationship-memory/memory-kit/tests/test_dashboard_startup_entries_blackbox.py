@@ -77,6 +77,8 @@ def process_command_line(pid):
         ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=15,
     )
     assert result.returncode == 0, result.stderr
@@ -88,6 +90,8 @@ def terminate_process(pid, pid_file):
         ["taskkill.exe", "/PID", str(pid), "/T", "/F"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=15,
     )
     for _ in range(80):
@@ -95,6 +99,8 @@ def terminate_process(pid, pid_file):
             ["powershell.exe", "-NoProfile", "-Command", f"if (Get-Process -Id {pid} -ErrorAction SilentlyContinue) {{ exit 1 }}"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
         )
         if probe.returncode == 0:
@@ -174,15 +180,20 @@ def base_env(case, port):
 def assert_layered_server(port, payload, expected_candidate):
     assert payload["kind"] == "continuity_layers"
     assert payload["nightly_mode"] == "evidence"
-    assert payload["write_mode"] == "read_only"
+    assert payload["write_mode"] == "controlled_context_write"
+    assert "reentry" in payload["capabilities"]["controlled_context_write"]
+    assert "canon" in payload["capabilities"]["frozen"]
     layers = {layer["key"]: layer for layer in payload["layers"]}
     assert layers["gaps"]["count"] == 1
     assert [row["candidate_id"] for row in layers["blocked_candidates"]["rows"]] == [expected_candidate]
 
     code, page = request_text(port, "/")
     assert code == 200
-    for label in ("技术断档", "证据材料", "主体 AI 候选", "后台代理候选", "冻结的旧候选", "已发布 Canon"):
+    assert 'id="continuity-feed"' in page
+    for label in ("上下文载入", "记忆处理", "断档与异常", "配置变更"):
         assert label in page
+    for legacy_label in ("技术断档", "证据材料", "主体 AI 候选", "后台代理候选", "冻结的旧候选"):
+        assert f'<div class="section-head">{legacy_label}</div>' not in page
     assert '<div class="section-head">Candidates</div>' not in page
 
 
@@ -198,6 +209,8 @@ def run_vbs_case():
             env=base_env(case, port),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=15,
         )
         assert result.returncode == 0, result.stdout + result.stderr
@@ -232,6 +245,8 @@ def run_powershell_case():
             env=base_env(case, port),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=20,
         )
         assert result.returncode == 0, result.stdout + result.stderr

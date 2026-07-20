@@ -1,6 +1,6 @@
 # 520 Console
 
-> 状态：Phase 4 只读观察边界已实现；八维实时/历史数据接线已补齐，后续交互能力仍按本文分阶段开放
+> 状态：Phase 4 提供受控上下文编辑与只读记忆观察；八维实时/历史数据接线已补齐，后续交互能力仍按本文分阶段开放
 > 520 是查看、调试、模式切换与评测前端，不是记忆后端。
 
 ## 一句话
@@ -12,6 +12,8 @@
 - 520 与 Telegram/watchdog 进程树隔离，watchdog 不启动或重启 520；
 - `/api/module-state` 使用 `not_implemented | available | preview | on | failed`；
 - Context Trace、candidate 与 decision 仅提供有上限的只读查看；
+- `/api/module-state` 与 `/api/continuity/layers` 返回 `write_mode=controlled_context_write` 及 capability 列表：经 Token、冲突哈希、原子写入、备份和审计后可编辑 System / Persona、Re-entry、Live State、Memory Context 与上下文开关；
+- Canon、Episode、Portrait、Desire 与候选发布仍冻结，不能通过 520 任意写入；
 - deferred/rejected decision 可通过鉴权入口请求 Review service 重审；
 - 文件、care/cycle、Janitor、配置以及 memory/Desire 的直接写入口统一冻结；
 - 重审入口不直接写 canon 或 Desire，最终发布仍只能经过既有 Review/History writer 链。

@@ -218,16 +218,11 @@ def main():
         assert code == 200
         assert "text/html" in content_type
         page = raw.decode("utf-8")
-        for label in (
-            "技术断档",
-            "证据材料",
-            "主体 AI 候选",
-            "后台代理候选",
-            "冻结的旧候选",
-            "Review 决策",
-            "已发布 Canon",
-        ):
+        assert 'id="continuity-feed"' in page
+        for label in ("上下文载入", "记忆处理", "断档与异常", "配置变更"):
             assert label in page
+        for legacy_label in ("技术断档", "证据材料", "主体 AI 候选", "后台代理候选", "冻结的旧候选"):
+            assert f'<div class="section-head">{legacy_label}</div>' not in page
         assert '<div class="section-head">Candidates</div>' not in page
         assert "fetch('/api/continuity/layers?limit=30')" in page
 
@@ -236,7 +231,9 @@ def main():
         payload = decode_json(raw)
         assert payload["kind"] == "continuity_layers"
         assert payload["nightly_mode"] == "evidence"
-        assert payload["write_mode"] == "read_only"
+        assert payload["write_mode"] == "controlled_context_write"
+        assert "reentry" in payload["capabilities"]["controlled_context_write"]
+        assert "canon" in payload["capabilities"]["frozen"]
         assert Path(payload["continuity_dir"]).resolve() == CONTINUITY.resolve()
 
         layers = {item["key"]: item for item in payload["layers"]}
