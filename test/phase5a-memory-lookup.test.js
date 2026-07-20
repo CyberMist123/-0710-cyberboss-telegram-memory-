@@ -20,16 +20,43 @@ function context(overrides = {}) {
   return { provider: "telegram", accountId: "account-1", threadId: "thread-1", ...overrides };
 }
 
-test("empty lookup is honest and invalid triggers are rejected", () => {
+test("empty lookup is honest and only documented triggers are accepted", () => {
   const { root, service } = fixture([{ ep_id: "ep-1", ts: "now", body: "only a different memory" }]);
   const empty = service.lookup({ query: "missing", trigger: "user_pull", reason: "explicit question" }, context());
   assert.deepEqual(empty.hits, []);
   assert.equal(empty.empty, true);
   assert.equal(empty.budget_left, 4);
-  assert.deepEqual(service.lookup({ query: "memory", trigger: "resonance", reason: "not allowed" }, context()), { error: "invalid_trigger" });
+  assert.deepEqual(service.lookup({ query: "memory", trigger: "unknown", reason: "not allowed" }, context()), { error: "invalid_trigger" });
   const logs = readJsonl(path.join(root, "recall_log.jsonl"));
   assert.equal(logs.length, 1);
   assert.equal(logs[0].trigger, "user_pull");
+});
+
+test("resonance and stakes share one persisted session budget while repair remains fault-guarded", () => {
+  const { root, service } = fixture([{ ep_id: "ep-1", body: "resonant old thread" }]);
+  const first = service.lookup({ query: "resonant", trigger: "resonance", reason: "fixture" }, context());
+  assert.equal(first.error, undefined);
+  assert.deepEqual(service.lookup({ query: "resonant", trigger: "stakes", reason: "fixture" }, context()), { error: "budget_exhausted" });
+  for (let index = 0; index < 4; index += 1) {
+    assert.equal(service.lookup({ query: "resonant", trigger: "repair", reason: "fixture" }, context()).error, undefined);
+  }
+  assert.deepEqual(service.lookup({ query: "resonant", trigger: "repair", reason: "fixture" }, context()), { error: "budget_exhausted" });
+  const restarted = new MemoryLookupService({ continuityDir: root });
+  assert.deepEqual(restarted.lookup({ query: "resonant", trigger: "resonance", reason: "fixture" }, context()), { error: "budget_exhausted" });
+  assert.deepEqual(readJsonl(path.join(root, "recall_log.jsonl")).slice(0, 2).map((row) => row.trigger), ["resonance", "stakes"]);
+});
+
+test("lookup searches relationship timeline and topic aliases without reading hidden archives", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-phase5a-sources-"));
+  fs.writeFileSync(path.join(root, "episodes.jsonl"), "", "utf8");
+  fs.writeFileSync(path.join(root, "relationship_timeline.md"), "# 关系年表\n\n我们一起在雨里走过老桥。\n", "utf8");
+  fs.writeFileSync(path.join(root, "topics.md"), "散步: 老桥, 雨里\n", "utf8");
+  fs.writeFileSync(path.join(root, "rereadings.md"), "不应被读取", "utf8");
+  fs.writeFileSync(path.join(root, "ai_self_notes.md"), "也不应被读取", "utf8");
+  const service = new MemoryLookupService({ continuityDir: root });
+  const result = service.lookup({ query: "散步", trigger: "user_pull", reason: "fixture" }, context());
+  assert.equal(result.hits[0].ep_id, "timeline-2");
+  assert.match(result.hits[0].body, /老桥/u);
 });
 
 test("session budget is channel+account+thread scoped and survives restart", () => {

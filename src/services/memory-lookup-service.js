@@ -10,18 +10,25 @@ const MAX_HITS = 3;
 const MAX_NON_WHITESPACE_CHARS = 500;
 
 class MemoryLookupService {
-  constructor({ continuityDir, readEpisodes } = {}) {
+  constructor({ continuityDir, readEpisodes, readSources } = {}) {
     this.continuityDir = normalizeText(continuityDir);
     this.episodesFile = this.continuityDir ? path.join(this.continuityDir, "episodes.jsonl") : "";
+    this.timelineFile = this.continuityDir ? path.join(this.continuityDir, "relationship_timeline.md") : "";
+    this.topicsFile = this.continuityDir ? path.join(this.continuityDir, "topics.md") : "";
     this.recallLogFile = this.continuityDir ? path.join(this.continuityDir, "recall_log.jsonl") : "";
     this.budgetFile = this.continuityDir ? path.join(this.continuityDir, ".jobs", "memory-lookup-budget.json") : "";
     this.lockFile = this.continuityDir ? path.join(this.continuityDir, ".jobs", "memory-lookup.lock") : "";
     this.readEpisodes = typeof readEpisodes === "function" ? readEpisodes : () => readJsonl(this.episodesFile);
+    this.readSources = typeof readSources === "function" ? readSources : () => ({
+      episodes: this.readEpisodes(),
+      timeline: readTimeline(this.timelineFile),
+      topics: readText(this.topicsFile),
+    });
   }
 
   lookup({ query, trigger, reason } = {}, context = {}) {
     const normalizedTrigger = normalizeText(trigger);
-    if (normalizedTrigger !== "user_pull") return { error: "invalid_trigger" };
+    if (!ALLOWED_TRIGGERS.has(normalizedTrigger)) return { error: "invalid_trigger" };
     const session = buildSession(context);
     if (!this.continuityDir || !session) return { hits: [], error: "lookup_failed" };
     const normalizedQuery = normalizeText(query);
@@ -31,25 +38,37 @@ class MemoryLookupService {
     try {
       const budget = loadBudget(this.budgetFile);
       const budgetKey = hashText(session.key);
-      const used = Math.max(0, Number(budget.sessions[budgetKey]?.count) || 0);
+      const previous = budget.sessions[budgetKey] || {};
+      const used = Math.max(0, Number(previous.count) || 0);
       if (used >= MAX_CALLS_PER_SESSION) {
-        this.appendRecall({ session: session.traceSession, query: normalizedQuery, hitIds: [], budgetLeft: 0 });
+        this.appendRecall({ session: session.traceSession, trigger: normalizedTrigger, query: normalizedQuery, hitIds: [], budgetLeft: 0 });
+        return { error: "budget_exhausted" };
+      }
+      const intentionalUsed = Math.max(0, Number(previous.intentional_count) || 0);
+      if ((normalizedTrigger === "resonance" || normalizedTrigger === "stakes") && intentionalUsed >= 1) {
+        this.appendRecall({ session: session.traceSession, trigger: normalizedTrigger, query: normalizedQuery, hitIds: [], budgetLeft: 0 });
         return { error: "budget_exhausted" };
       }
       const budgetLeft = MAX_CALLS_PER_SESSION - used - 1;
-      budget.sessions[budgetKey] = { count: used + 1, updated_at: new Date().toISOString() };
+      budget.sessions[budgetKey] = {
+        count: used + 1,
+        intentional_count: intentionalUsed + (normalizedTrigger === "resonance" || normalizedTrigger === "stakes" ? 1 : 0),
+        updated_at: new Date().toISOString(),
+      };
       writeJsonAtomic(this.budgetFile, budget);
       try {
-        const hits = searchEpisodes(this.readEpisodes(), normalizedQuery);
+        const sources = this.readSources();
+        const hits = searchMemorySources(sources, normalizedQuery);
         this.appendRecall({
           session: session.traceSession,
+          trigger: normalizedTrigger,
           query: normalizedQuery,
           hitIds: hits.map((hit) => hit.ep_id),
           budgetLeft,
         });
         return { hits, empty: hits.length === 0, budget_left: budgetLeft };
       } catch {
-        this.appendRecall({ session: session.traceSession, query: normalizedQuery, hitIds: [], budgetLeft });
+        this.appendRecall({ session: session.traceSession, trigger: normalizedTrigger, query: normalizedQuery, hitIds: [], budgetLeft });
         return { hits: [], error: "lookup_failed" };
       }
     } catch {
@@ -59,11 +78,11 @@ class MemoryLookupService {
     }
   }
 
-  appendRecall({ session, query, hitIds, budgetLeft }) {
+  appendRecall({ session, trigger, query, hitIds, budgetLeft }) {
     const record = {
       ts: new Date().toISOString(),
       session,
-      trigger: "user_pull",
+      trigger,
       query,
       hit_ids: Array.isArray(hitIds) ? hitIds.slice(0, MAX_HITS) : [],
       budget_left: Math.max(0, Number(budgetLeft) || 0),
@@ -76,6 +95,34 @@ class MemoryLookupService {
       return false;
     }
   }
+}
+
+const ALLOWED_TRIGGERS = new Set(["user_pull", "resonance", "stakes", "repair"]);
+
+function searchMemorySources(sources, query) {
+  const normalizedSources = sources && typeof sources === "object" ? sources : {};
+  const expandedQuery = expandQueryAliases(query, normalizedSources.topics);
+  const rows = [
+    ...(Array.isArray(normalizedSources.episodes) ? normalizedSources.episodes : []),
+    ...(Array.isArray(normalizedSources.timeline) ? normalizedSources.timeline : []),
+  ];
+  return searchEpisodes(rows, expandedQuery);
+}
+
+function expandQueryAliases(query, topicsText) {
+  const normalizedQuery = normalizeText(query);
+  const key = normalizedQuery.toLocaleLowerCase();
+  if (!key || typeof topicsText !== "string") return normalizedQuery;
+  for (const rawLine of topicsText.split(/\r?\n/u)) {
+    const [left, right] = rawLine.split(/[:：=]/u, 2);
+    if (!right) continue;
+    const aliases = [left, right].flatMap((part) => String(part).split(/[,，|]/u))
+      .map(normalizeText).filter(Boolean);
+    if (aliases.some((alias) => alias.toLocaleLowerCase() === key)) {
+      return [...new Set([normalizedQuery, ...aliases])].join(" ");
+    }
+  }
+  return normalizedQuery;
 }
 
 function searchEpisodes(rows, query) {
@@ -185,6 +232,19 @@ function readJsonl(filePath) {
   });
 }
 
+function readTimeline(filePath) {
+  const text = readText(filePath);
+  if (!text) return [];
+  return text.split(/\r?\n\s*\r?\n/u).map((paragraph, index) => {
+    const body = paragraph.trim();
+    return body ? { ep_id: `timeline-${index + 1}`, ts: "", body, source: "relationship_timeline" } : null;
+  }).filter(Boolean);
+}
+
+function readText(filePath) {
+  try { return filePath ? fs.readFileSync(filePath, "utf8") : ""; } catch { return ""; }
+}
+
 function acquireLock(lockFile) {
   fs.mkdirSync(path.dirname(lockFile), { recursive: true });
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -218,8 +278,11 @@ module.exports = {
   MAX_CALLS_PER_SESSION,
   MAX_HITS,
   MAX_NON_WHITESPACE_CHARS,
+  ALLOWED_TRIGGERS,
   MemoryLookupService,
   buildSession,
+  expandQueryAliases,
+  searchMemorySources,
   searchEpisodes,
   truncateBody,
 };
