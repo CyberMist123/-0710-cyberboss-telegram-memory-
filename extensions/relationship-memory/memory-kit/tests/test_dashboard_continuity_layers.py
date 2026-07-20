@@ -91,7 +91,9 @@ def test_layered_continuity_view():
         assert code == 200
         assert payload["kind"] == "continuity_layers"
         assert payload["nightly_mode"] == "shadow"
-        assert payload["write_mode"] == "read_only"
+        assert payload["write_mode"] == "controlled_context_write"
+        assert "reentry" in payload["capabilities"]["controlled_context_write"]
+        assert "canon" in payload["capabilities"]["frozen"]
 
         layers = {item["key"]: item for item in payload["layers"]}
         assert layers["gaps"]["label"] == "技术断档"

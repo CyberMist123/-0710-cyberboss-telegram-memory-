@@ -59,7 +59,24 @@ def build_continuity_layers(continuity_dir, limit=50, nightly_mode=None):
         "nightly_mode": normalize_nightly_mode(
             nightly_mode if nightly_mode is not None else os.environ.get("CYBERBOSS_NIGHTLY_MODE", "")
         ),
-        "write_mode": "read_only",
+        "write_mode": "controlled_context_write",
+        "capabilities": {
+            "controlled_context_write": [
+                "runtime_prompt",
+                "reentry",
+                "live_state_override",
+                "memory_context_override",
+                "context_gates",
+                "context_layout",
+            ],
+            "frozen": [
+                "canon",
+                "episodes",
+                "portrait",
+                "desire",
+                "candidate_publication",
+            ],
+        },
         "continuity_dir": str(root),
         "layers": layers,
     }

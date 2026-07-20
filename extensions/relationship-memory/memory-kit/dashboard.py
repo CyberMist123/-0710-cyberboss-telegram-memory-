@@ -5004,7 +5004,18 @@ class H(BaseHTTPRequestHandler):
                 self._send(200, json.dumps({
                     "modules": compute_module_state(),
                     "continuity_dir": str(CONTINUITY_DIR),
-                    "write_mode": "read_only",
+                    "write_mode": "controlled_context_write",
+                    "capabilities": {
+                        "controlled_context_write": [
+                            "runtime_prompt",
+                            "reentry",
+                            "live_state_override",
+                            "memory_context_override",
+                            "context_gates",
+                            "context_layout",
+                        ],
+                        "frozen": ["canon", "episodes", "portrait", "desire", "candidate_publication"],
+                    },
                 }, ensure_ascii=False))
             except Exception as e:
                 self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))

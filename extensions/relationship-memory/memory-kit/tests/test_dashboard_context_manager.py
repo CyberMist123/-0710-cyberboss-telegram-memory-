@@ -126,6 +126,26 @@ def test_http_and_ui_contract():
         )
         assert code == 200 and payload["ok"]
         assert (MEMORY / "reentry.md").read_text(encoding="utf-8") == "她刚刚说过，下一次先接住这条线。"
+        backups = list((STATE / "context-source-backups" / "reentry").glob("*.txt"))
+        assert backups and backups[-1].read_text(encoding="utf-8") == ""
+        audit_rows = [json.loads(line) for line in (STATE / "prompt-change-log.jsonl").read_text(encoding="utf-8").splitlines()]
+        assert audit_rows[-1]["event"] == "context_source_saved"
+        assert audit_rows[-1]["context_key"] == "reentry"
+
+        code, payload = request(
+            server.server_port,
+            "/api/context-source/save",
+            "POST",
+            {
+                "key": "reentry",
+                "content": "不应覆盖已有内容。",
+                "expected_sha256": dashboard.sha256_text(""),
+                "source": "http-test-conflict",
+            },
+            dashboard.API_TOKEN,
+        )
+        assert code == 409 and payload["error"] == "context_source_conflict"
+        assert (MEMORY / "reentry.md").read_text(encoding="utf-8") == "她刚刚说过，下一次先接住这条线。"
 
         code, payload = request(
             server.server_port,
