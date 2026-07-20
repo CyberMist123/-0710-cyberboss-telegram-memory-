@@ -129,6 +129,7 @@ class CyberbossApp {
       onSystemReplySent: (threadId, turnId, replyText) => this.handleSystemReplySent(threadId, turnId, replyText),
     });
     this.pendingOperationByRunKey = new Map();
+    this.desireUsageByRunKey = new Map();
     this.runtimeEventChain = Promise.resolve();
     this.runtimeAdapter.onEvent((event) => {
       this.threadStateStore.applyRuntimeEvent(event);
@@ -1306,6 +1307,12 @@ class CyberbossApp {
       bindingKey,
       workspaceRoot,
       prepared,
+      pendingOperation: message?.sourceType === "desire_checkin" ? {
+        kind: "desire_checkin",
+        eventId: message.id,
+        startedAt: Date.now(),
+        reusedSession: Boolean(this.runtimeAdapter.getSessionStore().getThreadIdForWorkspace(bindingKey, workspaceRoot)),
+      } : null,
     });
   }
 
@@ -2174,6 +2181,9 @@ class CyberbossApp {
   }
 
   async handleRuntimeEvent(event) {
+    if (event?.type === "runtime.context.updated") {
+      this.desireUsageByRunKey.set(buildRunKey(event?.payload?.threadId, event?.payload?.turnId), event.payload);
+    }
     const failureReplyTarget = event?.type === "runtime.turn.failed"
       ? this.streamDelivery.resolveReplyTargetForRun({
           threadId: event?.payload?.threadId,
@@ -2195,12 +2205,31 @@ class CyberbossApp {
       const completedRunKey = buildRunKey(event.payload.threadId, event.payload.turnId);
       const pendingOperations = this.pendingOperationByRunKey;
       const pendingOperation = pendingOperations?.get?.(completedRunKey) || null;
+      const usage = this.desireUsageByRunKey.get(completedRunKey) || {};
+      this.desireUsageByRunKey.delete(completedRunKey);
       if (pendingOperation && pendingOperations?.delete) {
         pendingOperations.delete(completedRunKey);
       }
       if (event.type === "runtime.turn.completed") {
         this.maybeCloseDesireLoopForPendingOperation(pendingOperation, event?.payload);
         this.maybeSaveDesireStateFromTurnText(event?.payload?.text || "");
+      }
+      if (pendingOperation?.kind === "desire_checkin") {
+        const { appendDesireTelemetry } = require("./desire-telemetry");
+        const linkedForTelemetry = this.runtimeAdapter.getSessionStore().findBindingForThreadId(event.payload.threadId);
+        const model = linkedForTelemetry
+          ? this.runtimeAdapter.getSessionStore().getRuntimeParamsForWorkspace(linkedForTelemetry.bindingKey, linkedForTelemetry.workspaceRoot).model
+          : "";
+        appendDesireTelemetry({
+          enabled: this.config.desireTelemetry,
+          filePath: this.config.desireTelemetryFile,
+          eventId: pendingOperation.eventId,
+          model,
+          reusedSession: pendingOperation.reusedSession,
+          usage,
+          durationMs: Date.now() - pendingOperation.startedAt,
+          outcome: event.type === "runtime.turn.completed" ? "success" : "error",
+        });
       }
       const sessionStore = this.runtimeAdapter.getSessionStore();
       sessionStore.clearApprovalPrompt(event.payload.threadId);

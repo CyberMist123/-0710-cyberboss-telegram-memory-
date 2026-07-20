@@ -139,6 +139,8 @@ function readConfig() {
     desireBaselineDrift: resolveFeatureGate("CYBERBOSS_DESIRE_BASELINE_DRIFT"),
     heartbeatAutonomy: resolveFeatureGate("CYBERBOSS_HEARTBEAT_AUTONOMY"),
     desireSelfDrive: resolveFeatureGate("CYBERBOSS_DESIRE_SELF_DRIVE"),
+    desireTelemetry: resolveFeatureGate("CYBERBOSS_DESIRE_TELEMETRY"),
+    desireTelemetryFile: resolveConfiguredPath(readTextEnv("CYBERBOSS_DESIRE_TELEMETRY_FILE")) || joinIfBase(stateDir, "desire-usage.jsonl"),
     desireThoughtMax: readIntEnv("CYBERBOSS_DESIRE_THOUGHT_MAX")
       || readIntEnv("TWIN_DESIRE_THOUGHT_MAX")
       || 80,
