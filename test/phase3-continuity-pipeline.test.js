@@ -289,6 +289,21 @@ test("review failure defers the candidate and never publishes canon", () => {
   assert.equal(fs.existsSync(fixture.pipeline.paths.episodes), false);
 });
 
+test("review model can be disabled without bypassing deterministic checks", () => {
+  const fixture = createFixture();
+  const closeout = fixture.pipeline.runCloseout({
+    date: "2026-07-11",
+    author: () => ({ episodes: ["有来源的确定性候选。"] }),
+    candidateMetadata: { authorRole: "subject_ai", semanticAuthority: "high", needsSubjectReview: false },
+  });
+  assert.equal(closeout.candidates.length, 1);
+  const review = fixture.pipeline.runReview({ env: { ...process.env, CYBERBOSS_AUTO_REVIEW_MODEL: "off" } });
+  assert.equal(review.decisions[0].result, "accepted");
+  assert.equal(review.decisions[0].reason, "model_review_disabled");
+  assert.equal(review.decisions[0].checks.source_ref_located, true);
+  assert.equal(review.decisions[0].checks.length_ok, true);
+});
+
 test("over-budget Re-entry is retained as evidence, deferred, and never published", () => {
   const fixture = createFixture();
   fixture.pipeline.runCloseout({
