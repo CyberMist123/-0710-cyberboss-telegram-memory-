@@ -1,7 +1,11 @@
 const crypto = require("crypto");
 const fs = require("fs");
+const path = require("path");
 const { loadDesireSchedule, isNightSkipAt, nextPlannedAt } = require("../core/desire-schedule");
 const { appendDesireTelemetry } = require("../core/desire-telemetry");
+const { acquireWriterLease, releaseWriterLease } = require("../orchestration/writer-lease");
+
+const ACTIVE_MARKER_STALE_MS = 2 * 60 * 60 * 1000;
 
 async function runHourlyDesirePoller(config = {}) {
   if (!config.desireDriven) {
@@ -35,17 +39,17 @@ async function runHourlyDesirePoller(config = {}) {
       } else {
         try {
           queue.enqueue({
-        id,
-        markerOwner: marker.owner,
-        markerEventId: marker.eventId,
-        accountId,
-        senderId,
-        workspaceRoot,
-        text: buildDesireTriggerText(config),
-        sourceType: "desire_checkin",
-        createdAt: new Date().toISOString(),
+            id,
+            markerOwner: marker.owner,
+            markerEventId: marker.eventId,
+            accountId,
+            senderId,
+            workspaceRoot,
+            text: buildDesireTriggerText(config),
+            sourceType: "desire_checkin",
+            createdAt: new Date().toISOString(),
           });
-          console.log(`[desire] checkin queued id=${id} at=${new Date(tickTime).toISOString()}Z`);
+          console.log(`[desire] checkin queued id=${id} at=${new Date(tickTime).toISOString()}`);
         } catch (error) {
           releaseActiveMarker(config.desireActiveFile, marker);
           throw error;
@@ -64,7 +68,7 @@ async function runHourlyDesirePoller(config = {}) {
 function writePlanMarker(filePath, plannedAt) {
   if (!filePath) return;
   try {
-    fs.mkdirSync(require("path").dirname(filePath), { recursive: true });
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, JSON.stringify({ nextPlannedAt: new Date(plannedAt).toISOString() }), "utf8");
   } catch {}
 }
@@ -72,40 +76,100 @@ function writePlanMarker(filePath, plannedAt) {
 function isActiveMarkerFresh(filePath, now = Date.now()) {
   if (!filePath) return false;
   try {
-    const marker = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    if (Number(now) - Number(marker.startedAt) > 2 * 60 * 60 * 1000) return false;
-    return Boolean(marker.owner && marker.eventId);
-  } catch { return false; }
-}
-
-function tryAcquireActiveMarker(filePath, marker) {
-  if (!filePath) return true;
-  try {
-    fs.mkdirSync(require("path").dirname(filePath), { recursive: true });
-    const fd = fs.openSync(filePath, "wx");
-    try { fs.writeFileSync(fd, JSON.stringify(marker), "utf8"); } finally { fs.closeSync(fd); }
-    return true;
-  } catch (error) {
-    if (error?.code !== "EEXIST") return false;
-    try {
-      const current = JSON.parse(fs.readFileSync(filePath, "utf8"));
-      if (Number(Date.now()) - Number(current.startedAt) > 2 * 60 * 60 * 1000) {
-        fs.unlinkSync(filePath);
-        return tryAcquireActiveMarker(filePath, marker);
-      }
-    } catch {}
+    return markerIsFresh(JSON.parse(fs.readFileSync(filePath, "utf8")), now);
+  } catch {
     return false;
   }
 }
 
+function tryAcquireActiveMarker(filePath, marker, now = Date.now()) {
+  if (!filePath) return true;
+  const result = withActiveMarkerLease(filePath, () => {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    let current = null;
+    try {
+      current = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    } catch (error) {
+      if (error?.code !== "ENOENT") return false;
+    }
+    if (current && markerIsFresh(current, now)) return false;
+    if (current) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch (error) {
+        if (error?.code !== "ENOENT") return false;
+      }
+    }
+    let handle;
+    try {
+      handle = fs.openSync(filePath, "wx");
+      fs.writeFileSync(handle, JSON.stringify(marker), "utf8");
+      fs.fsyncSync(handle);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      if (handle !== undefined) fs.closeSync(handle);
+    }
+  });
+  return result.acquired && result.value === true;
+}
+
 function releaseActiveMarker(filePath, marker) {
   if (!filePath || !marker) return false;
-  try {
-    const current = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  const result = withActiveMarkerLease(filePath, () => {
+    let current;
+    try {
+      current = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    } catch {
+      return false;
+    }
     if (current.owner !== marker.owner || current.eventId !== marker.eventId) return false;
-    fs.unlinkSync(filePath);
-    return true;
-  } catch { return false; }
+    try {
+      fs.unlinkSync(filePath);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  return result.acquired && result.value === true;
+}
+
+function withActiveMarkerLease(filePath, action) {
+  const leaseFile = `${filePath}.lease`;
+  let lease;
+  try {
+    lease = acquireWriterLease(leaseFile, {
+      writer: "desire-poller",
+      model: "runtime",
+      phase: "active-marker",
+      branch: "runtime",
+      worktree: path.dirname(filePath),
+      base_sha: "runtime",
+    }, {
+      recoverStale: true,
+      staleArchiveDir: path.join(path.dirname(filePath), ".stale-desire-marker-leases"),
+    });
+  } catch {
+    return { acquired: false, value: false };
+  }
+  try {
+    return { acquired: true, value: action() };
+  } finally {
+    try {
+      releaseWriterLease(leaseFile, lease.lease_id);
+    } catch {}
+  }
+}
+
+function markerIsFresh(marker, now = Date.now()) {
+  return Boolean(
+    marker
+    && marker.owner
+    && marker.eventId
+    && Number.isFinite(Number(marker.startedAt))
+    && Number(now) - Number(marker.startedAt) <= ACTIVE_MARKER_STALE_MS
+  );
 }
 
 function resolveDesirePollerTargets({ config, sessionStore }) {
@@ -137,4 +201,11 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-module.exports = { runHourlyDesirePoller, isNightSkipAt, nextPlannedAt, isActiveMarkerFresh, tryAcquireActiveMarker, releaseActiveMarker };
+module.exports = {
+  runHourlyDesirePoller,
+  isNightSkipAt,
+  nextPlannedAt,
+  isActiveMarkerFresh,
+  tryAcquireActiveMarker,
+  releaseActiveMarker,
+};

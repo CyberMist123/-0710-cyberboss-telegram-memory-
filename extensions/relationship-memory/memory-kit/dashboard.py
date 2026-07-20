@@ -4190,22 +4190,6 @@ async function loadOctant() {
 }
 
 let desireSchedulePayload = null;
-async function loadDesireSchedule() {
-  const response = await fetch('/api/desire-schedule');
-  if (!response.ok) return;
-  const data = await response.json(); desireSchedulePayload = data;
-  const set = (id, value) => { const el = document.getElementById(id); if (el != null) el.value = value; };
-  document.getElementById('desire-schedule-enabled').checked = data.enabled !== false;
-  document.getElementById('desire-schedule-night-enabled').checked = data.night_skip_enabled !== false;
-  set('desire-schedule-night-start', data.night_start); set('desire-schedule-night-end', data.night_end); set('desire-schedule-timezone', data.timezone);
-  const list = document.getElementById('desire-timezone-options');
-  list.innerHTML = (data.timezone_options || []).map(item => `<option value="${esc(item.iana)}">${esc(item.label)} · ${esc(item.iana)}</option>`).join('');
-  const now = data.now || {};
-  const last = data.last_call ? ` · 上次：${data.last_call.timestamp || ''} · ${data.last_call.outcome || ''}` : ' · 尚无调用记录';
-  const next = data.next_planned_at ? ` · 下一次预计：${formatScheduleTime(data.next_planned_at, data.timezone)}` : '';
-  document.getElementById('desire-schedule-current').textContent = `当前调度时区：${data.timezone} · ${now.offset || ''} · 当地时间 ${now.local_now || ''} · ${now.is_night_skip ? '当前处于夜间跳过区间' : '当前不在夜间跳过区间'} · cadence ${data.interval_minutes} 分钟${next}${last}`;
-}
-
 function formatScheduleTime(value, timezone) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return String(value || '');
