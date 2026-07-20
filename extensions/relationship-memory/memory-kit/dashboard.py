@@ -42,7 +42,11 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover
+    ZoneInfo = None
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, unquote
@@ -98,6 +102,28 @@ CONTEXT_META_FILE = DASHBOARD_STATE_DIR / "context-layout-meta.json"
 PROMPT_BACKUP_DIR = DASHBOARD_STATE_DIR / "prompt-backups"
 PROMPT_AUDIT_FILE = DASHBOARD_STATE_DIR / "prompt-change-log.jsonl"
 CONTEXT_SOURCE_BACKUP_DIR = DASHBOARD_STATE_DIR / "context-source-backups"
+DESIRE_SCHEDULE_FILE = DASHBOARD_STATE_DIR / "desire-schedule.json"
+DESIRE_SCHEDULE_BACKUP_DIR = DASHBOARD_STATE_DIR / "desire-schedule-backups"
+DESIRE_SCHEDULE_AUDIT_FILE = DASHBOARD_STATE_DIR / "desire-schedule-audit.jsonl"
+DESIRE_TELEMETRY_FILE = DASHBOARD_STATE_DIR / "desire-usage.jsonl"
+DESIRE_PLAN_FILE = DASHBOARD_STATE_DIR / "desire-checkin-plan.json"
+
+DESIRE_SCHEDULE_DEFAULTS = {
+    "version": 1,
+    "enabled": True,
+    "interval_minutes": 55,
+    "night_skip_enabled": True,
+    "night_start": "22:00",
+    "night_end": "06:00",
+    "timezone": "Australia/Sydney",
+}
+
+DESIRE_TIMEZONE_OPTIONS = [
+    {"iana": "Australia/Sydney", "label": "(UTC+10:00) 堪培拉，墨尔本，悉尼"},
+    {"iana": "Asia/Shanghai", "label": "(UTC+08:00) 北京，重庆，香港特别行政区，乌鲁木齐"},
+    {"iana": "Asia/Tokyo", "label": "(UTC+09:00) 大阪，札幌，东京"},
+    {"iana": "Pacific/Auckland", "label": "(UTC+12:00) 奥克兰，惠灵顿"},
+]
 
 DEFAULT_CONTEXT_LAYOUT = {
     "version": 1,
@@ -507,6 +533,128 @@ def sha256_text(content):
     return hashlib.sha256(str(content or "").encode("utf-8")).hexdigest()
 
 
+def _valid_schedule_timezone(value):
+    text = str(value or "").strip()
+    if not text or ZoneInfo is None:
+        return False
+    try:
+        ZoneInfo(text)
+        return True
+    except Exception:
+        return False
+
+
+def _valid_schedule_clock(value):
+    return bool(re.match(r"^(?:[01]\d|2[0-3]):[0-5]\d$", str(value or "").strip()))
+
+
+def _schedule_revision(payload):
+    return sha256_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+
+
+def _schedule_now_payload(config):
+    now_utc = datetime.now(timezone.utc)
+    tz = ZoneInfo(config["timezone"])
+    local = now_utc.astimezone(tz)
+    offset = local.strftime("%z")
+    offset_display = f"UTC{offset[:3]}:{offset[3:]}" if len(offset) == 5 else "UTC"
+    return {
+        "utc_now": now_utc.isoformat().replace("+00:00", "Z"),
+        "local_now": local.isoformat(),
+        "offset": offset_display,
+        "is_night_skip": desire_schedule_is_night(local, config),
+    }
+
+
+def desire_schedule_is_night(local_dt, config):
+    if not config.get("night_skip_enabled") or config.get("night_start") == config.get("night_end"):
+        return False
+    current = local_dt.hour * 60 + local_dt.minute
+    start = int(config["night_start"][:2]) * 60 + int(config["night_start"][3:])
+    end = int(config["night_end"][:2]) * 60 + int(config["night_end"][3:])
+    return (current >= start or current < end) if start > end else (start <= current < end)
+
+
+def load_desire_schedule_config():
+    config = dict(DESIRE_SCHEDULE_DEFAULTS)
+    raw = read_json_file(DESIRE_SCHEDULE_FILE, default={})
+    if isinstance(raw, dict):
+        for key in config:
+            if key in raw:
+                config[key] = raw[key]
+    if not _valid_schedule_timezone(config.get("timezone")):
+        config["timezone"] = DESIRE_SCHEDULE_DEFAULTS["timezone"]
+    if config.get("interval_minutes") != 55:
+        config["interval_minutes"] = 55
+    for key in ("night_start", "night_end"):
+        if not _valid_schedule_clock(config.get(key)):
+            config[key] = DESIRE_SCHEDULE_DEFAULTS[key]
+    config["enabled"] = config.get("enabled") is not False
+    config["night_skip_enabled"] = config.get("night_skip_enabled") is not False
+    config["revision"] = _schedule_revision(config)
+    config["path"] = str(DESIRE_SCHEDULE_FILE)
+    config["timezone_options"] = DESIRE_TIMEZONE_OPTIONS
+    config["now"] = _schedule_now_payload(config)
+    telemetry = read_jsonl(DESIRE_TELEMETRY_FILE)
+    config["last_call"] = telemetry[-1] if telemetry else None
+    plan = read_json_file(DESIRE_PLAN_FILE, default={})
+    config["next_planned_at"] = plan.get("nextPlannedAt") if isinstance(plan, dict) else None
+    return config
+
+
+def validate_desire_schedule_body(obj):
+    if not isinstance(obj, dict):
+        return False, "body 必须是 JSON 对象"
+    if "timezone" in obj and not _valid_schedule_timezone(obj.get("timezone")):
+        return False, "timezone 必须是有效 IANA 时区"
+    for key in ("night_start", "night_end"):
+        if key in obj and not _valid_schedule_clock(obj.get(key)):
+            return False, f"{key} 必须是 HH:mm"
+    if "interval_minutes" in obj and obj.get("interval_minutes") != 55:
+        return False, "interval_minutes 当前固定为 55"
+    for key in ("enabled", "night_skip_enabled"):
+        if key in obj and not isinstance(obj[key], bool):
+            return False, f"{key} 必须是 true/false"
+    allowed = set(DESIRE_SCHEDULE_DEFAULTS)
+    if any(key not in allowed for key in obj):
+        return False, "包含不允许的字段"
+    if obj.get("night_start") == obj.get("night_end") and "night_start" in obj and "night_end" in obj:
+        # Equal endpoints are valid but explicitly mean no active interval.
+        pass
+    return True, None
+
+
+def save_desire_schedule_config(obj, expected_revision="", source="520"):
+    current = load_desire_schedule_config()
+    current_revision = current["revision"]
+    if expected_revision and expected_revision != current_revision:
+        raise RuntimeError("调度配置已被其他进程修改，请刷新后重试。")
+    body = {key: value for key, value in obj.items() if key not in {"expected_revision", "source"}}
+    ok, error = validate_desire_schedule_body(body)
+    if not ok:
+        raise ValueError(error)
+    next_config = dict(DESIRE_SCHEDULE_DEFAULTS)
+    for key in next_config:
+        next_config[key] = body.get(key, current.get(key, next_config[key]))
+    next_config["revision"] = _schedule_revision(next_config)
+    DESIRE_SCHEDULE_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    if DESIRE_SCHEDULE_FILE.exists():
+        backup = DESIRE_SCHEDULE_BACKUP_DIR / f"{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}-{current_revision[:10]}.json"
+        write_text_atomic(backup, read_text(DESIRE_SCHEDULE_FILE))
+    write_text_atomic(DESIRE_SCHEDULE_FILE, json.dumps(next_config, ensure_ascii=False, indent=2) + "\n")
+    DESIRE_SCHEDULE_AUDIT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with DESIRE_SCHEDULE_AUDIT_FILE.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "event": "desire_schedule_saved",
+            "source": str(source or "520")[:80],
+            "before_revision": current_revision,
+            "after_revision": next_config["revision"],
+            "timezone": next_config["timezone"],
+        }, ensure_ascii=False) + "\n")
+    return load_desire_schedule_config()
+
+
 def repair_mojibake_text(value):
     """Repair the common UTF-8-as-GBK corruption for display only."""
     text = str(value or "")
@@ -852,6 +1000,20 @@ def parse_time(s):
         return None
 
 
+def normalize_utc_iso(value):
+    """Return an explicit UTC timestamp for API consumers; never apply a fixed offset."""
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    except Exception:
+        return None
+
+
 DESIRE_WINDOW_START_HOUR = 6
 DESIRE_WINDOW_END_HOUR = 22
 DESIRE_HISTORY_DIM_TO_LABEL = {
@@ -948,7 +1110,7 @@ def load_desire_state():
             value = str(value)
             dt = parse_time(value)
             if dt:
-                info["updated_at"] = dt.strftime("%Y-%m-%d %H:%M:%S")
+                info["updated_at"] = normalize_utc_iso(value) or value
                 info["hours_since_update"] = round((datetime.now() - dt).total_seconds() / 3600.0, 1)
             else:
                 info["updated_at"] = value
@@ -1028,7 +1190,7 @@ def normalize_desire_history_row(row):
     if not dt:
         return None
     out = {
-        "time": dt.strftime("%Y-%m-%d %H:%M:%S"),
+        "time": normalize_utc_iso(raw_time) or str(raw_time),
         "most_want": str(row.get("most_want") or "").strip(),
         "note": str(row.get("note") or row.get("source") or "runtime desire-history").strip(),
     }
@@ -3128,6 +3290,18 @@ PAGE = r"""<!doctype html>
     <!-- 3 八维 -->
     <div class="view" id="view-octant">
       <div id="octant-notice">AI 自报状态,非关系测量。这页用来看写入断档,不用来读心。</div>
+      <div class="hcard" id="desire-schedule-card" style="margin:12px 0;">
+        <h3>八维调度设置</h3>
+        <div class="form-row"><label>启用状态</label><input type="checkbox" id="desire-schedule-enabled"></div>
+        <div class="form-row"><label>Cadence</label><input type="text" value="55 分钟" disabled id="desire-schedule-interval"></div>
+        <div class="form-row"><label>夜间跳过</label><input type="checkbox" id="desire-schedule-night-enabled"></div>
+        <div class="form-row"><label>夜间开始</label><input type="time" id="desire-schedule-night-start"></div>
+        <div class="form-row"><label>夜间结束</label><input type="time" id="desire-schedule-night-end"></div>
+        <div class="form-row"><label>调度时区</label><input list="desire-timezone-options" id="desire-schedule-timezone" placeholder="搜索城市或 IANA 名称"><datalist id="desire-timezone-options"></datalist></div>
+        <div id="desire-schedule-current" class="meta">读取中…</div>
+        <div id="desire-schedule-status" class="form-status"></div>
+        <div style="margin-top:10px;"><button onclick="saveDesireSchedule()">保存调度设置</button></div>
+      </div>
       <div id="octant-source"></div>
       <div id="octant-live"></div>
       <div id="octant-archive-note" class="notice"></div>
@@ -3913,6 +4087,7 @@ const OCT_COLORS = {'依恋':'#e06c9f','好奇':'#5ab0e0','沉思':'#9a7ae0','�
 let octRows = [], octHidden = {};
 
 async function loadOctant() {
+  await loadDesireSchedule();
   // 曲线要长一点的历史(最多 200 行),表格只看最近 30 行
   const r = await fetch('/api/state_rows?n=200'); const d = await r.json();
   const dims = OCT_DIMS;
@@ -3973,6 +4148,49 @@ async function loadOctant() {
     body += '</tr>';
   }
   table.innerHTML = head + body;
+}
+
+let desireSchedulePayload = null;
+async function loadDesireSchedule() {
+  const response = await fetch('/api/desire-schedule');
+  if (!response.ok) return;
+  const data = await response.json(); desireSchedulePayload = data;
+  const set = (id, value) => { const el = document.getElementById(id); if (el != null) el.value = value; };
+  document.getElementById('desire-schedule-enabled').checked = data.enabled !== false;
+  document.getElementById('desire-schedule-night-enabled').checked = data.night_skip_enabled !== false;
+  set('desire-schedule-night-start', data.night_start); set('desire-schedule-night-end', data.night_end); set('desire-schedule-timezone', data.timezone);
+  const list = document.getElementById('desire-timezone-options');
+  list.innerHTML = (data.timezone_options || []).map(item => `<option value="${esc(item.iana)}">${esc(item.label)} · ${esc(item.iana)}</option>`).join('');
+  const now = data.now || {};
+  const last = data.last_call ? ` · 上次：${data.last_call.timestamp || ''} · ${data.last_call.outcome || ''}` : ' · 尚无调用记录';
+  const next = data.next_planned_at ? ` · 下一次预计：${formatScheduleTime(data.next_planned_at, data.timezone)}` : '';
+  document.getElementById('desire-schedule-current').textContent = `当前调度时区：${data.timezone} · ${now.offset || ''} · 当地时间 ${now.local_now || ''} · ${now.is_night_skip ? '当前处于夜间跳过区间' : '当前不在夜间跳过区间'} · cadence ${data.interval_minutes} 分钟${next}${last}`;
+}
+
+function formatScheduleTime(value, timezone) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value || '');
+  return parsed.toLocaleString('zh-CN', {timeZone: timezone || 'Australia/Sydney', hour12: false}) + ` (${timezone || 'Australia/Sydney'})`;
+}
+
+async function saveDesireSchedule() {
+  const status = document.getElementById('desire-schedule-status');
+  const body = {
+    enabled: document.getElementById('desire-schedule-enabled').checked,
+    interval_minutes: 55,
+    night_skip_enabled: document.getElementById('desire-schedule-night-enabled').checked,
+    night_start: document.getElementById('desire-schedule-night-start').value,
+    night_end: document.getElementById('desire-schedule-night-end').value,
+    timezone: document.getElementById('desire-schedule-timezone').value,
+    expected_revision: desireSchedulePayload ? desireSchedulePayload.revision : '',
+    source: '520 desire schedule',
+  };
+  try {
+    const response = await fetch('/api/desire-schedule', {method:'POST', headers:{'Content-Type':'application/json','X-Api-Token':TOKEN}, body:JSON.stringify(body)});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.err || data.error || `HTTP ${response.status}`);
+    status.textContent = data.apply_note || '已保存，下一轮生效。'; await loadDesireSchedule();
+  } catch (error) { status.textContent = '保存失败：' + error.message; }
 }
 
 function renderOctantSource(payload, historyRows, liveRow) {
@@ -5104,6 +5322,12 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
 
+        elif u.path == "/api/desire-schedule":
+            try:
+                self._send(200, json.dumps(load_desire_schedule_config(), ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
+
         elif u.path == "/api/config":
             # 返回脱敏的 keys.local.json 视图:key 只显示 provider 和末 4 位
             try:
@@ -5224,6 +5448,24 @@ class H(BaseHTTPRequestHandler):
                 self._send(409, json.dumps({"ok": False, "error": "context_source_conflict", "err": str(e)}, ensure_ascii=False))
             except Exception as e:
                 self._send(500, json.dumps({"ok": False, "error": "context_source_write_failed", "err": str(e)}, ensure_ascii=False))
+            return
+
+        if u.path == "/api/desire-schedule":
+            if not self._check_token():
+                return
+            obj, err = self._read_json_body()
+            if err:
+                self._send(400, json.dumps({"ok": False, "err": err}, ensure_ascii=False))
+                return
+            try:
+                payload = save_desire_schedule_config(obj, obj.get("expected_revision", ""), obj.get("source", "520"))
+                self._send(200, json.dumps({"ok": True, "schedule": payload, "apply_note": "已保存，下一轮生效；当前调用不会被中断。"}, ensure_ascii=False))
+            except ValueError as e:
+                self._send(400, json.dumps({"ok": False, "error": "invalid_schedule", "err": str(e)}, ensure_ascii=False))
+            except RuntimeError as e:
+                self._send(409, json.dumps({"ok": False, "error": "schedule_conflict", "err": str(e)}, ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"ok": False, "error": "schedule_write_failed", "err": str(e)}, ensure_ascii=False))
             return
 
         if u.path == "/api/context-layout/save":
