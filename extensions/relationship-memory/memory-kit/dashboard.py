@@ -4170,7 +4170,7 @@ async function loadDesireSchedule() {
 function formatScheduleTime(value, timezone) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return String(value || '');
-  return parsed.toLocaleString('zh-CN', {timeZone: timezone || 'Australia/Sydney', hour12: false}) + ` (${timezone || 'Australia/Sydney'})`;
+  return parsed.toLocaleString('zh-CN', {timeZone: timezone || 'Australia/Sydney', timeZoneName: 'shortOffset', hour12: false}) + ` (${timezone || 'Australia/Sydney'})`;
 }
 
 async function saveDesireSchedule() {
