@@ -10,7 +10,7 @@ const VOICE_PLACEHOLDER = "[语音]";
  * Bridge between cyberboss and the standalone voice-kit module.
  *
  * voice-kit lives outside this repo (currently `【项目】\voice-kit`, later
- * D:\AI\tools\voice) and is located via config.voiceKitDir
+ * and is located via config.voiceKitDir
  * (CYBERBOSS_VOICE_KIT_DIR). If the dir is missing or providers are not
  * configured, everything degrades to the current behavior ("[语音]"
  * placeholder, no voice replies) without blocking the message flow.
