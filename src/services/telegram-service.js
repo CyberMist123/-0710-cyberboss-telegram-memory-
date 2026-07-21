@@ -98,6 +98,40 @@ function createTelegramSendService({ config, runtimeContextStore }) {
       }, TELEGRAM_REQUEST_TIMEOUT_MS, { allowEmptyJson: true });
       return { userId: target.chatId, filePath: resolvedPath, caption: normalizeText(caption) };
     },
+    async sendVoice({ filePath = "", userId = "" } = {}, context = {}) {
+      const requestedPath = normalizeText(filePath);
+      if (!requestedPath) {
+        throw new Error("telegram send voice requires filePath");
+      }
+      const resolvedPath = path.resolve(requestedPath);
+      if (!fs.existsSync(resolvedPath)) {
+        throw new Error(`telegram voice file does not exist: ${resolvedPath}`);
+      }
+
+      const active = runtimeContextStore?.resolveActiveContext?.({
+        workspaceRoot: normalizeText(context?.workspaceRoot),
+        runtimeId: normalizeText(context?.runtimeId),
+      }) || {};
+      const target = resolveTelegramTarget(active, context, userId);
+      if (!target.chatId) {
+        throw new Error("telegram reply target missing");
+      }
+
+      const token = normalizeText(config?.telegramBotToken);
+      if (!token) {
+        throw new Error("telegram bot token missing");
+      }
+
+      const payload = new FormData();
+      payload.append("chat_id", target.chatId);
+      payload.append("voice", new Blob([fs.readFileSync(resolvedPath)], { type: "audio/ogg" }), path.basename(resolvedPath));
+
+      await fetchJsonWithRetry(`https://api.telegram.org/bot${token}/sendVoice`, {
+        method: "POST",
+        body: payload,
+      }, TELEGRAM_REQUEST_TIMEOUT_MS, { allowEmptyJson: true });
+      return { userId: target.chatId, filePath: resolvedPath };
+    },
   };
 }
 

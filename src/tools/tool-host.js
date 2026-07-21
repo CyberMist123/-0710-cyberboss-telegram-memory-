@@ -489,6 +489,36 @@ const PROJECT_TOOLS = [
     },
   },
   {
+    name: "cyberboss_telegram_send_voice",
+    description: "Speak a reply as a Telegram voice message (voice bubble). Provide the exact text to speak; the system synthesizes it with the configured TTS voice and sends it. Use it when a voice reply fits better than text, for example when the user sent a voice message or the moment is emotional. Keep the text short and natural spoken language. The spoken text is saved to the conversation log automatically.",
+    shortHint: "Send a synthesized voice reply to Telegram.",
+    topics: ["channel"],
+    inputSchema: {
+      type: "object",
+      required: ["text"],
+      properties: {
+        text: { type: "string", description: "Exact text to speak in the voice message." },
+        userId: { type: "string", description: "Optional Telegram user id to send to explicitly." },
+      },
+      additionalProperties: false,
+    },
+    async handler({ services, args, context }) {
+      if (!services.voice || !services.voice.ttsEnabled()) {
+        return {
+          text: "Voice reply is not available: TTS is not configured. Reply with text instead.",
+          data: { error: "tts_not_configured" },
+        };
+      }
+      const synthesized = await services.voice.synthesizeToFile({ text: args.text });
+      const result = await services.telegram.sendVoice({ filePath: synthesized.filePath, userId: args.userId }, context);
+      services.voice.recordVoiceReply({ text: args.text, filePath: result.filePath, userId: result.userId });
+      return {
+        text: `Telegram voice message sent to ${result.userId}.`,
+        data: { ...result, provider: synthesized.provider },
+      };
+    },
+  },
+  {
     name: "cyberboss_sticker_tags",
     description: `Load the current sticker tag catalog and tagging rules only when you have decided a sticker is needed or an inbox image should be saved as a sticker. ${STICKER_TAG_GUIDANCE}`,
     shortHint: "Load sticker tags only when needed.",

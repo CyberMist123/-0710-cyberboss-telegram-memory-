@@ -169,6 +169,13 @@ function buildToolResources(toolCatalog) {
     text: buildTelegramSendFileMarkdown(),
   });
   resources.push({
+    uri: "cyberboss://docs/telegram-send-voice",
+    name: "Cyberboss Telegram Send Voice",
+    description: "When to send a synthesized voice reply to Telegram and a short example.",
+    mimeType: "text/markdown",
+    text: buildTelegramSendVoiceMarkdown(),
+  });
+  resources.push({
     uri: "cyberboss://docs/weather",
     name: "Cyberboss Weather",
     description: "When to call the weather tool, what it reads, and example commands.",
@@ -330,6 +337,30 @@ function buildTelegramSendFileMarkdown() {
     "```json",
     "{",
     "  \"filePath\": \"<WORKSPACE>/tmp/reward.pdf\"",
+    "}",
+    "```",
+  ].join("\n");
+}
+
+function buildTelegramSendVoiceMarkdown() {
+  return [
+    "# Cyberboss Telegram Send Voice",
+    "",
+    "Use cyberboss_telegram_send_voice to speak a reply as a Telegram voice bubble instead of text.",
+    "The system synthesizes the given text with the configured TTS voice and sends it; the spoken text is saved to the conversation log automatically.",
+    "",
+    "## When to call",
+    "",
+    "- The user sent a voice message and a spoken reply feels natural.",
+    "- Emotional or intimate moments where hearing a voice matters more than reading text.",
+    "- Keep the text short, natural spoken language; avoid markdown, lists, or long paragraphs.",
+    "- If the tool reports TTS is not configured, fall back to a normal text reply.",
+    "",
+    "## Example",
+    "",
+    "```json",
+    "{",
+    "  \"text\": \"我在呢，刚听完你的语音，抱一下。\"",
     "}",
     "```",
   ].join("\n");

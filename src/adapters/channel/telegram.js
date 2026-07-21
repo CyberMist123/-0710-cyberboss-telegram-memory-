@@ -138,8 +138,69 @@ function createTelegramChannelAdapter(config) {
           username: normalizeText(message.from?.username),
           firstName: normalizeText(message.from?.first_name),
           lastName: normalizeText(message.from?.last_name),
+          voice: message.voice
+            ? {
+                fileId: normalizeText(message.voice.file_id),
+                durationSec: Number(message.voice.duration) || 0,
+                mimeType: normalizeText(message.voice.mime_type) || "audio/ogg",
+                sizeBytes: Number(message.voice.file_size) || 0,
+              }
+            : null,
         },
       };
+    },
+    async downloadFileById({ fileId, targetDir }) {
+      if (!token) {
+        throw new Error("telegram bot token missing");
+      }
+      const normalizedFileId = normalizeText(fileId);
+      const normalizedTargetDir = normalizeText(targetDir);
+      if (!normalizedFileId || !normalizedTargetDir) {
+        throw new Error("telegram downloadFileById requires fileId and targetDir");
+      }
+      const meta = await fetchJsonWithRetry(`https://api.telegram.org/bot${token}/getFile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file_id: normalizedFileId }),
+      }, TELEGRAM_REQUEST_TIMEOUT_MS);
+      const remotePath = normalizeText(meta?.result?.file_path);
+      if (!remotePath) {
+        throw new Error("telegram getFile returned no file_path");
+      }
+      const response = await fetch(`https://api.telegram.org/file/bot${token}/${remotePath}`, {
+        signal: AbortSignal.timeout(TELEGRAM_REQUEST_TIMEOUT_MS * 2),
+      });
+      if (!response.ok) {
+        throw new Error(`telegram file download failed: ${response.status}`);
+      }
+      const bytes = Buffer.from(await response.arrayBuffer());
+      if (!bytes.length) {
+        throw new Error("telegram file download returned empty body");
+      }
+      const extension = path.extname(remotePath) || ".bin";
+      const fileName = `tg-${Date.now()}-${normalizedFileId.slice(-8)}${extension}`;
+      fs.mkdirSync(normalizedTargetDir, { recursive: true });
+      const absolutePath = path.join(normalizedTargetDir, fileName);
+      fs.writeFileSync(absolutePath, bytes);
+      writeTelegramLog(config, `downloadFileById ok fileId=${normalizedFileId} path=${absolutePath} sizeBytes=${bytes.length}`);
+      return { absolutePath, fileName, sizeBytes: bytes.length };
+    },
+    async sendVoice({ userId, filePath }) {
+      if (!token) {
+        throw new Error("telegram bot token missing");
+      }
+      const normalizedPath = normalizeText(filePath);
+      if (!userId || !normalizedPath) {
+        throw new Error("telegram sendVoice requires userId and filePath");
+      }
+      const form = new FormData();
+      form.append("chat_id", String(userId));
+      form.append("voice", new Blob([fs.readFileSync(normalizedPath)], { type: "audio/ogg" }), path.basename(normalizedPath));
+      await fetchJsonWithRetry(`https://api.telegram.org/bot${token}/sendVoice`, {
+        method: "POST",
+        body: form,
+      }, Math.max(TELEGRAM_REQUEST_TIMEOUT_MS, 20_000), { allowEmptyJson: true });
+      writeTelegramLog(config, `sendVoice ok userId=${normalizeText(userId)} path=${normalizedPath}`);
     },
     async sendText({ userId, text }) {
       if (!token) {

@@ -8,6 +8,7 @@ const { createTelegramSendService } = require("../services/telegram-service");
 const { StickerService } = require("../services/sticker-service");
 const { SystemMessageService } = require("../services/system-message-service");
 const { TimelineService } = require("../services/timeline-service");
+const { VoiceService } = require("../services/voice-service");
 const { createWeatherService } = require("../services/weather-service");
 const { MemoryLookupService } = require("../services/memory-lookup-service");
 const { MemoryNoteService } = require("../services/memory-note-service");
@@ -45,6 +46,7 @@ function createProjectTooling(config, options = {}) {
     reminder: new ReminderService({ config, sessionStore }),
     system: new SystemMessageService({ config, sessionStore }),
     telegram: createTelegramSendService({ config, runtimeContextStore }),
+    voice: new VoiceService({ config }),
     channelFile,
     sticker: new StickerService({ config, channelAdapter, sessionStore, channelFileService: channelFile }),
     timeline: new TimelineService({ config, timelineIntegration, sessionStore }),
