@@ -1,6 +1,6 @@
 # runtime\startup 脚本备份(部署区收编)
 
-真实部署位置:`C:\Users\18717\Documents\cyberlink\runtime\startup\`
+真实部署位置:`<CYBERLINK_ROOT>\runtime\startup\`
 此目录是其在 git 内的镜像备份——**改了部署区脚本,请同步拷回这里提交**(后续由 GitHub 提交自动化接管)。
 
 ## 计划任务现状(2026-07-22)
