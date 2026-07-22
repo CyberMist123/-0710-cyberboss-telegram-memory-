@@ -12,6 +12,7 @@ const { VoiceService } = require("../services/voice-service");
 const { createWeatherService } = require("../services/weather-service");
 const { MemoryLookupService } = require("../services/memory-lookup-service");
 const { MemoryNoteService } = require("../services/memory-note-service");
+const { GithubService } = require("../services/github-service");
 const { createAmapClient } = require("../location/amap-client");
 const { LocationEventStore } = require("../location/event-store");
 const { createPlaceResolver } = require("../location/place-resolver");
@@ -53,6 +54,7 @@ function createProjectTooling(config, options = {}) {
     weather: createWeatherService({ config }),
     memoryLookup: new MemoryLookupService({ continuityDir: config.continuityDir }),
     memoryNote: new MemoryNoteService({ continuityDir: config.continuityDir }),
+    github: new GithubService({ ghPath: config.ghPath }),
     locationConfig: {
       v2Enabled: config.locationV2Enabled === true,
     },

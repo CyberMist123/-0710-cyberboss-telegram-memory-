@@ -102,6 +102,38 @@ const DEPRECATED_HIDDEN_TOOL_NAMES = new Set([
 
 const PROJECT_TOOLS = [
   {
+    name: "github_repo_create",
+    description: "Create a GitHub repository through the locally authenticated gh CLI.",
+    shortHint: "Create a GitHub repository using the logged-in gh CLI.",
+    topics: ["github", "repository"],
+    inputSchema: { type: "object", properties: { name: { type: "string" }, description: { type: "string" }, private: { type: "boolean" }, clone: { type: "boolean" } }, required: ["name"], additionalProperties: false },
+    async handler({ services, args }) { return services.github.createRepository(args); },
+  },
+  {
+    name: "github_file_upload",
+    description: "Create or update one repository file through the GitHub contents API.",
+    shortHint: "Upload one file to a GitHub repository.",
+    topics: ["github", "repository"],
+    inputSchema: { type: "object", properties: { repository: { type: "string" }, path: { type: "string" }, content: { type: "string" }, message: { type: "string" }, branch: { type: "string" }, sha: { type: "string" } }, required: ["repository", "path", "content", "message"], additionalProperties: false },
+    async handler({ services, args }) { return services.github.uploadFile(args); },
+  },
+  {
+    name: "github_issue_open",
+    description: "Open a GitHub issue through the locally authenticated gh CLI.",
+    shortHint: "Open a GitHub issue.",
+    topics: ["github", "issue"],
+    inputSchema: { type: "object", properties: { repository: { type: "string" }, title: { type: "string" }, body: { type: "string" }, labels: { type: "array", items: { type: "string" } } }, required: ["repository", "title"], additionalProperties: false },
+    async handler({ services, args }) { return services.github.openIssue(args); },
+  },
+  {
+    name: "github_pr_open",
+    description: "Open a GitHub pull request through the locally authenticated gh CLI.",
+    shortHint: "Open a GitHub pull request.",
+    topics: ["github", "pull request"],
+    inputSchema: { type: "object", properties: { repository: { type: "string" }, title: { type: "string" }, body: { type: "string" }, head: { type: "string" }, base: { type: "string" }, draft: { type: "boolean" } }, required: ["repository", "title", "head"], additionalProperties: false },
+    async handler({ services, args }) { return services.github.openPullRequest(args); },
+  },
+  {
     name: "location_debug_snapshot",
     hidden: true,
     description: "Administrator-only location debug snapshot for troubleshooting location state, sentinel decisions, and recent events.",
