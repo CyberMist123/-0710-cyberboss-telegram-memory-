@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { collectStatus, formatStatus, resolveProcessDirectory } = require("../scripts/status");
 
-test("status reports git state and all monitored services", () => {
+test("status recognizes official Telegram runtime and separates legacy app-server", () => {
   const values = new Map([
     ["branch", "feat/q3-status-script"],
     ["sha", "abc1234"],
@@ -16,17 +16,36 @@ test("status reports git state and all monitored services", () => {
     return values.get(key) || "";
   };
   const status = collectStatus({ run, processSnapshot: [
-    { pid: 101, commandLine: 'node "C:\\runtime\\app\\telegram\\bin\\cyberboss.js" start' },
+    { pid: 99, commandLine: 'node C:\\Users\\18717\\Documents\\cyberlink\\cyberboss\\bin\\cyberboss.js start' },
+    { pid: 101, commandLine: 'node "C:\\Users\\18717\\Documents\\cyberlink\\runtime\\app\\telegram\\bin\\cyberboss.js" start' },
     { pid: 102, commandLine: 'powershell -File C:\\runtime\\watchdog\\cyberboss-watchdog.ps1' },
     { pid: 103, commandLine: 'node C:\\runtime\\mcp-stdio-server.js' },
-    { pid: 104, commandLine: 'C:\\nginx\\nginx.exe -p C:\\nginx' },
   ]});
-  assert.equal(status.directory, "C:\\runtime\\app\\telegram\\bin");
+  assert.equal(status.directory, "C:\\Users\\18717\\Documents\\cyberlink\\runtime\\app\\telegram\\bin");
   assert.equal(status.commitsBehindMain, 5);
   assert.deepEqual(Object.fromEntries(Object.entries(status.services).map(([key, value]) => [key, value.alive])), {
-    runtime: true, watchdog: true, mcp: true, nginx: true,
+    runtime: true, legacy: true, watchdog: true, mcp: true, nginx: false,
   });
+  assert.equal(status.services.runtime.mode, undefined);
+  assert.equal(status.services.legacy.mode, "legacy");
+  assert.match(formatStatus(status), /nginx: DOWN .*containerized, use docker ps/);
   assert.match(formatStatus(status), /Commits behind main: 5/);
+});
+
+test("status reports nginx as containerized when docker exposes an nginx container", () => {
+  const status = collectStatus({ run: (_command, args) => {
+    if (args.includes("--show-current")) return "feat/q3-status-script";
+    if (args.includes("--short") && args.includes("HEAD")) return "abc1234";
+    if (args.includes("origin/main") && args.includes("rev-parse")) return "def5678";
+    if (args.includes("docker")) return "cyberboss-nginx\n";
+    return "0 0";
+  }, processSnapshot: [
+    { pid: 501, commandLine: 'docker ps --filter name=cyberboss-nginx' },
+  ]});
+  assert.deepEqual(status.services.nginx, {
+    alive: true, pid: 501, mode: "containerized", message: "containerized (docker)",
+  });
+  assert.match(formatStatus(status), /nginx: UP \(PID 501\) — containerized \(docker\)/);
 });
 
 test("missing process is reported down and paths are parsed", () => {

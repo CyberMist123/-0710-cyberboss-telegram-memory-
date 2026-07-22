@@ -6,16 +6,28 @@ const path = require("path");
 const { execFileSync } = require("child_process");
 
 const DEFAULT_CWD = path.resolve(__dirname, "..");
+const OFFICIAL_RUNTIME_RE = /(?:^|[\\/])runtime[\\/]app[\\/]telegram[\\/]bin[\\/]cyberboss\.js(?:[\s"']|$)/i;
+const LEGACY_RUNTIME_RE = /(?:^|[\\/])cyberlink[\\/]cyberboss[\\/]bin[\\/]cyberboss\.js(?:[\s"']|$)/i;
+const NGINX_RE = /(?:^|[\\/ ])nginx(?:\.exe)?(?:\s|$)/i;
+const DOCKER_NGINX_RE = /docker(?:\.exe)?\b.*\b(?:nginx|cyberboss-nginx)\b/i;
 
 function collectStatus({ cwd = DEFAULT_CWD, run = defaultRun, processSnapshot = null } = {}) {
   const git = readGitStatus(cwd, run);
   const processes = processSnapshot || readProcessSnapshot(run);
-  const runtime = processes.find((entry) => /cyberboss(?:\.js|\.cmd|\.ps1)/i.test(entry.commandLine || "")) || null;
+  const runtime = processes.find((entry) => OFFICIAL_RUNTIME_RE.test(entry.commandLine || "")) || null;
+  const legacy = processes.find((entry) => LEGACY_RUNTIME_RE.test(entry.commandLine || "")) || null;
+  const hostNginx = processes.find((entry) => NGINX_RE.test(entry.commandLine || "")) || null;
+  const dockerNginx = processes.find((entry) => DOCKER_NGINX_RE.test(entry.commandLine || "")) || null;
   const services = {
     runtime: classify(runtime),
+    legacy: classify(legacy, "legacy"),
     watchdog: classify(processes.find((entry) => /watchdog/i.test(entry.commandLine || ""))),
     mcp: classify(processes.find((entry) => /mcp/i.test(entry.commandLine || ""))),
-    nginx: classify(processes.find((entry) => /(?:^|[\\/ ])nginx(?:\.exe)?(?:\s|$)/i.test(entry.commandLine || ""))),
+    nginx: hostNginx
+      ? classify(hostNginx, "host")
+      : dockerNginx
+        ? { alive: true, pid: dockerNginx.pid || "unknown", mode: "containerized", message: "containerized (docker)" }
+        : { alive: false, pid: null, mode: "containerized", message: "containerized, use docker ps" },
   };
   return {
     directory: runtime ? resolveProcessDirectory(runtime.commandLine) : "unknown (runtime process not found)",
@@ -39,7 +51,8 @@ function formatStatus(status) {
   ];
   for (const [name, state] of Object.entries(status.services)) {
     const detail = state.pid ? ` (PID ${state.pid})` : "";
-    lines.push(`  ${name}: ${state.alive ? "UP" : "DOWN"}${detail}`);
+    const message = state.message ? ` — ${state.message}` : "";
+    lines.push(`  ${name}: ${state.alive ? "UP" : "DOWN"}${detail}${message}`);
   }
   return `${lines.join("\n")}\n`;
 }
@@ -85,8 +98,12 @@ function resolveProcessDirectory(commandLine) {
   return scriptPath ? path.dirname(scriptPath) : "unknown";
 }
 
-function classify(entry) {
-  return entry ? { alive: true, pid: entry.pid || "unknown" } : { alive: false, pid: null };
+function classify(entry, mode = null) {
+  return {
+    alive: Boolean(entry),
+    pid: entry ? entry.pid || "unknown" : null,
+    ...(mode ? { mode } : {}),
+  };
 }
 
 function defaultRun(command, args) {
