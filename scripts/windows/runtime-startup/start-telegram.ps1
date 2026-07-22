@@ -1,13 +1,33 @@
 $ErrorActionPreference = "Stop"
 
-$root      = "C:\Users\18717\Documents\cyberlink"
-$tgRoot    = "C:\Users\18717\Documents\cyberlink\runtime\app\telegram"
-$tgEntry   = "C:\Users\18717\Documents\cyberlink\runtime\app\telegram\bin\cyberboss.js"
-$helper    = "C:\Users\18717\Documents\cyberlink\runtime\app\telegram\extensions\windows-launcher\start-node-hidden-detached.js"
-$envFile   = "C:\Users\18717\Documents\cyberlink\settings\secrets\telegram.env"
-$stateDir  = "C:\Users\18717\Documents\cyberlink\runtime\telegram\state"
-$logDir    = "C:\Users\18717\Documents\cyberlink\runtime\telegram\logs"
-$node      = "C:\Program Files\nodejs\node.exe"
+$scriptRoot = (Resolve-Path $PSScriptRoot).Path
+$root = $env:CYBERLINK_ROOT
+if (-not $root) {
+    $candidate = $scriptRoot
+    while ($candidate) {
+        if ((Test-Path (Join-Path $candidate "runtime")) -and (Test-Path (Join-Path $candidate "settings"))) {
+            $root = $candidate
+            break
+        }
+        $parent = Split-Path -Parent $candidate
+        if ($parent -eq $candidate) {
+            break
+        }
+        $candidate = $parent
+    }
+}
+if (-not $root) {
+    throw "Unable to locate CYBERLINK_ROOT; set CYBERLINK_ROOT before starting Telegram."
+}
+
+$runtime   = Join-Path $root "runtime"
+$tgRoot    = Join-Path $runtime "app\telegram"
+$tgEntry   = Join-Path $tgRoot "bin\cyberboss.js"
+$helper    = Join-Path $tgRoot "extensions\windows-launcher\start-node-hidden-detached.js"
+$envFile   = Join-Path $root "settings\secrets\telegram.env"
+$stateDir  = Join-Path $runtime "telegram\state"
+$logDir    = Join-Path $runtime "telegram\logs"
+$node      = if ($env:CYBERBOSS_NODE_COMMAND) { $env:CYBERBOSS_NODE_COMMAND } else { (Get-Command node.exe -ErrorAction Stop).Source }
 
 $pidFile = Join-Path $stateDir "cyberboss.pid"
 $logFile = Join-Path $logDir "cyberboss.log"
