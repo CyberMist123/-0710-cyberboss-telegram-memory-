@@ -1909,9 +1909,17 @@ class CyberbossApp {
   async handleTelegramMessage(normalized) {
     this.logTelegramDebug(`handleTelegramMessage messageId=${normalized.messageId} senderId=${normalized.senderId}`);
     if (this.config.channel === "telegram") {
+      const mediaLog = (message) => this.logTelegramDebug(message);
+      if (normalized?.telegram?.photo && this.projectServices?.mediaInbox) {
+        await this.projectServices.mediaInbox
+          .processInboundPhoto({ normalized, channelAdapter: this.telegramChannelAdapter, log: mediaLog })
+          .catch((error) => {
+            this.logTelegramDebug(`photo inbound failed messageId=${normalized.messageId} error=${error instanceof Error ? error.message : String(error)}`);
+          });
+      }
       if (normalized?.telegram?.voice && this.projectServices?.voice) {
         await this.projectServices.voice
-          .processInboundVoice({ normalized, channelAdapter: this.telegramChannelAdapter })
+          .processInboundVoice({ normalized, channelAdapter: this.telegramChannelAdapter, log: mediaLog })
           .catch((error) => {
             this.logTelegramDebug(`voice inbound failed messageId=${normalized.messageId} error=${error instanceof Error ? error.message : String(error)}`);
           });

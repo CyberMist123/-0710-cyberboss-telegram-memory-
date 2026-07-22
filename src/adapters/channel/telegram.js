@@ -115,7 +115,7 @@ function createTelegramChannelAdapter(config) {
       }
       state.seenMessageKeys.add(dedupeKey);
       saveTelegramState(config, state);
-      const text = normalizeText(message.text) || getNonTextDescription(message);
+      const text = buildIncomingText(message);
       if (!text) {
         return null;
       }
@@ -138,6 +138,7 @@ function createTelegramChannelAdapter(config) {
           username: normalizeText(message.from?.username),
           firstName: normalizeText(message.from?.first_name),
           lastName: normalizeText(message.from?.last_name),
+          caption: normalizeText(message.caption),
           voice: message.voice
             ? {
                 fileId: normalizeText(message.voice.file_id),
@@ -146,10 +147,11 @@ function createTelegramChannelAdapter(config) {
                 sizeBytes: Number(message.voice.file_size) || 0,
               }
             : null,
+          photo: pickLargestTelegramPhoto(message.photo),
         },
       };
     },
-    async downloadFileById({ fileId, targetDir }) {
+    async downloadFileById({ fileId, targetDir, fileName = "", maxSizeBytes = 0 }) {
       if (!token) {
         throw new Error("telegram bot token missing");
       }
@@ -158,6 +160,7 @@ function createTelegramChannelAdapter(config) {
       if (!normalizedFileId || !normalizedTargetDir) {
         throw new Error("telegram downloadFileById requires fileId and targetDir");
       }
+      const sizeLimitBytes = Number(maxSizeBytes) > 0 ? Number(maxSizeBytes) : 0;
       const meta = await fetchJsonWithRetry(`https://api.telegram.org/bot${token}/getFile`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -166,6 +169,10 @@ function createTelegramChannelAdapter(config) {
       const remotePath = normalizeText(meta?.result?.file_path);
       if (!remotePath) {
         throw new Error("telegram getFile returned no file_path");
+      }
+      const declaredSizeBytes = Number(meta?.result?.file_size) || 0;
+      if (sizeLimitBytes && declaredSizeBytes > sizeLimitBytes) {
+        throw new Error(`telegram file exceeds size limit: ${declaredSizeBytes} > ${sizeLimitBytes} bytes`);
       }
       const response = await fetch(`https://api.telegram.org/file/bot${token}/${remotePath}`, {
         signal: AbortSignal.timeout(TELEGRAM_REQUEST_TIMEOUT_MS * 2),
@@ -177,13 +184,19 @@ function createTelegramChannelAdapter(config) {
       if (!bytes.length) {
         throw new Error("telegram file download returned empty body");
       }
+      if (sizeLimitBytes && bytes.length > sizeLimitBytes) {
+        throw new Error(`telegram file exceeds size limit: ${bytes.length} > ${sizeLimitBytes} bytes`);
+      }
       const extension = path.extname(remotePath) || ".bin";
-      const fileName = `tg-${Date.now()}-${normalizedFileId.slice(-8)}${extension}`;
+      const requestedFileName = sanitizeMediaFileName(fileName);
+      const desiredFileName = requestedFileName
+        ? (path.extname(requestedFileName) ? requestedFileName : `${requestedFileName}${extension}`)
+        : `tg-${Date.now()}-${normalizedFileId.slice(-8)}${extension}`;
       fs.mkdirSync(normalizedTargetDir, { recursive: true });
-      const absolutePath = path.join(normalizedTargetDir, fileName);
+      const absolutePath = resolveUniqueTargetPath(normalizedTargetDir, desiredFileName);
       fs.writeFileSync(absolutePath, bytes);
       writeTelegramLog(config, `downloadFileById ok fileId=${normalizedFileId} path=${absolutePath} sizeBytes=${bytes.length}`);
-      return { absolutePath, fileName, sizeBytes: bytes.length };
+      return { absolutePath, fileName: path.basename(absolutePath), sizeBytes: bytes.length };
     },
     async sendVoice({ userId, filePath }) {
       if (!token) {
@@ -308,6 +321,63 @@ function chunkReplyTextForTelegram(text, minChunk = DEFAULT_MIN_TELEGRAM_CHUNK) 
     return [];
   }
   return chunkReplyTextForWeixin(normalized, minChunk);
+}
+
+function buildIncomingText(message) {
+  const text = normalizeText(message.text);
+  if (text) {
+    return text;
+  }
+  const description = getNonTextDescription(message);
+  const caption = normalizeText(message.caption);
+  if (description && caption) {
+    return `${description} ${caption}`;
+  }
+  return description || caption;
+}
+
+function pickLargestTelegramPhoto(sizes) {
+  if (!Array.isArray(sizes) || !sizes.length) {
+    return null;
+  }
+  let largest = null;
+  for (const size of sizes) {
+    const fileId = normalizeText(size?.file_id);
+    if (!fileId) {
+      continue;
+    }
+    const pixels = (Number(size?.width) || 0) * (Number(size?.height) || 0);
+    if (!largest || pixels > largest.pixels) {
+      largest = { pixels, fileId, size };
+    }
+  }
+  if (!largest) {
+    return null;
+  }
+  return {
+    fileId: largest.fileId,
+    width: Number(largest.size.width) || 0,
+    height: Number(largest.size.height) || 0,
+    sizeBytes: Number(largest.size.file_size) || 0,
+  };
+}
+
+function sanitizeMediaFileName(value) {
+  const normalized = normalizeText(value).replace(/[<>:"/\\|?*\u0000-\u001F]/g, "-").replace(/^\.+/, "");
+  return normalized.slice(0, 120);
+}
+
+function resolveUniqueTargetPath(targetDir, fileName) {
+  const parsed = path.parse(fileName);
+  const baseName = parsed.name || "tg-file";
+  const extension = parsed.ext || "";
+  let candidate = path.join(targetDir, `${baseName}${extension}`);
+  let suffix = 1;
+  while (fs.existsSync(candidate)) {
+    candidate = path.join(targetDir, `${baseName}-${suffix}${extension}`);
+    suffix += 1;
+  }
+  return candidate;
 }
 
 function getNonTextDescription(message) {
