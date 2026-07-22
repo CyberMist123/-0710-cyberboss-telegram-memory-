@@ -103,7 +103,7 @@ $rawPid = & $node `
 $ec = $LASTEXITCODE
 
 if ($ec -ne 0) {
-    throw "TG 隐藏启动失败，退出码：$ec"
+    throw "Telegram hidden startup failed with exit code $ec"
 }
 
 $pidText = ([string]$rawPid).Trim()
@@ -113,7 +113,7 @@ if (
     -not [int]::TryParse($pidText, [ref]$newPid) -or
     $newPid -le 0
 ) {
-    throw "TG 启动器没有返回有效 PID：$pidText"
+    throw "Telegram launcher did not return a valid PID: $pidText"
 }
 
 Set-Content `
