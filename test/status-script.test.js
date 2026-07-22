@@ -16,12 +16,12 @@ test("status recognizes official Telegram runtime and separates legacy app-serve
     return values.get(key) || "";
   };
   const status = collectStatus({ run, processSnapshot: [
-    { pid: 99, commandLine: 'node C:\\Users\\18717\\Documents\\cyberlink\\cyberboss\\bin\\cyberboss.js start' },
-    { pid: 101, commandLine: 'node "C:\\Users\\18717\\Documents\\cyberlink\\runtime\\app\\telegram\\bin\\cyberboss.js" start' },
+    { pid: 99, commandLine: 'node C:\\Users\\18717\\Documents\\cyberlink\\cyberboss\\bin\\cyberboss.js start' }, // PORTABILITY_FIXTURE
+    { pid: 101, commandLine: 'node "C:\\Users\\18717\\Documents\\cyberlink\\runtime\\app\\telegram\\bin\\cyberboss.js" start' }, // PORTABILITY_FIXTURE
     { pid: 102, commandLine: 'powershell -File C:\\runtime\\watchdog\\cyberboss-watchdog.ps1' },
     { pid: 103, commandLine: 'node C:\\runtime\\mcp-stdio-server.js' },
   ]});
-  assert.equal(status.directory, "C:\\Users\\18717\\Documents\\cyberlink\\runtime\\app\\telegram\\bin");
+  assert.equal(status.directory, "C:\\Users\\18717\\Documents\\cyberlink\\runtime\\app\\telegram\\bin"); // PORTABILITY_FIXTURE
   assert.equal(status.commitsBehindMain, 5);
   assert.deepEqual(Object.fromEntries(Object.entries(status.services).map(([key, value]) => [key, value.alive])), {
     runtime: true, legacy: true, watchdog: true, mcp: true, nginx: false,
