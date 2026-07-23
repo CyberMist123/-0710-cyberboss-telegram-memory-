@@ -26,7 +26,7 @@ def build_continuity_layers(continuity_dir, limit=50, nightly_mode=None):
     root = Path(continuity_dir)
     bounded_limit = _bounded_limit(limit)
 
-    candidates = _read_jsonl(root / "candidates" / "episodes.candidates.jsonl")
+    candidates = _read_candidates(root)
     classified = {
         "subject_candidates": [],
         "background_candidates": [],
@@ -126,6 +126,27 @@ def _read_jsonl(path):
                 rows.append(value)
     except Exception:
         return []
+    return rows
+
+
+def _read_candidates(root):
+    """Read both candidate locations during the live-writer migration."""
+    paths = (
+        root / "candidates" / "episodes.candidates.jsonl",
+        root / "episodes.candidates.jsonl",
+    )
+    rows = []
+    seen = set()
+    for path in paths:
+        for row in _read_jsonl(path):
+            candidate_id = str(row.get("candidate_id") or row.get("id") or "").strip()
+            signature = ("id", candidate_id) if candidate_id else (
+                "row", json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            )
+            if signature in seen:
+                continue
+            seen.add(signature)
+            rows.append(row)
     return rows
 
 

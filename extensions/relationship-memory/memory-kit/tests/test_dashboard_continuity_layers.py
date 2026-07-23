@@ -25,6 +25,8 @@ os.environ["CYBERBOSS_STATE_DIR"] = str(STATE)
 os.environ["CYBERBOSS_NIGHTLY_MODE"] = "shadow"
 sys.path.insert(0, str(KIT))
 
+from continuity_layers import build_continuity_layers
+
 
 def write_jsonl(relative, rows):
     path = CONTINUITY / relative
@@ -115,6 +117,28 @@ def test_layered_continuity_view():
         server.server_close()
 
     assert snapshot(paths) == before, "520 layered reads must not mutate continuity files"
+
+
+def test_layered_view_reads_legacy_root_candidates_and_deduplicates():
+    with tempfile.TemporaryDirectory(prefix="candidate-paths-") as raw_root:
+        root = Path(raw_root)
+        canonical = root / "candidates" / "episodes.candidates.jsonl"
+        legacy = root / "episodes.candidates.jsonl"
+        canonical.parent.mkdir(parents=True)
+        canonical.write_text(json.dumps({
+            "candidate_id": "shared-1", "author_role": "background_proxy",
+            "origin": "nightly_closeout", "body": "canonical copy",
+        }) + "\n", encoding="utf-8")
+        legacy.write_text("\n".join(json.dumps(row) for row in [
+            {"candidate_id": "shared-1", "author_role": "background_proxy", "body": "legacy copy"},
+            {"candidate_id": "legacy-1", "author_role": "subject_ai", "semantic_authority": "high"},
+        ]) + "\n", encoding="utf-8")
+
+        payload = build_continuity_layers(root)
+        candidate_layers = {layer["key"]: layer for layer in payload["layers"]}
+        rows = candidate_layers["background_candidates"]["rows"] + candidate_layers["subject_candidates"]["rows"]
+        assert [row["candidate_id"] for row in rows] == ["shared-1", "legacy-1"]
+        assert rows[0]["body"] == "canonical copy"
 
 
 def main():
