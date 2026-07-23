@@ -1,0 +1,3 @@
+display_name: Timeline For Agent
+short_description: timeline-for-agent 项目内的重构、主题和移动端适配规范。
+default_prompt: 遵循 timeline-for-agent 项目 skill。优先做根因级重构，保持单一主题管线，并用清晰的结构拆分推进移动端改造。

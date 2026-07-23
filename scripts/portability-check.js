@@ -37,6 +37,9 @@ if (currentUsername) {
 const findings = [];
 for (const relativePath of trackedFiles) {
   const normalizedPath = relativePath.replace(/\\/g, "/");
+  if (normalizedPath.startsWith("vendor/")) {
+    continue;
+  }
   if (isProbablyBinary(normalizedPath)) {
     continue;
   }
