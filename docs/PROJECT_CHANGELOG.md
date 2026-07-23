@@ -38,6 +38,37 @@
 
 ---
 
+## 2026-07-23 · Telegram incoming media inbox
+
+**Status: ✅ 🔒**
+
+### What changed
+
+- Incoming Telegram photos are now downloaded into `<state>/media/photos/inbox/`.
+- The inbound message recorder keeps durable attachment metadata, including absolute path, relative path, size, and dimensions.
+- Telegram captions are preserved for photo and voice messages during normalization.
+- Large files are skipped before download using `CYBERBOSS_MEDIA_INBOX_MAX_BYTES` with a 20 MB default.
+- Saved file names are sanitized, use the Telegram-reported extension, and avoid overwriting an existing file by suffixing collisions.
+
+### Explicitly not included
+
+- No image understanding.
+- No speech-to-text changes.
+- No media-path injection into Telegram runtime text.
+- No runtime or service restart.
+
+### Files
+
+- `src/adapters/channel/telegram.js`
+- `src/core/app.js`
+- `src/core/config.js`
+- `src/services/media-inbox-service.js`
+- `src/tools/create-project-tooling.js`
+- `test/telegram-media-inbox.test.js`
+- `package.json`
+
+---
+
 ## 2026-07-13 · Portability repair and implementation verification
 
 **状态：🟡 🧪 🔒**

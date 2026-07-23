@@ -5,6 +5,7 @@ const { ChannelFileService } = require("../services/channel-file-service");
 const { DiaryService } = require("../services/diary-service");
 const { ReminderService } = require("../services/reminder-service");
 const { createTelegramSendService } = require("../services/telegram-service");
+const { MediaInboxService } = require("../services/media-inbox-service");
 const { StickerService } = require("../services/sticker-service");
 const { SystemMessageService } = require("../services/system-message-service");
 const { TimelineService } = require("../services/timeline-service");
@@ -48,6 +49,7 @@ function createProjectTooling(config, options = {}) {
     system: new SystemMessageService({ config, sessionStore }),
     telegram: createTelegramSendService({ config, runtimeContextStore }),
     voice: new VoiceService({ config }),
+    mediaInbox: new MediaInboxService({ config }),
     channelFile,
     sticker: new StickerService({ config, channelAdapter, sessionStore, channelFileService: channelFile }),
     timeline: new TimelineService({ config, timelineIntegration, sessionStore }),

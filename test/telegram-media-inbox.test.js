@@ -1,0 +1,179 @@
+const os = require("os");
+const path = require("path");
+const fs = require("fs");
+const test = require("node:test");
+const assert = require("node:assert/strict");
+
+const { createTelegramChannelAdapter } = require("../src/adapters/channel/telegram");
+const { MediaInboxService, DEFAULT_MAX_INBOUND_MEDIA_BYTES } = require("../src/services/media-inbox-service");
+
+function makeTempStateDir(prefix) {
+  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+function makeAdapter(stateDir) {
+  return createTelegramChannelAdapter({
+    telegramBotToken: "token-123",
+    telegramAllowedUserIds: [],
+    telegramStateFile: path.join(stateDir, "telegram-state.json"),
+  });
+}
+
+function makePhotoUpdate({ messageId = 42, caption = "" } = {}) {
+  return {
+    update_id: 1,
+    message: {
+      message_id: messageId,
+      date: 1753142400,
+      chat: { id: 777, type: "private" },
+      from: { id: 777, is_bot: false },
+      ...(caption ? { caption } : {}),
+      photo: [
+        { file_id: "photo-small", width: 90, height: 60, file_size: 1200 },
+        { file_id: "photo-large", width: 900, height: 600, file_size: 50_000 },
+        { file_id: "photo-medium", width: 320, height: 210, file_size: 9_000 },
+      ],
+    },
+  };
+}
+
+test("telegram adapter keeps largest photo metadata and caption", () => {
+  const stateDir = makeTempStateDir("cb-tg-photo-meta-");
+  const adapter = makeAdapter(stateDir);
+
+  const normalized = adapter.normalizeIncomingMessage(makePhotoUpdate({ caption: "look at this" }));
+
+  assert.equal(normalized.text, "[图片] look at this");
+  assert.deepEqual(normalized.attachments, []);
+  assert.equal(normalized.telegram.caption, "look at this");
+  assert.equal(normalized.telegram.photo.fileId, "photo-large");
+  assert.equal(normalized.telegram.photo.width, 900);
+  assert.equal(normalized.telegram.photo.height, 600);
+  assert.equal(normalized.telegram.photo.sizeBytes, 50_000);
+  assert.equal(normalized.telegram.voice, null);
+});
+
+test("telegram adapter keeps voice caption in text", () => {
+  const stateDir = makeTempStateDir("cb-tg-voice-meta-");
+  const adapter = makeAdapter(stateDir);
+
+  const normalized = adapter.normalizeIncomingMessage({
+    update_id: 2,
+    message: {
+      message_id: 43,
+      date: 1753142401,
+      chat: { id: 777, type: "private" },
+      from: { id: 777, is_bot: false },
+      caption: "listen to this",
+      voice: { file_id: "voice-1", duration: 3, mime_type: "audio/ogg", file_size: 4_000 },
+    },
+  });
+
+  assert.equal(normalized.text, "[语音] listen to this");
+  assert.equal(normalized.telegram.voice.fileId, "voice-1");
+  assert.equal(normalized.telegram.photo, null);
+});
+
+test("media inbox service saves photo metadata without rewriting message text", async () => {
+  const stateDir = makeTempStateDir("cb-media-photo-");
+  const photoMediaDir = path.join(stateDir, "media", "photos");
+  const service = new MediaInboxService({ config: { photoMediaDir } });
+  const normalized = {
+    messageId: "42",
+    receivedAt: "2026-07-22T02:00:00.000Z",
+    text: "[图片] look at this",
+    attachments: [],
+    telegram: { photo: { fileId: "photo-large", width: 900, height: 600, sizeBytes: 50_000 } },
+  };
+  const calls = [];
+
+  await service.processInboundPhoto({
+    normalized,
+    channelAdapter: {
+      async downloadFileById({ fileId, targetDir, fileName, maxSizeBytes }) {
+        calls.push({ fileId, targetDir, fileName, maxSizeBytes });
+        return { absolutePath: path.join(targetDir, `${fileName}.jpg`), fileName: `${fileName}.jpg`, sizeBytes: 50_000 };
+      },
+    },
+  });
+
+  const expectedPath = path.join(photoMediaDir, "inbox", "2026-07-22-42.jpg");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].fileId, "photo-large");
+  assert.equal(calls[0].targetDir, path.join(photoMediaDir, "inbox"));
+  assert.equal(calls[0].fileName, "2026-07-22-42");
+  assert.equal(calls[0].maxSizeBytes, DEFAULT_MAX_INBOUND_MEDIA_BYTES);
+  assert.equal(normalized.text, "[图片] look at this");
+  assert.equal(normalized.attachments.length, 1);
+  assert.equal(normalized.attachments[0].kind, "photo");
+  assert.equal(normalized.attachments[0].type, "photo");
+  assert.equal(normalized.attachments[0].isImage, true);
+  assert.equal(normalized.attachments[0].absolutePath, expectedPath);
+  assert.equal(normalized.attachments[0].path, expectedPath);
+  assert.equal(normalized.attachments[0].contentType, "image/jpeg");
+  assert.equal(normalized.attachments[0].downloadState, "saved");
+});
+
+test("media inbox service logs failures without mutating message text", async () => {
+  const service = new MediaInboxService({ config: { photoMediaDir: path.join(os.tmpdir(), "cb-media-photos") } });
+  const normalized = {
+    messageId: "42",
+    receivedAt: "2026-07-22T02:00:00.000Z",
+    text: "[图片] look at this",
+    attachments: [],
+    telegram: { photo: { fileId: "photo-large", width: 900, height: 600, sizeBytes: 50_000 } },
+  };
+  const logs = [];
+
+  await service.processInboundPhoto({
+    normalized,
+    channelAdapter: {
+      async downloadFileById() {
+        throw new Error("boom");
+      },
+    },
+    log: (message) => logs.push(message),
+  });
+
+  assert.equal(normalized.text, "[图片] look at this");
+  assert.deepEqual(normalized.attachments, []);
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /photo inbound failed .*error=boom/);
+});
+
+test("media inbox service skips oversized photos without downloading", async () => {
+  const service = new MediaInboxService({ config: { photoMediaDir: path.join(os.tmpdir(), "cb-media-photos") } });
+  const normalized = {
+    messageId: "42",
+    receivedAt: "2026-07-22T02:00:00.000Z",
+    text: "[图片]",
+    attachments: [],
+    telegram: {
+      photo: {
+        fileId: "photo-large",
+        width: 900,
+        height: 600,
+        sizeBytes: DEFAULT_MAX_INBOUND_MEDIA_BYTES + 1,
+      },
+    },
+  };
+  const logs = [];
+  let downloadCalls = 0;
+
+  await service.processInboundPhoto({
+    normalized,
+    channelAdapter: {
+      async downloadFileById() {
+        downloadCalls += 1;
+        return { absolutePath: path.join(os.tmpdir(), "cb-media-photos", "inbox", "x.jpg"), fileName: "x.jpg", sizeBytes: 1 };
+      },
+    },
+    log: (message) => logs.push(message),
+  });
+
+  assert.equal(downloadCalls, 0);
+  assert.equal(normalized.text, "[图片]");
+  assert.deepEqual(normalized.attachments, []);
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /photo inbound skipped .*limit=/);
+});

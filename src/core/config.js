@@ -53,6 +53,8 @@ function readConfig() {
     telegramStateFile: joinIfBase(stateDir, "telegram-state.json"),
     voiceKitDir: resolveConfiguredPath(readTextEnv("CYBERBOSS_VOICE_KIT_DIR")),
     voiceMediaDir: joinIfBase(stateDir, "media", "voice"),
+    photoMediaDir: joinIfBase(stateDir, "media", "photos"),
+    mediaInboxMaxBytes: readIntEnv("CYBERBOSS_MEDIA_INBOX_MAX_BYTES"),
     voiceSttProvider: readTextEnv("CYBERBOSS_VOICE_STT_PROVIDER"),
     voiceSttApiKey: readTextEnv("CYBERBOSS_VOICE_STT_API_KEY"),
     voiceSttBaseUrl: readTextEnv("CYBERBOSS_VOICE_STT_BASE_URL"),
