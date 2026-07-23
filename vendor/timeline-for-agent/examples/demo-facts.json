@@ -1,0 +1,3247 @@
+{
+  "facts": {
+    "2026-04-02": {
+      "status": "final",
+      "updatedAt": "2026-04-02T15:59:00.000Z",
+      "source": null,
+      "events": [
+        {
+          "id": "fact:demo-sleep-early:2026-04-02",
+          "startAt": "2026-04-01T16:00:00.000Z",
+          "endAt": "2026-04-01T23:20:00.000Z",
+          "title": "Sleep (early morning)",
+          "note": "Slept through the early hours and woke up on time.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-breakfast:2026-04-02T00-05-00-000Z",
+          "startAt": "2026-04-02T00:05:00.000Z",
+          "endAt": "2026-04-02T00:35:00.000Z",
+          "title": "Breakfast",
+          "note": "Had a quick breakfast and reviewed the top priorities for the day.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.breakfast",
+          "tags": [
+            "breakfast",
+            "planning"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-commute:2026-04-02T00-35-00-000Z",
+          "startAt": "2026-04-02T00:35:00.000Z",
+          "endAt": "2026-04-02T01:10:00.000Z",
+          "title": "Commute",
+          "note": "Used the ride to review a few notes and queue up the morning focus block.",
+          "categoryId": "travel",
+          "subcategoryId": "travel.commute",
+          "eventNodeId": "evt.commute",
+          "tags": [
+            "commute"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-coding-morning:2026-04-02T01-10-00-000Z",
+          "startAt": "2026-04-02T01:10:00.000Z",
+          "endAt": "2026-04-02T03:20:00.000Z",
+          "title": "Focused coding",
+          "note": "Pushed the main product flow forward with very few interruptions.",
+          "categoryId": "work",
+          "subcategoryId": "work.coding",
+          "eventNodeId": "evt.focus_coding",
+          "tags": [
+            "coding",
+            "shipping"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-meeting:2026-04-02T03-20-00-000Z",
+          "startAt": "2026-04-02T03:20:00.000Z",
+          "endAt": "2026-04-02T04:00:00.000Z",
+          "title": "Project sync",
+          "note": "Aligned on API changes and reshuffled the remaining priorities.",
+          "categoryId": "work",
+          "subcategoryId": "work.meeting",
+          "eventNodeId": "evt.meeting",
+          "tags": [
+            "sync"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-lunch:2026-04-02T04-00-00-000Z",
+          "startAt": "2026-04-02T04:00:00.000Z",
+          "endAt": "2026-04-02T04:40:00.000Z",
+          "title": "Lunch",
+          "note": "Stepped away from work completely and let the brain reset for a bit.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.lunch",
+          "tags": [
+            "lunch"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-coding-afternoon:2026-04-02T04-40-00-000Z",
+          "startAt": "2026-04-02T04:40:00.000Z",
+          "endAt": "2026-04-02T06:20:00.000Z",
+          "title": "Afternoon implementation",
+          "note": "Kept pushing the morning changes and cleared a handful of rough edges.",
+          "categoryId": "work",
+          "subcategoryId": "work.coding",
+          "eventNodeId": "evt.focus_coding",
+          "tags": [
+            "coding"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-learning:2026-04-02T06-20-00-000Z",
+          "startAt": "2026-04-02T06:20:00.000Z",
+          "endAt": "2026-04-02T07:00:00.000Z",
+          "title": "Course review",
+          "note": "Used a focused block to close knowledge gaps uncovered during work.",
+          "categoryId": "study",
+          "subcategoryId": "study.course",
+          "eventNodeId": "evt.learning",
+          "tags": [
+            "learning"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-walk:2026-04-02T07-00-00-000Z",
+          "startAt": "2026-04-02T07:00:00.000Z",
+          "endAt": "2026-04-02T07:40:00.000Z",
+          "title": "Walk outside",
+          "note": "Went for a short walk before dinner to break the sitting streak.",
+          "categoryId": "exercise",
+          "subcategoryId": "exercise.walk",
+          "eventNodeId": "evt.walk",
+          "tags": [
+            "walk"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-dinner:2026-04-02T07-40-00-000Z",
+          "startAt": "2026-04-02T07:40:00.000Z",
+          "endAt": "2026-04-02T08:20:00.000Z",
+          "title": "Dinner",
+          "note": "Ate quickly but stayed away from work and inboxes during the meal.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.dinner",
+          "tags": [
+            "dinner"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-chat-night:2026-04-02T08-20-00-000Z",
+          "startAt": "2026-04-02T08:20:00.000Z",
+          "endAt": "2026-04-02T09:10:00.000Z",
+          "title": "Reply to messages",
+          "note": "Caught up on a few pending conversations and checked in with a friend.",
+          "categoryId": "social",
+          "subcategoryId": "social.chat",
+          "eventNodeId": "evt.chatting",
+          "tags": [
+            "messages"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-cleanup-night:2026-04-02T09-10-00-000Z",
+          "startAt": "2026-04-02T09:10:00.000Z",
+          "endAt": "2026-04-02T10:00:00.000Z",
+          "title": "Reset the room",
+          "note": "Folded clothes, cleared the desk, and set up a calmer start for tomorrow.",
+          "categoryId": "life",
+          "subcategoryId": "life.chores",
+          "eventNodeId": "evt.cleanup",
+          "tags": [
+            "chores"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-workout:2026-04-02T10-00-00-000Z",
+          "startAt": "2026-04-02T10:00:00.000Z",
+          "endAt": "2026-04-02T10:50:00.000Z",
+          "title": "Light workout",
+          "note": "Did a short bodyweight session and some mobility work.",
+          "categoryId": "exercise",
+          "subcategoryId": "exercise.workout",
+          "eventNodeId": "evt.workout",
+          "tags": [
+            "workout"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-shower-night:2026-04-02T10-50-00-000Z",
+          "startAt": "2026-04-02T10:50:00.000Z",
+          "endAt": "2026-04-02T11:25:00.000Z",
+          "title": "Shower",
+          "note": "Took a shower after exercising and fully switched out of work mode.",
+          "categoryId": "life",
+          "subcategoryId": "life.hygiene",
+          "eventNodeId": "evt.shower",
+          "tags": [
+            "shower"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-show-night:2026-04-02T11-25-00-000Z",
+          "startAt": "2026-04-02T11:25:00.000Z",
+          "endAt": "2026-04-02T12:20:00.000Z",
+          "title": "Watch something light",
+          "note": "Watched a low-pressure show and avoided reopening any work windows.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.video",
+          "eventNodeId": "evt.watch_show",
+          "tags": [
+            "video"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-reading-night:2026-04-02T12-20-00-000Z",
+          "startAt": "2026-04-02T12:20:00.000Z",
+          "endAt": "2026-04-02T13:00:00.000Z",
+          "title": "Bedtime reading",
+          "note": "Read for a while to slow the pace down before sleep.",
+          "categoryId": "study",
+          "subcategoryId": "study.reading",
+          "eventNodeId": "evt.reading",
+          "tags": [
+            "reading"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-phone-scroll:2026-04-02T13-00-00-000Z",
+          "startAt": "2026-04-02T13:00:00.000Z",
+          "endAt": "2026-04-02T13:40:00.000Z",
+          "title": "Phone scroll",
+          "note": "Spent a short window scrolling before bed without letting it spiral.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.social_media",
+          "eventNodeId": "evt.phone_scroll",
+          "tags": [
+            "phone"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-sleep-late:2026-04-02",
+          "startAt": "2026-04-02T14:00:00.000Z",
+          "endAt": "2026-04-02T15:59:00.000Z",
+          "title": "Sleep (night)",
+          "note": "Went to sleep for the night and split the early-morning segment into the next day.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        }
+      ]
+    },
+    "2026-04-03": {
+      "status": "final",
+      "updatedAt": "2026-04-03T15:30:00.000Z",
+      "source": null,
+      "events": [
+        {
+          "id": "fact:demo-sleep-early:2026-04-03",
+          "startAt": "2026-04-02T16:00:00.000Z",
+          "endAt": "2026-04-02T23:00:00.000Z",
+          "title": "Sleep (early morning)",
+          "note": "Slept steadily and started the day at a reasonable pace.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-breakfast:2026-04-03T00-00-00-000Z",
+          "startAt": "2026-04-03T00:00:00.000Z",
+          "endAt": "2026-04-03T00:30:00.000Z",
+          "title": "Breakfast and setup",
+          "note": "Breakfast, a quick reset, and a first glance at the day plan.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.breakfast",
+          "tags": [
+            "breakfast"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-commute:2026-04-03T00-30-00-000Z",
+          "startAt": "2026-04-03T00:30:00.000Z",
+          "endAt": "2026-04-03T01:10:00.000Z",
+          "title": "Commute",
+          "note": "Listened to a podcast and cleared a few lightweight messages on the way.",
+          "categoryId": "travel",
+          "subcategoryId": "travel.commute",
+          "eventNodeId": "evt.commute",
+          "tags": [
+            "commute"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-meeting:2026-04-03T01-10-00-000Z",
+          "startAt": "2026-04-03T01:10:00.000Z",
+          "endAt": "2026-04-03T01:40:00.000Z",
+          "title": "Morning sync",
+          "note": "Confirmed priorities and locked the most important deliverables first.",
+          "categoryId": "work",
+          "subcategoryId": "work.meeting",
+          "eventNodeId": "evt.meeting",
+          "tags": [
+            "sync"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-coding-morning:2026-04-03T01-40-00-000Z",
+          "startAt": "2026-04-03T01:40:00.000Z",
+          "endAt": "2026-04-03T04:30:00.000Z",
+          "title": "Focused coding",
+          "note": "Worked through the main feature and interaction details without many context switches.",
+          "categoryId": "work",
+          "subcategoryId": "work.coding",
+          "eventNodeId": "evt.focus_coding",
+          "tags": [
+            "coding"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-lunch:2026-04-03T04-30-00-000Z",
+          "startAt": "2026-04-03T04:30:00.000Z",
+          "endAt": "2026-04-03T05:10:00.000Z",
+          "title": "Lunch",
+          "note": "Took lunch away from the desk and let the work state cool off.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.lunch",
+          "tags": [
+            "lunch"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-walk:2026-04-03T05-10-00-000Z",
+          "startAt": "2026-04-03T05:10:00.000Z",
+          "endAt": "2026-04-03T05:40:00.000Z",
+          "title": "Post-lunch walk",
+          "note": "Walked outside for a bit to reset attention before the second half.",
+          "categoryId": "exercise",
+          "subcategoryId": "exercise.walk",
+          "eventNodeId": "evt.walk",
+          "tags": [
+            "walk"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-coding-afternoon:2026-04-03T05-40-00-000Z",
+          "startAt": "2026-04-03T05:40:00.000Z",
+          "endAt": "2026-04-03T07:50:00.000Z",
+          "title": "Afternoon coding",
+          "note": "Closed the biggest open issues and ran a few rounds of manual verification.",
+          "categoryId": "work",
+          "subcategoryId": "work.coding",
+          "eventNodeId": "evt.focus_coding",
+          "tags": [
+            "coding"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-reading-review:2026-04-03T07-50-00-000Z",
+          "startAt": "2026-04-03T07:50:00.000Z",
+          "endAt": "2026-04-03T08:30:00.000Z",
+          "title": "Read and reflect",
+          "note": "Reviewed a few notes from the day and wrote down follow-up ideas.",
+          "categoryId": "study",
+          "subcategoryId": "study.review",
+          "eventNodeId": "evt.reading",
+          "tags": [
+            "review"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-dinner:2026-04-03T08-30-00-000Z",
+          "startAt": "2026-04-03T08:30:00.000Z",
+          "endAt": "2026-04-03T09:10:00.000Z",
+          "title": "Dinner",
+          "note": "Kept dinner simple and let the evening start to soften.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.dinner",
+          "tags": [
+            "dinner"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-chat:2026-04-03T09-10-00-000Z",
+          "startAt": "2026-04-03T09:10:00.000Z",
+          "endAt": "2026-04-03T10:00:00.000Z",
+          "title": "Chat and replies",
+          "note": "Replied to a few pending messages and checked in on upcoming plans.",
+          "categoryId": "social",
+          "subcategoryId": "social.chat",
+          "eventNodeId": "evt.chatting",
+          "tags": [
+            "messages"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-cleanup-night:2026-04-03T10-00-00-000Z",
+          "startAt": "2026-04-03T10:00:00.000Z",
+          "endAt": "2026-04-03T10:40:00.000Z",
+          "title": "Tidy up",
+          "note": "Reset the desk and packed things away for an easier tomorrow.",
+          "categoryId": "life",
+          "subcategoryId": "life.chores",
+          "eventNodeId": "evt.cleanup",
+          "tags": [
+            "reset"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-show-night:2026-04-03T10-40-00-000Z",
+          "startAt": "2026-04-03T10:40:00.000Z",
+          "endAt": "2026-04-03T11:40:00.000Z",
+          "title": "Watch a show",
+          "note": "Watched something light and stayed intentionally offline from work.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.video",
+          "eventNodeId": "evt.watch_show",
+          "tags": [
+            "video"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-shower-night:2026-04-03T11-40-00-000Z",
+          "startAt": "2026-04-03T11:40:00.000Z",
+          "endAt": "2026-04-03T12:10:00.000Z",
+          "title": "Shower",
+          "note": "Took a late shower and used it as the final transition into rest mode.",
+          "categoryId": "life",
+          "subcategoryId": "life.hygiene",
+          "eventNodeId": "evt.shower",
+          "tags": [
+            "shower"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-phone-scroll:2026-04-03T12-10-00-000Z",
+          "startAt": "2026-04-03T12:10:00.000Z",
+          "endAt": "2026-04-03T12:40:00.000Z",
+          "title": "Phone scroll",
+          "note": "Did a little social scrolling before bed but kept it contained.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.social_media",
+          "eventNodeId": "evt.phone_scroll",
+          "tags": [
+            "social media"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-sleep-late:2026-04-03",
+          "startAt": "2026-04-03T13:00:00.000Z",
+          "endAt": "2026-04-03T15:30:00.000Z",
+          "title": "Sleep (night)",
+          "note": "Went to sleep for the night and split the early-morning segment into the next day.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        }
+      ]
+    },
+    "2026-04-04": {
+      "status": "final",
+      "updatedAt": "2026-04-04T15:10:00.000Z",
+      "source": null,
+      "events": [
+        {
+          "id": "fact:demo-sleep-early:2026-04-04",
+          "startAt": "2026-04-03T16:00:00.000Z",
+          "endAt": "2026-04-03T23:30:00.000Z",
+          "title": "Sleep (early morning)",
+          "note": "Slept a bit longer and let the morning open more slowly.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-shower:2026-04-04T00-10-00-000Z",
+          "startAt": "2026-04-04T00:10:00.000Z",
+          "endAt": "2026-04-04T00:35:00.000Z",
+          "title": "Wash up",
+          "note": "Started the day with a shower and a small reset before breakfast.",
+          "categoryId": "life",
+          "subcategoryId": "life.hygiene",
+          "eventNodeId": "evt.shower",
+          "tags": [
+            "morning routine"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-breakfast:2026-04-04T00-35-00-000Z",
+          "startAt": "2026-04-04T00:35:00.000Z",
+          "endAt": "2026-04-04T01:05:00.000Z",
+          "title": "Breakfast",
+          "note": "Made something simple and looked over the day without rushing.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.breakfast",
+          "tags": [
+            "breakfast"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-cleanup:2026-04-04T01-05-00-000Z",
+          "startAt": "2026-04-04T01:05:00.000Z",
+          "endAt": "2026-04-04T01:45:00.000Z",
+          "title": "House reset",
+          "note": "Put away clothes, cleared surfaces, and got the room back into shape.",
+          "categoryId": "life",
+          "subcategoryId": "life.chores",
+          "eventNodeId": "evt.cleanup",
+          "tags": [
+            "chores"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-walk:2026-04-04T01-45-00-000Z",
+          "startAt": "2026-04-04T01:45:00.000Z",
+          "endAt": "2026-04-04T02:25:00.000Z",
+          "title": "Walk and pick up supplies",
+          "note": "Went outside for a loop and brought home fruit and drinks.",
+          "categoryId": "exercise",
+          "subcategoryId": "exercise.walk",
+          "eventNodeId": "evt.walk",
+          "tags": [
+            "walk",
+            "errand"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-reading:2026-04-04T02-25-00-000Z",
+          "startAt": "2026-04-04T02:25:00.000Z",
+          "endAt": "2026-04-04T03:55:00.000Z",
+          "title": "Reading and notes",
+          "note": "Read a few long pieces and captured some follow-up ideas.",
+          "categoryId": "study",
+          "subcategoryId": "study.reading",
+          "eventNodeId": "evt.reading",
+          "tags": [
+            "reading"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-lunch:2026-04-04T03-55-00-000Z",
+          "startAt": "2026-04-04T03:55:00.000Z",
+          "endAt": "2026-04-04T04:35:00.000Z",
+          "title": "Lunch",
+          "note": "Made a warm lunch and left space afterward for a short mental pause.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.lunch",
+          "tags": [
+            "lunch"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-show:2026-04-04T04-35-00-000Z",
+          "startAt": "2026-04-04T04:35:00.000Z",
+          "endAt": "2026-04-04T05:50:00.000Z",
+          "title": "Watch a show",
+          "note": "Watched an episode and a half to switch states without multitasking.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.video",
+          "eventNodeId": "evt.watch_show",
+          "tags": [
+            "show"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-nap:2026-04-04T05-50-00-000Z",
+          "startAt": "2026-04-04T05:50:00.000Z",
+          "endAt": "2026-04-04T06:20:00.000Z",
+          "title": "Nap",
+          "note": "Closed my eyes for a short recovery block and came back clearer.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.nap",
+          "eventNodeId": "evt.nap",
+          "tags": [
+            "nap"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-chat:2026-04-04T06-20-00-000Z",
+          "startAt": "2026-04-04T06:20:00.000Z",
+          "endAt": "2026-04-04T07:10:00.000Z",
+          "title": "Catch up with a friend",
+          "note": "Traded a few rounds of messages and talked through the next week a bit.",
+          "categoryId": "social",
+          "subcategoryId": "social.chat",
+          "eventNodeId": "evt.chatting",
+          "tags": [
+            "chat"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-learning:2026-04-04T07-10-00-000Z",
+          "startAt": "2026-04-04T07:10:00.000Z",
+          "endAt": "2026-04-04T08:40:00.000Z",
+          "title": "Mini course session",
+          "note": "Focused on one lesson and followed the key steps end to end.",
+          "categoryId": "study",
+          "subcategoryId": "study.course",
+          "eventNodeId": "evt.learning",
+          "tags": [
+            "course"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-dinner:2026-04-04T08-40-00-000Z",
+          "startAt": "2026-04-04T08:40:00.000Z",
+          "endAt": "2026-04-04T09:20:00.000Z",
+          "title": "Dinner",
+          "note": "Cooked something simple and cleaned the kitchen as part of winding down.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.dinner",
+          "tags": [
+            "dinner"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-short-video:2026-04-04T09-20-00-000Z",
+          "startAt": "2026-04-04T09:20:00.000Z",
+          "endAt": "2026-04-04T10:00:00.000Z",
+          "title": "Short video break",
+          "note": "Watched a short burst of videos without letting it take over the whole evening.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.social_media",
+          "eventNodeId": "evt.short_video",
+          "tags": [
+            "short video"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-cleanup-night:2026-04-04T10-00-00-000Z",
+          "startAt": "2026-04-04T10:00:00.000Z",
+          "endAt": "2026-04-04T11:00:00.000Z",
+          "title": "Room reset",
+          "note": "Reset the room, changed the sheets, and made the space feel finished.",
+          "categoryId": "life",
+          "subcategoryId": "life.chores",
+          "eventNodeId": "evt.cleanup",
+          "tags": [
+            "reset"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-show-night:2026-04-04T11-00-00-000Z",
+          "startAt": "2026-04-04T11:00:00.000Z",
+          "endAt": "2026-04-04T12:20:00.000Z",
+          "title": "Evening series",
+          "note": "Watched a couple more episodes and let the whole night stay low-stakes.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.video",
+          "eventNodeId": "evt.watch_show",
+          "tags": [
+            "series"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-family-chat:2026-04-04T12-20-00-000Z",
+          "startAt": "2026-04-04T12:20:00.000Z",
+          "endAt": "2026-04-04T13:10:00.000Z",
+          "title": "Call family",
+          "note": "Had a phone call about family updates and weekend plans.",
+          "categoryId": "social",
+          "subcategoryId": "social.family",
+          "eventNodeId": "evt.chatting",
+          "tags": [
+            "family"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-phone-scroll:2026-04-04T13-10-00-000Z",
+          "startAt": "2026-04-04T13:10:00.000Z",
+          "endAt": "2026-04-04T13:40:00.000Z",
+          "title": "Phone scroll",
+          "note": "Did a final round of phone scrolling while the night tapered off.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.social_media",
+          "eventNodeId": "evt.phone_scroll",
+          "tags": [
+            "phone"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-sleep-late:2026-04-04",
+          "startAt": "2026-04-04T14:00:00.000Z",
+          "endAt": "2026-04-04T15:10:00.000Z",
+          "title": "Sleep (night)",
+          "note": "Went to sleep for the night and split the early-morning segment into the next day.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        }
+      ]
+    },
+    "2026-04-05": {
+      "status": "final",
+      "updatedAt": "2026-04-05T15:40:00.000Z",
+      "source": null,
+      "events": [
+        {
+          "id": "fact:demo-sleep-early:2026-04-05",
+          "startAt": "2026-04-04T16:00:00.000Z",
+          "endAt": "2026-04-04T23:00:00.000Z",
+          "title": "Sleep (early morning)",
+          "note": "Woke up a little later, but the total sleep window still felt complete.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-breakfast:2026-04-05T00-00-00-000Z",
+          "startAt": "2026-04-05T00:00:00.000Z",
+          "endAt": "2026-04-05T00:30:00.000Z",
+          "title": "Breakfast",
+          "note": "A calm breakfast while lining up the day in my head.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.breakfast",
+          "tags": [
+            "breakfast"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-commute:2026-04-05T00-30-00-000Z",
+          "startAt": "2026-04-05T00:30:00.000Z",
+          "endAt": "2026-04-05T01:10:00.000Z",
+          "title": "Commute",
+          "note": "Used the ride to listen to one podcast episode and ease into work mode.",
+          "categoryId": "travel",
+          "subcategoryId": "travel.commute",
+          "eventNodeId": "evt.commute",
+          "tags": [
+            "commute"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-meeting:2026-04-05T01-10-00-000Z",
+          "startAt": "2026-04-05T01:10:00.000Z",
+          "endAt": "2026-04-05T01:40:00.000Z",
+          "title": "Morning sync",
+          "note": "Ran through the weekly progress and clarified a few open interface questions.",
+          "categoryId": "work",
+          "subcategoryId": "work.meeting",
+          "eventNodeId": "evt.meeting",
+          "tags": [
+            "meeting"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-coding-morning:2026-04-05T01-40-00-000Z",
+          "startAt": "2026-04-05T01:40:00.000Z",
+          "endAt": "2026-04-05T04:40:00.000Z",
+          "title": "Core development",
+          "note": "Worked on the main UI structure and interaction details for several focused rounds.",
+          "categoryId": "work",
+          "subcategoryId": "work.coding",
+          "eventNodeId": "evt.focus_coding",
+          "tags": [
+            "coding"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-lunch:2026-04-05T04-40-00-000Z",
+          "startAt": "2026-04-05T04:40:00.000Z",
+          "endAt": "2026-04-05T05:20:00.000Z",
+          "title": "Lunch",
+          "note": "Had a proper lunch downstairs and stayed off the laptop during the break.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.lunch",
+          "tags": [
+            "lunch"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-walk:2026-04-05T05-20-00-000Z",
+          "startAt": "2026-04-05T05:20:00.000Z",
+          "endAt": "2026-04-05T05:50:00.000Z",
+          "title": "Walk outside",
+          "note": "Took a half-hour walk and got some sunlight before going back in.",
+          "categoryId": "exercise",
+          "subcategoryId": "exercise.walk",
+          "eventNodeId": "evt.walk",
+          "tags": [
+            "walk"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-coding-afternoon:2026-04-05T05-50-00-000Z",
+          "startAt": "2026-04-05T05:50:00.000Z",
+          "endAt": "2026-04-05T08:10:00.000Z",
+          "title": "Implementation wrap-up",
+          "note": "Spent the afternoon closing bugs and validating the latest changes.",
+          "categoryId": "work",
+          "subcategoryId": "work.coding",
+          "eventNodeId": "evt.focus_coding",
+          "tags": [
+            "coding"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-meeting-afternoon:2026-04-05T08-10-00-000Z",
+          "startAt": "2026-04-05T08:10:00.000Z",
+          "endAt": "2026-04-05T08:40:00.000Z",
+          "title": "Afternoon alignment",
+          "note": "Checked release timing with a teammate and reviewed the remaining risks.",
+          "categoryId": "work",
+          "subcategoryId": "work.communication",
+          "eventNodeId": "evt.meeting",
+          "tags": [
+            "alignment"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-reading-review:2026-04-05T08-40-00-000Z",
+          "startAt": "2026-04-05T08:40:00.000Z",
+          "endAt": "2026-04-05T09:30:00.000Z",
+          "title": "Read and review",
+          "note": "Revisited the day notes and wrote down a few improvements for later.",
+          "categoryId": "study",
+          "subcategoryId": "study.review",
+          "eventNodeId": "evt.reading",
+          "tags": [
+            "review"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-dinner:2026-04-05T09-30-00-000Z",
+          "startAt": "2026-04-05T09:30:00.000Z",
+          "endAt": "2026-04-05T10:10:00.000Z",
+          "title": "Dinner",
+          "note": "Kept dinner simple and let the workday fully release.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.dinner",
+          "tags": [
+            "dinner"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-chat-night:2026-04-05T10-10-00-000Z",
+          "startAt": "2026-04-05T10:10:00.000Z",
+          "endAt": "2026-04-05T11:00:00.000Z",
+          "title": "Reply to messages",
+          "note": "Caught up on messages that had been waiting since earlier in the day.",
+          "categoryId": "social",
+          "subcategoryId": "social.chat",
+          "eventNodeId": "evt.chatting",
+          "tags": [
+            "messages"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-cleanup-night:2026-04-05T11-00-00-000Z",
+          "startAt": "2026-04-05T11:00:00.000Z",
+          "endAt": "2026-04-05T11:40:00.000Z",
+          "title": "Home reset",
+          "note": "Reset the kitchen and workspace so the next day starts cleaner.",
+          "categoryId": "life",
+          "subcategoryId": "life.chores",
+          "eventNodeId": "evt.cleanup",
+          "tags": [
+            "reset"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-show-night:2026-04-05T11-40-00-000Z",
+          "startAt": "2026-04-05T11:40:00.000Z",
+          "endAt": "2026-04-05T12:30:00.000Z",
+          "title": "Video break",
+          "note": "Watched something light without adding another high-focus task.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.video",
+          "eventNodeId": "evt.watch_show",
+          "tags": [
+            "video"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-phone-scroll:2026-04-05T12-30-00-000Z",
+          "startAt": "2026-04-05T12:30:00.000Z",
+          "endAt": "2026-04-05T13:10:00.000Z",
+          "title": "Phone scroll",
+          "note": "Spent a contained amount of time on social feeds before shutting down.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.social_media",
+          "eventNodeId": "evt.phone_scroll",
+          "tags": [
+            "social media"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-workout:2026-04-05T13-10-00-000Z",
+          "startAt": "2026-04-05T13:10:00.000Z",
+          "endAt": "2026-04-05T13:55:00.000Z",
+          "title": "Late workout",
+          "note": "Did a short home workout to shake off the day physically.",
+          "categoryId": "exercise",
+          "subcategoryId": "exercise.workout",
+          "eventNodeId": "evt.workout",
+          "tags": [
+            "workout"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-shower-night:2026-04-05T13-55-00-000Z",
+          "startAt": "2026-04-05T13:55:00.000Z",
+          "endAt": "2026-04-05T14:20:00.000Z",
+          "title": "Shower",
+          "note": "Ended the day with a shower and eased all the way into sleep mode.",
+          "categoryId": "life",
+          "subcategoryId": "life.hygiene",
+          "eventNodeId": "evt.shower",
+          "tags": [
+            "shower"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-sleep-late:2026-04-05",
+          "startAt": "2026-04-05T14:20:00.000Z",
+          "endAt": "2026-04-05T15:40:00.000Z",
+          "title": "Sleep (night)",
+          "note": "Went to sleep for the night and split the early-morning segment into the next day.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        }
+      ]
+    },
+    "2026-04-06": {
+      "status": "final",
+      "updatedAt": "2026-04-06T15:59:00.000Z",
+      "source": null,
+      "events": [
+        {
+          "id": "fact:demo-sleep-early:2026-04-02:copy:2026-04-06",
+          "startAt": "2026-04-05T16:00:00.000Z",
+          "endAt": "2026-04-05T23:20:00.000Z",
+          "title": "Sleep (early morning)",
+          "note": "Slept through the early hours and woke up on time.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-breakfast:2026-04-02T00-05-00-000Z:copy:2026-04-06",
+          "startAt": "2026-04-06T00:05:00.000Z",
+          "endAt": "2026-04-06T00:35:00.000Z",
+          "title": "Breakfast",
+          "note": "Had a quick breakfast and reviewed the top priorities for the day.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.breakfast",
+          "tags": [
+            "breakfast",
+            "planning"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-commute:2026-04-02T00-35-00-000Z:copy:2026-04-06",
+          "startAt": "2026-04-06T00:35:00.000Z",
+          "endAt": "2026-04-06T01:10:00.000Z",
+          "title": "Commute",
+          "note": "Used the ride to review a few notes and queue up the morning focus block.",
+          "categoryId": "travel",
+          "subcategoryId": "travel.commute",
+          "eventNodeId": "evt.commute",
+          "tags": [
+            "commute"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-coding-morning:2026-04-02T01-10-00-000Z:copy:2026-04-06",
+          "startAt": "2026-04-06T01:10:00.000Z",
+          "endAt": "2026-04-06T03:20:00.000Z",
+          "title": "Focused coding",
+          "note": "Pushed the main product flow forward with very few interruptions.",
+          "categoryId": "work",
+          "subcategoryId": "work.coding",
+          "eventNodeId": "evt.focus_coding",
+          "tags": [
+            "coding",
+            "shipping"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-meeting:2026-04-02T03-20-00-000Z:copy:2026-04-06",
+          "startAt": "2026-04-06T03:20:00.000Z",
+          "endAt": "2026-04-06T04:00:00.000Z",
+          "title": "Project sync",
+          "note": "Aligned on API changes and reshuffled the remaining priorities.",
+          "categoryId": "work",
+          "subcategoryId": "work.meeting",
+          "eventNodeId": "evt.meeting",
+          "tags": [
+            "sync"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-lunch:2026-04-02T04-00-00-000Z:copy:2026-04-06",
+          "startAt": "2026-04-06T04:00:00.000Z",
+          "endAt": "2026-04-06T04:40:00.000Z",
+          "title": "Lunch",
+          "note": "Stepped away from work completely and let the brain reset for a bit.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.lunch",
+          "tags": [
+            "lunch"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-coding-afternoon:2026-04-02T04-40-00-000Z:copy:2026-04-06",
+          "startAt": "2026-04-06T04:40:00.000Z",
+          "endAt": "2026-04-06T06:20:00.000Z",
+          "title": "Afternoon implementation",
+          "note": "Kept pushing the morning changes and cleared a handful of rough edges.",
+          "categoryId": "work",
+          "subcategoryId": "work.coding",
+          "eventNodeId": "evt.focus_coding",
+          "tags": [
+            "coding"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-learning:2026-04-02T06-20-00-000Z:copy:2026-04-06",
+          "startAt": "2026-04-06T06:20:00.000Z",
+          "endAt": "2026-04-06T07:00:00.000Z",
+          "title": "Course review",
+          "note": "Used a focused block to close knowledge gaps uncovered during work.",
+          "categoryId": "study",
+          "subcategoryId": "study.course",
+          "eventNodeId": "evt.learning",
+          "tags": [
+            "learning"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-walk:2026-04-02T07-00-00-000Z:copy:2026-04-06",
+          "startAt": "2026-04-06T07:00:00.000Z",
+          "endAt": "2026-04-06T07:40:00.000Z",
+          "title": "Walk outside",
+          "note": "Went for a short walk before dinner to break the sitting streak.",
+          "categoryId": "exercise",
+          "subcategoryId": "exercise.walk",
+          "eventNodeId": "evt.walk",
+          "tags": [
+            "walk"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-dinner:2026-04-02T07-40-00-000Z:copy:2026-04-06",
+          "startAt": "2026-04-06T07:40:00.000Z",
+          "endAt": "2026-04-06T08:20:00.000Z",
+          "title": "Dinner",
+          "note": "Ate quickly but stayed away from work and inboxes during the meal.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.dinner",
+          "tags": [
+            "dinner"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-chat-night:2026-04-02T08-20-00-000Z:copy:2026-04-06",
+          "startAt": "2026-04-06T08:20:00.000Z",
+          "endAt": "2026-04-06T09:10:00.000Z",
+          "title": "Reply to messages",
+          "note": "Caught up on a few pending conversations and checked in with a friend.",
+          "categoryId": "social",
+          "subcategoryId": "social.chat",
+          "eventNodeId": "evt.chatting",
+          "tags": [
+            "messages"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-cleanup-night:2026-04-02T09-10-00-000Z:copy:2026-04-06",
+          "startAt": "2026-04-06T09:10:00.000Z",
+          "endAt": "2026-04-06T10:00:00.000Z",
+          "title": "Reset the room",
+          "note": "Folded clothes, cleared the desk, and set up a calmer start for tomorrow.",
+          "categoryId": "life",
+          "subcategoryId": "life.chores",
+          "eventNodeId": "evt.cleanup",
+          "tags": [
+            "chores"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-workout:2026-04-02T10-00-00-000Z:copy:2026-04-06",
+          "startAt": "2026-04-06T10:00:00.000Z",
+          "endAt": "2026-04-06T10:50:00.000Z",
+          "title": "Light workout",
+          "note": "Did a short bodyweight session and some mobility work.",
+          "categoryId": "exercise",
+          "subcategoryId": "exercise.workout",
+          "eventNodeId": "evt.workout",
+          "tags": [
+            "workout"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-shower-night:2026-04-02T10-50-00-000Z:copy:2026-04-06",
+          "startAt": "2026-04-06T10:50:00.000Z",
+          "endAt": "2026-04-06T11:25:00.000Z",
+          "title": "Shower",
+          "note": "Took a shower after exercising and fully switched out of work mode.",
+          "categoryId": "life",
+          "subcategoryId": "life.hygiene",
+          "eventNodeId": "evt.shower",
+          "tags": [
+            "shower"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-show-night:2026-04-02T11-25-00-000Z:copy:2026-04-06",
+          "startAt": "2026-04-06T11:25:00.000Z",
+          "endAt": "2026-04-06T12:20:00.000Z",
+          "title": "Watch something light",
+          "note": "Watched a low-pressure show and avoided reopening any work windows.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.video",
+          "eventNodeId": "evt.watch_show",
+          "tags": [
+            "video"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-reading-night:2026-04-02T12-20-00-000Z:copy:2026-04-06",
+          "startAt": "2026-04-06T12:20:00.000Z",
+          "endAt": "2026-04-06T13:00:00.000Z",
+          "title": "Bedtime reading",
+          "note": "Read for a while to slow the pace down before sleep.",
+          "categoryId": "study",
+          "subcategoryId": "study.reading",
+          "eventNodeId": "evt.reading",
+          "tags": [
+            "reading"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-phone-scroll:2026-04-02T13-00-00-000Z:copy:2026-04-06",
+          "startAt": "2026-04-06T13:00:00.000Z",
+          "endAt": "2026-04-06T13:40:00.000Z",
+          "title": "Phone scroll",
+          "note": "Spent a short window scrolling before bed without letting it spiral.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.social_media",
+          "eventNodeId": "evt.phone_scroll",
+          "tags": [
+            "phone"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-sleep-late:2026-04-02:copy:2026-04-06",
+          "startAt": "2026-04-06T14:00:00.000Z",
+          "endAt": "2026-04-06T15:59:00.000Z",
+          "title": "Sleep (night)",
+          "note": "Went to sleep for the night and split the early-morning segment into the next day.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        }
+      ]
+    },
+    "2026-04-07": {
+      "status": "final",
+      "updatedAt": "2026-04-07T15:30:00.000Z",
+      "source": null,
+      "events": [
+        {
+          "id": "fact:demo-sleep-early:2026-04-03:copy:2026-04-07",
+          "startAt": "2026-04-06T16:00:00.000Z",
+          "endAt": "2026-04-06T23:00:00.000Z",
+          "title": "Sleep (early morning)",
+          "note": "Slept steadily and started the day at a reasonable pace.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-breakfast:2026-04-03T00-00-00-000Z:copy:2026-04-07",
+          "startAt": "2026-04-07T00:00:00.000Z",
+          "endAt": "2026-04-07T00:30:00.000Z",
+          "title": "Breakfast and setup",
+          "note": "Breakfast, a quick reset, and a first glance at the day plan.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.breakfast",
+          "tags": [
+            "breakfast"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-commute:2026-04-03T00-30-00-000Z:copy:2026-04-07",
+          "startAt": "2026-04-07T00:30:00.000Z",
+          "endAt": "2026-04-07T01:10:00.000Z",
+          "title": "Commute",
+          "note": "Listened to a podcast and cleared a few lightweight messages on the way.",
+          "categoryId": "travel",
+          "subcategoryId": "travel.commute",
+          "eventNodeId": "evt.commute",
+          "tags": [
+            "commute"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-meeting:2026-04-03T01-10-00-000Z:copy:2026-04-07",
+          "startAt": "2026-04-07T01:10:00.000Z",
+          "endAt": "2026-04-07T01:40:00.000Z",
+          "title": "Morning sync",
+          "note": "Confirmed priorities and locked the most important deliverables first.",
+          "categoryId": "work",
+          "subcategoryId": "work.meeting",
+          "eventNodeId": "evt.meeting",
+          "tags": [
+            "sync"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-coding-morning:2026-04-03T01-40-00-000Z:copy:2026-04-07",
+          "startAt": "2026-04-07T01:40:00.000Z",
+          "endAt": "2026-04-07T04:30:00.000Z",
+          "title": "Focused coding",
+          "note": "Worked through the main feature and interaction details without many context switches.",
+          "categoryId": "work",
+          "subcategoryId": "work.coding",
+          "eventNodeId": "evt.focus_coding",
+          "tags": [
+            "coding"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-lunch:2026-04-03T04-30-00-000Z:copy:2026-04-07",
+          "startAt": "2026-04-07T04:30:00.000Z",
+          "endAt": "2026-04-07T05:10:00.000Z",
+          "title": "Lunch",
+          "note": "Took lunch away from the desk and let the work state cool off.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.lunch",
+          "tags": [
+            "lunch"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-walk:2026-04-03T05-10-00-000Z:copy:2026-04-07",
+          "startAt": "2026-04-07T05:10:00.000Z",
+          "endAt": "2026-04-07T05:40:00.000Z",
+          "title": "Post-lunch walk",
+          "note": "Walked outside for a bit to reset attention before the second half.",
+          "categoryId": "exercise",
+          "subcategoryId": "exercise.walk",
+          "eventNodeId": "evt.walk",
+          "tags": [
+            "walk"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-coding-afternoon:2026-04-03T05-40-00-000Z:copy:2026-04-07",
+          "startAt": "2026-04-07T05:40:00.000Z",
+          "endAt": "2026-04-07T07:50:00.000Z",
+          "title": "Afternoon coding",
+          "note": "Closed the biggest open issues and ran a few rounds of manual verification.",
+          "categoryId": "work",
+          "subcategoryId": "work.coding",
+          "eventNodeId": "evt.focus_coding",
+          "tags": [
+            "coding"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-reading-review:2026-04-03T07-50-00-000Z:copy:2026-04-07",
+          "startAt": "2026-04-07T07:50:00.000Z",
+          "endAt": "2026-04-07T08:30:00.000Z",
+          "title": "Read and reflect",
+          "note": "Reviewed a few notes from the day and wrote down follow-up ideas.",
+          "categoryId": "study",
+          "subcategoryId": "study.review",
+          "eventNodeId": "evt.reading",
+          "tags": [
+            "review"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-dinner:2026-04-03T08-30-00-000Z:copy:2026-04-07",
+          "startAt": "2026-04-07T08:30:00.000Z",
+          "endAt": "2026-04-07T09:10:00.000Z",
+          "title": "Dinner",
+          "note": "Kept dinner simple and let the evening start to soften.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.dinner",
+          "tags": [
+            "dinner"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-chat:2026-04-03T09-10-00-000Z:copy:2026-04-07",
+          "startAt": "2026-04-07T09:10:00.000Z",
+          "endAt": "2026-04-07T10:00:00.000Z",
+          "title": "Chat and replies",
+          "note": "Replied to a few pending messages and checked in on upcoming plans.",
+          "categoryId": "social",
+          "subcategoryId": "social.chat",
+          "eventNodeId": "evt.chatting",
+          "tags": [
+            "messages"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-cleanup-night:2026-04-03T10-00-00-000Z:copy:2026-04-07",
+          "startAt": "2026-04-07T10:00:00.000Z",
+          "endAt": "2026-04-07T10:40:00.000Z",
+          "title": "Tidy up",
+          "note": "Reset the desk and packed things away for an easier tomorrow.",
+          "categoryId": "life",
+          "subcategoryId": "life.chores",
+          "eventNodeId": "evt.cleanup",
+          "tags": [
+            "reset"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-show-night:2026-04-03T10-40-00-000Z:copy:2026-04-07",
+          "startAt": "2026-04-07T10:40:00.000Z",
+          "endAt": "2026-04-07T11:40:00.000Z",
+          "title": "Watch a show",
+          "note": "Watched something light and stayed intentionally offline from work.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.video",
+          "eventNodeId": "evt.watch_show",
+          "tags": [
+            "video"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-shower-night:2026-04-03T11-40-00-000Z:copy:2026-04-07",
+          "startAt": "2026-04-07T11:40:00.000Z",
+          "endAt": "2026-04-07T12:10:00.000Z",
+          "title": "Shower",
+          "note": "Took a late shower and used it as the final transition into rest mode.",
+          "categoryId": "life",
+          "subcategoryId": "life.hygiene",
+          "eventNodeId": "evt.shower",
+          "tags": [
+            "shower"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-phone-scroll:2026-04-03T12-10-00-000Z:copy:2026-04-07",
+          "startAt": "2026-04-07T12:10:00.000Z",
+          "endAt": "2026-04-07T12:40:00.000Z",
+          "title": "Phone scroll",
+          "note": "Did a little social scrolling before bed but kept it contained.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.social_media",
+          "eventNodeId": "evt.phone_scroll",
+          "tags": [
+            "social media"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-sleep-late:2026-04-03:copy:2026-04-07",
+          "startAt": "2026-04-07T13:00:00.000Z",
+          "endAt": "2026-04-07T15:30:00.000Z",
+          "title": "Sleep (night)",
+          "note": "Went to sleep for the night and split the early-morning segment into the next day.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        }
+      ]
+    },
+    "2026-04-08": {
+      "status": "final",
+      "updatedAt": "2026-04-08T15:10:00.000Z",
+      "source": null,
+      "events": [
+        {
+          "id": "fact:demo-sleep-early:2026-04-04:copy:2026-04-08",
+          "startAt": "2026-04-07T16:00:00.000Z",
+          "endAt": "2026-04-07T23:30:00.000Z",
+          "title": "Sleep (early morning)",
+          "note": "Slept a bit longer and let the morning open more slowly.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-shower:2026-04-04T00-10-00-000Z:copy:2026-04-08",
+          "startAt": "2026-04-08T00:10:00.000Z",
+          "endAt": "2026-04-08T00:35:00.000Z",
+          "title": "Wash up",
+          "note": "Started the day with a shower and a small reset before breakfast.",
+          "categoryId": "life",
+          "subcategoryId": "life.hygiene",
+          "eventNodeId": "evt.shower",
+          "tags": [
+            "morning routine"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-breakfast:2026-04-04T00-35-00-000Z:copy:2026-04-08",
+          "startAt": "2026-04-08T00:35:00.000Z",
+          "endAt": "2026-04-08T01:05:00.000Z",
+          "title": "Breakfast",
+          "note": "Made something simple and looked over the day without rushing.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.breakfast",
+          "tags": [
+            "breakfast"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-cleanup:2026-04-04T01-05-00-000Z:copy:2026-04-08",
+          "startAt": "2026-04-08T01:05:00.000Z",
+          "endAt": "2026-04-08T01:45:00.000Z",
+          "title": "House reset",
+          "note": "Put away clothes, cleared surfaces, and got the room back into shape.",
+          "categoryId": "life",
+          "subcategoryId": "life.chores",
+          "eventNodeId": "evt.cleanup",
+          "tags": [
+            "chores"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-walk:2026-04-04T01-45-00-000Z:copy:2026-04-08",
+          "startAt": "2026-04-08T01:45:00.000Z",
+          "endAt": "2026-04-08T02:25:00.000Z",
+          "title": "Walk and pick up supplies",
+          "note": "Went outside for a loop and brought home fruit and drinks.",
+          "categoryId": "exercise",
+          "subcategoryId": "exercise.walk",
+          "eventNodeId": "evt.walk",
+          "tags": [
+            "walk",
+            "errand"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-reading:2026-04-04T02-25-00-000Z:copy:2026-04-08",
+          "startAt": "2026-04-08T02:25:00.000Z",
+          "endAt": "2026-04-08T03:55:00.000Z",
+          "title": "Reading and notes",
+          "note": "Read a few long pieces and captured some follow-up ideas.",
+          "categoryId": "study",
+          "subcategoryId": "study.reading",
+          "eventNodeId": "evt.reading",
+          "tags": [
+            "reading"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-lunch:2026-04-04T03-55-00-000Z:copy:2026-04-08",
+          "startAt": "2026-04-08T03:55:00.000Z",
+          "endAt": "2026-04-08T04:35:00.000Z",
+          "title": "Lunch",
+          "note": "Made a warm lunch and left space afterward for a short mental pause.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.lunch",
+          "tags": [
+            "lunch"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-show:2026-04-04T04-35-00-000Z:copy:2026-04-08",
+          "startAt": "2026-04-08T04:35:00.000Z",
+          "endAt": "2026-04-08T05:50:00.000Z",
+          "title": "Watch a show",
+          "note": "Watched an episode and a half to switch states without multitasking.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.video",
+          "eventNodeId": "evt.watch_show",
+          "tags": [
+            "show"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-nap:2026-04-04T05-50-00-000Z:copy:2026-04-08",
+          "startAt": "2026-04-08T05:50:00.000Z",
+          "endAt": "2026-04-08T06:20:00.000Z",
+          "title": "Nap",
+          "note": "Closed my eyes for a short recovery block and came back clearer.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.nap",
+          "eventNodeId": "evt.nap",
+          "tags": [
+            "nap"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-chat:2026-04-04T06-20-00-000Z:copy:2026-04-08",
+          "startAt": "2026-04-08T06:20:00.000Z",
+          "endAt": "2026-04-08T07:10:00.000Z",
+          "title": "Catch up with a friend",
+          "note": "Traded a few rounds of messages and talked through the next week a bit.",
+          "categoryId": "social",
+          "subcategoryId": "social.chat",
+          "eventNodeId": "evt.chatting",
+          "tags": [
+            "chat"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-learning:2026-04-04T07-10-00-000Z:copy:2026-04-08",
+          "startAt": "2026-04-08T07:10:00.000Z",
+          "endAt": "2026-04-08T08:40:00.000Z",
+          "title": "Mini course session",
+          "note": "Focused on one lesson and followed the key steps end to end.",
+          "categoryId": "study",
+          "subcategoryId": "study.course",
+          "eventNodeId": "evt.learning",
+          "tags": [
+            "course"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-dinner:2026-04-04T08-40-00-000Z:copy:2026-04-08",
+          "startAt": "2026-04-08T08:40:00.000Z",
+          "endAt": "2026-04-08T09:20:00.000Z",
+          "title": "Dinner",
+          "note": "Cooked something simple and cleaned the kitchen as part of winding down.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.dinner",
+          "tags": [
+            "dinner"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-short-video:2026-04-04T09-20-00-000Z:copy:2026-04-08",
+          "startAt": "2026-04-08T09:20:00.000Z",
+          "endAt": "2026-04-08T10:00:00.000Z",
+          "title": "Short video break",
+          "note": "Watched a short burst of videos without letting it take over the whole evening.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.social_media",
+          "eventNodeId": "evt.short_video",
+          "tags": [
+            "short video"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-cleanup-night:2026-04-04T10-00-00-000Z:copy:2026-04-08",
+          "startAt": "2026-04-08T10:00:00.000Z",
+          "endAt": "2026-04-08T11:00:00.000Z",
+          "title": "Room reset",
+          "note": "Reset the room, changed the sheets, and made the space feel finished.",
+          "categoryId": "life",
+          "subcategoryId": "life.chores",
+          "eventNodeId": "evt.cleanup",
+          "tags": [
+            "reset"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-show-night:2026-04-04T11-00-00-000Z:copy:2026-04-08",
+          "startAt": "2026-04-08T11:00:00.000Z",
+          "endAt": "2026-04-08T12:20:00.000Z",
+          "title": "Evening series",
+          "note": "Watched a couple more episodes and let the whole night stay low-stakes.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.video",
+          "eventNodeId": "evt.watch_show",
+          "tags": [
+            "series"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-family-chat:2026-04-04T12-20-00-000Z:copy:2026-04-08",
+          "startAt": "2026-04-08T12:20:00.000Z",
+          "endAt": "2026-04-08T13:10:00.000Z",
+          "title": "Call family",
+          "note": "Had a phone call about family updates and weekend plans.",
+          "categoryId": "social",
+          "subcategoryId": "social.family",
+          "eventNodeId": "evt.chatting",
+          "tags": [
+            "family"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-phone-scroll:2026-04-04T13-10-00-000Z:copy:2026-04-08",
+          "startAt": "2026-04-08T13:10:00.000Z",
+          "endAt": "2026-04-08T13:40:00.000Z",
+          "title": "Phone scroll",
+          "note": "Did a final round of phone scrolling while the night tapered off.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.social_media",
+          "eventNodeId": "evt.phone_scroll",
+          "tags": [
+            "phone"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-sleep-late:2026-04-04:copy:2026-04-08",
+          "startAt": "2026-04-08T14:00:00.000Z",
+          "endAt": "2026-04-08T15:10:00.000Z",
+          "title": "Sleep (night)",
+          "note": "Went to sleep for the night and split the early-morning segment into the next day.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        }
+      ]
+    },
+    "2026-04-09": {
+      "status": "final",
+      "updatedAt": "2026-04-09T15:40:00.000Z",
+      "source": null,
+      "events": [
+        {
+          "id": "fact:demo-sleep-early:2026-04-05:copy:2026-04-09",
+          "startAt": "2026-04-08T16:00:00.000Z",
+          "endAt": "2026-04-08T23:00:00.000Z",
+          "title": "Sleep (early morning)",
+          "note": "Woke up a little later, but the total sleep window still felt complete.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-breakfast:2026-04-05T00-00-00-000Z:copy:2026-04-09",
+          "startAt": "2026-04-09T00:00:00.000Z",
+          "endAt": "2026-04-09T00:30:00.000Z",
+          "title": "Breakfast",
+          "note": "A calm breakfast while lining up the day in my head.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.breakfast",
+          "tags": [
+            "breakfast"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-commute:2026-04-05T00-30-00-000Z:copy:2026-04-09",
+          "startAt": "2026-04-09T00:30:00.000Z",
+          "endAt": "2026-04-09T01:10:00.000Z",
+          "title": "Commute",
+          "note": "Used the ride to listen to one podcast episode and ease into work mode.",
+          "categoryId": "travel",
+          "subcategoryId": "travel.commute",
+          "eventNodeId": "evt.commute",
+          "tags": [
+            "commute"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-meeting:2026-04-05T01-10-00-000Z:copy:2026-04-09",
+          "startAt": "2026-04-09T01:10:00.000Z",
+          "endAt": "2026-04-09T01:40:00.000Z",
+          "title": "Morning sync",
+          "note": "Ran through the weekly progress and clarified a few open interface questions.",
+          "categoryId": "work",
+          "subcategoryId": "work.meeting",
+          "eventNodeId": "evt.meeting",
+          "tags": [
+            "meeting"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-coding-morning:2026-04-05T01-40-00-000Z:copy:2026-04-09",
+          "startAt": "2026-04-09T01:40:00.000Z",
+          "endAt": "2026-04-09T04:40:00.000Z",
+          "title": "Core development",
+          "note": "Worked on the main UI structure and interaction details for several focused rounds.",
+          "categoryId": "work",
+          "subcategoryId": "work.coding",
+          "eventNodeId": "evt.focus_coding",
+          "tags": [
+            "coding"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-lunch:2026-04-05T04-40-00-000Z:copy:2026-04-09",
+          "startAt": "2026-04-09T04:40:00.000Z",
+          "endAt": "2026-04-09T05:20:00.000Z",
+          "title": "Lunch",
+          "note": "Had a proper lunch downstairs and stayed off the laptop during the break.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.lunch",
+          "tags": [
+            "lunch"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-walk:2026-04-05T05-20-00-000Z:copy:2026-04-09",
+          "startAt": "2026-04-09T05:20:00.000Z",
+          "endAt": "2026-04-09T05:50:00.000Z",
+          "title": "Walk outside",
+          "note": "Took a half-hour walk and got some sunlight before going back in.",
+          "categoryId": "exercise",
+          "subcategoryId": "exercise.walk",
+          "eventNodeId": "evt.walk",
+          "tags": [
+            "walk"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-coding-afternoon:2026-04-05T05-50-00-000Z:copy:2026-04-09",
+          "startAt": "2026-04-09T05:50:00.000Z",
+          "endAt": "2026-04-09T08:10:00.000Z",
+          "title": "Implementation wrap-up",
+          "note": "Spent the afternoon closing bugs and validating the latest changes.",
+          "categoryId": "work",
+          "subcategoryId": "work.coding",
+          "eventNodeId": "evt.focus_coding",
+          "tags": [
+            "coding"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-meeting-afternoon:2026-04-05T08-10-00-000Z:copy:2026-04-09",
+          "startAt": "2026-04-09T08:10:00.000Z",
+          "endAt": "2026-04-09T08:40:00.000Z",
+          "title": "Afternoon alignment",
+          "note": "Checked release timing with a teammate and reviewed the remaining risks.",
+          "categoryId": "work",
+          "subcategoryId": "work.communication",
+          "eventNodeId": "evt.meeting",
+          "tags": [
+            "alignment"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-reading-review:2026-04-05T08-40-00-000Z:copy:2026-04-09",
+          "startAt": "2026-04-09T08:40:00.000Z",
+          "endAt": "2026-04-09T09:30:00.000Z",
+          "title": "Read and review",
+          "note": "Revisited the day notes and wrote down a few improvements for later.",
+          "categoryId": "study",
+          "subcategoryId": "study.review",
+          "eventNodeId": "evt.reading",
+          "tags": [
+            "review"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-dinner:2026-04-05T09-30-00-000Z:copy:2026-04-09",
+          "startAt": "2026-04-09T09:30:00.000Z",
+          "endAt": "2026-04-09T10:10:00.000Z",
+          "title": "Dinner",
+          "note": "Kept dinner simple and let the workday fully release.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.dinner",
+          "tags": [
+            "dinner"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-chat-night:2026-04-05T10-10-00-000Z:copy:2026-04-09",
+          "startAt": "2026-04-09T10:10:00.000Z",
+          "endAt": "2026-04-09T11:00:00.000Z",
+          "title": "Reply to messages",
+          "note": "Caught up on messages that had been waiting since earlier in the day.",
+          "categoryId": "social",
+          "subcategoryId": "social.chat",
+          "eventNodeId": "evt.chatting",
+          "tags": [
+            "messages"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-cleanup-night:2026-04-05T11-00-00-000Z:copy:2026-04-09",
+          "startAt": "2026-04-09T11:00:00.000Z",
+          "endAt": "2026-04-09T11:40:00.000Z",
+          "title": "Home reset",
+          "note": "Reset the kitchen and workspace so the next day starts cleaner.",
+          "categoryId": "life",
+          "subcategoryId": "life.chores",
+          "eventNodeId": "evt.cleanup",
+          "tags": [
+            "reset"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-show-night:2026-04-05T11-40-00-000Z:copy:2026-04-09",
+          "startAt": "2026-04-09T11:40:00.000Z",
+          "endAt": "2026-04-09T12:30:00.000Z",
+          "title": "Video break",
+          "note": "Watched something light without adding another high-focus task.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.video",
+          "eventNodeId": "evt.watch_show",
+          "tags": [
+            "video"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-phone-scroll:2026-04-05T12-30-00-000Z:copy:2026-04-09",
+          "startAt": "2026-04-09T12:30:00.000Z",
+          "endAt": "2026-04-09T13:10:00.000Z",
+          "title": "Phone scroll",
+          "note": "Spent a contained amount of time on social feeds before shutting down.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.social_media",
+          "eventNodeId": "evt.phone_scroll",
+          "tags": [
+            "social media"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-workout:2026-04-05T13-10-00-000Z:copy:2026-04-09",
+          "startAt": "2026-04-09T13:10:00.000Z",
+          "endAt": "2026-04-09T13:55:00.000Z",
+          "title": "Late workout",
+          "note": "Did a short home workout to shake off the day physically.",
+          "categoryId": "exercise",
+          "subcategoryId": "exercise.workout",
+          "eventNodeId": "evt.workout",
+          "tags": [
+            "workout"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-shower-night:2026-04-05T13-55-00-000Z:copy:2026-04-09",
+          "startAt": "2026-04-09T13:55:00.000Z",
+          "endAt": "2026-04-09T14:20:00.000Z",
+          "title": "Shower",
+          "note": "Ended the day with a shower and eased all the way into sleep mode.",
+          "categoryId": "life",
+          "subcategoryId": "life.hygiene",
+          "eventNodeId": "evt.shower",
+          "tags": [
+            "shower"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-sleep-late:2026-04-05:copy:2026-04-09",
+          "startAt": "2026-04-09T14:20:00.000Z",
+          "endAt": "2026-04-09T15:40:00.000Z",
+          "title": "Sleep (night)",
+          "note": "Went to sleep for the night and split the early-morning segment into the next day.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        }
+      ]
+    },
+    "2026-04-10": {
+      "status": "final",
+      "updatedAt": "2026-04-10T15:59:00.000Z",
+      "source": null,
+      "events": [
+        {
+          "id": "fact:demo-sleep-early:2026-04-02:copy:2026-04-10",
+          "startAt": "2026-04-09T16:00:00.000Z",
+          "endAt": "2026-04-09T23:20:00.000Z",
+          "title": "Sleep (early morning)",
+          "note": "Slept through the early hours and woke up on time.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-breakfast:2026-04-02T00-05-00-000Z:copy:2026-04-10",
+          "startAt": "2026-04-10T00:05:00.000Z",
+          "endAt": "2026-04-10T00:35:00.000Z",
+          "title": "Breakfast",
+          "note": "Had a quick breakfast and reviewed the top priorities for the day.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.breakfast",
+          "tags": [
+            "breakfast",
+            "planning"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-commute:2026-04-02T00-35-00-000Z:copy:2026-04-10",
+          "startAt": "2026-04-10T00:35:00.000Z",
+          "endAt": "2026-04-10T01:10:00.000Z",
+          "title": "Commute",
+          "note": "Used the ride to review a few notes and queue up the morning focus block.",
+          "categoryId": "travel",
+          "subcategoryId": "travel.commute",
+          "eventNodeId": "evt.commute",
+          "tags": [
+            "commute"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-coding-morning:2026-04-02T01-10-00-000Z:copy:2026-04-10",
+          "startAt": "2026-04-10T01:10:00.000Z",
+          "endAt": "2026-04-10T03:20:00.000Z",
+          "title": "Focused coding",
+          "note": "Pushed the main product flow forward with very few interruptions.",
+          "categoryId": "work",
+          "subcategoryId": "work.coding",
+          "eventNodeId": "evt.focus_coding",
+          "tags": [
+            "coding",
+            "shipping"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-meeting:2026-04-02T03-20-00-000Z:copy:2026-04-10",
+          "startAt": "2026-04-10T03:20:00.000Z",
+          "endAt": "2026-04-10T04:00:00.000Z",
+          "title": "Project sync",
+          "note": "Aligned on API changes and reshuffled the remaining priorities.",
+          "categoryId": "work",
+          "subcategoryId": "work.meeting",
+          "eventNodeId": "evt.meeting",
+          "tags": [
+            "sync"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-lunch:2026-04-02T04-00-00-000Z:copy:2026-04-10",
+          "startAt": "2026-04-10T04:00:00.000Z",
+          "endAt": "2026-04-10T04:40:00.000Z",
+          "title": "Lunch",
+          "note": "Stepped away from work completely and let the brain reset for a bit.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.lunch",
+          "tags": [
+            "lunch"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-coding-afternoon:2026-04-02T04-40-00-000Z:copy:2026-04-10",
+          "startAt": "2026-04-10T04:40:00.000Z",
+          "endAt": "2026-04-10T06:20:00.000Z",
+          "title": "Afternoon implementation",
+          "note": "Kept pushing the morning changes and cleared a handful of rough edges.",
+          "categoryId": "work",
+          "subcategoryId": "work.coding",
+          "eventNodeId": "evt.focus_coding",
+          "tags": [
+            "coding"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-learning:2026-04-02T06-20-00-000Z:copy:2026-04-10",
+          "startAt": "2026-04-10T06:20:00.000Z",
+          "endAt": "2026-04-10T07:00:00.000Z",
+          "title": "Course review",
+          "note": "Used a focused block to close knowledge gaps uncovered during work.",
+          "categoryId": "study",
+          "subcategoryId": "study.course",
+          "eventNodeId": "evt.learning",
+          "tags": [
+            "learning"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-walk:2026-04-02T07-00-00-000Z:copy:2026-04-10",
+          "startAt": "2026-04-10T07:00:00.000Z",
+          "endAt": "2026-04-10T07:40:00.000Z",
+          "title": "Walk outside",
+          "note": "Went for a short walk before dinner to break the sitting streak.",
+          "categoryId": "exercise",
+          "subcategoryId": "exercise.walk",
+          "eventNodeId": "evt.walk",
+          "tags": [
+            "walk"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-dinner:2026-04-02T07-40-00-000Z:copy:2026-04-10",
+          "startAt": "2026-04-10T07:40:00.000Z",
+          "endAt": "2026-04-10T08:20:00.000Z",
+          "title": "Dinner",
+          "note": "Ate quickly but stayed away from work and inboxes during the meal.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.dinner",
+          "tags": [
+            "dinner"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-chat-night:2026-04-02T08-20-00-000Z:copy:2026-04-10",
+          "startAt": "2026-04-10T08:20:00.000Z",
+          "endAt": "2026-04-10T09:10:00.000Z",
+          "title": "Reply to messages",
+          "note": "Caught up on a few pending conversations and checked in with a friend.",
+          "categoryId": "social",
+          "subcategoryId": "social.chat",
+          "eventNodeId": "evt.chatting",
+          "tags": [
+            "messages"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-cleanup-night:2026-04-02T09-10-00-000Z:copy:2026-04-10",
+          "startAt": "2026-04-10T09:10:00.000Z",
+          "endAt": "2026-04-10T10:00:00.000Z",
+          "title": "Reset the room",
+          "note": "Folded clothes, cleared the desk, and set up a calmer start for tomorrow.",
+          "categoryId": "life",
+          "subcategoryId": "life.chores",
+          "eventNodeId": "evt.cleanup",
+          "tags": [
+            "chores"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-workout:2026-04-02T10-00-00-000Z:copy:2026-04-10",
+          "startAt": "2026-04-10T10:00:00.000Z",
+          "endAt": "2026-04-10T10:50:00.000Z",
+          "title": "Light workout",
+          "note": "Did a short bodyweight session and some mobility work.",
+          "categoryId": "exercise",
+          "subcategoryId": "exercise.workout",
+          "eventNodeId": "evt.workout",
+          "tags": [
+            "workout"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-shower-night:2026-04-02T10-50-00-000Z:copy:2026-04-10",
+          "startAt": "2026-04-10T10:50:00.000Z",
+          "endAt": "2026-04-10T11:25:00.000Z",
+          "title": "Shower",
+          "note": "Took a shower after exercising and fully switched out of work mode.",
+          "categoryId": "life",
+          "subcategoryId": "life.hygiene",
+          "eventNodeId": "evt.shower",
+          "tags": [
+            "shower"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-show-night:2026-04-02T11-25-00-000Z:copy:2026-04-10",
+          "startAt": "2026-04-10T11:25:00.000Z",
+          "endAt": "2026-04-10T12:20:00.000Z",
+          "title": "Watch something light",
+          "note": "Watched a low-pressure show and avoided reopening any work windows.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.video",
+          "eventNodeId": "evt.watch_show",
+          "tags": [
+            "video"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-reading-night:2026-04-02T12-20-00-000Z:copy:2026-04-10",
+          "startAt": "2026-04-10T12:20:00.000Z",
+          "endAt": "2026-04-10T13:00:00.000Z",
+          "title": "Bedtime reading",
+          "note": "Read for a while to slow the pace down before sleep.",
+          "categoryId": "study",
+          "subcategoryId": "study.reading",
+          "eventNodeId": "evt.reading",
+          "tags": [
+            "reading"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-phone-scroll:2026-04-02T13-00-00-000Z:copy:2026-04-10",
+          "startAt": "2026-04-10T13:00:00.000Z",
+          "endAt": "2026-04-10T13:40:00.000Z",
+          "title": "Phone scroll",
+          "note": "Spent a short window scrolling before bed without letting it spiral.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.social_media",
+          "eventNodeId": "evt.phone_scroll",
+          "tags": [
+            "phone"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-sleep-late:2026-04-02:copy:2026-04-10",
+          "startAt": "2026-04-10T14:00:00.000Z",
+          "endAt": "2026-04-10T15:59:00.000Z",
+          "title": "Sleep (night)",
+          "note": "Went to sleep for the night and split the early-morning segment into the next day.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        }
+      ]
+    },
+    "2026-04-11": {
+      "status": "final",
+      "updatedAt": "2026-04-11T15:30:00.000Z",
+      "source": null,
+      "events": [
+        {
+          "id": "fact:demo-sleep-early:2026-04-03:copy:2026-04-11",
+          "startAt": "2026-04-10T16:00:00.000Z",
+          "endAt": "2026-04-10T23:00:00.000Z",
+          "title": "Sleep (early morning)",
+          "note": "Slept steadily and started the day at a reasonable pace.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-breakfast:2026-04-03T00-00-00-000Z:copy:2026-04-11",
+          "startAt": "2026-04-11T00:00:00.000Z",
+          "endAt": "2026-04-11T00:30:00.000Z",
+          "title": "Breakfast and setup",
+          "note": "Breakfast, a quick reset, and a first glance at the day plan.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.breakfast",
+          "tags": [
+            "breakfast"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-commute:2026-04-03T00-30-00-000Z:copy:2026-04-11",
+          "startAt": "2026-04-11T00:30:00.000Z",
+          "endAt": "2026-04-11T01:10:00.000Z",
+          "title": "Commute",
+          "note": "Listened to a podcast and cleared a few lightweight messages on the way.",
+          "categoryId": "travel",
+          "subcategoryId": "travel.commute",
+          "eventNodeId": "evt.commute",
+          "tags": [
+            "commute"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-meeting:2026-04-03T01-10-00-000Z:copy:2026-04-11",
+          "startAt": "2026-04-11T01:10:00.000Z",
+          "endAt": "2026-04-11T01:40:00.000Z",
+          "title": "Morning sync",
+          "note": "Confirmed priorities and locked the most important deliverables first.",
+          "categoryId": "work",
+          "subcategoryId": "work.meeting",
+          "eventNodeId": "evt.meeting",
+          "tags": [
+            "sync"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-coding-morning:2026-04-03T01-40-00-000Z:copy:2026-04-11",
+          "startAt": "2026-04-11T01:40:00.000Z",
+          "endAt": "2026-04-11T04:30:00.000Z",
+          "title": "Focused coding",
+          "note": "Worked through the main feature and interaction details without many context switches.",
+          "categoryId": "work",
+          "subcategoryId": "work.coding",
+          "eventNodeId": "evt.focus_coding",
+          "tags": [
+            "coding"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-lunch:2026-04-03T04-30-00-000Z:copy:2026-04-11",
+          "startAt": "2026-04-11T04:30:00.000Z",
+          "endAt": "2026-04-11T05:10:00.000Z",
+          "title": "Lunch",
+          "note": "Took lunch away from the desk and let the work state cool off.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.lunch",
+          "tags": [
+            "lunch"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-walk:2026-04-03T05-10-00-000Z:copy:2026-04-11",
+          "startAt": "2026-04-11T05:10:00.000Z",
+          "endAt": "2026-04-11T05:40:00.000Z",
+          "title": "Post-lunch walk",
+          "note": "Walked outside for a bit to reset attention before the second half.",
+          "categoryId": "exercise",
+          "subcategoryId": "exercise.walk",
+          "eventNodeId": "evt.walk",
+          "tags": [
+            "walk"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-coding-afternoon:2026-04-03T05-40-00-000Z:copy:2026-04-11",
+          "startAt": "2026-04-11T05:40:00.000Z",
+          "endAt": "2026-04-11T07:50:00.000Z",
+          "title": "Afternoon coding",
+          "note": "Closed the biggest open issues and ran a few rounds of manual verification.",
+          "categoryId": "work",
+          "subcategoryId": "work.coding",
+          "eventNodeId": "evt.focus_coding",
+          "tags": [
+            "coding"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-reading-review:2026-04-03T07-50-00-000Z:copy:2026-04-11",
+          "startAt": "2026-04-11T07:50:00.000Z",
+          "endAt": "2026-04-11T08:30:00.000Z",
+          "title": "Read and reflect",
+          "note": "Reviewed a few notes from the day and wrote down follow-up ideas.",
+          "categoryId": "study",
+          "subcategoryId": "study.review",
+          "eventNodeId": "evt.reading",
+          "tags": [
+            "review"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-dinner:2026-04-03T08-30-00-000Z:copy:2026-04-11",
+          "startAt": "2026-04-11T08:30:00.000Z",
+          "endAt": "2026-04-11T09:10:00.000Z",
+          "title": "Dinner",
+          "note": "Kept dinner simple and let the evening start to soften.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.dinner",
+          "tags": [
+            "dinner"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-chat:2026-04-03T09-10-00-000Z:copy:2026-04-11",
+          "startAt": "2026-04-11T09:10:00.000Z",
+          "endAt": "2026-04-11T10:00:00.000Z",
+          "title": "Chat and replies",
+          "note": "Replied to a few pending messages and checked in on upcoming plans.",
+          "categoryId": "social",
+          "subcategoryId": "social.chat",
+          "eventNodeId": "evt.chatting",
+          "tags": [
+            "messages"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-cleanup-night:2026-04-03T10-00-00-000Z:copy:2026-04-11",
+          "startAt": "2026-04-11T10:00:00.000Z",
+          "endAt": "2026-04-11T10:40:00.000Z",
+          "title": "Tidy up",
+          "note": "Reset the desk and packed things away for an easier tomorrow.",
+          "categoryId": "life",
+          "subcategoryId": "life.chores",
+          "eventNodeId": "evt.cleanup",
+          "tags": [
+            "reset"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-show-night:2026-04-03T10-40-00-000Z:copy:2026-04-11",
+          "startAt": "2026-04-11T10:40:00.000Z",
+          "endAt": "2026-04-11T11:40:00.000Z",
+          "title": "Watch a show",
+          "note": "Watched something light and stayed intentionally offline from work.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.video",
+          "eventNodeId": "evt.watch_show",
+          "tags": [
+            "video"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-shower-night:2026-04-03T11-40-00-000Z:copy:2026-04-11",
+          "startAt": "2026-04-11T11:40:00.000Z",
+          "endAt": "2026-04-11T12:10:00.000Z",
+          "title": "Shower",
+          "note": "Took a late shower and used it as the final transition into rest mode.",
+          "categoryId": "life",
+          "subcategoryId": "life.hygiene",
+          "eventNodeId": "evt.shower",
+          "tags": [
+            "shower"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-phone-scroll:2026-04-03T12-10-00-000Z:copy:2026-04-11",
+          "startAt": "2026-04-11T12:10:00.000Z",
+          "endAt": "2026-04-11T12:40:00.000Z",
+          "title": "Phone scroll",
+          "note": "Did a little social scrolling before bed but kept it contained.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.social_media",
+          "eventNodeId": "evt.phone_scroll",
+          "tags": [
+            "social media"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-sleep-late:2026-04-03:copy:2026-04-11",
+          "startAt": "2026-04-11T13:00:00.000Z",
+          "endAt": "2026-04-11T15:30:00.000Z",
+          "title": "Sleep (night)",
+          "note": "Went to sleep for the night and split the early-morning segment into the next day.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        }
+      ]
+    },
+    "2026-04-12": {
+      "status": "final",
+      "updatedAt": "2026-04-12T15:10:00.000Z",
+      "source": null,
+      "events": [
+        {
+          "id": "fact:demo-sleep-early:2026-04-04:copy:2026-04-12",
+          "startAt": "2026-04-11T16:00:00.000Z",
+          "endAt": "2026-04-11T23:30:00.000Z",
+          "title": "Sleep (early morning)",
+          "note": "Slept a bit longer and let the morning open more slowly.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-shower:2026-04-04T00-10-00-000Z:copy:2026-04-12",
+          "startAt": "2026-04-12T00:10:00.000Z",
+          "endAt": "2026-04-12T00:35:00.000Z",
+          "title": "Wash up",
+          "note": "Started the day with a shower and a small reset before breakfast.",
+          "categoryId": "life",
+          "subcategoryId": "life.hygiene",
+          "eventNodeId": "evt.shower",
+          "tags": [
+            "morning routine"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-breakfast:2026-04-04T00-35-00-000Z:copy:2026-04-12",
+          "startAt": "2026-04-12T00:35:00.000Z",
+          "endAt": "2026-04-12T01:05:00.000Z",
+          "title": "Breakfast",
+          "note": "Made something simple and looked over the day without rushing.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.breakfast",
+          "tags": [
+            "breakfast"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-cleanup:2026-04-04T01-05-00-000Z:copy:2026-04-12",
+          "startAt": "2026-04-12T01:05:00.000Z",
+          "endAt": "2026-04-12T01:45:00.000Z",
+          "title": "House reset",
+          "note": "Put away clothes, cleared surfaces, and got the room back into shape.",
+          "categoryId": "life",
+          "subcategoryId": "life.chores",
+          "eventNodeId": "evt.cleanup",
+          "tags": [
+            "chores"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-walk:2026-04-04T01-45-00-000Z:copy:2026-04-12",
+          "startAt": "2026-04-12T01:45:00.000Z",
+          "endAt": "2026-04-12T02:25:00.000Z",
+          "title": "Walk and pick up supplies",
+          "note": "Went outside for a loop and brought home fruit and drinks.",
+          "categoryId": "exercise",
+          "subcategoryId": "exercise.walk",
+          "eventNodeId": "evt.walk",
+          "tags": [
+            "walk",
+            "errand"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-reading:2026-04-04T02-25-00-000Z:copy:2026-04-12",
+          "startAt": "2026-04-12T02:25:00.000Z",
+          "endAt": "2026-04-12T03:55:00.000Z",
+          "title": "Reading and notes",
+          "note": "Read a few long pieces and captured some follow-up ideas.",
+          "categoryId": "study",
+          "subcategoryId": "study.reading",
+          "eventNodeId": "evt.reading",
+          "tags": [
+            "reading"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-lunch:2026-04-04T03-55-00-000Z:copy:2026-04-12",
+          "startAt": "2026-04-12T03:55:00.000Z",
+          "endAt": "2026-04-12T04:35:00.000Z",
+          "title": "Lunch",
+          "note": "Made a warm lunch and left space afterward for a short mental pause.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.lunch",
+          "tags": [
+            "lunch"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-show:2026-04-04T04-35-00-000Z:copy:2026-04-12",
+          "startAt": "2026-04-12T04:35:00.000Z",
+          "endAt": "2026-04-12T05:50:00.000Z",
+          "title": "Watch a show",
+          "note": "Watched an episode and a half to switch states without multitasking.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.video",
+          "eventNodeId": "evt.watch_show",
+          "tags": [
+            "show"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-nap:2026-04-04T05-50-00-000Z:copy:2026-04-12",
+          "startAt": "2026-04-12T05:50:00.000Z",
+          "endAt": "2026-04-12T06:20:00.000Z",
+          "title": "Nap",
+          "note": "Closed my eyes for a short recovery block and came back clearer.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.nap",
+          "eventNodeId": "evt.nap",
+          "tags": [
+            "nap"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-chat:2026-04-04T06-20-00-000Z:copy:2026-04-12",
+          "startAt": "2026-04-12T06:20:00.000Z",
+          "endAt": "2026-04-12T07:10:00.000Z",
+          "title": "Catch up with a friend",
+          "note": "Traded a few rounds of messages and talked through the next week a bit.",
+          "categoryId": "social",
+          "subcategoryId": "social.chat",
+          "eventNodeId": "evt.chatting",
+          "tags": [
+            "chat"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-learning:2026-04-04T07-10-00-000Z:copy:2026-04-12",
+          "startAt": "2026-04-12T07:10:00.000Z",
+          "endAt": "2026-04-12T08:40:00.000Z",
+          "title": "Mini course session",
+          "note": "Focused on one lesson and followed the key steps end to end.",
+          "categoryId": "study",
+          "subcategoryId": "study.course",
+          "eventNodeId": "evt.learning",
+          "tags": [
+            "course"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-dinner:2026-04-04T08-40-00-000Z:copy:2026-04-12",
+          "startAt": "2026-04-12T08:40:00.000Z",
+          "endAt": "2026-04-12T09:20:00.000Z",
+          "title": "Dinner",
+          "note": "Cooked something simple and cleaned the kitchen as part of winding down.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.dinner",
+          "tags": [
+            "dinner"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-short-video:2026-04-04T09-20-00-000Z:copy:2026-04-12",
+          "startAt": "2026-04-12T09:20:00.000Z",
+          "endAt": "2026-04-12T10:00:00.000Z",
+          "title": "Short video break",
+          "note": "Watched a short burst of videos without letting it take over the whole evening.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.social_media",
+          "eventNodeId": "evt.short_video",
+          "tags": [
+            "short video"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-cleanup-night:2026-04-04T10-00-00-000Z:copy:2026-04-12",
+          "startAt": "2026-04-12T10:00:00.000Z",
+          "endAt": "2026-04-12T11:00:00.000Z",
+          "title": "Room reset",
+          "note": "Reset the room, changed the sheets, and made the space feel finished.",
+          "categoryId": "life",
+          "subcategoryId": "life.chores",
+          "eventNodeId": "evt.cleanup",
+          "tags": [
+            "reset"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-show-night:2026-04-04T11-00-00-000Z:copy:2026-04-12",
+          "startAt": "2026-04-12T11:00:00.000Z",
+          "endAt": "2026-04-12T12:20:00.000Z",
+          "title": "Evening series",
+          "note": "Watched a couple more episodes and let the whole night stay low-stakes.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.video",
+          "eventNodeId": "evt.watch_show",
+          "tags": [
+            "series"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-family-chat:2026-04-04T12-20-00-000Z:copy:2026-04-12",
+          "startAt": "2026-04-12T12:20:00.000Z",
+          "endAt": "2026-04-12T13:10:00.000Z",
+          "title": "Call family",
+          "note": "Had a phone call about family updates and weekend plans.",
+          "categoryId": "social",
+          "subcategoryId": "social.family",
+          "eventNodeId": "evt.chatting",
+          "tags": [
+            "family"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-phone-scroll:2026-04-04T13-10-00-000Z:copy:2026-04-12",
+          "startAt": "2026-04-12T13:10:00.000Z",
+          "endAt": "2026-04-12T13:40:00.000Z",
+          "title": "Phone scroll",
+          "note": "Did a final round of phone scrolling while the night tapered off.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.social_media",
+          "eventNodeId": "evt.phone_scroll",
+          "tags": [
+            "phone"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-sleep-late:2026-04-04:copy:2026-04-12",
+          "startAt": "2026-04-12T14:00:00.000Z",
+          "endAt": "2026-04-12T15:10:00.000Z",
+          "title": "Sleep (night)",
+          "note": "Went to sleep for the night and split the early-morning segment into the next day.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        }
+      ]
+    },
+    "2026-04-13": {
+      "status": "final",
+      "updatedAt": "2026-04-13T15:40:00.000Z",
+      "source": null,
+      "events": [
+        {
+          "id": "fact:demo-sleep-early:2026-04-05:copy:2026-04-13",
+          "startAt": "2026-04-12T16:00:00.000Z",
+          "endAt": "2026-04-12T23:00:00.000Z",
+          "title": "Sleep (early morning)",
+          "note": "Woke up a little later, but the total sleep window still felt complete.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-breakfast:2026-04-05T00-00-00-000Z:copy:2026-04-13",
+          "startAt": "2026-04-13T00:00:00.000Z",
+          "endAt": "2026-04-13T00:30:00.000Z",
+          "title": "Breakfast",
+          "note": "A calm breakfast while lining up the day in my head.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.breakfast",
+          "tags": [
+            "breakfast"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-commute:2026-04-05T00-30-00-000Z:copy:2026-04-13",
+          "startAt": "2026-04-13T00:30:00.000Z",
+          "endAt": "2026-04-13T01:10:00.000Z",
+          "title": "Commute",
+          "note": "Used the ride to listen to one podcast episode and ease into work mode.",
+          "categoryId": "travel",
+          "subcategoryId": "travel.commute",
+          "eventNodeId": "evt.commute",
+          "tags": [
+            "commute"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-meeting:2026-04-05T01-10-00-000Z:copy:2026-04-13",
+          "startAt": "2026-04-13T01:10:00.000Z",
+          "endAt": "2026-04-13T01:40:00.000Z",
+          "title": "Morning sync",
+          "note": "Ran through the weekly progress and clarified a few open interface questions.",
+          "categoryId": "work",
+          "subcategoryId": "work.meeting",
+          "eventNodeId": "evt.meeting",
+          "tags": [
+            "meeting"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-coding-morning:2026-04-05T01-40-00-000Z:copy:2026-04-13",
+          "startAt": "2026-04-13T01:40:00.000Z",
+          "endAt": "2026-04-13T04:40:00.000Z",
+          "title": "Core development",
+          "note": "Worked on the main UI structure and interaction details for several focused rounds.",
+          "categoryId": "work",
+          "subcategoryId": "work.coding",
+          "eventNodeId": "evt.focus_coding",
+          "tags": [
+            "coding"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-lunch:2026-04-05T04-40-00-000Z:copy:2026-04-13",
+          "startAt": "2026-04-13T04:40:00.000Z",
+          "endAt": "2026-04-13T05:20:00.000Z",
+          "title": "Lunch",
+          "note": "Had a proper lunch downstairs and stayed off the laptop during the break.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.lunch",
+          "tags": [
+            "lunch"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-walk:2026-04-05T05-20-00-000Z:copy:2026-04-13",
+          "startAt": "2026-04-13T05:20:00.000Z",
+          "endAt": "2026-04-13T05:50:00.000Z",
+          "title": "Walk outside",
+          "note": "Took a half-hour walk and got some sunlight before going back in.",
+          "categoryId": "exercise",
+          "subcategoryId": "exercise.walk",
+          "eventNodeId": "evt.walk",
+          "tags": [
+            "walk"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-coding-afternoon:2026-04-05T05-50-00-000Z:copy:2026-04-13",
+          "startAt": "2026-04-13T05:50:00.000Z",
+          "endAt": "2026-04-13T08:10:00.000Z",
+          "title": "Implementation wrap-up",
+          "note": "Spent the afternoon closing bugs and validating the latest changes.",
+          "categoryId": "work",
+          "subcategoryId": "work.coding",
+          "eventNodeId": "evt.focus_coding",
+          "tags": [
+            "coding"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-meeting-afternoon:2026-04-05T08-10-00-000Z:copy:2026-04-13",
+          "startAt": "2026-04-13T08:10:00.000Z",
+          "endAt": "2026-04-13T08:40:00.000Z",
+          "title": "Afternoon alignment",
+          "note": "Checked release timing with a teammate and reviewed the remaining risks.",
+          "categoryId": "work",
+          "subcategoryId": "work.communication",
+          "eventNodeId": "evt.meeting",
+          "tags": [
+            "alignment"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-reading-review:2026-04-05T08-40-00-000Z:copy:2026-04-13",
+          "startAt": "2026-04-13T08:40:00.000Z",
+          "endAt": "2026-04-13T09:30:00.000Z",
+          "title": "Read and review",
+          "note": "Revisited the day notes and wrote down a few improvements for later.",
+          "categoryId": "study",
+          "subcategoryId": "study.review",
+          "eventNodeId": "evt.reading",
+          "tags": [
+            "review"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-dinner:2026-04-05T09-30-00-000Z:copy:2026-04-13",
+          "startAt": "2026-04-13T09:30:00.000Z",
+          "endAt": "2026-04-13T10:10:00.000Z",
+          "title": "Dinner",
+          "note": "Kept dinner simple and let the workday fully release.",
+          "categoryId": "life",
+          "subcategoryId": "life.meal",
+          "eventNodeId": "evt.dinner",
+          "tags": [
+            "dinner"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-chat-night:2026-04-05T10-10-00-000Z:copy:2026-04-13",
+          "startAt": "2026-04-13T10:10:00.000Z",
+          "endAt": "2026-04-13T11:00:00.000Z",
+          "title": "Reply to messages",
+          "note": "Caught up on messages that had been waiting since earlier in the day.",
+          "categoryId": "social",
+          "subcategoryId": "social.chat",
+          "eventNodeId": "evt.chatting",
+          "tags": [
+            "messages"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-cleanup-night:2026-04-05T11-00-00-000Z:copy:2026-04-13",
+          "startAt": "2026-04-13T11:00:00.000Z",
+          "endAt": "2026-04-13T11:40:00.000Z",
+          "title": "Home reset",
+          "note": "Reset the kitchen and workspace so the next day starts cleaner.",
+          "categoryId": "life",
+          "subcategoryId": "life.chores",
+          "eventNodeId": "evt.cleanup",
+          "tags": [
+            "reset"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-show-night:2026-04-05T11-40-00-000Z:copy:2026-04-13",
+          "startAt": "2026-04-13T11:40:00.000Z",
+          "endAt": "2026-04-13T12:30:00.000Z",
+          "title": "Video break",
+          "note": "Watched something light without adding another high-focus task.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.video",
+          "eventNodeId": "evt.watch_show",
+          "tags": [
+            "video"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-phone-scroll:2026-04-05T12-30-00-000Z:copy:2026-04-13",
+          "startAt": "2026-04-13T12:30:00.000Z",
+          "endAt": "2026-04-13T13:10:00.000Z",
+          "title": "Phone scroll",
+          "note": "Spent a contained amount of time on social feeds before shutting down.",
+          "categoryId": "entertainment",
+          "subcategoryId": "entertainment.social_media",
+          "eventNodeId": "evt.phone_scroll",
+          "tags": [
+            "social media"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-workout:2026-04-05T13-10-00-000Z:copy:2026-04-13",
+          "startAt": "2026-04-13T13:10:00.000Z",
+          "endAt": "2026-04-13T13:55:00.000Z",
+          "title": "Late workout",
+          "note": "Did a short home workout to shake off the day physically.",
+          "categoryId": "exercise",
+          "subcategoryId": "exercise.workout",
+          "eventNodeId": "evt.workout",
+          "tags": [
+            "workout"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-shower-night:2026-04-05T13-55-00-000Z:copy:2026-04-13",
+          "startAt": "2026-04-13T13:55:00.000Z",
+          "endAt": "2026-04-13T14:20:00.000Z",
+          "title": "Shower",
+          "note": "Ended the day with a shower and eased all the way into sleep mode.",
+          "categoryId": "life",
+          "subcategoryId": "life.hygiene",
+          "eventNodeId": "evt.shower",
+          "tags": [
+            "shower"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        },
+        {
+          "id": "fact:demo-sleep-late:2026-04-05:copy:2026-04-13",
+          "startAt": "2026-04-13T14:20:00.000Z",
+          "endAt": "2026-04-13T15:40:00.000Z",
+          "title": "Sleep (night)",
+          "note": "Went to sleep for the night and split the early-morning segment into the next day.",
+          "categoryId": "rest",
+          "subcategoryId": "rest.sleep",
+          "eventNodeId": "evt.sleep",
+          "tags": [
+            "sleep"
+          ],
+          "confidence": 0.86,
+          "sourceMessageIds": []
+        }
+      ]
+    }
+  }
+}

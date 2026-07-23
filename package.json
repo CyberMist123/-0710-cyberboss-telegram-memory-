@@ -40,8 +40,8 @@
     "dotenv": "^16.4.7",
     "qrcode-terminal": "0.12.0",
     "sharp": "^0.34.5",
-    "timeline-for-agent": "github:WenXiaoWendy/timeline-for-agent#main",
-    "whereabouts-mcp": "github:WenXiaoWendy/whereabouts-mcp#main",
+    "timeline-for-agent": "file:vendor/timeline-for-agent",
+    "whereabouts-mcp": "file:vendor/whereabouts-mcp",
     "ws": "^8.19.0"
   }
 }
