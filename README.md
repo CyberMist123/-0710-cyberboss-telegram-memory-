@@ -5,6 +5,7 @@
 **关系连续性记忆 · Relationship Continuity Memory**
 
 基于 [`AngeliaSama/cyberboss-deepseek`](https://github.com/AngeliaSama/cyberboss-deepseek) 的 Telegram + 关系记忆扩展。
+【现已上传所有api key已失效，懒得改设置了】
 
 </div>
 
