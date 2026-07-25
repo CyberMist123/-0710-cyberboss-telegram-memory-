@@ -37,7 +37,13 @@ def log(message: str, log_file: Path) -> None:
 
 
 def load_descriptor(file_path: Path) -> dict:
-    value = json.loads(file_path.read_text(encoding="utf-8"))
+    raw = file_path.read_bytes()
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raise ValueError("release descriptor must be UTF-8 without BOM")
+    try:
+        value = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("release descriptor is not valid UTF-8 JSON") from error
     missing = [field for field in REQUIRED if field not in value]
     if missing:
         raise ValueError(f"release descriptor missing: {', '.join(missing)}")
@@ -129,13 +135,41 @@ def launch_active_release(descriptor: dict) -> None:
     log(f"launched active release {descriptor['active_release_id']} via {target}", log_file)
 
 
-def verify_watchdog_owner(pid_file: Path) -> None:
+def watchdog_identity(row: dict, descriptor_path: Path) -> bool:
+    """Only count a cyberboss watchdog that names this exact descriptor.
+
+    A PID is never trusted by name alone: Windows can reuse it and other
+    projects can legitimately run a Python watchdog with the same basename.
+    """
+    command = str((row or {}).get("CommandLine") or "")
+    tokens = command.replace('"', ' ').split()
+    descriptor = normalize(str(descriptor_path))
+    script_tokens = [normalize(token) for token in tokens if token.lower().endswith("watchdog.py")]
+    return any("cyberboss" in token for token in script_tokens) and descriptor in [normalize(token) for token in tokens]
+
+
+def watchdog_rows() -> list[dict]:
+    if os.name != "nt":
+        return []
+    script = "$p=Get-CimInstance Win32_Process -ErrorAction Stop|Where-Object {$_.CommandLine -match 'watchdog\\.py'};$p|Select-Object ProcessId,ExecutablePath,CommandLine|ConvertTo-Json -Compress"
+    result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True, text=True, timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    if result.returncode != 0 or not result.stdout.strip(): return []
+    value = json.loads(result.stdout)
+    return value if isinstance(value, list) else [value]
+
+
+def verify_watchdog_owner(pid_file: Path, descriptor_path: Path) -> None:
     existing = read_pid(pid_file)
     if existing and existing != os.getpid():
         row = process_row(existing)
-        command = str((row or {}).get("CommandLine") or "").lower()
-        if row and "watchdog.py" in command:
+        if row and watchdog_identity(row, descriptor_path):
             raise RuntimeError(f"watchdog already running with verified pid {existing}")
+    # Do not rely on the owner-directory PID file: old and new releases used
+    # different directories.  Scan process identity so two valid owners fail
+    # closed instead of silently becoming dual watchdogs.
+    for row in watchdog_rows():
+        if int(row.get("ProcessId") or 0) != os.getpid() and watchdog_identity(row, descriptor_path):
+            raise RuntimeError(f"watchdog already running with verified pid {row.get('ProcessId')}")
     pid_file.parent.mkdir(parents=True, exist_ok=True)
     pid_file.write_text(str(os.getpid()), encoding="utf-8")
 
@@ -160,15 +194,23 @@ def main() -> int:
     descriptor_path = args.descriptor.resolve()
     descriptor = load_descriptor(descriptor_path)
     log_file, pid_file = owner_paths(descriptor)
-    verify_watchdog_owner(pid_file)
+    verify_watchdog_owner(pid_file, descriptor_path)
     try:
         while True:
             try:
                 check_once(descriptor_path, log_file)
             except Exception as error:
-                log(f"check failed: {error}", log_file)
+                # The service remains alive after a broken descriptor or a
+                # transient OS error.  Log only the error class/message (no
+                # descriptor contents or stack) and suppress identical noise.
+                marker = f"{type(error).__name__}: {error}"
+                if marker != getattr(main, "last_error", None):
+                    log(f"check failed (will retry): {marker}", log_file)
+                    main.last_error = marker
                 if args.once:
                     raise
+            else:
+                main.last_error = None
             if args.once:
                 return 0
             time.sleep(max(1.0, args.interval))

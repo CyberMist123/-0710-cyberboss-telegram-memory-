@@ -239,20 +239,18 @@ function runWriter(manifest) {
   });
 }
 
-test("manifest writer atomically replaces a descriptor as UTF-8 without BOM", () => {
+test("legacy manifest writer is retired so it cannot overwrite the formal descriptor", () => {
   const root = tempRoot();
   const descriptorPath = path.join(root, "external", "current.json");
   fs.mkdirSync(path.dirname(descriptorPath), { recursive: true });
   fs.writeFileSync(descriptorPath, '{"old":true}\n', "utf8");
   const result = runWriter(manifestForWriter(root, descriptorPath));
-  assert.equal(result.status, 0, result.stderr);
-  const raw = fs.readFileSync(descriptorPath);
-  assert.equal(raw.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])), false);
-  assert.equal(loadReleaseDescriptor(descriptorPath, { requireExistingPaths: true }).active_release_id, "phase1");
-  assert.equal(fs.readdirSync(path.dirname(descriptorPath)).filter((name) => /\.(tmp|bak)$/.test(name)).length, 0);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Write-TelegramDescriptor is retired/);
+  assert.equal(fs.readFileSync(descriptorPath, "utf8"), '{"old":true}\n');
 });
 
-test("manifest writer preserves the old descriptor and cleans temp files when preflight fails", () => {
+test("legacy manifest writer fails closed before it can alter a descriptor", () => {
   const root = tempRoot();
   const descriptorPath = path.join(root, "external", "current.json");
   fs.mkdirSync(path.dirname(descriptorPath), { recursive: true });
@@ -262,7 +260,7 @@ test("manifest writer preserves the old descriptor and cleans temp files when pr
   manifest.rollback.telegram_entry = path.join(root, "legacy", "bin", "missing-cyberboss.js");
   const result = runWriter(manifest);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /rollback\.telegram_entry does not exist/);
+  assert.match(result.stderr, /Write-TelegramDescriptor is retired/);
   assert.equal(fs.readFileSync(descriptorPath, "utf8"), old);
   assert.equal(fs.readdirSync(path.dirname(descriptorPath)).filter((name) => /\.(tmp|bak)$/.test(name)).length, 0);
 });
@@ -274,6 +272,35 @@ test("watchdog is release-only and can parse its CLI", () => {
   const python = process.env.PYTHON || "python";
   const result = spawnSync(python, [path.join(__dirname, "..", "extensions", "relationship-memory", "launcher", "watchdog.py"), "--help"], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
+});
+
+test("watchdog descriptor reader rejects BOM, malformed JSON, and missing fields", () => {
+  const root = tempRoot();
+  const watchdog = path.join(__dirname, "..", "extensions", "relationship-memory", "launcher", "watchdog.py");
+  const probe = `import importlib.util,sys
+s=importlib.util.spec_from_file_location('w',sys.argv[1])
+m=importlib.util.module_from_spec(s)
+s.loader.exec_module(m)
+try:
+ m.load_descriptor(__import__('pathlib').Path(sys.argv[2]))
+except Exception as e:
+ print(type(e).__name__+':'+str(e))
+else:
+ raise SystemExit('unexpected success')`;
+  for (const [name, content, expected] of [["bom", Buffer.from([0xef,0xbb,0xbf,0x7b,0x7d]), /without BOM/], ["json", "{ nope", /valid UTF-8 JSON/], ["fields", "{}", /missing/]]) {
+    const file = path.join(root, `${name}.json`); fs.writeFileSync(file, content);
+    const result = spawnSync(process.env.PYTHON || "python", ["-c", probe, watchdog, file], { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, expected);
+  }
+});
+
+test("watchdog owner check uses descriptor-scoped process identity and retries without stack spam", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "extensions", "relationship-memory", "launcher", "watchdog.py"), "utf8");
+  assert.match(source, /watchdog_rows\(\)/);
+  assert.match(source, /descriptor_path/);
+  assert.match(source, /will retry/);
+  assert.doesNotMatch(source, /log\(f"check failed: \{error\}"/);
 });
 
 test("dashboard is isolated from TG watchdog and automatic memory writes remain disabled", () => {

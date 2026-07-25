@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
   [string]$ManifestPath = "",
+  [string]$DescriptorPath = "",
   [string]$Date = ""
 )
 
@@ -13,17 +14,50 @@ $ErrorActionPreference = "Stop"
 
 $manifest = Read-CyberlinkManifest -PathHint $ManifestPath
 
-$appRoot = [string]$manifest.telegram.app_root
-$logDir = [string]$manifest.telegram.log_dir
+function Read-CurrentReleaseDescriptor {
+  param([string]$PathHint)
+  $candidate = $PathHint
+  if ([string]::IsNullOrWhiteSpace($candidate)) {
+    $root = [Environment]::GetEnvironmentVariable('CYBERLINK_ROOT', 'Process')
+    if ($root) { $candidate = Join-Path $root 'deployment\current.json' }
+  }
+  if ([string]::IsNullOrWhiteSpace($candidate) -or -not (Test-Path -LiteralPath $candidate -PathType Leaf)) { return $null }
+  $bytes = [IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $candidate))
+  if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xef -and $bytes[1] -eq 0xbb -and $bytes[2] -eq 0xbf) { throw 'deployment/current.json must be UTF-8 without BOM' }
+  try { $value = [Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json -ErrorAction Stop } catch { throw 'deployment/current.json is invalid JSON' }
+  foreach ($field in @('active_release_id','telegram_entry','config_dir','state_dir','log_dir','pid_file','watchdog_target','rollback_release','last_verified_sha')) {
+    if (-not $value.PSObject.Properties.Name.Contains($field) -or [string]::IsNullOrWhiteSpace([string]$value.$field)) { throw "deployment/current.json missing required field: $field" }
+  }
+  return $value
+}
+
+$descriptor = Read-CurrentReleaseDescriptor -PathHint $DescriptorPath
+if ($descriptor) {
+  # A production descriptor is the sole Telegram topology authority.  A
+  # disagreement is unsafe: do not silently regenerate or overwrite it.
+  foreach ($pair in @(@('entry','telegram_entry'), @('pid_file','pid_file'), @('watchdog_target','watchdog_target'))) {
+    $legacy = [string]$manifest.telegram.($pair[0]); $active = [string]$descriptor.($pair[1])
+    if ($legacy -and $legacy -ne $active) { throw "settings manifest conflicts with deployment/current.json for Telegram $($pair[0]); refusing nightly run" }
+  }
+  $appRoot = Split-Path -Parent (Split-Path -Parent ([string]$descriptor.telegram_entry))
+  $logDir = [string]$descriptor.log_dir
+  $env:CYBERBOSS_STATE_DIR = [string]$descriptor.state_dir
+  $env:CYBERBOSS_CONFIG_DIR = [string]$descriptor.config_dir
+} else {
+  # Bootstrap only: no formal descriptor exists, so historical manifest
+  # behaviour is explicit rather than an accidental rollback mechanism.
+  $appRoot = [string]$manifest.telegram.app_root
+  $logDir = [string]$manifest.telegram.log_dir
+  $env:CYBERBOSS_STATE_DIR = [string]$manifest.telegram.state_dir
+  $env:CYBERBOSS_CONFIG_DIR = [string]$manifest.telegram.config_dir
+}
 if ([string]::IsNullOrWhiteSpace($logDir)) {
-  $logDir = Join-Path ([string]$manifest.telegram.state_dir) "logs"
+  $logDir = Join-Path $env:CYBERBOSS_STATE_DIR "logs"
 }
 $logFile = Join-Path $logDir "continuity-nightly.log"
 
-$env:CYBERBOSS_STATE_DIR = [string]$manifest.telegram.state_dir
 $env:CYBERBOSS_WORKSPACE = [string]$manifest.workspace_root
 $env:CYBERBOSS_WORKSPACE_ROOT = [string]$manifest.workspace_root
-$env:CYBERBOSS_CONFIG_DIR = [string]$manifest.telegram.config_dir
 $env:CYBERBOSS_ENV_FILE = [string]$manifest.telegram.env_file
 
 # Auto Review model key: reuse the DeepSeek key from the soft-retrieval env file.

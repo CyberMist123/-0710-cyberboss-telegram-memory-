@@ -172,6 +172,10 @@ function Write-TelegramDescriptor {
     [Parameter(Mandatory = $true)]$Manifest
   )
 
+  # settings/manifest.json is deliberately not a release-topology authority.
+  # Keeping this historical function fail-closed prevents a nightly/deploy
+  # helper from reconstructing and silently reverting deployment/current.json.
+  throw 'Write-TelegramDescriptor is retired. Use runtime-startup/install-release-descriptor.ps1 with an audited candidate and explicit hashes.'
   $descriptorPath = Resolve-DescriptorAbsolutePath -Value ([string]$Manifest.telegram.descriptor_path) -Field 'descriptor_path'
   if (-not $Manifest.PSObject.Properties.Name.Contains('rollback')) {
     throw 'Manifest field missing: rollback'
