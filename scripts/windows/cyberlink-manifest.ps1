@@ -143,8 +143,6 @@ function Assert-DescriptorTarget {
   if (-not (Test-DescriptorChildPath -Parent $paths.state_dir -Child $paths.pid_file)) {
     throw "$Name.pid_file must belong to $Name.state_dir."
   }
-  # The launcher creates the PID file after it reads this descriptor. The
-  # activation gate enforces that an already-active descriptor has a PID file.
   foreach ($field in @('telegram_entry', 'watchdog_target')) {
     if (-not (Test-Path -LiteralPath $paths[$field] -PathType Leaf)) {
       throw "$Name.$field does not exist as a file: $($paths[$field])"
@@ -153,6 +151,17 @@ function Assert-DescriptorTarget {
   foreach ($field in @('config_dir', 'state_dir', 'log_dir')) {
     if (-not (Test-Path -LiteralPath $paths[$field] -PathType Container)) {
       throw "$Name.$field does not exist as a directory: $($paths[$field])"
+    }
+  }
+  $pidParent = Split-Path -Parent $paths.pid_file
+  if (-not (Test-Path -LiteralPath $pidParent -PathType Container)) {
+    throw "$Name.pid_file parent directory does not exist: $pidParent"
+  }
+  if (Test-Path -LiteralPath $paths.pid_file) {
+    $pidItem = Get-Item -LiteralPath $paths.pid_file -Force
+    $isReparsePoint = (($pidItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)
+    if (-not ($pidItem -is [System.IO.FileInfo]) -or $isReparsePoint) {
+      throw "$Name.pid_file must be a regular file when present: $($paths.pid_file)"
     }
   }
   return [pscustomobject]@{ release_id = $releaseId; last_verified_sha = $sha; release_path = $releasePath; paths = $paths }
@@ -194,6 +203,12 @@ function Write-TelegramDescriptor {
   }
   if ([string]::Equals($active.release_id, $rollback.release_id, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw 'active.release_id and rollback.release_id must be distinct.'
+  }
+  if (Test-DescriptorChildPath -Parent $rollback.release_path -Child $active.paths.pid_file) {
+    throw 'active.pid_file must be outside rollback.release_path.'
+  }
+  if (Test-DescriptorChildPath -Parent $active.release_path -Child $rollback.paths.pid_file) {
+    throw 'rollback.pid_file must be outside active.release_path.'
   }
   $descriptorDir = Split-Path -Parent $descriptorPath
   if (-not (Test-Path -LiteralPath $descriptorDir -PathType Container)) {

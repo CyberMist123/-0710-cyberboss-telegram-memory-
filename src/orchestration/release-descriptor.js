@@ -74,14 +74,22 @@ function validateTarget(value, target, releaseId, options, errors) {
     if (!fs.existsSync(releasePath) || !fs.statSync(releasePath).isDirectory()) {
       addPathError(errors, target, "release_path", "does not exist as a directory");
     }
-    for (const field of ["telegram_entry", "watchdog_target", "config_dir", "state_dir", "log_dir", "pid_file"]) {
+    for (const field of ["telegram_entry", "watchdog_target", "config_dir", "state_dir", "log_dir"]) {
       if (!paths[field]) continue;
       if (!fs.existsSync(paths[field])) {
         addPathError(errors, target, field, "does not exist");
-      } else if (["telegram_entry", "watchdog_target", "pid_file"].includes(field) && !fs.statSync(paths[field]).isFile()) {
+      } else if (["telegram_entry", "watchdog_target"].includes(field) && !fs.statSync(paths[field]).isFile()) {
         addPathError(errors, target, field, "must be a file");
       } else if (["config_dir", "state_dir", "log_dir"].includes(field) && !fs.statSync(paths[field]).isDirectory()) {
         addPathError(errors, target, field, "must be a directory");
+      }
+    }
+    if (paths.pid_file) {
+      const pidParent = path.dirname(paths.pid_file);
+      if (!fs.existsSync(pidParent) || !fs.statSync(pidParent).isDirectory()) {
+        addPathError(errors, target, "pid_file", "parent directory does not exist");
+      } else if (fs.existsSync(paths.pid_file) && !fs.lstatSync(paths.pid_file).isFile()) {
+        addPathError(errors, target, "pid_file", "must be a regular file when present");
       }
     }
   }
@@ -124,6 +132,12 @@ function validateReleaseDescriptor(value, options = {}) {
     }
     if (value.active_release_id === value.rollback_release.release_id) {
       errors.push("active.release_id and rollback.release_id: must be distinct");
+    }
+    if (active.paths.pid_file && isWithin(rollback.releasePath, active.paths.pid_file)) {
+      addPathError(errors, "active", "pid_file", "must be outside rollback.release_path");
+    }
+    if (rollback.paths.pid_file && isWithin(active.releasePath, rollback.paths.pid_file)) {
+      addPathError(errors, "rollback", "pid_file", "must be outside active.release_path");
     }
   }
   const sensitiveFields = [];

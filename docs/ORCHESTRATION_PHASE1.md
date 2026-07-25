@@ -7,8 +7,16 @@ contains only its schema, example, loader, validation, and atomic rollback tool.
 `current.json` is UTF-8 without a BOM. Before an activation or rollback can
 replace it, the control plane validates both the active and rollback targets:
 their inferred release directories, Telegram entries, watchdog targets,
-external state/log/PID paths, and release identities must all be complete and
-present. A failed preflight leaves the previous descriptor untouched.
+external state/log/PID paths, and release identities must all be valid. The
+descriptor preflight checks static paths: a PID path must have an existing
+external parent directory, but the PID file may be absent before startup. If it
+already exists, it must be a regular file. A failed preflight leaves the
+previous descriptor untouched.
+
+PID contents and the real process identity are post-start health checks. They
+are intentionally not part of static descriptor `--require-existing`
+validation, and an inactive rollback release is not expected to have a running
+process.
 
 The scheduled task `cyberboss-watchdog` is the sole Telegram auto-recovery
 owner. It reads the active release from `current.json`, validates the PID against

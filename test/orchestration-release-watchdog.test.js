@@ -62,6 +62,54 @@ test("complete active and rollback descriptors pass strict existing-path validat
   assert.equal(validateReleaseDescriptor(value, { requireExistingPaths: true }).ok, true);
 });
 
+test("strict validation allows a missing active PID file when its parent exists", () => {
+  const value = descriptor(tempRoot());
+  materializeDescriptor(value);
+  fs.unlinkSync(value.pid_file);
+  assert.equal(validateReleaseDescriptor(value, { requireExistingPaths: true }).ok, true);
+});
+
+test("rollback preflight allows an inactive release PID file to be absent", () => {
+  const root = tempRoot();
+  const file = path.join(root, "current.json");
+  const value = descriptor(root);
+  materializeDescriptor(value);
+  fs.unlinkSync(value.rollback_release.pid_file);
+  fs.writeFileSync(file, JSON.stringify(value), "utf8");
+  const next = rollbackReleaseDescriptor(file);
+  assert.equal(next.active_release_id, "legacy");
+  assert.equal(loadReleaseDescriptor(file, { requireExistingPaths: true }).active_release_id, "legacy");
+});
+
+test("strict validation rejects a PID path whose parent directory is missing", () => {
+  const value = descriptor(tempRoot());
+  materializeDescriptor(value);
+  fs.unlinkSync(value.pid_file);
+  value.pid_file = path.join(value.state_dir, "missing-parent", "cyberboss.pid");
+  const result = validateReleaseDescriptor(value, { requireExistingPaths: true });
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /active\.pid_file: parent directory does not exist/);
+});
+
+test("strict validation rejects an existing PID path that is a directory", () => {
+  const value = descriptor(tempRoot());
+  materializeDescriptor(value);
+  fs.unlinkSync(value.pid_file);
+  fs.mkdirSync(value.pid_file);
+  const result = validateReleaseDescriptor(value, { requireExistingPaths: true });
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /active\.pid_file: must be a regular file when present/);
+});
+
+test("strict validation rejects a PID path inside the other release directory", () => {
+  const value = descriptor(tempRoot());
+  materializeDescriptor(value);
+  value.pid_file = path.join(path.dirname(path.dirname(value.rollback_release.telegram_entry)), "active.pid");
+  const result = validateReleaseDescriptor(value);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /active\.pid_file: must be outside rollback\.release_path/);
+});
+
 test("release descriptor rejects a PID file outside its release state directory", () => {
   const value = descriptor(tempRoot());
   value.pid_file = path.join(os.tmpdir(), "somewhere-else", "cyberboss.pid");
@@ -94,11 +142,11 @@ test("strict validation rejects rollback missing entry or watchdog target", () =
   }
 });
 
-test("strict validation rejects rollback missing state, log, or PID path", () => {
-  for (const field of ["state_dir", "log_dir", "pid_file"]) {
+test("strict validation rejects rollback missing state or log directory", () => {
+  for (const field of ["state_dir", "log_dir"]) {
     const value = descriptor(tempRoot());
     materializeDescriptor(value);
-    fs.rmSync(value.rollback_release[field], { recursive: field !== "pid_file", force: true });
+    fs.rmSync(value.rollback_release[field], { recursive: true, force: true });
     const result = validateReleaseDescriptor(value, { requireExistingPaths: true });
     assert.equal(result.ok, false, field);
     assert.match(result.errors.join("\n"), new RegExp(`rollback\\.${field}: does not exist`));
