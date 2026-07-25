@@ -72,12 +72,39 @@ function makeAdapter() {
   };
 }
 
+// Build a second adapter over the same state directory, so a test can write
+// pre-v2 state with one instance and then exercise construction-time migration
+// with another.
+function makeAdapterAt(previous) {
+  const launchLog = path.join(previous.tempDir, "launches.jsonl");
+  fs.writeFileSync(launchLog, "");
+  process.env.CB_FAKE_LAUNCH_LOG = launchLog;
+  process.env.CB_FAKE_COUNTER = path.join(previous.tempDir, "counter");
+  const adapter = createClaudeCodeRuntimeAdapter({
+    stateDir: previous.stateDir,
+    sessionsFile: path.join(previous.tempDir, "sessions.json"),
+    claudeSessionSlotsFile: path.join(previous.stateDir, "claude-session-slots.json"),
+    claudeCommand: process.execPath,
+    claudeCommandPrefixArgs: [FAKE_CLI],
+    claudeDisableVerbose: true,
+    claudeLaunchProfileBaseDir: previous.tempDir,
+  });
+  return { ...previous, adapter };
+}
+
 const laneFor = (chatId, messageThreadId) =>
   buildTelegramRouteLane({ accountId: "telegram", chatId, messageThreadId });
 
-async function turn(adapter, { workspaceRoot, lane, launchProfile = null, text = "hi" }) {
+const BINDING_KEY = "default:telegram:500";
+const SENDER_ID = "500";
+
+async function turn(adapter, {
+  workspaceRoot, lane, launchProfile = null, text = "hi",
+  bindingKey = BINDING_KEY, senderId = SENDER_ID,
+}) {
   return adapter.sendTurn({
-    bindingKey: "default:telegram:user-1",
+    bindingKey,
+    senderId,
     workspaceRoot,
     lane,
     launchProfile,
@@ -294,37 +321,84 @@ test("a system-message lane never shares a slot with the Telegram lane it runs b
   assert.equal(new Set([telegramSlot, systemSlot, closeoutSlot]).size, 3);
 });
 
-test("the profile-free lane seeds itself from the pre-v2 session store exactly once", async () => {
-  const { adapter, workspaceRoot, waitForLaunches } = makeAdapter();
+test("the private/default legacy lane migrates the pre-v2 session exactly once", async () => {
   const legacySessionId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-  const lane = laneFor(500, null);
+  const seeded = makeAdapter();
+  // Simulate an upgrade: sessions.json already holds a session for this binding
+  // and workspace, recorded before session slots existed. Written before the
+  // adapter under test is constructed, because the migration reads a snapshot
+  // taken at construction time.
+  seeded.adapter.getSessionStore().setThreadIdForWorkspace(BINDING_KEY, seeded.workspaceRoot, legacySessionId);
+  await seeded.adapter.close();
 
+  const { adapter, workspaceRoot, waitForLaunches } = makeAdapterAt(seeded);
   try {
-    // Simulate an upgrade: sessions.json already holds a session for this
-    // binding and workspace, recorded before session slots existed.
-    adapter.getSessionStore().setThreadIdForWorkspace(
-      "default:telegram:user-1", workspaceRoot, legacySessionId,
-    );
-
-    const resumed = await turn(adapter, { workspaceRoot, lane, launchProfile: null });
-    assert.equal(resumed.threadId, legacySessionId);
+    const resumed = await turn(adapter, { workspaceRoot, lane: laneFor(500, null), launchProfile: null });
+    assert.equal(resumed.threadId, legacySessionId, "the default lane adopted the pre-v2 session");
     assert.equal((await waitForLaunches(1))[0].resumeSessionId, legacySessionId);
+
+    // Clearing the slot must NOT let the migration run a second time: the
+    // marker is permanent.
+    await adapter.startFreshThreadDraft({
+      bindingKey: BINDING_KEY, senderId: SENDER_ID, workspaceRoot, lane: laneFor(500, null),
+    });
+    const afterReset = await turn(adapter, { workspaceRoot, lane: laneFor(500, null), launchProfile: null });
+    assert.notEqual(afterReset.threadId, legacySessionId, "migration did not repeat");
+  } finally {
+    await adapter.close();
+  }
+});
+
+test("a topic lane never migrates the pre-v2 session, and two unmapped topics do not share a transcript", async () => {
+  const legacySessionId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const seeded = makeAdapter();
+  seeded.adapter.getSessionStore().setThreadIdForWorkspace(BINDING_KEY, seeded.workspaceRoot, legacySessionId);
+  await seeded.adapter.close();
+
+  const { adapter, workspaceRoot, readLaunches } = makeAdapterAt(seeded);
+  try {
+    const topicOne = await turn(adapter, { workspaceRoot, lane: laneFor(500, 11), launchProfile: null });
+    const topicTwo = await turn(adapter, { workspaceRoot, lane: laneFor(500, 12), launchProfile: null });
+
+    assert.notEqual(topicOne.threadId, legacySessionId);
+    assert.notEqual(topicTwo.threadId, legacySessionId);
+    assert.notEqual(topicOne.threadId, topicTwo.threadId, "unmapped topics do not share a transcript");
+    for (const entry of readLaunches()) {
+      assert.equal(entry.resumeSessionId, "");
+      assert.equal(entry.argv.includes(legacySessionId), false);
+    }
+  } finally {
+    await adapter.close();
+  }
+});
+
+test("a group's default lane does not qualify as the private/default legacy lane", async () => {
+  const legacySessionId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const seeded = makeAdapter();
+  seeded.adapter.getSessionStore().setThreadIdForWorkspace(BINDING_KEY, seeded.workspaceRoot, legacySessionId);
+  await seeded.adapter.close();
+
+  const { adapter, workspaceRoot, readLaunches } = makeAdapterAt(seeded);
+  try {
+    // chatId is a supergroup id, not the binding's own sender id.
+    const result = await turn(adapter, { workspaceRoot, lane: laneFor(-1001234567890, null), launchProfile: null });
+    assert.notEqual(result.threadId, legacySessionId);
+    assert.equal(readLaunches()[0].resumeSessionId, "");
   } finally {
     await adapter.close();
   }
 });
 
 test("a profiled lane does NOT inherit the pre-v2 session of its binding", async () => {
-  const { adapter, tempDir, workspaceRoot, readLaunches } = makeAdapter();
-  const legacySessionId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const legacySessionId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+  const seeded = makeAdapter();
+  seeded.adapter.getSessionStore().setThreadIdForWorkspace(BINDING_KEY, seeded.workspaceRoot, legacySessionId);
+  await seeded.adapter.close();
+
+  const { adapter, tempDir, workspaceRoot, readLaunches } = makeAdapterAt(seeded);
   const profile = validateLaunchProfile({ profileId: "safe", effort: "low" }, { baseDir: tempDir });
-
   try {
-    adapter.getSessionStore().setThreadIdForWorkspace(
-      "default:telegram:user-1", workspaceRoot, legacySessionId,
-    );
     const result = await turn(adapter, { workspaceRoot, lane: laneFor(500, null), launchProfile: profile });
-
     assert.notEqual(result.threadId, legacySessionId);
     assert.equal(readLaunches()[0].resumeSessionId, "");
     assert.equal(readLaunches()[0].argv.includes(legacySessionId), false);
@@ -333,7 +407,60 @@ test("a profiled lane does NOT inherit the pre-v2 session of its binding", async
   }
 });
 
-test("the slot store keeps session ids opaque on disk", () => {
+test("resumeThread refuses a session id that is not this slot's own", async () => {
+  const { adapter, workspaceRoot } = makeAdapter();
+  const foreign = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+  try {
+    const first = await turn(adapter, { workspaceRoot, lane: laneFor(500, 21), launchProfile: null });
+    const refused = await adapter.resumeThread({
+      bindingKey: BINDING_KEY,
+      senderId: SENDER_ID,
+      workspaceRoot,
+      lane: laneFor(500, 21),
+      threadId: foreign,
+    });
+    assert.equal(refused.resumed, false);
+    assert.equal(refused.refused, "slot_mismatch");
+    assert.equal(refused.threadId, first.threadId);
+
+    // A lane with no slot session refuses rather than adopting the id.
+    const empty = await adapter.resumeThread({
+      bindingKey: BINDING_KEY,
+      senderId: SENDER_ID,
+      workspaceRoot,
+      lane: laneFor(500, 22),
+      threadId: foreign,
+    });
+    assert.equal(empty.resumed, false);
+    assert.equal(empty.refused, "no_slot_session");
+  } finally {
+    await adapter.close();
+  }
+});
+
+test("restorable slots are listed per lane with their own route, never per binding", async () => {
+  const { adapter, tempDir, workspaceRoot } = makeAdapter();
+  const profile = validateLaunchProfile({ profileId: "safe", effort: "low" }, { baseDir: tempDir });
+  try {
+    const a = await turn(adapter, { workspaceRoot, lane: laneFor(500, null), launchProfile: null });
+    const b = await turn(adapter, { workspaceRoot, lane: laneFor(500, 31), launchProfile: profile });
+
+    const slots = adapter.listRestorableSlots();
+    assert.equal(slots.length, 2);
+    const byThread = new Map(slots.map((slot) => [slot.threadId, slot.route]));
+    assert.equal(byThread.get(a.threadId).messageThreadId, null);
+    assert.equal(byThread.get(b.threadId).messageThreadId, "31");
+    assert.equal(byThread.get(b.threadId).profileId, "safe");
+    for (const slot of slots) {
+      assert.equal(slot.route.workspaceRoot, workspaceRoot);
+      assert.notEqual(slot.route.laneKind, "sys");
+    }
+  } finally {
+    await adapter.close();
+  }
+});
+
+test("the slot key is opaque and the slot file is owner-only", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cb-slotstore-"));
   const filePath = path.join(dir, "slots.json");
   const store = new SessionSlotStore({ filePath });
@@ -346,9 +473,16 @@ test("the slot store keeps session ids opaque on disk", () => {
   store.setThreadId(slotKey, "dddddddd-dddd-4ddd-8ddd-dddddddddddd");
   store.setContextFingerprint(slotKey, "fp-1");
 
-  const onDisk = fs.readFileSync(filePath, "utf8");
-  assert.equal(onDisk.includes("987654321"), false, "chat id must not be stored in plaintext");
-  assert.equal(onDisk.includes("/secret/workspace"), false, "workspace path must not be stored in plaintext");
+  // The slot *key* encodes nothing readable.
+  assert.match(slotKey, /^[0-9a-f]{64}$/);
+  assert.equal(slotKey.includes("987654321"), false);
+  // The record itself carries the route descriptor needed for startup restore.
+  // That is local state with the same sensitivity as sessions.json, so the file
+  // is written owner-only; the telemetry rules are what keep these values from
+  // leaving the process.
+  if (process.platform !== "win32") {
+    assert.equal(fs.statSync(filePath).mode & 0o077, 0, "slot file must not be group/world readable");
+  }
 
   const reloaded = new SessionSlotStore({ filePath });
   assert.equal(reloaded.getThreadId(slotKey), "dddddddd-dddd-4ddd-8ddd-dddddddddddd");

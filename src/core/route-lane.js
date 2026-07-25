@@ -315,6 +315,44 @@ function describeLaneShape(lane) {
   });
 }
 
+/**
+ * Rebuild a lane object from a persisted route descriptor.
+ *
+ * Used by startup restore, which iterates saved session slots rather than
+ * bindings. Returns null when the descriptor is not a lane this build knows how
+ * to rebuild, so an unrecognised record is skipped instead of guessed at.
+ */
+function rebuildLaneFromDescriptor(descriptor) {
+  if (!descriptor || typeof descriptor !== "object") {
+    return null;
+  }
+  try {
+    if (descriptor.laneKind === LANE_KIND_TELEGRAM) {
+      const lane = buildTelegramRouteLane({
+        accountId: descriptor.accountId,
+        chatId: descriptor.chatId,
+        messageThreadId: descriptor.messageThreadId ?? null,
+      });
+      // A descriptor whose fields no longer produce its recorded key belongs to
+      // a different lane encoding; refuse rather than restore the wrong lane.
+      return lane.laneKey === descriptor.laneKey ? lane : null;
+    }
+    if (descriptor.laneKind === LANE_KIND_SYSTEM) {
+      return null;
+    }
+    if (descriptor.laneKind === LANE_KIND_LEGACY) {
+      const lane = buildLegacyRouteLane({
+        provider: descriptor.provider,
+        bindingKey: descriptor.bindingKey,
+      });
+      return lane.laneKey === descriptor.laneKey ? lane : null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 function isSameLane(left, right) {
   const leftKey = typeof left === "string" ? left : left?.laneKey;
   const rightKey = typeof right === "string" ? right : right?.laneKey;
@@ -338,5 +376,6 @@ module.exports = {
   describeLaneShape,
   isSameLane,
   normalizeInboundMessageThreadId,
+  rebuildLaneFromDescriptor,
   resolveInboundRouteLane,
 };

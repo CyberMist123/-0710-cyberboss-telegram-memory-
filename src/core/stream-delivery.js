@@ -125,18 +125,17 @@ class StreamDelivery {
       return normalizeReplyTarget(queuedTargets[0]);
     }
 
-    // Session-scoped target before binding-scoped target: the session id
-    // identifies exactly one lane, the binding key does not.
+    // Session-scoped target. The session id identifies exactly one lane.
     const threadTarget = this.replyTargetByThreadId.get(normalizedThreadId);
     if (threadTarget) {
       return normalizeReplyTarget(threadTarget);
     }
 
-    const linked = this.sessionStore.findBindingForThreadId(normalizedThreadId);
-    if (!linked?.bindingKey) {
-      return null;
-    }
-    return normalizeReplyTarget(this.replyTargetByBindingKey.get(linked.bindingKey));
+    // Fail closed. A binding-scoped target is shared by every lane that binding
+    // owns, so using it here would deliver an unlocatable reply into whichever
+    // topic replied most recently. Callers that legitimately have no lane pass
+    // an explicit fallback target instead.
+    return null;
   }
 
   async handleRuntimeEvent(event) {
@@ -245,14 +244,23 @@ class StreamDelivery {
         this.applyThreadReplyTarget(state, threadTarget);
       }
     }
+    if (!state.threadReplyTargetAttached) {
+      const sessionTarget = this.replyTargetByThreadId.get(state.threadId);
+      if (sessionTarget) {
+        this.applyThreadReplyTarget(state, sessionTarget);
+      }
+    }
     const linked = this.sessionStore.findBindingForThreadId(state.threadId);
     if (!linked?.bindingKey) {
       return;
     }
+    // The binding is still recorded (deferred-reply prefixes are binding-scoped
+    // by design), but it may only supply a reply *target* when no lane-scoped
+    // target exists for this session -- and never when one lane has already
+    // claimed the run.
     state.bindingKey = linked.bindingKey;
-    if (!state.replyTarget) {
-      const target = this.replyTargetByBindingKey.get(linked.bindingKey);
-      state.replyTarget = target;
+    if (!state.replyTarget && !this.replyTargetByThreadId.has(state.threadId)) {
+      state.replyTarget = this.replyTargetByBindingKey.get(linked.bindingKey);
     }
     if (!state.deferredReplyPrefix) {
       const prefix = this.deferredReplyPrefixByBindingKey.get(linked.bindingKey) || "";

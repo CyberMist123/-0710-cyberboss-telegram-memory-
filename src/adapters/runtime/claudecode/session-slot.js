@@ -20,12 +20,21 @@ const { writeJsonAtomic } = require("../../../orchestration/atomic-json");
 //   * the same profile in two different topics still gets two slots.
 //   * the same topic and profile keeps resuming one slot.
 //
-// Long-term continuity is shared through memory/reentry injection, never by
-// pointing two lanes at one Claude transcript.
+// The slot store is the ONLY runtime authority for a resume id. `sessions.json`
+// remains a continuity / reverse-index mirror, but it is never read as a resume
+// source, command target, approval target, restore target or process selector.
+// The single exception is a one-shot, explicitly marked migration of the
+// private/default legacy lane, recorded here so it can never be applied twice.
+//
+// The record carries the route descriptor needed to restore a slot at startup.
+// This file is local state written 0600 alongside `sessions.json`, which
+// already holds accountId/senderId; the *telemetry* rules in
+// core/route-telemetry.js are what forbid these values leaving the process.
 
 const SLOT_VERSION = 2;
-const SLOT_STORE_VERSION = 2;
+const SLOT_STORE_VERSION = 3;
 const MAX_SLOTS = 512;
+const MAX_MIGRATION_MARKERS = 512;
 
 function encodePart(value) {
   if (value === null || value === undefined) {
@@ -36,10 +45,7 @@ function encodePart(value) {
 }
 
 /**
- * Opaque, stable slot key.
- *
- * Hashed rather than concatenated so the on-disk state file never contains a
- * chat id, topic id or filesystem path in plaintext.
+ * Opaque, stable slot key. Hashed so the key itself encodes nothing readable.
  */
 function buildSessionSlotKey({
   runtimeId = "claudecode",
@@ -65,24 +71,70 @@ function buildSessionSlotKey({
 }
 
 /**
- * True when the slot represents the pre-v2 default lane with no profile
- * applied. Only such a slot may seed itself from the legacy SessionStore, so
- * an upgrade keeps resuming the existing Claude session instead of opening a
- * fresh transcript.
+ * Key for the one-shot legacy migration. Scoped to (binding, workspace) rather
+ * than to a slot, so the migration can only ever fire once for a given binding
+ * and workspace no matter which lane asks first.
  */
-function isLegacyEquivalentSlot({ profileFingerprint = "legacy", laneKind = "" } = {}) {
-  return (profileFingerprint || "legacy") === "legacy"
-    && (laneKind === "legacy" || laneKind === "telegram" || laneKind === "tg");
+function buildLegacyMigrationKey({ bindingKey = "", workspaceRoot = "" } = {}) {
+  const normalizedBindingKey = typeof bindingKey === "string" ? bindingKey.trim() : "";
+  const normalizedWorkspaceRoot = typeof workspaceRoot === "string" ? workspaceRoot.trim() : "";
+  if (!normalizedBindingKey || !normalizedWorkspaceRoot) {
+    return "";
+  }
+  return crypto
+    .createHash("sha256")
+    .update(["legacy-default-lane-v2", normalizedBindingKey, normalizedWorkspaceRoot].map(encodePart).join("|"), "utf8")
+    .digest("hex");
 }
 
 /**
- * Persistent map of session slot -> Claude session id.
+ * Is this route allowed to take part in the one-shot legacy migration?
  *
- * Deliberately a separate file from sessions.json: the legacy store is keyed
- * by continuity binding and is still used for binding-level state (workspace
- * roots, runtime params, approval prompts). Mixing lane-scoped session ids into
- * it would re-create exactly the collision this change removes.
+ * Only the *private/default* legacy lane qualifies:
+ *   * no launch profile is applied (fingerprint `legacy`), and
+ *   * either a non-Telegram legacy lane, or a Telegram lane with no topic whose
+ *     chat id is the binding's own sender id (i.e. a private chat).
+ *
+ * A topic lane, a group lane and any profiled lane are never eligible, which is
+ * what stops two unmapped topics from inheriting one transcript.
  */
+function isLegacyMigrationEligible({ lane = null, profileFingerprint = "legacy", senderId = "" } = {}) {
+  if ((profileFingerprint || "legacy") !== "legacy" || !lane) {
+    return false;
+  }
+  if (lane.kind === "legacy") {
+    return true;
+  }
+  if (lane.kind !== "tg") {
+    return false;
+  }
+  const normalizedSenderId = typeof senderId === "string" ? senderId.trim() : "";
+  return lane.messageThreadId === null
+    && Boolean(normalizedSenderId)
+    && lane.chatId === normalizedSenderId;
+}
+
+function normalizeRouteDescriptor(route) {
+  if (!route || typeof route !== "object") {
+    return null;
+  }
+  const out = {
+    bindingKey: normalizeText(route.bindingKey),
+    workspaceRoot: normalizeText(route.workspaceRoot),
+    laneKey: normalizeText(route.laneKey),
+    laneKind: normalizeText(route.laneKind),
+    provider: normalizeText(route.provider),
+    accountId: normalizeText(route.accountId),
+    chatId: normalizeText(route.chatId),
+    messageThreadId: route.messageThreadId === null || route.messageThreadId === undefined
+      ? null
+      : normalizeText(route.messageThreadId),
+    profileId: normalizeText(route.profileId),
+    profileFingerprint: normalizeText(route.profileFingerprint) || "legacy",
+  };
+  return out.laneKey && out.workspaceRoot ? out : null;
+}
+
 class SessionSlotStore {
   constructor({ filePath = "", fs = fsApi, maxSlots = MAX_SLOTS } = {}) {
     this.filePath = typeof filePath === "string" ? filePath.trim() : "";
@@ -92,32 +144,34 @@ class SessionSlotStore {
   }
 
   load() {
+    const empty = () => ({
+      version: SLOT_STORE_VERSION,
+      slots: Object.create(null),
+      migrations: Object.create(null),
+    });
     if (!this.filePath) {
-      return { version: SLOT_STORE_VERSION, slots: Object.create(null) };
+      return empty();
     }
     try {
       const parsed = JSON.parse(this.fs.readFileSync(this.filePath, "utf8"));
-      const slots = Object.create(null);
-      const rawSlots = parsed && typeof parsed === "object" ? parsed.slots : null;
-      if (rawSlots && typeof rawSlots === "object") {
-        for (const key of Object.keys(rawSlots)) {
-          if (key === "__proto__" || key === "prototype" || key === "constructor") {
-            continue;
-          }
-          const entry = rawSlots[key];
-          if (!entry || typeof entry !== "object") {
-            continue;
-          }
-          slots[key] = {
-            threadId: normalizeSessionId(entry.threadId),
-            contextFingerprint: normalizeText(entry.contextFingerprint),
-            updatedAt: normalizeText(entry.updatedAt),
-          };
+      const state = empty();
+      copySafeEntries(parsed?.slots, (key, entry) => {
+        if (!entry || typeof entry !== "object") {
+          return;
         }
-      }
-      return { version: SLOT_STORE_VERSION, slots };
+        state.slots[key] = {
+          threadId: normalizeSessionId(entry.threadId),
+          contextFingerprint: normalizeText(entry.contextFingerprint),
+          updatedAt: normalizeText(entry.updatedAt),
+          route: normalizeRouteDescriptor(entry.route),
+        };
+      });
+      copySafeEntries(parsed?.migrations, (key, value) => {
+        state.migrations[key] = normalizeText(value) || new Date(0).toISOString();
+      });
+      return state;
     } catch {
-      return { version: SLOT_STORE_VERSION, slots: Object.create(null) };
+      return empty();
     }
   }
 
@@ -125,8 +179,6 @@ class SessionSlotStore {
     if (!this.filePath) {
       return;
     }
-    // Serialize through an explicit copy: the in-memory map is null-prototype
-    // and JSON.stringify of it is fine, but this also drops empty entries.
     const slots = {};
     for (const key of Object.keys(this.state.slots)) {
       const entry = this.state.slots[key];
@@ -135,7 +187,8 @@ class SessionSlotStore {
       }
       slots[key] = { ...entry };
     }
-    writeJsonAtomic(this.filePath, { version: SLOT_STORE_VERSION, slots });
+    const migrations = { ...this.state.migrations };
+    writeJsonAtomic(this.filePath, { version: SLOT_STORE_VERSION, slots, migrations });
   }
 
   get(slotKey) {
@@ -155,7 +208,12 @@ class SessionSlotStore {
     return this.get(slotKey)?.contextFingerprint || "";
   }
 
-  setThreadId(slotKey, threadId) {
+  getRoute(slotKey) {
+    const route = this.get(slotKey)?.route;
+    return route ? { ...route } : null;
+  }
+
+  setThreadId(slotKey, threadId, { route = null } = {}) {
     const key = normalizeText(slotKey);
     const normalizedThreadId = normalizeSessionId(threadId);
     if (!key || !normalizedThreadId) {
@@ -166,6 +224,7 @@ class SessionSlotStore {
       threadId: normalizedThreadId,
       contextFingerprint: current.contextFingerprint || "",
       updatedAt: new Date().toISOString(),
+      route: normalizeRouteDescriptor(route) || current.route || null,
     };
     this.evictIfNeeded();
     this.save();
@@ -173,10 +232,7 @@ class SessionSlotStore {
 
   setContextFingerprint(slotKey, fingerprint) {
     const key = normalizeText(slotKey);
-    if (!key) {
-      return;
-    }
-    const current = this.state.slots[key];
+    const current = key ? this.state.slots[key] : null;
     if (!current) {
       return;
     }
@@ -198,6 +254,17 @@ class SessionSlotStore {
     return Object.keys(this.state.slots);
   }
 
+  /**
+   * Every slot that carries a usable route descriptor, most recent first.
+   * This is what startup restore iterates -- never the binding list.
+   */
+  listRestorableSlots() {
+    return Object.keys(this.state.slots)
+      .map((slotKey) => ({ slotKey, ...this.state.slots[slotKey] }))
+      .filter((entry) => entry.threadId && entry.route?.laneKey && entry.route?.workspaceRoot)
+      .sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")));
+  }
+
   findSlotKeyForThreadId(threadId) {
     const normalized = normalizeSessionId(threadId);
     if (!normalized) {
@@ -209,6 +276,26 @@ class SessionSlotStore {
       }
     }
     return "";
+  }
+
+  hasMigration(migrationKey) {
+    const key = normalizeText(migrationKey);
+    return Boolean(key && Object.hasOwn(this.state.migrations, key));
+  }
+
+  markMigration(migrationKey) {
+    const key = normalizeText(migrationKey);
+    if (!key || Object.hasOwn(this.state.migrations, key)) {
+      return false;
+    }
+    const keys = Object.keys(this.state.migrations);
+    if (keys.length >= MAX_MIGRATION_MARKERS) {
+      keys.sort((left, right) => String(this.state.migrations[left]).localeCompare(String(this.state.migrations[right])));
+      delete this.state.migrations[keys[0]];
+    }
+    this.state.migrations[key] = new Date().toISOString();
+    this.save();
+    return true;
   }
 
   evictIfNeeded() {
@@ -229,6 +316,18 @@ class SessionSlotStore {
   }
 }
 
+function copySafeEntries(source, apply) {
+  if (!source || typeof source !== "object") {
+    return;
+  }
+  for (const key of Object.keys(source)) {
+    if (key === "__proto__" || key === "prototype" || key === "constructor") {
+      continue;
+    }
+    apply(key, source[key]);
+  }
+}
+
 function normalizeText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -238,10 +337,13 @@ function normalizeSessionId(value) {
 }
 
 module.exports = {
+  MAX_MIGRATION_MARKERS,
   MAX_SLOTS,
   SLOT_STORE_VERSION,
   SLOT_VERSION,
   SessionSlotStore,
+  buildLegacyMigrationKey,
   buildSessionSlotKey,
-  isLegacyEquivalentSlot,
+  isLegacyMigrationEligible,
+  normalizeRouteDescriptor,
 };

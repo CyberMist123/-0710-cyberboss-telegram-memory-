@@ -319,6 +319,9 @@ test("reply targets resolve per session id, so one topic cannot answer into anot
     Object.hasOwn(delivery.resolveReplyTargetForRun({ threadId: "thread-default" }), "messageThreadId"),
     false,
   );
-  // A session with no recorded lane still falls back to the binding target.
-  assert.equal(delivery.resolveReplyTargetForRun({ threadId: "thread-unknown" }).userId, "500");
+  // Fail closed: a session with no recorded lane resolves to nothing rather
+  // than to the binding's shared target, which would land in whichever topic
+  // replied most recently.
+  assert.equal(delivery.resolveReplyTargetForRun({ threadId: "thread-unknown" }), null);
+  assert.equal(delivery.resolveReplyTargetForRun({ threadId: "" }), null);
 });

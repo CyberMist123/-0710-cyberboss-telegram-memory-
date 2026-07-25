@@ -13,6 +13,7 @@ const {
   buildLaneScopeKey,
   buildLegacyRouteLane,
   buildSystemRouteLane,
+  rebuildLaneFromDescriptor,
   resolveInboundRouteLane,
 } = require("./route-lane");
 const {
@@ -777,6 +778,18 @@ class CyberbossApp {
     this.maybeRunLegacyMemoryBackgroundPipeline(normalized, "post-response");
   }
 
+  /**
+   * The session/slot/process the *current* route owns.
+   *
+   * Every command, approval and status reply resolves through here. It never
+   * falls back to the binding's most recent session: on a runtime that has no
+   * lane-aware surface (codex) it degrades to the binding lookup explicitly,
+   * and on claudecode a lane with no session simply reports none.
+   */
+  resolveRouteSession(args) {
+    return resolveRouteSessionFor(this, args);
+  }
+
   isTurnDispatchBlocked(bindingKey, workspaceRoot, { ignoreBoundary = false, lane = null, anyLane = false } = {}) {
     const scopeKey = routeScopeKeyFor(lane, bindingKey, workspaceRoot);
     if (!ignoreBoundary && scopeKey && this.turnBoundaryScopeKeys?.has(scopeKey)) {
@@ -793,7 +806,7 @@ class CyberbossApp {
       && this.turnGateStore.isAnyScopePendingForWorkspace(workspaceRoot)) {
       return true;
     }
-    const threadId = this.runtimeAdapter.getSessionStore().getThreadIdForWorkspace(bindingKey, workspaceRoot);
+    const threadId = resolveRouteSessionFor(this, { bindingKey, workspaceRoot, lane }).threadId;
     const threadState = threadId ? this.threadStateStore.getThreadState(threadId) : null;
     return threadState?.status === "running" || hasRpcId(threadState?.pendingApproval?.requestId);
   }
@@ -832,6 +845,7 @@ class CyberbossApp {
         model,
         lane: effectiveLane,
         launchProfile: this.resolveLaunchProfileForLane?.(effectiveLane) || null,
+        senderId: prepared.senderId || "",
         metadata: {
           workspaceId: prepared.workspaceId,
           accountId: prepared.accountId,
@@ -1563,7 +1577,9 @@ class CyberbossApp {
         markerOwner: message.markerOwner,
         markerEventId: message.markerEventId,
         startedAt: Date.now(),
-        reusedSession: Boolean(this.runtimeAdapter.getSessionStore().getThreadIdForWorkspace(bindingKey, workspaceRoot)),
+        reusedSession: Boolean(resolveRouteSessionFor(this, {
+          bindingKey, workspaceRoot, lane: buildSystemRouteLane("system-message"),
+        }).threadId),
       } : null,
     });
   }
@@ -1689,7 +1705,8 @@ class CyberbossApp {
     });
     const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
     const sessionStore = this.runtimeAdapter.getSessionStore();
-    const threadId = sessionStore.getThreadIdForWorkspace(bindingKey, workspaceRoot);
+    const commandLane = resolveRouteLaneFor(normalized, bindingKey);
+    const threadId = resolveRouteSessionFor(this, { bindingKey, workspaceRoot, lane: commandLane, normalized }).threadId;
     const threadState = threadId ? this.threadStateStore.getThreadState(threadId) : null;
     const runtimeName = this.runtimeAdapter.describe().id || "runtime";
     const context = threadState?.context?.runtimeId === runtimeName
@@ -1733,6 +1750,7 @@ class CyberbossApp {
       await this.runtimeAdapter.startFreshThreadDraft({
         bindingKey,
         workspaceRoot,
+        senderId: normalized.senderId || "",
         lane: resolveRouteLaneFor(normalized, bindingKey),
         launchProfile: this.resolveLaunchProfileForLane?.(resolveRouteLaneFor(normalized, bindingKey)) || null,
       });
@@ -1754,7 +1772,8 @@ class CyberbossApp {
     });
     const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
     const sessionStore = this.runtimeAdapter.getSessionStore();
-    const threadId = sessionStore.getThreadIdForWorkspace(bindingKey, workspaceRoot);
+    const commandLane = resolveRouteLaneFor(normalized, bindingKey);
+    const threadId = resolveRouteSessionFor(this, { bindingKey, workspaceRoot, lane: commandLane, normalized }).threadId;
     if (!threadId) {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
@@ -1776,6 +1795,7 @@ class CyberbossApp {
       const refreshed = await this.runtimeAdapter.refreshThreadInstructions({
         lane: commandLane,
         launchProfile: this.resolveLaunchProfileForLane?.(commandLane) || null,
+        senderId: normalized.senderId || "",
 
         threadId,
         workspaceRoot,
@@ -1802,7 +1822,8 @@ class CyberbossApp {
     });
     const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
     const sessionStore = this.runtimeAdapter.getSessionStore();
-    const threadId = sessionStore.getThreadIdForWorkspace(bindingKey, workspaceRoot);
+    const commandLane = resolveRouteLaneFor(normalized, bindingKey);
+    const threadId = resolveRouteSessionFor(this, { bindingKey, workspaceRoot, lane: commandLane, normalized }).threadId;
     if (!threadId) {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
@@ -1823,6 +1844,7 @@ class CyberbossApp {
       await this.runtimeAdapter.compactThread({
         lane: commandLane,
         launchProfile: this.resolveLaunchProfileForLane?.(commandLane) || null,
+        senderId: normalized.senderId || "",
 
         threadId,
         workspaceRoot,
@@ -1879,6 +1901,7 @@ class CyberbossApp {
       resumed = await this.runtimeAdapter.resumeThread({
         lane: commandLane,
         launchProfile: this.resolveLaunchProfileForLane?.(commandLane) || null,
+        senderId: normalized.senderId || "",
 
         threadId: targetThreadId,
         workspaceRoot,
@@ -1900,6 +1923,7 @@ class CyberbossApp {
         await this.runtimeAdapter.startFreshThreadDraft({
         bindingKey,
         workspaceRoot,
+        senderId: normalized.senderId || "",
         lane: resolveRouteLaneFor(normalized, bindingKey),
         launchProfile: this.resolveLaunchProfileForLane?.(resolveRouteLaneFor(normalized, bindingKey)) || null,
       });
@@ -1923,6 +1947,7 @@ class CyberbossApp {
       const refreshed = await this.runtimeAdapter.refreshThreadInstructions({
         lane: commandLane,
         launchProfile: this.resolveLaunchProfileForLane?.(commandLane) || null,
+        senderId: normalized.senderId || "",
 
         threadId: resumed?.threadId || targetThreadId,
         workspaceRoot,
@@ -1948,7 +1973,8 @@ class CyberbossApp {
       senderId: normalized.senderId,
     });
     const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
-    const threadId = this.runtimeAdapter.getSessionStore().getThreadIdForWorkspace(bindingKey, workspaceRoot);
+    const commandLane = resolveRouteLaneFor(normalized, bindingKey);
+    const threadId = resolveRouteSessionFor(this, { bindingKey, workspaceRoot, lane: commandLane, normalized }).threadId;
     const threadState = threadId ? this.threadStateStore.getThreadState(threadId) : null;
     if (!threadId || !threadState?.turnId || !["running", "waiting_approval"].includes(threadState.status)) {
       await this.channelAdapter.sendText({
@@ -1962,6 +1988,7 @@ class CyberbossApp {
 
     await this.runtimeAdapter.cancelTurn({
       bindingKey,
+      senderId: normalized.senderId || "",
       lane: resolveRouteLaneFor(normalized, bindingKey),
       launchProfile: this.resolveLaunchProfileForLane?.(resolveRouteLaneFor(normalized, bindingKey)) || null,
       threadId,
@@ -2050,7 +2077,8 @@ class CyberbossApp {
       senderId: normalized.senderId,
     });
     const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
-    const threadId = this.runtimeAdapter.getSessionStore().getThreadIdForWorkspace(bindingKey, workspaceRoot);
+    const commandLane = resolveRouteLaneFor(normalized, bindingKey);
+    const threadId = resolveRouteSessionFor(this, { bindingKey, workspaceRoot, lane: commandLane, normalized }).threadId;
     const threadState = threadId ? this.threadStateStore.getThreadState(threadId) : null;
     const approval = threadState?.pendingApproval || null;
     if (!threadId || approval?.requestId == null || String(approval.requestId).trim() === "") {
@@ -2523,7 +2551,7 @@ class CyberbossApp {
         })
       : null;
     if (event?.payload?.threadId) {
-      const linkedForTrace = this.runtimeAdapter.getSessionStore().findBindingForThreadId(event.payload.threadId);
+      const linkedForTrace = resolveEventRoute(this, event);
       const replyTargetForTrace = this.streamDelivery.resolveReplyTargetForRun({
         threadId: event?.payload?.threadId,
         turnId: event?.payload?.turnId,
@@ -2548,7 +2576,7 @@ class CyberbossApp {
       }
       if (pendingOperation?.kind === "desire_checkin") {
         const { appendDesireTelemetry } = require("./desire-telemetry");
-        const linkedForTelemetry = this.runtimeAdapter.getSessionStore().findBindingForThreadId(event.payload.threadId);
+        const linkedForTelemetry = resolveEventRoute(this, event);
         const model = linkedForTelemetry
           ? this.runtimeAdapter.getSessionStore().getRuntimeParamsForWorkspace(linkedForTelemetry.bindingKey, linkedForTelemetry.workspaceRoot).model
           : "";
@@ -2566,12 +2594,12 @@ class CyberbossApp {
       }
       const sessionStore = this.runtimeAdapter.getSessionStore();
       sessionStore.clearApprovalPrompt(event.payload.threadId);
-      const linked = this.runtimeAdapter.getSessionStore().findBindingForThreadId(event.payload.threadId);
-      // The runtime event carries the lane that produced it, so the turn
-      // boundary and the buffer flush apply to that lane only. Falling back to
-      // the binding scope would let one topic's completion release another
-      // topic's gate.
+      // The runtime event is self-describing: it carries its own binding,
+      // workspace, lane, slot and process, so nothing is inferred. The binding
+      // reverse lookup only serves a pre-v2 event that predates those fields,
+      // and it never supplies a lane.
       const eventLane = event?.payload?.laneKey ? { laneKey: event.payload.laneKey } : null;
+      const linked = resolveEventRoute(this, event);
       const scopeKey = linked?.workspaceRoot
         ? routeScopeKeyFor(eventLane, linked.bindingKey, linked.workspaceRoot)
         : "";
@@ -2626,7 +2654,7 @@ class CyberbossApp {
       return;
     }
     const sessionStore = this.runtimeAdapter.getSessionStore();
-    const linked = sessionStore.findBindingForThreadId(event.payload.threadId);
+    const linked = resolveEventRoute(this, event);
     if (!linked?.workspaceRoot) {
       return;
     }
@@ -2647,6 +2675,7 @@ class CyberbossApp {
       sessionStore.rememberApprovalPrompt(event.payload.threadId, event.payload.requestId, promptSignature);
       await this.sendApprovalPrompt({
         bindingKey: linked.bindingKey,
+        threadId: event.payload.threadId,
         approval: event.payload,
       }).catch((error) => {
         sessionStore.clearApprovalPrompt(event.payload.threadId);
@@ -2659,6 +2688,7 @@ class CyberbossApp {
       sessionStore.clearApprovalPrompt(event.payload.threadId);
       await this.sendApprovalPrompt({
         bindingKey: linked.bindingKey,
+        threadId: event.payload.threadId,
         approval: event.payload,
       }).catch(() => {});
       return;
@@ -2699,7 +2729,9 @@ class CyberbossApp {
       senderId: normalized.senderId,
     });
     const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
-    const threadId = this.runtimeAdapter.getSessionStore().getThreadIdForWorkspace(bindingKey, workspaceRoot);
+    const threadId = resolveRouteSessionFor(this, {
+      bindingKey, workspaceRoot, lane: resolveRouteLaneFor(normalized, bindingKey), normalized,
+    }).threadId;
     this.conversationRecorder.record({
       type: "user",
       timestamp: normalizeIsoTime(normalized.receivedAt) || new Date().toISOString(),
@@ -2724,8 +2756,8 @@ class CyberbossApp {
     }
     const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
     const threadId = normalizeText(payload.threadId);
-    const linked = threadId ? this.runtimeAdapter.getSessionStore().findBindingForThreadId(threadId) : null;
-    const workspaceRoot = normalizeText(payload.workspaceRoot) || normalizeText(linked?.workspaceRoot);
+    const workspaceRoot = normalizeText(payload.workspaceRoot)
+      || normalizeText(resolveEventRoute(this, event)?.workspaceRoot);
     this.conversationRecorder.record({
       type: String(event.type || "").trim(),
       timestamp: normalizeIsoTime(payload.timestamp) || new Date().toISOString(),
@@ -2742,10 +2774,18 @@ class CyberbossApp {
   }
 
   async sendFailureToThread(threadId, text, fallbackTarget = null) {
-    const linked = this.runtimeAdapter.getSessionStore().findBindingForThreadId(threadId);
+    // Session-scoped first, then the caller's explicit fallback. The binding
+    // reverse lookup is last and only reaches a pre-v2 session.
     const target = normalizeReplyTarget(
-      linked?.bindingKey ? this.resolveReplyTargetForBinding(linked.bindingKey) : null
-    ) || normalizeReplyTarget(fallbackTarget);
+      typeof this.streamDelivery?.resolveReplyTargetForRun === "function"
+        ? this.streamDelivery.resolveReplyTargetForRun({ threadId })
+        : null,
+    )
+      || normalizeReplyTarget(fallbackTarget)
+      || normalizeReplyTarget((() => {
+        const linked = this.runtimeAdapter.getSessionStore().findBindingForThreadId(threadId);
+        return linked?.bindingKey ? this.resolveReplyTargetForBinding(linked.bindingKey) : null;
+      })());
     if (!target) {
       return;
     }
@@ -2757,8 +2797,14 @@ class CyberbossApp {
     }).catch(() => {});
   }
 
-  async sendApprovalPrompt({ bindingKey, approval }) {
-    const target = this.resolveReplyTargetForBinding(bindingKey);
+  async sendApprovalPrompt({ bindingKey, approval, threadId = "" }) {
+    // Session-scoped target first: an approval prompt must appear in the topic
+    // whose turn raised it, never in whichever topic the binding last replied
+    // to. The binding target is only a fallback for a pre-v2 session.
+    const target = (threadId && typeof this.streamDelivery?.resolveReplyTargetForRun === "function"
+      ? this.streamDelivery.resolveReplyTargetForRun({ threadId })
+      : null)
+      || this.resolveReplyTargetForBinding(bindingKey);
     if (!target) {
       console.warn(
         `[cyberboss] approval prompt skipped binding=${bindingKey} requestId=${approval?.requestId || ""} reason=no_reply_target`
@@ -2786,43 +2832,64 @@ class CyberbossApp {
     );
   }
 
+  /**
+   * Restore saved sessions at startup, one lane at a time.
+   *
+   * Iterates *session slots*, never bindings. Each slot carries its own route
+   * descriptor, so the lane and its profile are rebuilt exactly as they were;
+   * a slot whose descriptor cannot be rebuilt is skipped rather than restored
+   * as a bare legacy process holding the binding's most recent session.
+   */
   async restoreBoundThreadSubscriptions() {
     const sessionStore = this.runtimeAdapter.getSessionStore();
-    const bindings = sessionStore.listBindings();
-    const seenThreadIds = new Set();
 
-    for (const binding of bindings) {
+    // Binding-level reply targets are still primed: they are a delivery
+    // fallback for pre-v2 sessions, not a session authority.
+    for (const binding of sessionStore.listBindings()) {
       const bindingKey = normalizeText(binding?.bindingKey);
       if (!bindingKey) {
         continue;
       }
-
       const target = this.resolveReplyTargetForBinding(bindingKey);
       if (target) {
         this.streamDelivery.setReplyTarget(bindingKey, target);
       }
+    }
 
-      for (const workspaceRoot of sessionStore.listWorkspaceRoots(bindingKey)) {
-        const normalizedWorkspaceRoot = normalizeCommandArgument(workspaceRoot);
-        const normalizedThreadId = normalizeCommandArgument(
-          sessionStore.getThreadIdForWorkspace(bindingKey, normalizedWorkspaceRoot)
-        );
-        if (!normalizedThreadId || seenThreadIds.has(normalizedThreadId)) {
-          continue;
-        }
-        seenThreadIds.add(normalizedThreadId);
-        // Startup restore has no inbound lane. It passes the binding so the
-        // runtime resolves the profile-free legacy slot, which is the only slot
-        // whose session id the binding-level store is authoritative for. A
-        // profiled lane's session is restored on its next inbound turn instead,
-        // from its own slot.
-        await this.runtimeAdapter.resumeThread({
-          bindingKey,
-          threadId: normalizedThreadId,
-          workspaceRoot: normalizedWorkspaceRoot,
-          resumeOrigin: "implicit_restore",
-        }).catch(() => {});
+    if (typeof this.runtimeAdapter.listRestorableSlots !== "function") {
+      return;
+    }
+
+    let skipped = 0;
+    for (const slot of this.runtimeAdapter.listRestorableSlots()) {
+      const lane = rebuildLaneFromDescriptor(slot.route);
+      if (!lane) {
+        skipped += 1;
+        continue;
       }
+      const restored = await this.runtimeAdapter.resumeSessionSlot({
+        sessionSlotKey: slot.sessionSlotKey,
+        lane,
+        launchProfile: this.resolveLaunchProfileForLane?.(lane) || null,
+        senderId: slot.route.laneKind === "tg" ? slot.route.chatId : "",
+      }).catch(() => null);
+      if (!restored?.resumed) {
+        skipped += 1;
+        continue;
+      }
+      // Re-arm the lane's reply target so a reply from a restored session lands
+      // back in its own topic.
+      if (slot.route.laneKind === "tg" && slot.route.chatId) {
+        this.streamDelivery.setReplyTargetForThread?.(restored.threadId, {
+          userId: slot.route.chatId,
+          contextToken: `telegram:${slot.route.chatId}`,
+          provider: "telegram",
+          messageThreadId: slot.route.messageThreadId ?? null,
+        });
+      }
+    }
+    if (skipped) {
+      console.warn(`[cyberboss] skipped ${skipped} session slot(s) during startup restore`);
     }
   }
 
@@ -3885,6 +3952,60 @@ function buildReminderSystemTrigger(reminder, config = {}) {
   const reminderText = String(reminder?.text || "").trim();
   const userName = String(config?.userName || "").trim() || "the user";
   return `Due reminder for ${userName}: ${reminderText}`;
+}
+
+/**
+ * The session/slot/process the *current* route owns.
+ *
+ * Every command, approval and status reply resolves through here. It never
+ * falls back to the binding's most recent session: on a runtime with no
+ * lane-aware surface (codex) it degrades to the binding lookup explicitly, and
+ * on claudecode a lane with no session simply reports none.
+ *
+ * Module-level so class methods can be borrowed onto lightweight objects.
+ */
+function resolveRouteSessionFor(app, { bindingKey, workspaceRoot, lane = null, normalized = null } = {}) {
+  const effectiveLane = lane || (normalized ? resolveRouteLaneFor(normalized, bindingKey) : null);
+  if (typeof app.runtimeAdapter?.resolveRouteSession === "function") {
+    return app.runtimeAdapter.resolveRouteSession({
+      bindingKey,
+      workspaceRoot,
+      lane: effectiveLane,
+      launchProfile: app.resolveLaunchProfileForLane?.(effectiveLane) || null,
+      senderId: normalized?.senderId || "",
+    });
+  }
+  return {
+    sessionSlotKey: "",
+    laneKey: effectiveLane?.laneKey || "",
+    messageThreadId: effectiveLane?.messageThreadId ?? null,
+    threadId: app.runtimeAdapter?.getSessionStore?.().getThreadIdForWorkspace?.(bindingKey, workspaceRoot) || "",
+    processKey: "",
+    processAlive: false,
+    profileId: "legacy",
+  };
+}
+
+// Route identity for a runtime event.
+//
+// v2 events carry bindingKey / workspaceRoot / laneKey / sessionSlotKey /
+// processKey / messageThreadId directly, so nothing has to be inferred. The
+// binding reverse lookup below only serves an event emitted before those fields
+// existed (a session restored from pre-v2 state), and it never supplies a lane.
+function resolveEventRoute(app, event) {
+  const payload = event?.payload || {};
+  if (payload.bindingKey && payload.workspaceRoot) {
+    return {
+      bindingKey: payload.bindingKey,
+      workspaceRoot: payload.workspaceRoot,
+      laneKey: payload.laneKey || "",
+      sessionSlotKey: payload.sessionSlotKey || "",
+      processKey: payload.processKey || "",
+      messageThreadId: payload.messageThreadId ?? null,
+    };
+  }
+  const linked = app.runtimeAdapter.getSessionStore().findBindingForThreadId(payload.threadId);
+  return linked?.bindingKey ? { ...linked, laneKey: "", sessionSlotKey: "", processKey: "" } : null;
 }
 
 // Module-level so the class methods can be borrowed onto lightweight objects
