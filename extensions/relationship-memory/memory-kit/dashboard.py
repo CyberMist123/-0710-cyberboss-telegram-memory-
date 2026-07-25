@@ -5763,6 +5763,10 @@ class H(BaseHTTPRequestHandler):
                         keys["telegram_bot_token"] = v
                 if "telegram_allowed_user_ids" in obj:
                     keys["telegram_allowed_user_ids"] = str(obj["telegram_allowed_user_ids"]).strip()
+                if any(isinstance(obj.get(group), dict) and any(str(value or "").strip() for value in obj[group].values()) for group in ("chat_keys", "extract_keys")):
+                    raise ValueError("API keys must be supplied through the process environment, not saved by the dashboard.")
+                if str(obj.get("telegram_bot_token") or "").strip():
+                    raise ValueError("Telegram credentials must be supplied through the process environment, not saved by the dashboard.")
                 KEYS_FILE.write_text(json.dumps(keys, ensure_ascii=False, indent=2), encoding="utf-8")
                 apply_msg = ""
                 try:

@@ -64,7 +64,8 @@ $processEnvNames = @(
   'CYBERBOSS_PROMPT_FILE',
   'CYBERBOSS_MEMORY_BACKGROUND_WRITE',
   'CYBERBOSS_TELEGRAM_PROXY_URL',
-  'CYBERBOSS_CLAUDE_COMMAND'
+  'CYBERBOSS_CLAUDE_COMMAND',
+  'DEEPSEEK_API_KEY'
 )
 foreach ($name in $processEnvNames) {
   $value = [System.Environment]::GetEnvironmentVariable($name, 'Process')
@@ -189,6 +190,25 @@ $env:CYBERBOSS_STATE_DIR = $stateDir
 $env:CYBERBOSS_WORKSPACE = $workspaceRoot
 $env:CYBERBOSS_WORKSPACE_ROOT = $workspaceRoot
 $env:CYBERBOSS_CONFIG_DIR = $configDir
+
+function Test-DeepSeekLaunchConfig {
+  param([hashtable]$Config)
+  foreach ($name in @('ANTHROPIC_BASE_URL', 'ANTHROPIC_MODEL', 'CYBERBOSS_CLAUDE_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL')) {
+    if ([string]$Config[$name] -match '(?i)deepseek') { return $true }
+  }
+  return $false
+}
+
+if (Test-DeepSeekLaunchConfig -Config $envMap) {
+  $deepSeekKey = [string][System.Environment]::GetEnvironmentVariable('DEEPSEEK_API_KEY', 'Process')
+  if ([string]::IsNullOrWhiteSpace($deepSeekKey)) { $deepSeekKey = [string]$envMap['DEEPSEEK_API_KEY'] }
+  if ([string]::IsNullOrWhiteSpace($deepSeekKey) -or $deepSeekKey -match '(?i)(<|>|placeholder|changeme|your_|test|dummy|redacted)') {
+    throw 'DeepSeek profile selected, but DEEPSEEK_API_KEY is missing or invalid.'
+  }
+  $envMap['ANTHROPIC_AUTH_TOKEN'] = $deepSeekKey.Trim()
+  $envMap['ANTHROPIC_API_KEY'] = $deepSeekKey.Trim()
+}
+
 $claudeCommand = Resolve-ClaudeCommand -Config $envMap
 $claudeDir = Split-Path -Parent $claudeCommand
 

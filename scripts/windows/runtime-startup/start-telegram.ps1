@@ -32,6 +32,7 @@ $node      = if ($env:CYBERBOSS_NODE_COMMAND) { $env:CYBERBOSS_NODE_COMMAND } el
 $pidFile = Join-Path $stateDir "cyberboss.pid"
 $logFile = Join-Path $logDir "cyberboss.log"
 $errFile = Join-Path $logDir "cyberboss.err.log"
+$preferredDeepSeekKey = [Environment]::GetEnvironmentVariable("DEEPSEEK_API_KEY", "Process")
 
 $running = @(
     Get-CimInstance Win32_Process |
@@ -75,6 +76,25 @@ foreach ($line in Get-Content -LiteralPath $envFile) {
         $value,
         "Process"
     )
+}
+
+function Test-DeepSeekRuntimeConfig {
+    foreach ($name in @("ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL", "CYBERBOSS_CLAUDE_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL")) {
+        if ([Environment]::GetEnvironmentVariable($name, "Process") -match "(?i)deepseek") { return $true }
+    }
+    return $false
+}
+
+if (Test-DeepSeekRuntimeConfig) {
+    $deepSeekKey = $preferredDeepSeekKey
+    if ([string]::IsNullOrWhiteSpace($deepSeekKey)) {
+        $deepSeekKey = [Environment]::GetEnvironmentVariable("DEEPSEEK_API_KEY", "Process")
+    }
+    if ([string]::IsNullOrWhiteSpace($deepSeekKey) -or $deepSeekKey -match "(?i)(<|>|placeholder|changeme|your_|test|dummy|redacted)") {
+        throw "DeepSeek profile selected, but DEEPSEEK_API_KEY is missing or invalid."
+    }
+    [Environment]::SetEnvironmentVariable("ANTHROPIC_AUTH_TOKEN", $deepSeekKey.Trim(), "Process")
+    [Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY", $deepSeekKey.Trim(), "Process")
 }
 
 $env:CYBERBOSS_ENV_FILE                = $envFile

@@ -14,7 +14,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from config_loader import load_keys, chat_config, telegram_config  # noqa: E402
+from config_loader import DEEPSEEK_ENV_KEY, load_keys, chat_config, require_chat_api_key, telegram_config  # noqa: E402
 
 TG_STATE_DIR_ENV = os.environ.get("CYBERBOSS_STATE_DIR") or os.environ.get("CYBERBOSS_DEEPSEEK_STATE") or ""
 if not TG_STATE_DIR_ENV.strip():
@@ -50,19 +50,18 @@ def build_managed_block(keys: dict) -> "list[str]":
 
     provider = cc["provider"]
     endpoint = cc["endpoint"]
-    key = cc["key"]
     model = cc["model"] or ""
     haiku = cc["haiku_model"] or model
 
-    if not key:
-        lines.append(f"# WARNING: chat_keys.{provider} is empty in keys.local.json")
+    if provider == "deepseek":
+        require_chat_api_key(cc)
+        lines.append(f"# DeepSeek auth is loaded from {DEEPSEEK_ENV_KEY} at launch time.")
+    elif cc["key"]:
+        lines.append("# Chat auth is supplied by the caller environment; it is never written here.")
 
     # 只在有值时写这些字段;空值不写,避免把 .env 里手工填好的 chat 配置洗成空。
     if endpoint:
         lines.append(f"ANTHROPIC_BASE_URL={endpoint}")
-    if key:
-        lines.append(f"ANTHROPIC_AUTH_TOKEN={key}")
-        lines.append(f"ANTHROPIC_API_KEY={key}")
     if model:
         lines.append(f"ANTHROPIC_MODEL={model}")
         lines.append(f"ANTHROPIC_DEFAULT_OPUS_MODEL={model}")
@@ -72,7 +71,7 @@ def build_managed_block(keys: dict) -> "list[str]":
         lines.append(f"ANTHROPIC_DEFAULT_HAIKU_MODEL={haiku}")
         lines.append(f"CLAUDE_CODE_SUBAGENT_MODEL={haiku}")
     if tg["bot_token"]:
-        lines.append(f"CYBERBOSS_TELEGRAM_BOT_TOKEN={tg['bot_token']}")
+        lines.append("# Telegram auth is supplied by the caller environment; it is never written here.")
     if tg["allowed_user_ids"]:
         lines.append(f"CYBERBOSS_TELEGRAM_ALLOWED_USER_IDS={tg['allowed_user_ids']}")
     if tg["https_proxy"]:
@@ -134,10 +133,8 @@ def apply() -> None:
         kept.pop()
     new_content = "\n".join(kept + [""] + managed) + "\n"
 
-    backup = ENV_FILE.with_suffix(".env.bak")
-    backup.write_text(ENV_FILE.read_text(encoding="utf-8-sig", errors="replace"), encoding="utf-8")
     ENV_FILE.write_text(new_content, encoding="utf-8")
-    print(f"[apply_keys] wrote {ENV_FILE} (backup: {backup.name})")
+    print(f"[apply_keys] updated non-secret runtime settings in {ENV_FILE}")
     print(f"[apply_keys] chat={chat_config(keys)['provider']}/{chat_config(keys)['model']}")
 
 

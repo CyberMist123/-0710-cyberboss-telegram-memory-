@@ -16,6 +16,9 @@ import json
 import os
 from pathlib import Path
 
+DEEPSEEK_ENV_KEY = "DEEPSEEK_API_KEY"
+_PLACEHOLDER_MARKERS = ("<", ">", "changeme", "placeholder", "your_", "test", "dummy", "redacted")
+
 KEYS_FILE = Path(
     os.environ.get("CYBERBOSS_DASHBOARD_KEYS_FILE")
     or os.environ.get("CYBERBOSS_KEYS_FILE")
@@ -34,6 +37,8 @@ def load_keys() -> dict:
 
 def save_keys(keys: dict) -> None:
     """只增/改键,内部注释键 _comment/_layout/_proxy_hint 强制保留,防被前端一键干掉。"""
+    if _contains_secret_material(keys):
+        raise ValueError("Refusing to persist secret material; set the required environment variable instead.")
     tmp = KEYS_FILE.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(keys, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(KEYS_FILE)
@@ -41,7 +46,7 @@ def save_keys(keys: dict) -> None:
 
 def chat_config(keys: dict) -> dict:
     provider = str(keys.get("chat_provider") or "deepseek").lower()
-    key = (keys.get("chat_keys") or {}).get(provider, "")
+    key = _valid_secret(os.environ.get(DEEPSEEK_ENV_KEY, "")) if provider == "deepseek" else (keys.get("chat_keys") or {}).get(provider, "")
     endpoint = (keys.get("chat_endpoints") or {}).get(provider, "")
     model = keys.get("chat_model") or ""
     haiku = keys.get("chat_haiku_model") or ""
@@ -51,7 +56,35 @@ def chat_config(keys: dict) -> dict:
         "haiku_model": haiku,
         "key": key,
         "endpoint": endpoint,
+        "key_env": DEEPSEEK_ENV_KEY if provider == "deepseek" else "",
     }
+
+
+def require_chat_api_key(config: dict) -> str:
+    key = _valid_secret(config.get("key", ""))
+    if not key:
+        env_name = config.get("key_env") or "the configured secret environment variable"
+        raise RuntimeError(f"Missing or invalid API key; set {env_name} before starting.")
+    return key
+
+
+def _valid_secret(value: object) -> str:
+    text = str(value or "").strip()
+    lowered = text.lower()
+    if not text or any(marker in lowered for marker in _PLACEHOLDER_MARKERS):
+        return ""
+    return text
+
+
+def _contains_secret_material(value: object, field: str = "") -> bool:
+    if isinstance(value, dict):
+        if field.lower() in {"chat_keys", "extract_keys"}:
+            return any(bool(str(item or "").strip()) for item in value.values())
+        return any(_contains_secret_material(item, str(key)) for key, item in value.items())
+    if isinstance(value, list):
+        return any(_contains_secret_material(item, field) for item in value)
+    secret_field = field.lower() in {"api_key", "api_token", "ds_api_key", "glm_api_key", "access_token", "auth_token", "password", "secret", "telegram_bot_token"}
+    return secret_field and bool(str(value or "").strip())
 
 
 def extract_config(keys: dict) -> dict:

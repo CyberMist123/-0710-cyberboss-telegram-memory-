@@ -51,3 +51,9 @@ tools/soft-retrieval-replay/.env
 **/__pycache__/
 *.pyc
 extensions/relationship-memory/memory-kit/keys.local.json
+**/keys.local.json
+**/*.env.bak
+settings/secrets/*
+!settings/secrets/
+!settings/secrets/*.example.json
+settings/secrets/model-profiles.json
