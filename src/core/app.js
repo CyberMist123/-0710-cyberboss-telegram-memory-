@@ -42,6 +42,7 @@ const {
 } = require("../adapters/runtime/shared/approval-command");
 const { runSystemCheckinPoller } = require("../app/system-checkin-poller");
 const { runHourlyDesirePoller } = require("../app/hourly-desire-poller");
+const { CloseoutLivenessAutomation, MAX_ALERT_DELIVERY_ATTEMPTS } = require("../app/closeout-liveness");
 const { persistReportedDesireState } = require("./desire-state-persistence");
 const { loadContextGates } = require("./hard-context");
 const { createProjectTooling } = require("../tools/create-project-tooling");
@@ -117,6 +118,7 @@ class CyberbossApp {
     this.telegramPendingInboundByMessageId = new Set();
     this.turnBoundaryScopeKeys = new Set();
     this.systemMessageDispatcher = null;
+    this.closeoutLivenessAutomation = null;
     this.streamDelivery = new StreamDelivery({
       channelAdapter: this.channelAdapter,
       telegramChannelAdapter: this.telegramChannelAdapter,
@@ -242,8 +244,33 @@ class CyberbossApp {
       console.error(`[desire] hourly poller stopped: ${error.message}`);
     });
 
+    const sessionStore = this.runtimeAdapter.getSessionStore();
+    const automationSenderId = resolvePreferredSenderId({
+      config: this.config,
+      accountId: account.accountId,
+      sessionStore,
+    });
+    const automationWorkspaceRoot = resolvePreferredWorkspaceRoot({
+      config: this.config,
+      accountId: account.accountId,
+      senderId: automationSenderId,
+      sessionStore,
+    });
+    this.closeoutLivenessAutomation = new CloseoutLivenessAutomation({
+      config: this.config,
+      queueStore: this.systemMessageQueue,
+      runtimeAdapter: this.runtimeAdapter,
+      accountId: account.accountId,
+      senderId: automationSenderId,
+      workspaceRoot: automationWorkspaceRoot,
+    });
+    if (this.closeoutLivenessAutomation.start()) {
+      console.log("[automation] closeout/liveness owner started");
+    }
+
     const shutdown = createShutdownController(async () => {
       this.clearPendingImageInboundTimers();
+      await this.closeoutLivenessAutomation?.stop();
       await this.closeLocationServer();
       await this.runtimeAdapter.close();
     });
@@ -1196,12 +1223,34 @@ class CyberbossApp {
       try {
         const dispatched = await this.dispatchSystemMessage(message);
         if (!dispatched) {
-          this.systemMessageDispatcher.requeue(message);
+          this.requeueFailedSystemMessage(message, "turn_busy");
+        } else if (message?.sourceType === "liveness_alert") {
+          this.closeoutLivenessAutomation?.markAlertDelivered(message);
         }
-      } catch {
-        this.systemMessageDispatcher?.requeue(message);
+      } catch (error) {
+        this.requeueFailedSystemMessage(message, error?.message || String(error));
       }
     }
+  }
+
+  requeueFailedSystemMessage(message, errorText) {
+    if (message?.sourceType !== "liveness_alert") {
+      this.systemMessageDispatcher?.requeue(message);
+      return true;
+    }
+    const attempts = Number(message?.deliveryAttempts || 0) + 1;
+    const maxAttempts = Number(message?.maxDeliveryAttempts || MAX_ALERT_DELIVERY_ATTEMPTS);
+    if (message?.sourceType === "liveness_alert" && attempts >= maxAttempts) {
+      this.closeoutLivenessAutomation?.markAlertDeliveryFailed(message, errorText);
+      console.error(`[automation] liveness alert delivery abandoned after ${attempts} attempts: ${errorText}`);
+      return false;
+    }
+    this.systemMessageDispatcher?.requeue({
+      ...message,
+      deliveryAttempts: attempts,
+      lastDeliveryError: String(errorText || "delivery_failed").slice(0, 500),
+    });
+    return true;
   }
 
   async flushPendingTimelineScreenshots(account) {

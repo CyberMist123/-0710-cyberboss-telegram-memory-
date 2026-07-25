@@ -32,7 +32,7 @@ class SystemMessageDispatcher {
       threadKey: `system:${message.senderId}`,
       senderId: message.senderId,
       messageId: message.id,
-      text: buildSystemInboundText(message?.text, message?.createdAt, message?.sourceType),
+      text: buildSystemInboundText(message?.text, message?.createdAt, message?.sourceType, message?.alertKind),
       attachments: [],
       command: "message",
       contextToken,
@@ -42,7 +42,7 @@ class SystemMessageDispatcher {
   }
 }
 
-function buildSystemInboundText(text, createdAt = "", sourceType = "system") {
+function buildSystemInboundText(text, createdAt = "", sourceType = "system", alertKind = "failure") {
   const body = normalizeText(text);
   const localTime = formatSystemLocalTime(createdAt);
   const normalizedType = normalizeText(sourceType) || "system";
@@ -66,6 +66,20 @@ function buildSystemInboundText(text, createdAt = "", sourceType = "system") {
       sections.push("", "Trigger:", body);
     }
     return sections.join("\n").trim();
+  }
+
+  if (normalizedType === "liveness_alert") {
+    const isRecovery = String(alertKind || "").trim() === "recovery";
+    return [
+      ...(localTime ? [`[${localTime}]`, ""] : []),
+      "SYSTEM ACTION MODE: internal Telegram alert, not user chat.",
+      `System trigger type: ${isRecovery ? "liveness_recovery" : "liveness_alert"}.`,
+      "Use the existing Telegram reply path to send the alert below to the current Telegram conversation.",
+      "Do not write episodes, canon, recall_log, or any memory file in this turn.",
+      `Return exactly one JSON object after any tool calls: {\"action\":\"send_message\",\"message\":\"<alert>\"}.`,
+      "No markdown fences. No reasoning. No text outside the JSON.",
+      ...(body ? ["", "Alert:", body] : []),
+    ].join("\n").trim();
   }
 
   const sections = [

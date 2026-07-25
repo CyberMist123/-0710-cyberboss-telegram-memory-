@@ -99,6 +99,16 @@ function normalizeSystemMessage(message) {
     text,
     sourceType,
     createdAt: createdAt || new Date().toISOString(),
+    ...(Number.isInteger(Number(message.deliveryAttempts)) && Number(message.deliveryAttempts) >= 0
+      ? { deliveryAttempts: Number(message.deliveryAttempts) }
+      : {}),
+    ...(Number.isInteger(Number(message.maxDeliveryAttempts)) && Number(message.maxDeliveryAttempts) > 0
+      ? { maxDeliveryAttempts: Number(message.maxDeliveryAttempts) }
+      : {}),
+    ...(normalizeText(message.lastDeliveryError) ? { lastDeliveryError: normalizeText(message.lastDeliveryError).slice(0, 500) } : {}),
+    ...(normalizeText(message.alertKind) ? { alertKind: normalizeText(message.alertKind) } : {}),
+    ...(normalizeText(message.alertKey) ? { alertKey: normalizeText(message.alertKey) } : {}),
+    ...(normalizeText(message.fingerprint) ? { fingerprint: normalizeText(message.fingerprint) } : {}),
   };
 }
 
