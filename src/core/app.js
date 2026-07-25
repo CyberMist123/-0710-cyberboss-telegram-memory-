@@ -6,6 +6,22 @@ const { createTelegramChannelAdapter } = require("../adapters/channel/telegram")
 const { DEFAULT_MIN_WEIXIN_CHUNK, MAX_MIN_WEIXIN_CHUNK } = require("../adapters/channel/weixin/config-store");
 const { persistIncomingWeixinAttachments } = require("../adapters/channel/weixin/media-receive");
 const { createClaudeCodeRuntimeAdapter } = require("../adapters/runtime/claudecode");
+const {
+  createTelegramProfileRouter,
+} = require("../adapters/runtime/claudecode/telegram-profile-router");
+const {
+  buildLaneScopeKey,
+  buildLegacyRouteLane,
+  buildSystemRouteLane,
+  resolveInboundRouteLane,
+} = require("./route-lane");
+const {
+  RoutingCounters,
+  laneToken,
+  profileToken,
+  sanitizeRoutingTelemetry,
+  slotToken,
+} = require("./route-telemetry");
 const { createTimelineIntegration } = require("../integrations/timeline");
 const {
   assembleRuntimeTurnText,
@@ -97,6 +113,18 @@ class CyberbossApp {
     this.projectToolHost = projectTooling.toolHost;
     this.runtimeContextStore = projectTooling.runtimeContextStore;
     this.runtimeAdapter = createRuntimeAdapter(config);
+    // Fail-closed: a malformed profile mapping throws here and startup stops.
+    // There is deliberately no fallback to a more permissive legacy profile.
+    // With both environment variables unset the router reports every lane as
+    // unmapped and dispatch keeps its pre-v2 behaviour exactly.
+    this.telegramProfileRouter = config.telegramProfileRouter
+      || createTelegramProfileRouter({
+        profilesJson: config.claudeLaunchProfilesJson || "",
+        mappingJson: config.telegramProfileMappingJson || "",
+        baseDir: config.claudeLaunchProfileBaseDir || config.configDir || config.stateDir || process.cwd(),
+        allowAuthBackendOverride: config.claudeAllowAuthBackendOverride === true,
+      });
+    this.routingCounters = new RoutingCounters();
     this.embeddingService = null;
     this.memoryService = null;
     if (this.legacyMemoryPipelineEnabled) {
@@ -621,12 +649,84 @@ class CyberbossApp {
     );
   }
 
+  /**
+   * Route lane for an inbound message. Telegram lanes carry the topic id;
+   * every other channel gets a legacy lane keyed by the continuity binding so
+   * its behaviour is unchanged.
+   */
+  resolveRouteLane(message, bindingKey) {
+    return resolveRouteLaneFor(message, bindingKey);
+  }
+
+  /**
+   * Scope key for the turn gate, pending buffers, debounce timers and reply
+   * target. Two Telegram topics in the same chat produce different keys, so
+   * they never share a gate and never merge into one turn.
+   */
+  buildRouteScopeKey(lane, bindingKey, workspaceRoot) {
+    return routeScopeKeyFor(lane, bindingKey, workspaceRoot);
+  }
+
+  /**
+   * Launch profile selected for a lane, or null. Only Telegram foreground lanes
+   * are eligible; system, background and closeout lanes never reach here.
+   */
+  resolveLaunchProfileForLane(lane) {
+    if (!lane || lane.kind !== "tg" || !this.telegramProfileRouter?.isEnabled?.()) {
+      return null;
+    }
+    if (this.runtimeAdapter?.describe?.().id !== "claudecode") {
+      return null;
+    }
+    const selection = this.telegramProfileRouter.select(lane);
+    this.recordRoutingTelemetry({
+      event: "telegram_profile_select",
+      outcome: selection.status,
+      laneToken: laneToken(lane),
+      laneKind: lane.kind,
+      topicShape: lane.messageThreadId === null ? "default" : "topic",
+      profileToken: profileToken(selection.profileId),
+    });
+    return selection.launchProfile || null;
+  }
+
+  recordRoutingTelemetry(event) {
+    let sanitized;
+    try {
+      sanitized = sanitizeRoutingTelemetry(event);
+    } catch (error) {
+      console.warn(`[route-telemetry] dropped an event: ${error.message}`);
+      return;
+    }
+    this.routingCounters?.increment(`${sanitized.event}:${sanitized.outcome || "ok"}`);
+    if (typeof this.config?.onRoutingTelemetry === "function") {
+      try {
+        this.config.onRoutingTelemetry(sanitized);
+      } catch {}
+    }
+  }
+
+  /**
+   * Outbound Telegram thread id for a message. Every reply, typing indicator,
+   * media send, error and status for a topic must carry it.
+   */
+  static resolveOutboundThreadIdFor(message) {
+    if (!message || message.provider !== "telegram") {
+      return null;
+    }
+    const value = Object.hasOwn(message, "messageThreadId")
+      ? message.messageThreadId
+      : message.telegram?.messageThreadId;
+    return value === undefined || value === "" ? null : value;
+  }
+
   async handlePreparedMessage(normalized, { allowCommands }) {
     const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
       workspaceId: normalized.workspaceId,
       accountId: normalized.accountId,
       senderId: normalized.senderId,
     });
+    const lane = resolveRouteLaneFor(normalized, bindingKey);
     if (normalized.provider !== "telegram") {
       this.streamDelivery.setReplyTarget(bindingKey, {
         userId: normalized.senderId,
@@ -648,14 +748,15 @@ class CyberbossApp {
     }
 
     if (shouldBatchImageOnlyInbound(prepared)) {
-      this.enqueuePendingImageInbound({ bindingKey, workspaceRoot, prepared });
+      this.enqueuePendingImageInbound({ bindingKey, workspaceRoot, prepared, lane });
       return;
     }
 
-    if (this.hasPendingImageInbound(bindingKey, workspaceRoot) && isPlainTextPreparedMessage(prepared)) {
+    if (this.hasPendingImageInbound(bindingKey, workspaceRoot, lane) && isPlainTextPreparedMessage(prepared)) {
       const merged = await this.flushPendingImageInboundBatch({
         bindingKey,
         workspaceRoot,
+        lane,
         trailingPrepared: prepared,
       });
       if (merged) {
@@ -663,25 +764,33 @@ class CyberbossApp {
       }
     }
 
-    if (this.hasPendingImageInbound(bindingKey, workspaceRoot)) {
-      await this.flushPendingImageInboundBatch({ bindingKey, workspaceRoot });
+    if (this.hasPendingImageInbound(bindingKey, workspaceRoot, lane)) {
+      await this.flushPendingImageInboundBatch({ bindingKey, workspaceRoot, lane });
     }
 
     if (normalized.provider === "telegram") {
-      await this.dispatchTelegramPreparedInbound({ bindingKey, workspaceRoot, prepared, messageId: normalized.messageId });
+      await this.dispatchTelegramPreparedInbound({ bindingKey, workspaceRoot, prepared, lane, messageId: normalized.messageId });
       return;
     }
 
-    await this.routePreparedInbound({ bindingKey, workspaceRoot, prepared });
+    await this.routePreparedInbound({ bindingKey, workspaceRoot, prepared, lane });
     this.maybeRunLegacyMemoryBackgroundPipeline(normalized, "post-response");
   }
 
-  isTurnDispatchBlocked(bindingKey, workspaceRoot, { ignoreBoundary = false } = {}) {
-    const scopeKey = buildScopeKey(bindingKey, workspaceRoot);
+  isTurnDispatchBlocked(bindingKey, workspaceRoot, { ignoreBoundary = false, lane = null, anyLane = false } = {}) {
+    const scopeKey = routeScopeKeyFor(lane, bindingKey, workspaceRoot);
     if (!ignoreBoundary && scopeKey && this.turnBoundaryScopeKeys?.has(scopeKey)) {
       return true;
     }
-    if (this.turnGateStore.isPending(bindingKey, workspaceRoot)) {
+    if (this.turnGateStore.isScopePending
+      ? this.turnGateStore.isScopePending(scopeKey)
+      : this.turnGateStore.isPending(bindingKey, workspaceRoot)) {
+      return true;
+    }
+    // Workspace-wide jobs yield to whichever lane currently holds a turn: the
+    // lanes are isolated from each other, but they share one working directory.
+    if (anyLane && typeof this.turnGateStore.isAnyScopePendingForWorkspace === "function"
+      && this.turnGateStore.isAnyScopePendingForWorkspace(workspaceRoot)) {
       return true;
     }
     const threadId = this.runtimeAdapter.getSessionStore().getThreadIdForWorkspace(bindingKey, workspaceRoot);
@@ -689,12 +798,24 @@ class CyberbossApp {
     return threadState?.status === "running" || hasRpcId(threadState?.pendingApproval?.requestId);
   }
 
-  async dispatchPreparedTurn({ bindingKey, workspaceRoot, prepared, pendingOperation = null }) {
-    const pendingScopeKey = this.turnGateStore.begin(bindingKey, workspaceRoot);
+  async dispatchPreparedTurn({
+    bindingKey, workspaceRoot, prepared, lane = null, gateLane, pendingOperation = null,
+  }) {
+    const effectiveLane = lane || resolveRouteLaneFor(prepared, bindingKey);
+    // `gateLane` lets a caller serialize on a different scope than the one it
+    // runs under. System turns use it to keep the pre-v2 workspace-level gate
+    // while still getting an independent session and process.
+    const effectiveGateLane = gateLane === undefined ? effectiveLane : gateLane;
+    const scopeKey = routeScopeKeyFor(effectiveGateLane, bindingKey, workspaceRoot);
+    const messageThreadId = CyberbossApp.resolveOutboundThreadIdFor(prepared);
+    const pendingScopeKey = this.turnGateStore.beginScope
+      ? this.turnGateStore.beginScope(scopeKey)
+      : this.turnGateStore.begin(bindingKey, workspaceRoot);
     await this.channelAdapter.sendTyping({
       userId: prepared.senderId,
       status: 1,
       contextToken: prepared.contextToken,
+      ...outboundThreadIdField(prepared),
     }).catch(() => {});
 
     try {
@@ -709,6 +830,8 @@ class CyberbossApp {
         text: runtimeTurn.text,
         attachments: runtimeTurn.attachments,
         model,
+        lane: effectiveLane,
+        launchProfile: this.resolveLaunchProfileForLane?.(effectiveLane) || null,
         metadata: {
           workspaceId: prepared.workspaceId,
           accountId: prepared.accountId,
@@ -728,13 +851,32 @@ class CyberbossApp {
         accountId: prepared.accountId,
         senderId: prepared.senderId,
         provider: prepared.provider,
+        chatId: prepared.chatId || prepared.telegram?.chatId || "",
+        messageThreadId,
       });
       this.turnGateStore.attachThread(pendingScopeKey, turn.threadId);
+      // The reply target carries the originating topic, so a reply, a media
+      // send, an error or a status can only land back in the lane that asked.
+      // Shape is unchanged for a lane with no topic, so non-Telegram delivery
+      // is byte-for-byte identical to pre-v2.
       const replyTarget = {
         userId: prepared.senderId,
         contextToken: prepared.contextToken,
         provider: prepared.provider,
+        ...(messageThreadId === null || messageThreadId === undefined
+          ? {}
+          : { messageThreadId }),
       };
+      this.streamDelivery.setReplyTargetForThread?.(turn.threadId, replyTarget);
+      this.recordRoutingTelemetry?.({
+        event: "lane_turn_dispatched",
+        outcome: "ok",
+        laneToken: laneToken(effectiveLane),
+        laneKind: effectiveLane?.kind || "unknown",
+        topicShape: messageThreadId === null ? "default" : "topic",
+        slotToken: slotToken(turn.sessionSlotKey || ""),
+        profileToken: profileToken(turn.profileId || ""),
+      });
       if (turn.turnId) {
         this.streamDelivery.bindReplyTargetForTurn({
           threadId: turn.threadId,
@@ -749,7 +891,11 @@ class CyberbossApp {
       }
       return true;
     } catch (error) {
-      this.turnGateStore.releaseScope(bindingKey, workspaceRoot);
+      if (this.turnGateStore.releaseScopeKey) {
+        this.turnGateStore.releaseScopeKey(scopeKey);
+      } else {
+        this.turnGateStore.releaseScope(bindingKey, workspaceRoot);
+      }
       const messageText = error instanceof Error ? error.message : String(error || "unknown error");
       if (pendingOperation?.kind === "desire_checkin") {
         const { appendDesireTelemetry } = require("./desire-telemetry");
@@ -768,6 +914,7 @@ class CyberbossApp {
         userId: prepared.senderId,
         text: `❌ Request failed\n${messageText}`,
         contextToken: prepared.contextToken,
+        ...outboundThreadIdField(prepared),
       }).catch(() => {});
       return false;
     }
@@ -889,44 +1036,55 @@ class CyberbossApp {
     };
   }
 
-  async routePreparedInbound({ bindingKey, workspaceRoot, prepared }) {
+  async routePreparedInbound({ bindingKey, workspaceRoot, prepared, lane = null }) {
+    const effectiveLane = lane || resolveRouteLaneFor(prepared, bindingKey);
     if (prepared?.provider === "telegram") {
-      return this.dispatchTelegramPreparedInbound({ bindingKey, workspaceRoot, prepared, messageId: prepared?.messageId || "" });
+      return this.dispatchTelegramPreparedInbound({
+        bindingKey, workspaceRoot, prepared, lane: effectiveLane, messageId: prepared?.messageId || "",
+      });
     }
-    if (this.isTurnDispatchBlocked(bindingKey, workspaceRoot)) {
-      this.bufferPendingInboundMessage({ bindingKey, workspaceRoot, prepared });
+    if (this.isTurnDispatchBlocked(bindingKey, workspaceRoot, { lane: effectiveLane })) {
+      this.bufferPendingInboundMessage({ bindingKey, workspaceRoot, prepared, lane: effectiveLane });
       return false;
     }
-    return this.dispatchPreparedTurn({ bindingKey, workspaceRoot, prepared });
+    return this.dispatchPreparedTurn({ bindingKey, workspaceRoot, prepared, lane: effectiveLane });
   }
 
-  hasPendingImageInbound(bindingKey, workspaceRoot) {
-    return this.pendingImageInboundByScope.has(buildScopeKey(bindingKey, workspaceRoot));
+  hasPendingImageInbound(bindingKey, workspaceRoot, lane = null) {
+    return this.pendingImageInboundByScope.has(
+      routeScopeKeyFor(lane, bindingKey, workspaceRoot),
+    );
   }
 
-  enqueuePendingImageInbound({ bindingKey, workspaceRoot, prepared }) {
-    const scopeKey = buildScopeKey(bindingKey, workspaceRoot);
+  enqueuePendingImageInbound({ bindingKey, workspaceRoot, prepared, lane = null }) {
+    const effectiveLane = lane || resolveRouteLaneFor(prepared, bindingKey);
+    const scopeKey = routeScopeKeyFor(effectiveLane, bindingKey, workspaceRoot);
     if (!scopeKey || !prepared) {
       return;
     }
 
+    // Keyed by lane scope: an image burst in one topic can never be merged with
+    // an image burst in another topic, and neither debounce timer touches the
+    // other's draft.
     const current = this.pendingImageInboundByScope.get(scopeKey) || {
       bindingKey,
       workspaceRoot,
+      lane: effectiveLane,
       messages: [],
       timer: null,
     };
     current.messages.push(clonePreparedInboundMessage(prepared));
     this.pendingImageInboundByScope.set(scopeKey, current);
-    this.schedulePendingImageInboundFlush(scopeKey, bindingKey, workspaceRoot);
+    this.schedulePendingImageInboundFlush(scopeKey, bindingKey, workspaceRoot, INBOUND_IMAGE_BATCH_IDLE_MS, effectiveLane);
     void this.channelAdapter.sendTyping({
       userId: prepared.senderId,
       status: 1,
       contextToken: prepared.contextToken,
+      ...outboundThreadIdField(prepared),
     }).catch(() => {});
   }
 
-  schedulePendingImageInboundFlush(scopeKey, bindingKey, workspaceRoot, delayMs = INBOUND_IMAGE_BATCH_IDLE_MS) {
+  schedulePendingImageInboundFlush(scopeKey, bindingKey, workspaceRoot, delayMs = INBOUND_IMAGE_BATCH_IDLE_MS, lane = null) {
     const draft = this.pendingImageInboundByScope.get(scopeKey);
     if (!draft) {
       return;
@@ -934,8 +1092,9 @@ class CyberbossApp {
     if (draft.timer) {
       clearTimeout(draft.timer);
     }
+    const effectiveLane = lane || draft.lane || null;
     draft.timer = setTimeout(() => {
-      void this.flushPendingImageInboundBatch({ bindingKey, workspaceRoot }).catch((error) => {
+      void this.flushPendingImageInboundBatch({ bindingKey, workspaceRoot, lane: effectiveLane }).catch((error) => {
         const message = error instanceof Error ? error.stack || error.message : String(error);
         console.error(`[cyberboss] image inbound debounce flush failed ${message}`);
       });
@@ -958,8 +1117,8 @@ class CyberbossApp {
     }
   }
 
-  async flushPendingImageInboundBatch({ bindingKey = "", workspaceRoot = "", trailingPrepared = null } = {}) {
-    const scopeKey = buildScopeKey(bindingKey, workspaceRoot);
+  async flushPendingImageInboundBatch({ bindingKey = "", workspaceRoot = "", lane = null, trailingPrepared = null } = {}) {
+    const scopeKey = routeScopeKeyFor(lane, bindingKey, workspaceRoot);
     const draft = scopeKey ? this.pendingImageInboundByScope.get(scopeKey) || null : null;
     if (!draft?.bindingKey || !draft?.workspaceRoot) {
       if (scopeKey) {
@@ -990,6 +1149,7 @@ class CyberbossApp {
       this.pendingImageInboundByScope.set(scopeKey, {
         bindingKey: draft.bindingKey,
         workspaceRoot: draft.workspaceRoot,
+        lane: draft.lane || null,
         messages: remainingMessages,
         timer: null,
       });
@@ -1004,6 +1164,7 @@ class CyberbossApp {
     await this.routePreparedInbound({
       bindingKey: draft.bindingKey,
       workspaceRoot: draft.workspaceRoot,
+      lane: draft.lane || null,
       prepared,
     });
 
@@ -1011,27 +1172,34 @@ class CyberbossApp {
       await this.flushPendingImageInboundBatch({
         bindingKey: draft.bindingKey,
         workspaceRoot: draft.workspaceRoot,
+        lane: draft.lane || null,
       });
     }
 
     return true;
   }
 
-  bufferPendingInboundMessage({ bindingKey, workspaceRoot, prepared }) {
-    const scopeKey = buildScopeKey(bindingKey, workspaceRoot);
+  bufferPendingInboundMessage({ bindingKey, workspaceRoot, prepared, lane = null }) {
+    const effectiveLane = lane || resolveRouteLaneFor(prepared, bindingKey);
+    const scopeKey = routeScopeKeyFor(effectiveLane, bindingKey, workspaceRoot);
     if (!scopeKey || !prepared) {
       return;
     }
 
+    // One buffer per lane. Messages from two topics are never merged into a
+    // single turn even when they arrive while the same workspace is busy.
     const current = this.pendingInboundByScope.get(scopeKey) || {
       bindingKey,
       workspaceRoot,
+      lane: effectiveLane,
       messages: [],
     };
     current.messages.push({
       workspaceId: prepared.workspaceId,
       accountId: prepared.accountId,
       senderId: prepared.senderId,
+      chatId: prepared.chatId ?? prepared.telegram?.chatId ?? "",
+      ...outboundThreadIdField(prepared),
       messageId: prepared.messageId,
       contextToken: prepared.contextToken,
       provider: prepared.provider,
@@ -1046,15 +1214,18 @@ class CyberbossApp {
       userId: prepared.senderId,
       status: 1,
       contextToken: prepared.contextToken,
+      ...outboundThreadIdField(prepared),
     }).catch(() => {});
   }
 
-  hasPendingInboundMessage(bindingKey, workspaceRoot) {
-    return this.pendingInboundByScope.has(buildScopeKey(bindingKey, workspaceRoot));
+  hasPendingInboundMessage(bindingKey, workspaceRoot, lane = null) {
+    return this.pendingInboundByScope.has(routeScopeKeyFor(lane, bindingKey, workspaceRoot));
   }
 
-  async flushPendingInboundMessages({ bindingKey = "", workspaceRoot = "", ignoreBoundary = false } = {}) {
-    const targetScopeKey = buildScopeKey(bindingKey, workspaceRoot);
+  async flushPendingInboundMessages({ bindingKey = "", workspaceRoot = "", lane = null, ignoreBoundary = false } = {}) {
+    const targetScopeKey = bindingKey || lane
+      ? routeScopeKeyFor(lane, bindingKey, workspaceRoot)
+      : "";
     const scopeEntries = targetScopeKey
       ? [[targetScopeKey, this.pendingInboundByScope.get(targetScopeKey) || null]]
       : [...this.pendingInboundByScope.entries()];
@@ -1064,7 +1235,8 @@ class CyberbossApp {
         this.pendingInboundByScope.delete(scopeKey);
         continue;
       }
-      if (this.isTurnDispatchBlocked(draft.bindingKey, draft.workspaceRoot, { ignoreBoundary })) {
+      const draftLane = draft.lane || null;
+      if (this.isTurnDispatchBlocked(draft.bindingKey, draft.workspaceRoot, { ignoreBoundary, lane: draftLane })) {
         continue;
       }
       const pendingDispatch = this.mergePendingInboundDraft(draft);
@@ -1078,6 +1250,7 @@ class CyberbossApp {
           bindingKey: pendingDispatch.prepared.bindingKey,
           workspaceRoot: pendingDispatch.prepared.workspaceRoot,
           prepared: pendingDispatch.prepared,
+          lane: draftLane,
           messageId: pendingDispatch.prepared.messageId || "",
         });
         continue;
@@ -1086,10 +1259,13 @@ class CyberbossApp {
       const dispatched = await this.dispatchPreparedTurn({
         bindingKey: pendingDispatch.prepared.bindingKey,
         workspaceRoot: pendingDispatch.prepared.workspaceRoot,
+        lane: draftLane,
         prepared: {
           workspaceId: pendingDispatch.prepared.workspaceId,
           accountId: pendingDispatch.prepared.accountId,
           senderId: pendingDispatch.prepared.senderId,
+          chatId: pendingDispatch.prepared.chatId ?? "",
+          messageThreadId: pendingDispatch.prepared.messageThreadId ?? null,
           contextToken: pendingDispatch.prepared.contextToken,
           provider: pendingDispatch.prepared.provider,
           originalText: pendingDispatch.prepared.originalText,
@@ -1107,6 +1283,7 @@ class CyberbossApp {
         this.pendingInboundByScope.set(scopeKey, {
           bindingKey: draft.bindingKey,
           workspaceRoot: draft.workspaceRoot,
+          lane: draftLane,
           messages: pendingDispatch.remainingMessages,
         });
       }
@@ -1196,6 +1373,7 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: `⚠️ Failed to receive image or attachment\n${persisted.failed.map((item) => item.reason).join("\n")}`,
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
         preserveBlock: true,
       }).catch(() => {});
       return null;
@@ -1210,6 +1388,7 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: `⚠️ Failed to receive image or attachment\n${persisted.failed.map((item) => item.reason).join("\n")}`,
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
         preserveBlock: true,
       }).catch(() => {});
       return null;
@@ -1282,11 +1461,13 @@ class CyberbossApp {
         await this.channelAdapter.sendTyping({
           userId: job.senderId,
           status: 0,
+          ...outboundThreadIdField({ provider: "telegram", messageThreadId: job.messageThreadId ?? null }),
         }).catch(() => {});
         await this.channelAdapter.sendText({
           userId: job.senderId,
           text: `❌ Timeline screenshot failed\n${messageText}`,
           preserveBlock: true,
+          ...outboundThreadIdField({ provider: "telegram", messageThreadId: job.messageThreadId ?? null }),
         }).catch(() => {});
       }
     }
@@ -1363,13 +1544,19 @@ class CyberbossApp {
       senderId: prepared.senderId,
     });
     const workspaceRoot = prepared.workspaceRoot || this.resolveWorkspaceRoot(bindingKey);
-    if (this.isTurnDispatchBlocked(bindingKey, workspaceRoot)) {
+    // Queued system turns yield to any lane that is mid-turn in this workspace.
+    if (this.isTurnDispatchBlocked(bindingKey, workspaceRoot, { anyLane: true })) {
       return false;
     }
+    // Explicit, independent identity: a system-message turn never inherits a
+    // Telegram lane's launch profile or Claude session. It serializes on the
+    // binding-level gate (gateLane: null) exactly as it did before v2.
     return this.dispatchPreparedTurn({
       bindingKey,
       workspaceRoot,
       prepared,
+      lane: buildSystemRouteLane("system-message"),
+      gateLane: null,
       pendingOperation: message?.sourceType === "desire_checkin" ? {
         kind: "desire_checkin",
         eventId: message.id,
@@ -1432,6 +1619,7 @@ class CyberbossApp {
           userId: normalized.senderId,
           text: buildWeixinHelpText(),
           contextToken: normalized.contextToken,
+          ...outboundThreadIdField(normalized),
         });
     }
   }
@@ -1443,6 +1631,7 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: "💡 Usage: /bind /absolute/path",
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       });
       return;
     }
@@ -1452,6 +1641,7 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: "⚠️ Only absolute paths are supported for /bind.",
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       });
       return;
     }
@@ -1461,6 +1651,7 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: "⚠️ The path must be within CYBERBOSS_WORKSPACE.",
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       });
       return;
     }
@@ -1471,6 +1662,7 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: `❌ Workspace does not exist\n${workspaceRoot}`,
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       });
       return;
     }
@@ -1485,6 +1677,7 @@ class CyberbossApp {
       userId: normalized.senderId,
       text: `✅ Workspace bound\nworkspace: ${workspaceRoot}`,
       contextToken: normalized.contextToken,
+      ...outboundThreadIdField(normalized),
     });
   }
 
@@ -1525,6 +1718,7 @@ class CyberbossApp {
       userId: normalized.senderId,
       text: lines.join("\n"),
       contextToken: normalized.contextToken,
+      ...outboundThreadIdField(normalized),
     });
   }
 
@@ -1536,13 +1730,19 @@ class CyberbossApp {
     });
     const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
     if (typeof this.runtimeAdapter.startFreshThreadDraft === "function") {
-      await this.runtimeAdapter.startFreshThreadDraft({ bindingKey, workspaceRoot });
+      await this.runtimeAdapter.startFreshThreadDraft({
+        bindingKey,
+        workspaceRoot,
+        lane: resolveRouteLaneFor(normalized, bindingKey),
+        launchProfile: this.resolveLaunchProfileForLane?.(resolveRouteLaneFor(normalized, bindingKey)) || null,
+      });
     }
     this.runtimeAdapter.getSessionStore().clearThreadIdForWorkspace(bindingKey, workspaceRoot);
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
       text: `✅ Switched to a fresh thread draft\nworkspace: ${workspaceRoot}`,
       contextToken: normalized.contextToken,
+      ...outboundThreadIdField(normalized),
     });
   }
 
@@ -1560,6 +1760,7 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: "💡 There is no active thread yet. Send a normal message first.",
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       });
       return;
     }
@@ -1571,7 +1772,11 @@ class CyberbossApp {
         provider: normalized.provider,
       });
       const runtimeParams = sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
+      const commandLane = resolveRouteLaneFor(normalized, bindingKey);
       const refreshed = await this.runtimeAdapter.refreshThreadInstructions({
+        lane: commandLane,
+        launchProfile: this.resolveLaunchProfileForLane?.(commandLane) || null,
+
         threadId,
         workspaceRoot,
         model: runtimeParams.model,
@@ -1584,6 +1789,7 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: `❌ Reread failed\n${error instanceof Error ? error.message : String(error || "unknown error")}`,
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       }).catch(() => {});
     }
   }
@@ -1602,6 +1808,7 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: "💡 There is no active thread yet. Send a normal message first.",
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       });
       return;
     }
@@ -1612,7 +1819,11 @@ class CyberbossApp {
         contextToken: normalized.contextToken,
         provider: normalized.provider,
       });
+      const commandLane = resolveRouteLaneFor(normalized, bindingKey);
       await this.runtimeAdapter.compactThread({
+        lane: commandLane,
+        launchProfile: this.resolveLaunchProfileForLane?.(commandLane) || null,
+
         threadId,
         workspaceRoot,
         model: sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot).model,
@@ -1630,12 +1841,14 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: `🗜️ Compact request sent\nthread: ${threadId}`,
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       });
     } catch (error) {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
         text: `❌ Compact failed\n${error instanceof Error ? error.message : String(error || "unknown error")}`,
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       }).catch(() => {});
     }
   }
@@ -1647,6 +1860,7 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: "💡 Usage: /switch <threadId>",
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       });
       return;
     }
@@ -1661,7 +1875,11 @@ class CyberbossApp {
     const runtimeParams = sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
     let resumed;
     try {
+      const commandLane = resolveRouteLaneFor(normalized, bindingKey);
       resumed = await this.runtimeAdapter.resumeThread({
+        lane: commandLane,
+        launchProfile: this.resolveLaunchProfileForLane?.(commandLane) || null,
+
         threadId: targetThreadId,
         workspaceRoot,
         model: runtimeParams.model,
@@ -1673,18 +1891,25 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: `❌ Switch failed; the requested thread was not replaced.\n${error instanceof Error ? error.message : String(error || "unknown error")}`,
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       }).catch(() => {});
       return;
     }
     if (resumed?.empty === true) {
       if (typeof this.runtimeAdapter.startFreshThreadDraft === "function") {
-        await this.runtimeAdapter.startFreshThreadDraft({ bindingKey, workspaceRoot });
+        await this.runtimeAdapter.startFreshThreadDraft({
+        bindingKey,
+        workspaceRoot,
+        lane: resolveRouteLaneFor(normalized, bindingKey),
+        launchProfile: this.resolveLaunchProfileForLane?.(resolveRouteLaneFor(normalized, bindingKey)) || null,
+      });
       }
       sessionStore.clearThreadIdForWorkspace(bindingKey, workspaceRoot);
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
         text: `✅ Empty thread selected; the next message will start a fresh thread.\nworkspace: ${workspaceRoot}`,
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       });
       return;
     }
@@ -1694,7 +1919,11 @@ class CyberbossApp {
       resumed?.threadId || targetThreadId,
     );
     try {
+      const commandLane = resolveRouteLaneFor(normalized, bindingKey);
       const refreshed = await this.runtimeAdapter.refreshThreadInstructions({
+        lane: commandLane,
+        launchProfile: this.resolveLaunchProfileForLane?.(commandLane) || null,
+
         threadId: resumed?.threadId || targetThreadId,
         workspaceRoot,
         model: sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot).model,
@@ -1708,6 +1937,7 @@ class CyberbossApp {
       userId: normalized.senderId,
       text: `✅ Thread switched\nworkspace: ${workspaceRoot}\nthread: ${resumed?.threadId || targetThreadId}`,
       contextToken: normalized.contextToken,
+      ...outboundThreadIdField(normalized),
     });
   }
 
@@ -1725,11 +1955,15 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: "💡 There is no running thread right now.",
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       });
       return;
     }
 
     await this.runtimeAdapter.cancelTurn({
+      bindingKey,
+      lane: resolveRouteLaneFor(normalized, bindingKey),
+      launchProfile: this.resolveLaunchProfileForLane?.(resolveRouteLaneFor(normalized, bindingKey)) || null,
       threadId,
       turnId: threadState.turnId,
       workspaceRoot,
@@ -1738,6 +1972,7 @@ class CyberbossApp {
       userId: normalized.senderId,
       text: `⏹️ Stop request sent\nthread: ${threadId}`,
       contextToken: normalized.contextToken,
+      ...outboundThreadIdField(normalized),
     });
   }
 
@@ -1749,6 +1984,7 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: `⏰ Current check-in interval is ${Math.round(currentRange.minIntervalMs / 60000)}-${Math.round(currentRange.maxIntervalMs / 60000)} minutes.`,
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       });
       return;
     }
@@ -1759,6 +1995,7 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: "💡 Usage: /checkin <min>-<max>",
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       });
       return;
     }
@@ -1771,6 +2008,7 @@ class CyberbossApp {
       userId: normalized.senderId,
       text: `✅ Check-in interval reset to ${parsedRange.minMinutes}-${parsedRange.maxMinutes} minutes and will apply on the next polling cycle.`,
       contextToken: normalized.contextToken,
+      ...outboundThreadIdField(normalized),
     });
   }
 
@@ -1782,6 +2020,7 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: `💡 Current minimum merge chunk is ${current} characters. Usage: /chunk <number> (e.g. /chunk 50)`,
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       });
       return;
     }
@@ -1791,6 +2030,7 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: `⚠️  Invalid value. Please provide a number between 1 and ${MAX_MIN_WEIXIN_CHUNK}.`,
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       });
       return;
     }
@@ -1799,6 +2039,7 @@ class CyberbossApp {
       userId: normalized.senderId,
       text: `✅ Minimum merge chunk set to ${updated} characters. Shorter fragments will be merged into one message up to this size.`,
       contextToken: normalized.contextToken,
+      ...outboundThreadIdField(normalized),
     });
   }
 
@@ -1817,6 +2058,7 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: "💡 There is no pending approval request right now.",
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       });
       return;
     }
@@ -1827,6 +2069,7 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: "⚠️ This Codex MCP request cannot be answered from WeChat yet.",
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       });
       return;
     }
@@ -1847,6 +2090,7 @@ class CyberbossApp {
       userId: normalized.senderId,
       text,
       contextToken: normalized.contextToken,
+      ...outboundThreadIdField(normalized),
     });
   }
 
@@ -1875,6 +2119,7 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: lines.join("\n"),
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       });
       return;
     }
@@ -1889,6 +2134,7 @@ class CyberbossApp {
         userId: normalized.senderId,
         text: `❌ Model not found\n${query}`,
         contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
       });
       return;
     }
@@ -1900,6 +2146,7 @@ class CyberbossApp {
       userId: normalized.senderId,
       text: `✅ Model switched\nworkspace: ${workspaceRoot}\nmodel: ${matched.model}`,
       contextToken: normalized.contextToken,
+      ...outboundThreadIdField(normalized),
     });
   }
 
@@ -1913,11 +2160,13 @@ class CyberbossApp {
         "https://github.com/WenXiaoWendy/cyberboss",
       ].join("\n"),
       contextToken: normalized.contextToken,
+      ...outboundThreadIdField(normalized),
     });
     await this.channelAdapter.sendFile({
       userId: normalized.senderId,
       filePath: path.join(__dirname, "../../assets/star-guide.jpg"),
       contextToken: normalized.contextToken,
+      ...outboundThreadIdField(normalized),
     }).catch(() => {});
   }
 
@@ -2010,19 +2259,20 @@ class CyberbossApp {
     return candidates[0] || String(this.config.allowedUserIds?.[0] || "").trim();
   }
 
-  async dispatchTelegramPreparedInbound({ bindingKey, workspaceRoot, prepared, messageId = "" }) {
+  async dispatchTelegramPreparedInbound({ bindingKey, workspaceRoot, prepared, lane = null, messageId = "" }) {
+    const effectiveLane = lane || resolveRouteLaneFor(prepared, bindingKey);
     this.logTelegramDebug(`dispatchTelegramPreparedInbound messageId=${messageId} senderId=${prepared?.senderId || ""}`);
     // Never busy-wait here: this method runs inside the single poller loop, and
     // blocking it stalls getUpdates, reminders, and system-message flushes.
     // If a turn is already running, buffer the message; the runtime.turn.completed
     // handler flushes pending inbound messages (merging concurrent ones into a
     // single ordered batch) as soon as the previous turn finishes.
-    if (this.isTurnDispatchBlocked(bindingKey, workspaceRoot)) {
+    if (this.isTurnDispatchBlocked(bindingKey, workspaceRoot, { lane: effectiveLane })) {
       this.logTelegramDebug(`dispatch blocked, buffered messageId=${messageId}`);
-      this.bufferPendingInboundMessage({ bindingKey, workspaceRoot, prepared });
+      this.bufferPendingInboundMessage({ bindingKey, workspaceRoot, prepared, lane: effectiveLane });
       return false;
     }
-    return this.dispatchPreparedTurn({ bindingKey, workspaceRoot, prepared });
+    return this.dispatchPreparedTurn({ bindingKey, workspaceRoot, prepared, lane: effectiveLane });
   }
 
   logTelegramDebug(message) {
@@ -2041,6 +2291,7 @@ class CyberbossApp {
       userId: normalized.senderId,
       text: buildWeixinHelpText(),
       contextToken: normalized.contextToken,
+      ...outboundThreadIdField(normalized),
     });
   }
 
@@ -2056,6 +2307,7 @@ class CyberbossApp {
       userId: normalized.senderId,
       text: reply,
       contextToken: normalized.contextToken,
+      ...outboundThreadIdField(normalized),
       preserveBlock: true,
     });
   }
@@ -2315,8 +2567,13 @@ class CyberbossApp {
       const sessionStore = this.runtimeAdapter.getSessionStore();
       sessionStore.clearApprovalPrompt(event.payload.threadId);
       const linked = this.runtimeAdapter.getSessionStore().findBindingForThreadId(event.payload.threadId);
-      const scopeKey = linked?.bindingKey && linked?.workspaceRoot
-        ? buildScopeKey(linked.bindingKey, linked.workspaceRoot)
+      // The runtime event carries the lane that produced it, so the turn
+      // boundary and the buffer flush apply to that lane only. Falling back to
+      // the binding scope would let one topic's completion release another
+      // topic's gate.
+      const eventLane = event?.payload?.laneKey ? { laneKey: event.payload.laneKey } : null;
+      const scopeKey = linked?.workspaceRoot
+        ? routeScopeKeyFor(eventLane, linked.bindingKey, linked.workspaceRoot)
         : "";
       if (scopeKey) {
         this.turnBoundaryScopeKeys.add(scopeKey);
@@ -2334,6 +2591,7 @@ class CyberbossApp {
           await this.flushPendingInboundMessages({
             bindingKey: linked.bindingKey,
             workspaceRoot: linked.workspaceRoot,
+            lane: eventLane,
             ignoreBoundary: true,
           });
         } else {
@@ -2345,12 +2603,13 @@ class CyberbossApp {
             userId: pendingOperation.userId,
             text: `✅ Compact finished\nthread: ${event.payload.threadId}`,
             contextToken: pendingOperation.contextToken,
+            ...outboundThreadIdField(pendingOperation),
           }).catch(() => {});
         }
         const shouldKeepTyping = linked?.bindingKey && linked?.workspaceRoot
           ? (
-            this.turnGateStore.isPending(linked.bindingKey, linked.workspaceRoot)
-            || this.hasPendingInboundMessage(linked.bindingKey, linked.workspaceRoot)
+            this.turnGateStore.isScopePending(scopeKey)
+            || this.hasPendingInboundMessage(linked.bindingKey, linked.workspaceRoot, eventLane)
           )
           : false;
         if (!shouldKeepTyping) {
@@ -2409,8 +2668,16 @@ class CyberbossApp {
   }
 
   async stopTypingForThread(threadId) {
-    const linked = this.runtimeAdapter.getSessionStore().findBindingForThreadId(threadId);
-    const target = linked?.bindingKey ? this.resolveReplyTargetForBinding(linked.bindingKey) : null;
+    // Session-scoped first: the session id names exactly one lane, so the
+    // typing indicator is cleared in the topic that raised it. The binding
+    // lookup is only a fallback for pre-v2 sessions with no recorded lane.
+    const target = (typeof this.streamDelivery?.resolveReplyTargetForRun === "function"
+      ? this.streamDelivery.resolveReplyTargetForRun({ threadId })
+      : null)
+      || (() => {
+        const linked = this.runtimeAdapter.getSessionStore().findBindingForThreadId(threadId);
+        return linked?.bindingKey ? this.resolveReplyTargetForBinding(linked.bindingKey) : null;
+      })();
     if (!target) {
       return;
     }
@@ -2418,6 +2685,7 @@ class CyberbossApp {
       userId: target.userId,
       status: 0,
       contextToken: target.contextToken,
+      ...outboundThreadIdField({ provider: "telegram", messageThreadId: target.messageThreadId ?? null }),
     }).catch(() => {});
   }
 
@@ -2485,6 +2753,7 @@ class CyberbossApp {
       userId: target.userId,
       text: normalizeText(text) || "❌ Execution failed",
       contextToken: target.contextToken,
+      ...outboundThreadIdField(target),
     }).catch(() => {});
   }
 
@@ -2503,11 +2772,13 @@ class CyberbossApp {
       userId: target.userId,
       status: 0,
       contextToken: target.contextToken,
+      ...outboundThreadIdField(target),
     }).catch(() => {});
     await this.channelAdapter.sendText({
       userId: target.userId,
       text: buildApprovalPromptText(approval),
       contextToken: target.contextToken,
+      ...outboundThreadIdField(target),
       preserveBlock: true,
     });
     console.log(
@@ -2540,7 +2811,13 @@ class CyberbossApp {
           continue;
         }
         seenThreadIds.add(normalizedThreadId);
+        // Startup restore has no inbound lane. It passes the binding so the
+        // runtime resolves the profile-free legacy slot, which is the only slot
+        // whose session id the binding-level store is authoritative for. A
+        // profiled lane's session is restored on its next inbound turn instead,
+        // from its own slot.
         await this.runtimeAdapter.resumeThread({
+          bindingKey,
           threadId: normalizedThreadId,
           workspaceRoot: normalizedWorkspaceRoot,
           resumeOrigin: "implicit_restore",
@@ -3608,6 +3885,33 @@ function buildReminderSystemTrigger(reminder, config = {}) {
   const reminderText = String(reminder?.text || "").trim();
   const userName = String(config?.userName || "").trim() || "the user";
   return `Due reminder for ${userName}: ${reminderText}`;
+}
+
+// Module-level so the class methods can be borrowed onto lightweight objects
+// (as the test-suite does) without dragging the whole app in.
+function resolveRouteLaneFor(message, bindingKey) {
+  try {
+    return resolveInboundRouteLane(message, { bindingKey })
+      || buildLegacyRouteLane({ provider: message?.provider, bindingKey });
+  } catch {
+    // A Telegram message whose ids are present but non-canonical must not be
+    // routed on a guess. The channel adapter already drops these; this is the
+    // second line of defence for internally constructed messages.
+    return buildLegacyRouteLane({ provider: message?.provider, bindingKey });
+  }
+}
+
+// Turn gate / pending buffer / debounce / reply-target scope. Lane-scoped for
+// Telegram, binding-scoped otherwise.
+function routeScopeKeyFor(lane, bindingKey, workspaceRoot) {
+  return buildLaneScopeKey(lane, workspaceRoot) || buildScopeKey(bindingKey, workspaceRoot);
+}
+
+// Outbound Telegram topic field. Omitted entirely when there is no topic, so a
+// non-Telegram payload keeps exactly the shape it had before v2.
+function outboundThreadIdField(source) {
+  const value = CyberbossApp.resolveOutboundThreadIdFor(source);
+  return value === null || value === undefined ? {} : { messageThreadId: value };
 }
 
 function buildScopeKey(bindingKey, workspaceRoot) {

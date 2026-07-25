@@ -164,6 +164,10 @@ function clonePreparedInboundMessage(prepared) {
     workspaceId: prepared.workspaceId,
     accountId: prepared.accountId,
     senderId: prepared.senderId,
+    // Route lane fields. Without them a buffered/merged message loses its topic
+    // and its reply would fall back to the chat's default lane.
+    chatId: prepared.chatId ?? prepared.telegram?.chatId ?? "",
+    messageThreadId: prepared.messageThreadId ?? prepared.telegram?.messageThreadId ?? null,
     messageId: prepared.messageId,
     contextToken: prepared.contextToken,
     provider: prepared.provider,

@@ -19,6 +19,11 @@ const {
   buildTelegramMediaDescriptors,
   pickLargestTelegramPhoto: pickLargestTelegramPhotoDescriptor,
 } = require("../../services/telegram-media-descriptor");
+const {
+  RouteLaneError,
+  canonicalTelegramMessageThreadId,
+  normalizeInboundMessageThreadId,
+} = require("../../core/route-lane");
 
 try {
   if (typeof dns.setDefaultResultOrder === "function") {
@@ -113,7 +118,23 @@ function createTelegramChannelAdapter(config) {
       if (!messageId) {
         return null;
       }
-      const dedupeKey = `${normalizeText(message.chat?.id)}:${messageId}`;
+      // The route lane needs the topic id even though only private chats are
+      // accepted today: the nullable-thread semantics must be preserved
+      // end-to-end so a future forum/supergroup lane cannot silently reuse the
+      // default lane's turn gate, buffers, reply target or Claude session.
+      // A message whose topic id is present but non-canonical is dropped rather
+      // than routed on a guess.
+      let messageThreadId;
+      try {
+        messageThreadId = normalizeInboundMessageThreadId(message.message_thread_id);
+      } catch (error) {
+        writeTelegramLog(
+          config,
+          `drop non-canonical message_thread_id messageId=${messageId} reason=${error instanceof RouteLaneError ? error.code : "invalid"}`,
+        );
+        return null;
+      }
+      const dedupeKey = `${normalizeText(message.chat?.id)}:${messageThreadId ?? "-"}:${messageId}`;
       if (state.seenMessageKeys.has(dedupeKey)) {
         writeTelegramLog(config, `drop duplicate messageKey=${dedupeKey}`);
         return null;
@@ -131,14 +152,16 @@ function createTelegramChannelAdapter(config) {
         workspaceId: normalizeText(config?.workspaceId) || "default",
         senderId,
         chatId: normalizeText(message.chat?.id),
+        messageThreadId,
         messageId: normalizeText(message.message_id),
-        threadKey: normalizeText(message.chat?.id),
+        threadKey: buildTelegramThreadKey(message.chat?.id, messageThreadId),
         text,
         attachments: [],
         contextToken: `telegram:${normalizeText(message.chat?.id)}`,
         receivedAt: new Date(((Number(message.date) || Math.floor(Date.now() / 1000)) * 1000)).toISOString(),
         telegram: {
           chatId: normalizeText(message.chat?.id),
+          messageThreadId,
           messageId: normalizeText(message.message_id),
           userId: senderId,
           username: normalizeText(message.from?.username),
@@ -182,7 +205,7 @@ function createTelegramChannelAdapter(config) {
         sizeBytes: bytes.length,
       };
     },
-    async sendVoice({ userId, filePath }) {
+    async sendVoice({ userId, filePath, messageThreadId = null }) {
       if (!token) {
         throw new Error("telegram bot token missing");
       }
@@ -190,25 +213,51 @@ function createTelegramChannelAdapter(config) {
       if (!userId || !normalizedPath) {
         throw new Error("telegram sendVoice requires userId and filePath");
       }
+      const threadId = resolveOutboundThreadId(messageThreadId);
       const form = new FormData();
       form.append("chat_id", String(userId));
+      appendThreadIdToForm(form, threadId);
       form.append("voice", new Blob([fs.readFileSync(normalizedPath)], { type: "audio/ogg" }), path.basename(normalizedPath));
       await fetchJsonWithRetry(`https://api.telegram.org/bot${token}/sendVoice`, {
         method: "POST",
         body: form,
       }, Math.max(TELEGRAM_REQUEST_TIMEOUT_MS, 20_000), { allowEmptyJson: true });
-      writeTelegramLog(config, `sendVoice ok userId=${normalizeText(userId)} path=${normalizedPath}`);
+      writeTelegramLog(config, `sendVoice ok userId=${normalizeText(userId)} thread=${threadId ?? "-"} path=${normalizedPath}`);
     },
-    async sendText({ userId, text }) {
+    async sendPhoto({ userId, filePath, caption = "", messageThreadId = null }) {
       if (!token) {
         throw new Error("telegram bot token missing");
       }
+      const normalizedPath = normalizeText(filePath);
+      if (!userId || !normalizedPath) {
+        throw new Error("telegram sendPhoto requires userId and filePath");
+      }
+      const threadId = resolveOutboundThreadId(messageThreadId);
+      const form = new FormData();
+      form.append("chat_id", String(userId));
+      appendThreadIdToForm(form, threadId);
+      const normalizedCaption = normalizeText(caption);
+      if (normalizedCaption) {
+        form.append("caption", normalizedCaption);
+      }
+      form.append("photo", new Blob([fs.readFileSync(normalizedPath)]), path.basename(normalizedPath));
+      await fetchJsonWithRetry(`https://api.telegram.org/bot${token}/sendPhoto`, {
+        method: "POST",
+        body: form,
+      }, Math.max(TELEGRAM_REQUEST_TIMEOUT_MS, 20_000), { allowEmptyJson: true });
+      writeTelegramLog(config, `sendPhoto ok userId=${normalizeText(userId)} thread=${threadId ?? "-"} path=${normalizedPath}`);
+    },
+    async sendText({ userId, text, messageThreadId = null }) {
+      if (!token) {
+        throw new Error("telegram bot token missing");
+      }
+      const threadId = resolveOutboundThreadId(messageThreadId);
       const chunks = chunkReplyTextForTelegram(String(text || ""), minChunkChars);
       for (const chunk of chunks) {
-        const payload = {
+        const payload = applyThreadId({
           chat_id: String(userId),
           text: String(chunk || ""),
-        };
+        }, threadId);
         try {
           await fetchJsonWithRetry(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: "POST",
@@ -217,36 +266,37 @@ function createTelegramChannelAdapter(config) {
           }, TELEGRAM_REQUEST_TIMEOUT_MS, { allowEmptyJson: true });
           writeTelegramLog(
             config,
-            `sendText ok userId=${payload.chat_id} text=${truncateForLog(payload.text)}`
+            `sendText ok userId=${payload.chat_id} thread=${threadId ?? "-"} text=${truncateForLog(payload.text)}`
           );
         } catch (error) {
           writeTelegramLog(
             config,
-            `sendText failed userId=${payload.chat_id} error=${formatTelegramError(error)} text=${truncateForLog(payload.text)}`
+            `sendText failed userId=${payload.chat_id} thread=${threadId ?? "-"} error=${formatTelegramError(error)} text=${truncateForLog(payload.text)}`
           );
           throw error;
         }
       }
     },
-    async sendTyping({ userId }) {
+    async sendTyping({ userId, messageThreadId = null }) {
       if (!token || !userId) {
         return;
       }
+      const threadId = resolveOutboundThreadId(messageThreadId);
       await fetchJsonWithRetry(`https://api.telegram.org/bot${token}/sendChatAction`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: JSON.stringify(applyThreadId({
           chat_id: String(userId),
           action: "typing",
-        }),
+        }, threadId)),
       }, TELEGRAM_REQUEST_TIMEOUT_MS, { allowEmptyJson: true }).catch((error) => {
         writeTelegramLog(
           config,
-          `sendTyping failed userId=${normalizeText(userId)} error=${formatTelegramError(error)}`
+          `sendTyping failed userId=${normalizeText(userId)} thread=${threadId ?? "-"} error=${formatTelegramError(error)}`
         );
       });
     },
-    async sendFile({ userId, filePath }) {
+    async sendFile({ userId, filePath, messageThreadId = null }) {
       if (!token) {
         throw new Error("telegram bot token missing");
       }
@@ -254,13 +304,16 @@ function createTelegramChannelAdapter(config) {
       if (!userId || !normalizedPath) {
         throw new Error("telegram sendFile requires userId and filePath");
       }
+      const threadId = resolveOutboundThreadId(messageThreadId);
       const form = new FormData();
       form.append("chat_id", String(userId));
+      appendThreadIdToForm(form, threadId);
       form.append("document", new Blob([fs.readFileSync(normalizedPath)]), path.basename(normalizedPath));
       await fetchJsonWithRetry(`https://api.telegram.org/bot${token}/sendDocument`, {
         method: "POST",
         body: form,
       }, Math.max(TELEGRAM_REQUEST_TIMEOUT_MS, 20_000), { allowEmptyJson: true });
+      writeTelegramLog(config, `sendFile ok userId=${normalizeText(userId)} thread=${threadId ?? "-"} path=${normalizedPath}`);
     },
     setMinChunkChars(value) {
       minChunkChars = normalizeMinChunkChars(value, DEFAULT_MIN_TELEGRAM_CHUNK);
@@ -279,6 +332,43 @@ function createTelegramChannelAdapter(config) {
 
 function normalizeText(value) {
   return typeof value === "string" ? value.trim() : String(value || "").trim();
+}
+
+// Every outbound Telegram call funnels through these two helpers, so adding a
+// new send verb without a `message_thread_id` is a visible omission rather than
+// a silent cross-topic delivery.
+function resolveOutboundThreadId(value) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  return canonicalTelegramMessageThreadId(value);
+}
+
+function applyThreadId(payload, threadId) {
+  if (threadId === null || threadId === undefined) {
+    return payload;
+  }
+  return { ...payload, message_thread_id: Number(threadId) };
+}
+
+function appendThreadIdToForm(form, threadId) {
+  if (threadId === null || threadId === undefined) {
+    return form;
+  }
+  form.append("message_thread_id", String(threadId));
+  return form;
+}
+
+// Lane-shaped thread key: a chat's default lane and one of its topics must not
+// collapse to the same key.
+function buildTelegramThreadKey(chatId, messageThreadId) {
+  const normalizedChatId = normalizeText(chatId);
+  if (!normalizedChatId) {
+    return "";
+  }
+  return messageThreadId === null || messageThreadId === undefined
+    ? normalizedChatId
+    : `${normalizedChatId}:${messageThreadId}`;
 }
 
 function truncateForLog(text, maxLength = 120) {
@@ -425,4 +515,12 @@ async function readResponseBytesBounded(response, maxSizeBytes) {
   return Buffer.concat(chunks, total);
 }
 
-module.exports = { createTelegramChannelAdapter, chunkReplyTextForTelegram, readResponseBytesBounded };
+module.exports = {
+  applyThreadId,
+  appendThreadIdToForm,
+  buildTelegramThreadKey,
+  chunkReplyTextForTelegram,
+  createTelegramChannelAdapter,
+  readResponseBytesBounded,
+  resolveOutboundThreadId,
+};

@@ -4,6 +4,13 @@ const crypto = require("crypto");
 const { ClaudeCodeProcessClient } = require("./process-client");
 const { mapClaudeCodeMessageToRuntimeEvent } = require("./events");
 const { ensureClaudeProjectMcpConfig } = require("./project-settings");
+const { SessionSlotStore, buildSessionSlotKey } = require("./session-slot");
+const { ProcessRegistry, buildProcessKey } = require("./process-registry");
+const { fingerprintLaunchProfile, profileLogicalIdentity } = require("./launch-profile");
+const {
+  buildLegacyRouteLane,
+  buildSystemRouteLane,
+} = require("../../../core/route-lane");
 const { SessionStore } = require("../codex/session-store");
 const { buildOpeningTurnText, buildInstructionRefreshText } = require("../shared-instructions");
 const { ClaudeCodeIpcServer } = require("./ipc-server");
@@ -22,8 +29,26 @@ function createClaudeCodeRuntimeAdapter(config) {
     throw new Error("CYBERBOSS_STATE_DIR is required for the Claude runtime adapter.");
   }
   const sessionStore = new SessionStore({ filePath: config.sessionsFile, runtimeId: "claudecode" });
-  const clientsByWorkspace = new Map();
-  const pendingApprovals = new Map();
+  // Claude transcripts are keyed by session slot (workspace + route lane +
+  // profile fingerprint), never by the continuity binding alone. The legacy
+  // SessionStore keeps binding-level state and receives a mirrored write so
+  // reverse threadId -> binding lookups elsewhere keep working, but a resume id
+  // is only ever *read* from the slot store, which is what makes it impossible
+  // for lane B to `--resume` lane A's session.
+  const sessionSlotStore = new SessionSlotStore({
+    filePath: config.claudeSessionSlotsFile
+      || (stateDir ? path.join(stateDir, "claude-session-slots.json") : ""),
+  });
+  const processRegistry = new ProcessRegistry({
+    maxProcesses: Number.isSafeInteger(config.claudeMaxProcesses) && config.claudeMaxProcesses > 0
+      ? config.claudeMaxProcesses
+      : undefined,
+  });
+  const launchProfileBaseDir = normalizeText(config.claudeLaunchProfileBaseDir)
+    || normalizeText(config.configDir)
+    || stateDir;
+  const allowAuthBackendOverride = config.claudeAllowAuthBackendOverride === true;
+  const allowCloudCredentialInheritance = config.claudeAllowCloudCredentialInheritance === true;
   const pendingModelByWorkspaceRoot = new Map();
   const configuredModel = normalizeText(config.claudeModel);
   const configuredAgentCwd = normalizeText(config.agentCwd);
@@ -72,24 +97,120 @@ function createClaudeCodeRuntimeAdapter(config) {
     if (!normalizedWorkspaceRoot) {
       return null;
     }
-    const existing = clientsByWorkspace.get(normalizedWorkspaceRoot);
-    if (existing?.alive) {
-      return existing;
+    // The shared-open IPC console attaches to whatever process is already live
+    // for the workspace. It never creates a lane of its own and never selects a
+    // profile, so it cannot pull a profiled lane's session into a bare launch.
+    const existing = processRegistry.listEntries().find(
+      (entry) => entry.workspaceRoot === normalizedWorkspaceRoot && entry.client?.alive,
+    );
+    if (existing) {
+      return existing.client;
     }
     const bindingEntry = findBindingForWorkspaceRoot(normalizedWorkspaceRoot);
     const bindingKey = bindingEntry?.bindingKey || "";
-    const runtimeParams = bindingKey
-      ? sessionStore.getRuntimeParamsForWorkspace(bindingKey, normalizedWorkspaceRoot)
-      : { model: "", modelProvider: "" };
-    const threadId = bindingKey
-      ? sessionStore.getThreadIdForWorkspace(bindingKey, normalizedWorkspaceRoot)
-      : "";
-    const attached = await attachClientToThread(
-      normalizedWorkspaceRoot,
-      threadId,
-      runtimeParams.model || "",
-    );
+    if (!bindingKey) {
+      return null;
+    }
+    const runtimeParams = sessionStore.getRuntimeParamsForWorkspace(bindingKey, normalizedWorkspaceRoot);
+    const route = resolveRouteContext({
+      bindingKey,
+      workspaceRoot: normalizedWorkspaceRoot,
+      lane: null,
+      launchProfile: null,
+      model: runtimeParams.model || "",
+    });
+    const attached = await attachProcessToSession(route, { threadId: route.storedThreadId });
     return attached?.client || null;
+  }
+
+  /**
+   * Resolve the full route identity for one runtime call.
+   *
+   * lane        -> delivery/serialization identity (from the channel)
+   * profile     -> validated launch profile selected for that lane, or null
+   * sessionSlot -> workspace + lane + profile fingerprint
+   * processKey  -> sessionSlot + launch fingerprint + cwd/config identity
+   */
+  function resolveRouteContext({
+    bindingKey = "",
+    workspaceRoot = "",
+    lane = null,
+    launchProfile = null,
+    model = "",
+  } = {}) {
+    const normalizedWorkspaceRoot = normalizeText(workspaceRoot);
+    const effectiveLane = lane && lane.laneKey
+      ? lane
+      : buildLegacyRouteLane({ provider: "runtime", bindingKey: bindingKey || normalizedWorkspaceRoot || "default" });
+    const profileFingerprint = fingerprintLaunchProfile(launchProfile, {
+      baseDir: launchProfileBaseDir,
+      allowAuthBackendOverride,
+    });
+    const sessionSlotKey = buildSessionSlotKey({
+      runtimeId: "claudecode",
+      workspaceRoot: normalizedWorkspaceRoot,
+      laneKey: effectiveLane.laneKey,
+      profileFingerprint,
+    });
+    const agentCwd = resolveAgentCwd(configuredAgentCwd, normalizedWorkspaceRoot);
+    const configIdentity = [
+      normalizeText(config.claudeConfigDir),
+      normalizeText(config.claudePermissionMode || "default"),
+      normalizeText(config.claudeCommand || "claude"),
+    ].join("|");
+
+    // A stored session id is only ever read from this slot. The legacy store is
+    // consulted exactly once, for the profile-free lane, so an upgrade keeps
+    // resuming the session it already had instead of opening a new transcript.
+    let storedThreadId = sessionSlotStore.getThreadId(sessionSlotKey);
+    if (!storedThreadId && profileFingerprint === "legacy" && bindingKey) {
+      storedThreadId = normalizeThreadId(
+        sessionStore.getThreadIdForWorkspace(bindingKey, normalizedWorkspaceRoot),
+      );
+    }
+
+    return {
+      bindingKey,
+      workspaceRoot: normalizedWorkspaceRoot,
+      lane: effectiveLane,
+      launchProfile: launchProfile || null,
+      profileFingerprint,
+      profileId: profileLogicalIdentity(launchProfile),
+      sessionSlotKey,
+      storedThreadId,
+      agentCwd,
+      configIdentity,
+      model: resolveModel(model),
+    };
+  }
+
+  function storeSlotThreadId(route, threadId, metadata = {}) {
+    const normalizedThreadId = normalizeThreadId(threadId);
+    if (!normalizedThreadId || !route?.sessionSlotKey) {
+      return;
+    }
+    sessionSlotStore.setThreadId(route.sessionSlotKey, normalizedThreadId);
+    if (route.bindingKey && route.workspaceRoot) {
+      // Mirror into the binding-level store so threadId -> binding lookups
+      // elsewhere continue to resolve. This mirror is never used as a resume
+      // source; resume ids come from the slot store only.
+      sessionStore.setThreadIdForWorkspace(
+        route.bindingKey,
+        route.workspaceRoot,
+        normalizedThreadId,
+        metadata,
+      );
+    }
+  }
+
+  function clearSlotThreadId(route) {
+    if (!route?.sessionSlotKey) {
+      return;
+    }
+    sessionSlotStore.clear(route.sessionSlotKey);
+    if (route.profileFingerprint === "legacy" && route.bindingKey && route.workspaceRoot) {
+      sessionStore.clearThreadIdForWorkspace(route.bindingKey, route.workspaceRoot);
+    }
   }
 
   async function handleIpcSendUserMessage(msg) {
@@ -130,115 +251,182 @@ function createClaudeCodeRuntimeAdapter(config) {
     }
   }
 
-  async function ensureClient(workspaceRoot, model = "") {
-    const desiredModel = resolveModel(model);
-    const existing = clientsByWorkspace.get(workspaceRoot);
-    if (existing) {
-      if (normalizeText(existing.model) === desiredModel) {
-        return existing;
-      }
-      await closeWorkspaceClient(workspaceRoot);
-    }
+  function computeProcessKey(route) {
+    return buildProcessKey({
+      sessionSlotKey: route.sessionSlotKey,
+      // The launch fingerprint is derived from the profile identity here; the
+      // process client recomputes the *effective* fingerprint at spawn time and
+      // stores it, so a change in either produces a different key.
+      launchFingerprint: route.profileFingerprint,
+      cwd: route.agentCwd,
+      configIdentity: route.configIdentity,
+    });
+  }
+
+  function createProcessClient(route, processKey) {
+    const { workspaceRoot } = route;
     const projectSettings = ensureClaudeProjectMcpConfig({
       workspaceRoot,
       cyberbossHome: process.env.CYBERBOSS_HOME || path.resolve(__dirname, "..", "..", "..", ".."),
     });
-    const agentCwd = resolveAgentCwd(configuredAgentCwd, workspaceRoot);
     console.log(
       `[claudecode-runtime] workspace=${workspaceRoot} mcp_config=${projectSettings.configPath} server=${projectSettings.serverName}`
     );
     const client = new ClaudeCodeProcessClient({
       command: config.claudeCommand || "claude",
-      cwd: agentCwd,
+      commandPrefixArgs: config.claudeCommandPrefixArgs || [],
+      cwd: route.agentCwd,
       env: filterClaudeCodeEnv(process.env),
-      model: desiredModel,
+      model: route.model,
       permissionMode: config.claudePermissionMode || "default",
       disableVerbose: Boolean(config.claudeDisableVerbose),
       extraArgs: config.claudeExtraArgs || [],
       mcpConfigPaths: [projectSettings.configPath],
+      launchProfile: route.launchProfile,
+      launchProfileBaseDir,
+      allowAuthBackendOverride,
+      allowCloudCredentialInheritance,
+      onLaunchTelemetry: config.onClaudeLaunchTelemetry,
       ipcServer,
       workspaceRoot,
+      laneKey: route.lane.laneKey,
+      sessionSlotKey: route.sessionSlotKey,
+      processKey,
     });
+
     client.onMessage((event, raw) => {
       rememberObservedModelForWorkspace(workspaceRoot, extractClaudeMessageModel(raw));
       if (event.type === "session.id") {
-        for (const binding of sessionStore.listBindings()) {
-          if (binding.activeWorkspaceRoot === workspaceRoot) {
-            sessionStore.setThreadIdForWorkspace(binding.bindingKey, workspaceRoot, event.sessionId);
-          }
-        }
+        // Bound to this client's own slot only. The pre-v2 code walked every
+        // binding whose activeWorkspaceRoot matched, which is how one lane's
+        // session id could be written over another lane's.
+        storeSlotThreadId(route, event.sessionId);
         return;
       }
       const mapped = mapClaudeCodeMessageToRuntimeEvent(event, raw);
       if (mapped?.payload && !mapped.payload.workspaceRoot) {
         mapped.payload.workspaceRoot = workspaceRoot;
       }
+      if (mapped?.payload) {
+        mapped.payload.laneKey = route.lane.laneKey;
+        mapped.payload.sessionSlotKey = route.sessionSlotKey;
+        mapped.payload.processKey = processKey;
+      }
       if (mapped?.type === "runtime.approval.requested") {
-        if (pendingApprovals.size >= 100) {
-          const firstKey = pendingApprovals.keys().next().value;
-          pendingApprovals.delete(firstKey);
-        }
-        pendingApprovals.set(mapped.payload.requestId, workspaceRoot);
+        processRegistry.rememberApproval(mapped.payload.requestId, {
+          processKey,
+          sessionSlotKey: route.sessionSlotKey,
+          laneKey: route.lane.laneKey,
+        });
       }
       if (mapped?.type === "runtime.turn.failed") {
-        clientsByWorkspace.delete(workspaceRoot);
+        processRegistry.delete(processKey);
       }
       if (mapped && globalListener) {
         globalListener(mapped, raw);
       }
     });
-    clientsByWorkspace.set(workspaceRoot, client);
     return client;
   }
 
-  async function attachClientToThread(workspaceRoot, threadId = "", model = "") {
-    const normalizedWorkspaceRoot = typeof workspaceRoot === "string" ? workspaceRoot.trim() : "";
-    const normalizedThreadId = normalizeThreadId(threadId);
-    const desiredModel = resolveModel(model);
-    if (!normalizedWorkspaceRoot) {
+  /**
+   * Attach a live process to the session for this route.
+   *
+   * Everything that starts, stops or resumes a child for one process key runs
+   * inside that key's lock, so a burst of inbound turns in one lane cannot race
+   * itself, and no other lane's key is touched.
+   */
+  async function attachProcessToSession(route, { threadId = "" } = {}) {
+    if (!route?.workspaceRoot) {
       throw new Error("workspaceRoot is required");
     }
+    const processKey = computeProcessKey(route);
+    const normalizedThreadId = normalizeThreadId(threadId);
 
-    const existingClient = clientsByWorkspace.get(normalizedWorkspaceRoot);
-    if (existingClient?.alive && normalizeText(existingClient.model) !== desiredModel) {
-      await closeWorkspaceClient(normalizedWorkspaceRoot);
-    }
+    return processRegistry.withLock(processKey, async () => {
+      let entry = processRegistry.get(processKey);
+      let client = entry?.client || null;
 
-    if (normalizedThreadId && clientMatchesThread(existingClient, normalizedThreadId)) {
-      return { client: existingClient, threadId: normalizedThreadId };
-    }
-
-    if (!normalizedThreadId && existingClient?.alive) {
-      await closeWorkspaceClient(normalizedWorkspaceRoot);
-    }
-
-    let client = await ensureClient(normalizedWorkspaceRoot, desiredModel);
-    if (!client.alive || (normalizedThreadId && !clientMatchesThread(client, normalizedThreadId))) {
-      if (client.alive && normalizedThreadId && !clientMatchesThread(client, normalizedThreadId)) {
-        await closeWorkspaceClient(normalizedWorkspaceRoot);
-        client = await ensureClient(normalizedWorkspaceRoot, desiredModel);
+      if (client?.usable && normalizeText(client.model) !== route.model) {
+        await closeProcessKey(processKey);
+        client = null;
       }
-      await client.connect(normalizedThreadId);
-    }
 
-    return { client, threadId: normalizedThreadId || normalizeThreadId(client.sessionId) };
+      if (client?.usable && normalizedThreadId && clientMatchesThread(client, normalizedThreadId)) {
+        return { client, threadId: normalizedThreadId, processKey };
+      }
+
+      if (client?.usable && !normalizedThreadId) {
+        // Starting a brand new session in this slot: the slot's own process is
+        // retired first. Other slots keep running.
+        await closeProcessKey(processKey);
+        client = null;
+      }
+
+      if (client?.usable && normalizedThreadId && !clientMatchesThread(client, normalizedThreadId)) {
+        await closeProcessKey(processKey);
+        client = null;
+      }
+
+      if (!client?.usable) {
+        if (client) {
+          await closeProcessKey(processKey);
+        }
+        client = createProcessClient(route, processKey);
+        processRegistry.set(processKey, {
+          client,
+          sessionSlotKey: route.sessionSlotKey,
+          laneKey: route.lane.laneKey,
+          launchFingerprint: route.profileFingerprint,
+          cwd: route.agentCwd,
+        });
+        const registered = processRegistry.get(processKey);
+        if (registered) {
+          registered.workspaceRoot = route.workspaceRoot;
+          registered.bindingKey = route.bindingKey;
+        }
+        await client.connect(normalizedThreadId);
+      }
+
+      await retireIdleStaleProcesses(route, processKey);
+
+      return { client, threadId: normalizedThreadId || normalizeThreadId(client.sessionId), processKey };
+    });
   }
-  async function closeWorkspaceClient(workspaceRoot) {
-    const normalizedWorkspaceRoot = typeof workspaceRoot === "string" ? workspaceRoot.trim() : "";
-    if (!normalizedWorkspaceRoot) {
-      return;
-    }
-    const client = clientsByWorkspace.get(normalizedWorkspaceRoot);
-    if (!client) {
-      return;
-    }
-    await client.close();
-    clientsByWorkspace.delete(normalizedWorkspaceRoot);
-    for (const [requestId, candidateWorkspaceRoot] of pendingApprovals.entries()) {
-      if (candidateWorkspaceRoot === normalizedWorkspaceRoot) {
-        pendingApprovals.delete(requestId);
+
+  /**
+   * A hot profile-mapping change moves a slot to a new process key. The old
+   * process is only closed when it is idle: a lane that is mid-turn keeps its
+   * child until that turn finishes.
+   */
+  async function retireIdleStaleProcesses(route, currentProcessKey) {
+    for (const stale of processRegistry.listStaleEntriesForSlot(route.sessionSlotKey, currentProcessKey)) {
+      if (ProcessRegistry.isEntryBusy(stale)) {
+        continue;
       }
+      processRegistry.delete(stale.processKey);
+      await stale.client?.close().catch(() => {});
     }
+    for (const evictable of processRegistry.pickEvictableEntries()) {
+      if (evictable.processKey === currentProcessKey) {
+        continue;
+      }
+      processRegistry.delete(evictable.processKey);
+      await evictable.client?.close().catch(() => {});
+    }
+  }
+
+  async function closeProcessKey(processKey) {
+    const entry = processRegistry.delete(processKey);
+    if (!entry?.client) {
+      return;
+    }
+    await entry.client.close();
+  }
+
+  async function closeRouteProcess(route) {
+    const processKey = computeProcessKey(route);
+    return processRegistry.withLock(processKey, () => closeProcessKey(processKey));
   }
   return {
     describe() {
@@ -282,57 +470,66 @@ function createClaudeCodeRuntimeAdapter(config) {
       };
     },
     async close() {
-      for (const client of clientsByWorkspace.values()) {
-        await client.close();
+      for (const entry of processRegistry.listEntries()) {
+        processRegistry.delete(entry.processKey);
+        await entry.client?.close().catch(() => {});
       }
-      clientsByWorkspace.clear();
       await ipcServer.close();
     },
-    async startFreshThreadDraft({ workspaceRoot }) {
-      await closeWorkspaceClient(workspaceRoot);
+    async startFreshThreadDraft({ workspaceRoot, bindingKey = "", lane = null, launchProfile = null }) {
+      const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile });
+      await closeRouteProcess(route);
+      clearSlotThreadId(route);
       return { workspaceRoot };
     },
     async respondApproval({ requestId, decision, result = null }) {
-      const workspaceRoot = pendingApprovals.get(requestId);
-      const candidates = workspaceRoot
-        ? [clientsByWorkspace.get(workspaceRoot)]
-        : [...clientsByWorkspace.values()];
-      for (const client of candidates) {
-        if (client?.alive) {
-          const responsePayload = result && typeof result === "object"
-            ? result
-            : { decision };
-          await client.sendResponse(requestId, responsePayload);
-          pendingApprovals.delete(requestId);
-          return {
-            requestId,
-            ...(result && typeof result === "object"
-              ? { result: responsePayload }
-              : { decision: decision === "accept" ? "accept" : "decline" }),
-          };
-        }
+      // Approvals are answered by the process that raised them, never by
+      // "whichever client happens to be alive".
+      const record = processRegistry.resolveApproval(requestId);
+      const client = record ? processRegistry.getClient(record.processKey) : null;
+      if (!client?.alive) {
+        processRegistry.forgetApproval(requestId);
+        throw new Error("no active claudecode session to respond to approval");
       }
-      throw new Error("no active claudecode session to respond to approval");
+      const responsePayload = result && typeof result === "object" ? result : { decision };
+      await client.sendResponse(requestId, responsePayload);
+      processRegistry.forgetApproval(requestId);
+      return {
+        requestId,
+        ...(result && typeof result === "object"
+          ? { result: responsePayload }
+          : { decision: decision === "accept" ? "accept" : "decline" }),
+      };
     },
-    async cancelTurn({ threadId, turnId, workspaceRoot }) {
-      if (workspaceRoot) {
-        await closeWorkspaceClient(workspaceRoot);
+    async cancelTurn({ threadId, turnId, workspaceRoot, bindingKey = "", lane = null, launchProfile = null }) {
+      // Cancel resolves to exactly one process. Without a session id and
+      // without a lane there is nothing safe to cancel, so nothing is closed --
+      // the pre-v2 behaviour of closing every client for a workspace root is
+      // what let one topic stop another topic's run.
+      const entry = processRegistry.findEntryByThreadId(threadId);
+      if (entry) {
+        await processRegistry.withLock(entry.processKey, () => closeProcessKey(entry.processKey));
         return { threadId, turnId };
       }
-      for (const [workspaceRoot, client] of clientsByWorkspace.entries()) {
-        if (client.sessionId === threadId) {
-          await client.close();
-          clientsByWorkspace.delete(workspaceRoot);
-          return { threadId, turnId };
-        }
+      if (workspaceRoot && (lane || bindingKey)) {
+        const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile });
+        await closeRouteProcess(route);
       }
       return { threadId, turnId };
     },
-    async resumeThread({ threadId, workspaceRoot, model = "", resumeOrigin = "implicit_restore" }) {
+    async resumeThread({
+      threadId, workspaceRoot, model = "", resumeOrigin = "implicit_restore",
+      bindingKey = "", lane = null, launchProfile = null,
+    }) {
       if (!workspaceRoot) {
         return { threadId, resumed: true, resumeOrigin, empty: false };
       }
-      const attached = await attachClientToThread(workspaceRoot, threadId, model);
+      const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, model });
+      // Only this slot's own stored session id may be resumed.
+      const resumeId = normalizeThreadId(threadId) === route.storedThreadId
+        ? route.storedThreadId
+        : (normalizeThreadId(threadId) && !route.storedThreadId ? normalizeThreadId(threadId) : route.storedThreadId);
+      const attached = await attachProcessToSession(route, { threadId: resumeId });
       return { threadId: attached.threadId, resumed: true, resumeOrigin, empty: false };
     },
     async runBackgroundTurn({ workspaceRoot, text, model = "" }) {
@@ -342,8 +539,14 @@ function createClaudeCodeRuntimeAdapter(config) {
         workspaceRoot: normalizedWorkspaceRoot,
         cyberbossHome: process.env.CYBERBOSS_HOME || path.resolve(__dirname, "..", "..", "..", ".."),
       });
+      // Explicitly isolated: its own system lane, no launch profile, no entry in
+      // the process registry and no session slot. It can neither inherit a
+      // Telegram lane's profile nor leave a session id another lane could
+      // resume.
+      const backgroundLane = buildSystemRouteLane("background-author");
       const client = new ClaudeCodeProcessClient({
         command: config.claudeCommand || "claude",
+        commandPrefixArgs: config.claudeCommandPrefixArgs || [],
         cwd: resolveAgentCwd(configuredAgentCwd, normalizedWorkspaceRoot),
         env: filterClaudeCodeEnv(process.env),
         model: resolveModel(model),
@@ -351,8 +554,12 @@ function createClaudeCodeRuntimeAdapter(config) {
         disableVerbose: Boolean(config.claudeDisableVerbose),
         extraArgs: config.claudeExtraArgs || [],
         mcpConfigPaths: [projectSettings.configPath],
+        launchProfile: null,
         ipcServer: null,
         workspaceRoot: normalizedWorkspaceRoot,
+        laneKey: backgroundLane.laneKey,
+        sessionSlotKey: "",
+        processKey: "",
       });
       try {
         await client.connect("");
@@ -363,13 +570,22 @@ function createClaudeCodeRuntimeAdapter(config) {
         await client.close().catch(() => {});
       }
     },
-    async compactThread({ threadId, workspaceRoot, model = "" }) {
-      const { client, threadId: activeThreadId } = await attachClientToThread(workspaceRoot, threadId, model);
+    async compactThread({ threadId, workspaceRoot, model = "", bindingKey = "", lane = null, launchProfile = null }) {
+      const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, model });
+      const { client, threadId: activeThreadId } = await attachProcessToSession(route, {
+        threadId: normalizeThreadId(threadId) || route.storedThreadId,
+      });
       await client.sendUserMessage({ text: "/compact", threadId: activeThreadId });
       return { threadId: activeThreadId, turnId: client.pendingTurnId };
     },
-    async refreshThreadInstructions({ threadId, workspaceRoot, model = "", reason = "refresh" }) {
-      const { client, threadId: activeThreadId } = await attachClientToThread(workspaceRoot, threadId, model);
+    async refreshThreadInstructions({
+      threadId, workspaceRoot, model = "", reason = "refresh",
+      bindingKey = "", lane = null, launchProfile = null,
+    }) {
+      const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, model });
+      const { client, threadId: activeThreadId } = await attachProcessToSession(route, {
+        threadId: normalizeThreadId(threadId) || route.storedThreadId,
+      });
       const continuity = prepareRefreshContext({ config, reason });
       const refreshText = buildInstructionRefreshText(config, continuity);
       await client.sendUserMessage({ text: refreshText, threadId: activeThreadId });
@@ -378,12 +594,18 @@ function createClaudeCodeRuntimeAdapter(config) {
     async sendTextTurn(args) {
       return this.sendTurn(args);
     },
-    async sendTurn({ bindingKey, workspaceRoot, text, metadata = {}, model = "" }) {
+    async sendTurn({
+      bindingKey, workspaceRoot, text, metadata = {}, model = "",
+      lane = null, launchProfile = null,
+    }) {
       const desiredModel = resolveModel(model);
-      let threadId = sessionStore.getThreadIdForWorkspace(bindingKey, workspaceRoot);
-      if (!threadId) {
-        sessionStore.clearThreadIdForWorkspace(bindingKey, workspaceRoot);
-      }
+      const route = resolveRouteContext({
+        bindingKey, workspaceRoot, lane, launchProfile, model: desiredModel,
+      });
+      // The resume id comes from this slot only. Another lane's session id is
+      // simply not reachable from here, which is the structural guarantee that
+      // lane B can never be launched with `--resume <session A>`.
+      let threadId = route.storedThreadId;
       if (desiredModel) {
         sessionStore.setRuntimeParamsForWorkspace(bindingKey, workspaceRoot, {
           model: desiredModel,
@@ -391,30 +613,33 @@ function createClaudeCodeRuntimeAdapter(config) {
         });
       }
       const contextFingerprint = computeHardContextFingerprint(config);
-      const appliedFingerprint = sessionStore.getContextFingerprintForWorkspace(bindingKey, workspaceRoot);
+      const appliedFingerprint = sessionSlotStore.getContextFingerprint(route.sessionSlotKey)
+        || (route.profileFingerprint === "legacy"
+          ? sessionStore.getContextFingerprintForWorkspace(bindingKey, workspaceRoot)
+          : "");
       const previousReentry = threadId ? sessionStore.getReentryInjection(threadId) : null;
       const reentryNowEnabled = loadContextGates(config).reentry;
       const legacyOffMismatch = Boolean(threadId && !appliedFingerprint && !reentryNowEnabled && previousReentry?.reentry_injected);
       const contextChanged = Boolean(threadId && ((appliedFingerprint && appliedFingerprint !== contextFingerprint) || legacyOffMismatch));
       if (contextChanged) {
-        await closeWorkspaceClient(workspaceRoot);
-        sessionStore.clearThreadIdForWorkspace(bindingKey, workspaceRoot);
+        await closeRouteProcess(route);
+        clearSlotThreadId(route);
         threadId = "";
       }
       let openingTurn = !threadId;
       let openingReason = contextChanged ? "context_changed" : "new_thread";
       let attached;
       try {
-        attached = await attachClientToThread(workspaceRoot, threadId, desiredModel);
+        attached = await attachProcessToSession(route, { threadId });
       } catch (error) {
         if (!threadId) {
           throw error;
         }
-        sessionStore.clearThreadIdForWorkspace(bindingKey, workspaceRoot);
+        clearSlotThreadId(route);
         threadId = "";
         openingTurn = true;
         openingReason = "thread_recreated";
-        attached = await attachClientToThread(workspaceRoot, "", desiredModel);
+        attached = await attachProcessToSession(route, { threadId: "" });
       }
       const { client, threadId: activeThreadId } = attached;
       const outboundThreadId = activeThreadId || threadId;
@@ -443,16 +668,23 @@ function createClaudeCodeRuntimeAdapter(config) {
         });
       }
       if (outboundThreadId) {
-        sessionStore.setThreadIdForWorkspace(
-          bindingKey,
-          workspaceRoot,
-          outboundThreadId,
-          metadata,
-        );
+        storeSlotThreadId(route, outboundThreadId, metadata);
       }
-      await client.sendUserMessage({ text: outboundText, threadId: outboundThreadId });
+      // The CLI can exit between two turns of the same lane. One relaunch of
+      // this slot's own process is attempted; other lanes are untouched.
+      let activeClient = client;
+      try {
+        await activeClient.sendUserMessage({ text: outboundText, threadId: outboundThreadId });
+      } catch (error) {
+        if (activeClient.usable) {
+          throw error;
+        }
+        const reattached = await attachProcessToSession(route, { threadId: outboundThreadId });
+        activeClient = reattached.client;
+        await activeClient.sendUserMessage({ text: outboundText, threadId: outboundThreadId });
+      }
       const returnedThreadId = outboundThreadId || normalizeThreadId(
-        await client.waitForSessionId({ timeoutMs: CLAUDE_RESUME_SESSION_TIMEOUT_MS })
+        await activeClient.waitForSessionId({ timeoutMs: CLAUDE_RESUME_SESSION_TIMEOUT_MS })
       );
       if (!returnedThreadId) {
         throw new Error("claudecode did not report a session id");
@@ -460,19 +692,34 @@ function createClaudeCodeRuntimeAdapter(config) {
       if (continuity?.reentry?.text) {
         sessionStore.markReentryInjected(returnedThreadId, continuity.reentry);
       }
-      sessionStore.setThreadIdForWorkspace(
-        bindingKey,
-        workspaceRoot,
-        returnedThreadId,
-        metadata,
-      );
-      sessionStore.setContextFingerprintForWorkspace(bindingKey, workspaceRoot, contextFingerprint);
+      storeSlotThreadId(route, returnedThreadId, metadata);
+      sessionSlotStore.setContextFingerprint(route.sessionSlotKey, contextFingerprint);
+      if (route.profileFingerprint === "legacy") {
+        sessionStore.setContextFingerprintForWorkspace(bindingKey, workspaceRoot, contextFingerprint);
+      }
       rememberModelForBinding(bindingKey, workspaceRoot, pendingModelByWorkspaceRoot.get(normalizeText(workspaceRoot)));
       return {
         threadId: returnedThreadId,
-        turnId: client.pendingTurnId,
+        turnId: activeClient.pendingTurnId,
+        sessionSlotKey: route.sessionSlotKey,
+        laneKey: route.lane.laneKey,
+        processKey: attached.processKey,
+        profileId: route.profileId,
         continuity,
       };
+    },
+    // Exposed for tests and diagnostics. Contains keys, never route contents.
+    describeRouting() {
+      return {
+        processCount: processRegistry.size(),
+        slotCount: sessionSlotStore.listSlotKeys().length,
+      };
+    },
+    __internals: {
+      processRegistry,
+      sessionSlotStore,
+      resolveRouteContext,
+      computeProcessKey,
     },
   };
 

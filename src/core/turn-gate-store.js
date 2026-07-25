@@ -5,12 +5,53 @@ class TurnGateStore {
   }
 
   begin(bindingKey, workspaceRoot) {
-    const scopeKey = buildTurnScopeKey(bindingKey, workspaceRoot);
-    if (!scopeKey) {
+    return this.beginScope(buildTurnScopeKey(bindingKey, workspaceRoot));
+  }
+
+  // Scope-key API. v2 callers pass a *route lane* scope key so two Telegram
+  // topics serialize independently; the binding-key API above is kept for
+  // non-lane callers and delegates here.
+  beginScope(scopeKey) {
+    const normalizedScopeKey = normalizeText(scopeKey);
+    if (!normalizedScopeKey) {
       return "";
     }
-    this.pendingScopeKeys.add(scopeKey);
-    return scopeKey;
+    this.pendingScopeKeys.add(normalizedScopeKey);
+    return normalizedScopeKey;
+  }
+
+  releaseScopeKey(scopeKey) {
+    const normalizedScopeKey = normalizeText(scopeKey);
+    if (!normalizedScopeKey) {
+      return;
+    }
+    this.pendingScopeKeys.delete(normalizedScopeKey);
+  }
+
+  isScopePending(scopeKey) {
+    const normalizedScopeKey = normalizeText(scopeKey);
+    return normalizedScopeKey ? this.pendingScopeKeys.has(normalizedScopeKey) : false;
+  }
+
+  /**
+   * True when *any* lane currently holds a turn for this workspace root.
+   *
+   * Lanes are isolated from each other, but a workspace-wide background job
+   * (system message, closeout) must still yield to whichever lane is running,
+   * because they share one working directory.
+   */
+  isAnyScopePendingForWorkspace(workspaceRoot) {
+    const normalizedWorkspaceRoot = normalizeText(workspaceRoot);
+    if (!normalizedWorkspaceRoot) {
+      return false;
+    }
+    const suffix = `::${normalizedWorkspaceRoot}`;
+    for (const scopeKey of this.pendingScopeKeys) {
+      if (scopeKey.endsWith(suffix)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   attachThread(scopeKey, threadId) {

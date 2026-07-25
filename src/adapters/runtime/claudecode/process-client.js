@@ -1,8 +1,33 @@
 const { spawn } = require("child_process");
+const { buildProfileLaunch, fingerprintLaunchProfile } = require("./launch-profile");
 
 class ClaudeCodeProcessClient {
-  constructor({ command = "claude", cwd, env, model = "", permissionMode = "default", disableVerbose = false, extraArgs = [], mcpConfigPaths = [], ipcServer = null, workspaceRoot = "" }) {
+  constructor({
+    command = "claude",
+    commandPrefixArgs = [],
+    cwd,
+    env,
+    model = "",
+    permissionMode = "default",
+    disableVerbose = false,
+    extraArgs = [],
+    mcpConfigPaths = [],
+    launchProfile = null,
+    launchProfileBaseDir = "",
+    allowAuthBackendOverride = false,
+    allowCloudCredentialInheritance = false,
+    onLaunchTelemetry = null,
+    ipcServer = null,
+    workspaceRoot = "",
+    // Route identity. Carried so that every event this client emits can be
+    // attributed to exactly one lane / session slot / process, and so a result
+    // or approval can never be delivered through another lane's client.
+    laneKey = "",
+    sessionSlotKey = "",
+    processKey = "",
+  }) {
     this.command = command;
+    this.commandPrefixArgs = Array.isArray(commandPrefixArgs) ? commandPrefixArgs : [];
     this.cwd = cwd;
     this.env = env;
     this.model = model;
@@ -10,8 +35,21 @@ class ClaudeCodeProcessClient {
     this.disableVerbose = disableVerbose;
     this.extraArgs = extraArgs;
     this.mcpConfigPaths = mcpConfigPaths;
+    this.launchProfile = launchProfile || null;
+    this.launchProfileBaseDir = launchProfileBaseDir || process.cwd();
+    this.allowAuthBackendOverride = Boolean(allowAuthBackendOverride);
+    this.allowCloudCredentialInheritance = Boolean(allowCloudCredentialInheritance);
+    this.launchProfileFingerprint = fingerprintLaunchProfile(this.launchProfile, {
+      baseDir: this.launchProfileBaseDir,
+      allowAuthBackendOverride: this.allowAuthBackendOverride,
+    });
+    this.onLaunchTelemetry = typeof onLaunchTelemetry === "function" ? onLaunchTelemetry : null;
     this.ipcServer = ipcServer;
     this.workspaceRoot = workspaceRoot;
+    this.laneKey = laneKey;
+    this.sessionSlotKey = sessionSlotKey;
+    this.processKey = processKey;
+    this.launchFingerprint = "legacy";
     this.child = null;
     this.stdin = null;
     this.stdoutBuffer = "";
@@ -28,6 +66,25 @@ class ClaudeCodeProcessClient {
   onMessage(listener) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /**
+   * True only when a turn can actually be written to this child.
+   *
+   * `alive` flips on the 'close' event, which arrives a tick or more after the
+   * child has already gone. Checking the exit code and the stream state closes
+   * that window, so a caller relaunches instead of writing into a broken pipe.
+   */
+  get usable() {
+    return Boolean(
+      this.alive
+      && this.child
+      && this.child.exitCode === null
+      && this.child.signalCode === null
+      && this.stdin
+      && this.stdin.writable
+      && !this.stdin.destroyed,
+    );
   }
 
   emit(event, raw) {
@@ -49,23 +106,46 @@ class ClaudeCodeProcessClient {
     this.sessionId = "";
     this.resumeSessionId = isValidSessionId(resumeSessionId) ? resumeSessionId : "";
     this.activeThreadId = "";
+    const profileLaunch = this.launchProfile
+      ? buildProfileLaunch({
+        profile: this.launchProfile,
+        baseEnv: this.env,
+        baseCwd: this.cwd,
+        baseMcpConfigPaths: this.mcpConfigPaths,
+        extraArgs: this.extraArgs,
+        baseDir: this.launchProfileBaseDir,
+        allowAuthBackendOverride: this.allowAuthBackendOverride,
+        allowCloudCredentialInheritance: this.allowCloudCredentialInheritance,
+      })
+      : null;
+
+    // With a profile applied the base model / extraArgs / mcp flags are dropped
+    // and rebuilt from the validated profile, so an unvalidated flag can never
+    // sit alongside a validated one.
     const args = buildArgs({
-      model: this.model,
+      model: profileLaunch ? "" : this.model,
       permissionMode: this.permissionMode,
       disableVerbose: this.disableVerbose,
-      extraArgs: this.extraArgs,
-      mcpConfigPaths: this.mcpConfigPaths,
+      extraArgs: profileLaunch ? [] : this.extraArgs,
+      mcpConfigPaths: profileLaunch ? [] : this.mcpConfigPaths,
       resumeSessionId,
     });
-    const mcpLabel = this.mcpConfigPaths.length
-      ? this.mcpConfigPaths.join(",")
-      : "(none)";
+    const launchArgs = profileLaunch ? [...args, ...profileLaunch.args] : args;
+    const launchCwd = profileLaunch ? profileLaunch.cwd : this.cwd;
+    const launchEnv = profileLaunch ? profileLaunch.env : this.env;
+    this.launchFingerprint = profileLaunch ? profileLaunch.launchFingerprint : "legacy";
+    if (profileLaunch?.telemetry && this.onLaunchTelemetry) {
+      this.onLaunchTelemetry(profileLaunch.telemetry);
+    }
+    const mcpLabel = profileLaunch
+      ? `${profileLaunch.mcpConfigMode}:${profileLaunch.mcpConfigPaths.length}`
+      : (this.mcpConfigPaths.length ? this.mcpConfigPaths.join(",") : "(none)");
     console.log(
-      `[claudecode-runtime] launching command=${this.command} cwd=${this.cwd} mcp_config=${mcpLabel}`
+      `[claudecode-runtime] launching command=${this.command} cwd=${launchCwd} mcp_config=${mcpLabel}`
     );
-    const child = spawn(this.command, args, {
-      cwd: this.cwd,
-      env: this.env,
+    const child = spawn(this.command, [...this.commandPrefixArgs, ...launchArgs], {
+      cwd: launchCwd,
+      env: launchEnv,
       stdio: ["pipe", "pipe", "pipe"],
       shell: false,
     });
@@ -90,6 +170,19 @@ class ClaudeCodeProcessClient {
           this.ipcServer.broadcast({ type: "stderr", text });
         }
       }
+    });
+
+    child.stdin.on("error", (err) => {
+      // A broken pipe means the child is gone. Surface it as a turn failure
+      // rather than an uncaught exception that would take the bridge down.
+      this.alive = false;
+      this.rejectSessionWaiters(err);
+      this.emit({
+        type: "process.error",
+        error: err.message,
+        sessionId: this.activeThreadId || this.sessionId,
+        turnId: this.pendingTurnId,
+      }, null);
     });
 
     child.on("error", (err) => {
@@ -273,7 +366,7 @@ class ClaudeCodeProcessClient {
   }
 
   async sendUserMessage({ text, threadId }) {
-    if (!this.alive || !this.stdin) {
+    if (!this.usable) {
       throw new Error("claudecode process not running");
     }
     this.pendingTurnId = `turn-${Date.now()}`;
@@ -289,7 +382,9 @@ class ClaudeCodeProcessClient {
       type: "user",
       message: { role: "user", content: text },
     });
-    this.stdin.write(payload + "\n");
+    await new Promise((resolve, reject) => {
+      this.stdin.write(`${payload}\n`, (error) => (error ? reject(error) : resolve()));
+    });
     this.emit({
       type: "turn.started",
       turnId: this.pendingTurnId,
@@ -298,7 +393,7 @@ class ClaudeCodeProcessClient {
   }
 
   async sendResponse(requestId, { decision }) {
-    if (!this.alive || !this.stdin) {
+    if (!this.usable) {
       throw new Error("claudecode process not running");
     }
     const behavior = decision === "accept" ? "allow" : "deny";

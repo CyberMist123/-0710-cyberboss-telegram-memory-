@@ -21,6 +21,12 @@ class StreamDelivery {
     this.replyTargetByBindingKey = new Map();
     this.replyTargetByTurnKey = new Map();
     this.replyTargetQueueByThreadId = new Map();
+    // Reply target keyed by Claude session id. Sessions are lane-scoped in v2,
+    // so this is a 1:1 map to a route lane and is consulted *before* the
+    // binding-key map -- which is shared across a user's lanes and would
+    // otherwise be able to deliver one topic's reply into another.
+    this.replyTargetByThreadId = new Map();
+    this.maxReplyTargetsByThreadId = 256;
     this.deferredReplyPrefixByBindingKey = new Map();
     this.stateByRunKey = new Map();
     this.runSequence = 0;
@@ -34,7 +40,22 @@ class StreamDelivery {
       userId: String(target.userId).trim(),
       contextToken: String(target.contextToken).trim(),
       provider: normalizeText(target.provider),
+      ...threadIdField(target.messageThreadId),
+      ...laneKeyField(target.laneKey),
     });
+  }
+
+  setReplyTargetForThread(threadId, target) {
+    const normalizedThreadId = normalizeText(threadId);
+    const normalizedTarget = normalizeReplyTarget(target);
+    if (!normalizedThreadId || !normalizedTarget) {
+      return;
+    }
+    if (this.replyTargetByThreadId.size >= this.maxReplyTargetsByThreadId) {
+      const oldest = this.replyTargetByThreadId.keys().next().value;
+      this.replyTargetByThreadId.delete(oldest);
+    }
+    this.replyTargetByThreadId.set(normalizedThreadId, normalizedTarget);
   }
 
   queueReplyTargetForThread(threadId, target) {
@@ -102,6 +123,13 @@ class StreamDelivery {
     const queuedTargets = this.replyTargetQueueByThreadId.get(normalizedThreadId);
     if (Array.isArray(queuedTargets) && queuedTargets.length > 0) {
       return normalizeReplyTarget(queuedTargets[0]);
+    }
+
+    // Session-scoped target before binding-scoped target: the session id
+    // identifies exactly one lane, the binding key does not.
+    const threadTarget = this.replyTargetByThreadId.get(normalizedThreadId);
+    if (threadTarget) {
+      return normalizeReplyTarget(threadTarget);
     }
 
     const linked = this.sessionStore.findBindingForThreadId(normalizedThreadId);
@@ -419,6 +447,7 @@ class StreamDelivery {
       userId: state.replyTarget.userId,
       text: prependDeferredPrefix ? buildEffectiveReplyText(state.deferredReplyPrefix, transformedText) : transformedText,
       contextToken: state.replyTarget.contextToken,
+      ...threadIdField(state.replyTarget.messageThreadId),
     };
     if (prependDeferredPrefix) {
       payload.preserveBlock = true;
@@ -453,6 +482,7 @@ class StreamDelivery {
       userId: initialTarget.userId,
       text,
       contextToken: initialTarget.contextToken,
+      ...threadIdField(initialTarget.messageThreadId),
     };
     await this.sendTextWithRetry(state, payload, { kind: "system_reply" });
   }
@@ -479,6 +509,7 @@ class StreamDelivery {
           userId: retryTarget.userId,
           text: payload.text,
           contextToken: retryTarget.contextToken,
+          ...threadIdField(payload.messageThreadId ?? retryTarget.messageThreadId),
         };
         if (payload.preserveBlock) {
           retryPayload.preserveBlock = true;
@@ -490,6 +521,8 @@ class StreamDelivery {
             userId: retryTarget.userId,
             contextToken: retryTarget.contextToken,
             provider: retryTarget.provider,
+            ...threadIdField(retryTarget.messageThreadId),
+            ...laneKeyField(retryTarget.laneKey),
           });
         }
       } catch (retryError) {
@@ -558,6 +591,8 @@ class StreamDelivery {
       userId: currentTarget.userId,
       contextToken: refreshedContextToken,
       provider: currentTarget.provider,
+      ...threadIdField(currentTarget.messageThreadId),
+      ...laneKeyField(currentTarget.laneKey),
     };
   }
 
@@ -611,6 +646,8 @@ class StreamDelivery {
       userId: target.userId,
       contextToken: target.contextToken,
       provider: target.provider,
+      ...threadIdField(target.messageThreadId),
+      ...laneKeyField(target.laneKey),
     };
     state.threadReplyTargetAttached = true;
   }
@@ -765,6 +802,17 @@ function normalizeText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+// Both fields are omitted when absent so a non-Telegram payload/target keeps
+// exactly the shape it had before v2.
+function threadIdField(value) {
+  return value === null || value === undefined ? {} : { messageThreadId: value };
+}
+
+function laneKeyField(value) {
+  const normalized = normalizeText(value);
+  return normalized ? { laneKey: normalized } : {};
+}
+
 function normalizeReplyTarget(target) {
   if (!target?.userId || !target?.contextToken) {
     return null;
@@ -773,6 +821,10 @@ function normalizeReplyTarget(target) {
     userId: String(target.userId).trim(),
     contextToken: String(target.contextToken).trim(),
     provider: normalizeText(target.provider),
+    // Route lane fields travel with the target so every outbound send derived
+    // from it lands in the originating Telegram topic.
+    ...threadIdField(target.messageThreadId),
+    ...laneKeyField(target.laneKey),
   };
 }
 

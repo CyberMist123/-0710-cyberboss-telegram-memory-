@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { parseStrictBoolean } = require("./bounded-json");
 
 function readConfig() {
   const argv = process.argv.slice(2);
@@ -197,6 +198,23 @@ function readConfig() {
     claudeDisableVerbose: readBoolEnv("CYBERBOSS_CLAUDE_DISABLE_VERBOSE"),
     claudeExtraArgs: readListEnv("CYBERBOSS_CLAUDE_EXTRA_ARGS"),
     claudeConfigDir: resolveConfiguredPath(readTextEnv("CYBERBOSS_CLAUDE_CONFIG_DIR")),
+    // Raw operator JSON. It is deliberately NOT parsed here: parsing happens in
+    // the Telegram profile router, which is fail-closed and throws on any
+    // defect, so a malformed mapping blocks startup instead of degrading into a
+    // more permissive legacy launch.
+    claudeLaunchProfilesJson: readRawEnv("CYBERBOSS_CLAUDE_LAUNCH_PROFILES_JSON"),
+    telegramProfileMappingJson: readRawEnv("CYBERBOSS_TELEGRAM_PROFILE_MAPPING_JSON"),
+    claudeLaunchProfileBaseDir: resolveConfiguredPath(
+      readTextEnv("CYBERBOSS_CLAUDE_LAUNCH_PROFILE_BASE_DIR"),
+    ),
+    // Separate, explicit approvals. A launch profile can never set either of
+    // these; they are deployment decisions.
+    claudeAllowAuthBackendOverride: readExactBoolEnv("CYBERBOSS_CLAUDE_ALLOW_AUTH_BACKEND_OVERRIDE"),
+    claudeAllowCloudCredentialInheritance: readExactBoolEnv(
+      "CYBERBOSS_CLAUDE_ALLOW_CLOUD_CREDENTIAL_INHERITANCE",
+    ),
+    claudeSessionSlotsFile: joinIfBase(stateDir, "claude-session-slots.json"),
+    claudeMaxProcesses: readIntEnv("CYBERBOSS_CLAUDE_MAX_PROCESSES"),
     sessionsFile: joinIfBase(stateDir, "sessions.json"),
     startWithCheckin: (mode === "start" && hasArgFlag(argv, "--checkin")) || readBoolEnv("CYBERBOSS_ENABLE_CHECKIN"),
   };
@@ -217,6 +235,25 @@ function readTextEnv(name) {
 function readBoolEnv(name) {
   const value = readTextEnv(name).toLowerCase();
   return value === "1" || value === "true" || value === "yes" || value === "on";
+}
+
+// Raw (untrimmed-of-content) environment text. Only whitespace around the value
+// is removed; the payload is handed to a bounded parser unmodified.
+function readRawEnv(name) {
+  const value = process.env[name];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+// Exact boolean: only 1/0/true/false. Stricter than the existing
+// readStrictBoolEnv (which also accepts yes/no/on/off) and used for the
+// security-relevant profile opt-ins, where a near-miss must fail rather than
+// resolve to a permissive default.
+function readExactBoolEnv(name) {
+  const value = readTextEnv(name);
+  if (!value) {
+    return false;
+  }
+  return parseStrictBoolean(value, { label: name });
 }
 
 function resolveConfiguredPath(value) {

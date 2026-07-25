@@ -35,6 +35,11 @@ class RuntimeContextStore {
     accountId = "",
     senderId = "",
     provider = "",
+    // Route lane of the turn that is currently active. Model-initiated sends
+    // read it back so a reply lands in the topic that asked, not the chat's
+    // default lane.
+    chatId = "",
+    messageThreadId = null,
   } = {}) {
     const normalizedWorkspaceRoot = normalizeText(workspaceRoot);
     if (!normalizedWorkspaceRoot) {
@@ -53,6 +58,12 @@ class RuntimeContextStore {
       telegramSenderId: normalizedProvider === "telegram"
         ? normalizeText(senderId)
         : normalizeText(current.telegramSenderId),
+      telegramChatId: normalizedProvider === "telegram"
+        ? normalizeText(chatId)
+        : normalizeText(current.telegramChatId),
+      telegramMessageThreadId: normalizedProvider === "telegram"
+        ? normalizeNullableThreadId(messageThreadId)
+        : (current.telegramMessageThreadId ?? null),
       updatedAt: new Date().toISOString(),
     };
     this.state.contextsByWorkspaceRoot = {
@@ -91,4 +102,13 @@ function normalizeText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function normalizeNullableThreadId(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const text = String(value).trim();
+  return /^[1-9][0-9]*$/.test(text) ? text : null;
+}
+
 module.exports = { RuntimeContextStore };
+

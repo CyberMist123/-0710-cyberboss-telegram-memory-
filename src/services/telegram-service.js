@@ -49,10 +49,10 @@ function createTelegramSendService({ config, runtimeContextStore }) {
         await fetchJsonWithRetry(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+          body: JSON.stringify(withThreadId({
             chat_id: chatId,
             text: chunk,
-          }),
+          }, target.messageThreadId)),
         }, TELEGRAM_REQUEST_TIMEOUT_MS, { allowEmptyJson: true });
       }
       return { userId: chatId, text: normalizedText };
@@ -87,6 +87,7 @@ function createTelegramSendService({ config, runtimeContextStore }) {
 
       const payload = new FormData();
       payload.append("chat_id", target.chatId);
+      appendThreadId(payload, target.messageThreadId);
       if (normalizeText(caption)) {
         payload.append("caption", normalizeText(caption));
       }
@@ -124,6 +125,7 @@ function createTelegramSendService({ config, runtimeContextStore }) {
 
       const payload = new FormData();
       payload.append("chat_id", target.chatId);
+      appendThreadId(payload, target.messageThreadId);
       payload.append("voice", new Blob([fs.readFileSync(resolvedPath)], { type: "audio/ogg" }), path.basename(resolvedPath));
 
       await fetchJsonWithRetry(`https://api.telegram.org/bot${token}/sendVoice`, {
@@ -136,28 +138,58 @@ function createTelegramSendService({ config, runtimeContextStore }) {
 }
 
 function resolveTelegramTarget(active, context = {}, userId = "") {
+  // The topic comes from the turn that is currently active. An explicitly
+  // addressed userId or a context hint keeps its own topic (or none), so a
+  // model-initiated send can never be silently retargeted into a topic the
+  // caller did not name.
+  const activeThreadId = normalizeThreadId(active?.telegramMessageThreadId);
+
   const explicitUserId = normalizeText(userId);
   if (explicitUserId) {
-    return { chatId: explicitUserId };
+    const sameChat = explicitUserId === normalizeText(active?.senderId)
+      || explicitUserId === normalizeText(active?.telegramSenderId)
+      || explicitUserId === normalizeText(active?.telegramChatId);
+    return { chatId: explicitUserId, messageThreadId: sameChat ? activeThreadId : normalizeThreadId(context?.messageThreadId) };
   }
 
   const activeSenderId = normalizeText(active?.senderId);
   const activeProvider = normalizeText(active?.provider);
   if (activeProvider === "telegram" && activeSenderId) {
-    return { chatId: activeSenderId };
+    return { chatId: activeSenderId, messageThreadId: activeThreadId };
   }
 
   const hintedChatId = normalizeText(context?.chatId);
   if (hintedChatId) {
-    return { chatId: hintedChatId };
+    return { chatId: hintedChatId, messageThreadId: normalizeThreadId(context?.messageThreadId) };
   }
 
   const storedTelegramTarget = normalizeText(active?.telegramSenderId || active?.telegramUserId || active?.telegramChatId);
   if (storedTelegramTarget) {
-    return { chatId: storedTelegramTarget };
+    return { chatId: storedTelegramTarget, messageThreadId: activeThreadId };
   }
 
-  return { chatId: "" };
+  return { chatId: "", messageThreadId: null };
+}
+
+function normalizeThreadId(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const text = String(value).trim();
+  return /^[1-9][0-9]*$/.test(text) ? text : null;
+}
+
+function withThreadId(payload, messageThreadId) {
+  const threadId = normalizeThreadId(messageThreadId);
+  return threadId === null ? payload : { ...payload, message_thread_id: Number(threadId) };
+}
+
+function appendThreadId(form, messageThreadId) {
+  const threadId = normalizeThreadId(messageThreadId);
+  if (threadId !== null) {
+    form.append("message_thread_id", threadId);
+  }
+  return form;
 }
 
 function normalizeText(value) {
