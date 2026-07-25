@@ -4,6 +4,12 @@ The live release descriptor is external to the repository at
 `<cyberlink-root>/deployment/current.json`. The repository
 contains only its schema, example, loader, validation, and atomic rollback tool.
 
+`current.json` is UTF-8 without a BOM. Before an activation or rollback can
+replace it, the control plane validates both the active and rollback targets:
+their inferred release directories, Telegram entries, watchdog targets,
+external state/log/PID paths, and release identities must all be complete and
+present. A failed preflight leaves the previous descriptor untouched.
+
 The scheduled task `cyberboss-watchdog` is the sole Telegram auto-recovery
 owner. It reads the active release from `current.json`, validates the PID against
 the full Telegram entry path and command line, and restores only that release.

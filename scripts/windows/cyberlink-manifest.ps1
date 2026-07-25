@@ -143,7 +143,9 @@ function Assert-DescriptorTarget {
   if (-not (Test-DescriptorChildPath -Parent $paths.state_dir -Child $paths.pid_file)) {
     throw "$Name.pid_file must belong to $Name.state_dir."
   }
-  foreach ($field in @('telegram_entry', 'watchdog_target', 'pid_file')) {
+  # The launcher creates the PID file after it reads this descriptor. The
+  # activation gate enforces that an already-active descriptor has a PID file.
+  foreach ($field in @('telegram_entry', 'watchdog_target')) {
     if (-not (Test-Path -LiteralPath $paths[$field] -PathType Leaf)) {
       throw "$Name.$field does not exist as a file: $($paths[$field])"
     }
