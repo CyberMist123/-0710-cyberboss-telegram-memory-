@@ -264,7 +264,7 @@ function buildManifest({ releaseId, releaseDir, repoDir, commit, buildTime, buil
       additional_runtime_assets: additionalRuntimeAssets,
       dependencies: {
         manager: "npm",
-        install_command: "npm ci --ignore-scripts --no-audit --no-fund",
+        install_command: "npm run release:install",
         lockfile_path: "package-lock.json",
         lockfile_sha256: fs.existsSync(lockfilePath) ? sha256File(lockfilePath) : null,
         file_count: countFilesRecursive(nodeModulesDir),

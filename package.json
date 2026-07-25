@@ -20,6 +20,7 @@
     "accounts": "node ./bin/cyberboss.js accounts",
     "doctor": "node ./bin/cyberboss.js doctor",
     "help": "node ./bin/cyberboss.js help",
+    "release:install": "npm ci --ignore-scripts --no-audit --no-fund --install-links=true",
     "shared:start": "node ./scripts/shared-start.js",
     "shared:open": "node ./scripts/shared-open.js",
     "shared:status": "node ./scripts/shared-status.js",
