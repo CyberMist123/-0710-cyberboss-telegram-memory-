@@ -21,6 +21,8 @@ function readConfig() {
   const agentCwd = resolveConfiguredPath(readTextEnv("CYBERBOSS_AGENT_CWD")) || memoryDir;
   const operationsFile = resolveConfiguredPath(readTextEnv("CYBERBOSS_OPERATIONS_FILE"));
   const continuityDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_CONTINUITY_DIR"));
+  const localWhisperEnabled = readStrictBoolEnv("CYBERBOSS_LOCAL_WHISPER_ENABLED", false);
+  const localWhisperModel = readLocalWhisperModelEnv(localWhisperEnabled);
 
   return {
     mode,
@@ -55,19 +57,9 @@ function readConfig() {
     voiceMediaDir: joinIfBase(stateDir, "media", "voice"),
     photoMediaDir: joinIfBase(stateDir, "media", "photos"),
     mediaInboxMaxBytes: readBoundedIntEnv("CYBERBOSS_MEDIA_INBOX_MAX_BYTES", 20 * 1024 * 1024, 1, 500 * 1024 * 1024),
-    localWhisperEnabled: readStrictBoolEnv("CYBERBOSS_LOCAL_WHISPER_ENABLED", false),
+    localWhisperEnabled,
     localWhisperPythonCommand: readTextEnv("CYBERBOSS_LOCAL_WHISPER_PYTHON") || "python",
-    localWhisperModel: readTextEnv("CYBERBOSS_LOCAL_WHISPER_MODEL") || "small",
-    localWhisperDevice: readTextEnv("CYBERBOSS_LOCAL_WHISPER_DEVICE") || "cpu",
-    localWhisperComputeType: readTextEnv("CYBERBOSS_LOCAL_WHISPER_COMPUTE_TYPE") || "int8",
-    localWhisperTimeoutMs: readBoundedIntEnv("CYBERBOSS_LOCAL_WHISPER_TIMEOUT_MS", 120000, 1000, 900000),
-    localWhisperMaxInputBytes: readBoundedIntEnv("CYBERBOSS_LOCAL_WHISPER_MAX_INPUT_BYTES", 20 * 1024 * 1024, 1, 500 * 1024 * 1024),
-    localWhisperMaxAudioSeconds: readBoundedIntEnv("CYBERBOSS_LOCAL_WHISPER_MAX_AUDIO_SECONDS", 180, 1, 3600),
-    localWhisperMaxOutputChars: readBoundedIntEnv("CYBERBOSS_LOCAL_WHISPER_MAX_OUTPUT_CHARS", 4000, 1, 100000),
-    localWhisperMaxStderrChars: readBoundedIntEnv("CYBERBOSS_LOCAL_WHISPER_MAX_STDERR_CHARS", 4000, 1, 100000),
-    localWhisperEnabled: readStrictBoolEnv("CYBERBOSS_LOCAL_WHISPER_ENABLED", false),
-    localWhisperPythonCommand: readTextEnv("CYBERBOSS_LOCAL_WHISPER_PYTHON") || "python",
-    localWhisperModel: readTextEnv("CYBERBOSS_LOCAL_WHISPER_MODEL") || "small",
+    localWhisperModel,
     localWhisperDevice: readTextEnv("CYBERBOSS_LOCAL_WHISPER_DEVICE") || "cpu",
     localWhisperComputeType: readTextEnv("CYBERBOSS_LOCAL_WHISPER_COMPUTE_TYPE") || "int8",
     localWhisperTimeoutMs: readBoundedIntEnv("CYBERBOSS_LOCAL_WHISPER_TIMEOUT_MS", 120000, 1000, 900000),
@@ -278,6 +270,20 @@ function readBoundedIntEnv(name, fallback, minimum, maximum) {
     throw new Error(`${name} must be an integer from ${minimum} to ${maximum}; received: ${value}`);
   }
   return parsed;
+}
+
+function readLocalWhisperModelEnv(enabled) {
+  const configured = readTextEnv("CYBERBOSS_LOCAL_WHISPER_MODEL");
+  if (!enabled) return configured;
+  if (!configured || !path.isAbsolute(configured)) {
+    throw new Error("CYBERBOSS_LOCAL_WHISPER_MODEL must be an existing local absolute directory when local Whisper is enabled");
+  }
+  let stat;
+  try { stat = fs.statSync(configured); } catch { stat = null; }
+  if (!stat?.isDirectory()) {
+    throw new Error("CYBERBOSS_LOCAL_WHISPER_MODEL must be an existing local absolute directory when local Whisper is enabled");
+  }
+  return fs.realpathSync(configured);
 }
 
 function readTimezoneEnv(name, fallback) {

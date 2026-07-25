@@ -182,24 +182,6 @@ function createTelegramChannelAdapter(config) {
         sizeBytes: bytes.length,
       };
     },
-    async downloadFileById({ fileId, targetDir, fileName = "", maxSizeBytes = 0 }) {
-      const fetched = await this.fetchFileById({ fileId, maxSizeBytes });
-      const normalizedFileId = normalizeText(fileId);
-      const normalizedTargetDir = normalizeText(targetDir);
-      if (!normalizedFileId || !normalizedTargetDir) {
-        throw new Error("telegram downloadFileById requires fileId and targetDir");
-      }
-      const extension = path.extname(fetched.remotePath) || ".bin";
-      const requestedFileName = sanitizeMediaFileName(fileName);
-      const desiredFileName = requestedFileName
-        ? (path.extname(requestedFileName) ? requestedFileName : `${requestedFileName}${extension}`)
-        : `tg-${Date.now()}-${normalizedFileId.slice(-8)}${extension}`;
-      fs.mkdirSync(normalizedTargetDir, { recursive: true });
-      const absolutePath = resolveUniqueTargetPath(normalizedTargetDir, desiredFileName);
-      fs.writeFileSync(absolutePath, fetched.bytes);
-      writeTelegramLog(config, `downloadFileById ok fileId=${normalizedFileId} sizeBytes=${fetched.sizeBytes}`);
-      return { absolutePath, fileName: path.basename(absolutePath), sizeBytes: fetched.sizeBytes };
-    },
     async sendVoice({ userId, filePath }) {
       if (!token) {
         throw new Error("telegram bot token missing");
@@ -413,13 +395,12 @@ function saveTelegramState(config, state) {
 
 async function readResponseBytesBounded(response, maxSizeBytes) {
   if (!response.body?.getReader) {
-    const bytes = Buffer.from(await response.arrayBuffer());
-    if (maxSizeBytes && bytes.length > maxSizeBytes) throw new Error("telegram file exceeds size limit during download");
-    return bytes;
+    throw new Error("telegram file download requires bounded streaming response");
   }
   const reader = response.body.getReader();
   const chunks = [];
   let total = 0;
+  let completed = false;
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -432,10 +413,16 @@ async function readResponseBytesBounded(response, maxSizeBytes) {
       }
       chunks.push(chunk);
     }
+    completed = true;
+  } catch (error) {
+    if (!completed) {
+      await reader.cancel().catch(() => {});
+    }
+    throw error;
   } finally {
     reader.releaseLock?.();
   }
   return Buffer.concat(chunks, total);
 }
 
-module.exports = { createTelegramChannelAdapter, chunkReplyTextForTelegram };
+module.exports = { createTelegramChannelAdapter, chunkReplyTextForTelegram, readResponseBytesBounded };

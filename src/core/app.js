@@ -32,6 +32,7 @@ const { TimelineScreenshotQueueStore } = require("./timeline-screenshot-queue-st
 const { TurnGateStore } = require("./turn-gate-store");
 const { ReminderQueueStore } = require("../adapters/channel/weixin/reminder-queue-store");
 const { ConversationRecorder } = require("../services/conversation-recorder");
+const { resolveStateMediaReference } = require("../services/media-inbox-service");
 const {
   matchesCommandPrefix,
   canonicalizeCommandTokens,
@@ -861,7 +862,7 @@ class CyberbossApp {
     }
     if (prepared?.provider === "telegram") {
       return {
-        text: formatTelegramRuntimeText(prepared),
+        text: formatTelegramRuntimeText(prepared, { stateDir: this.config?.stateDir }),
         attachments: [],
       };
     }
@@ -2945,51 +2946,37 @@ function detectSleepModeIntent(text) {
   return "";
 }
 
-function formatTelegramRuntimeText(prepared) {
-  const chatId = normalizeText(prepared?.chatId || prepared?.telegram?.chatId);
-  const messageId = normalizeText(prepared?.messageId || prepared?.telegram?.messageId);
-  const userId = normalizeText(prepared?.senderId || prepared?.telegram?.userId);
-  const username = normalizeText(prepared?.telegram?.username);
-  const sentAt = normalizeText(prepared?.receivedAt);
-  const body = String(prepared?.originalText || prepared?.text || "").trim();
-  const mediaLines = buildTelegramMediaBridgeLines(prepared?.attachments);
-  const openTag = [
-    '<channel source="telegram"',
-    chatId ? `chat_id="${escapeXmlAttribute(chatId)}"` : '',
-    messageId ? `message_id="${escapeXmlAttribute(messageId)}"` : '',
-    userId ? `user_id="${escapeXmlAttribute(userId)}"` : '',
-    username ? `username="${escapeXmlAttribute(username)}"` : '',
-    sentAt ? `sent_at="${escapeXmlAttribute(sentAt)}"` : '',
-  ].filter(Boolean).join(' ') + '>';
-  return [
-    openTag,
-    body,
-    ...mediaLines,
-    '</channel>',
-  ].join('\n');
+function formatTelegramRuntimeText(prepared, { stateDir = "" } = {}) {
+  const payload = {
+    version: 1,
+    source: "telegram",
+    message: {
+      chatId: normalizeText(prepared?.chatId || prepared?.telegram?.chatId),
+      messageId: normalizeText(prepared?.messageId || prepared?.telegram?.messageId),
+      userId: normalizeText(prepared?.senderId || prepared?.telegram?.userId),
+      username: normalizeText(prepared?.telegram?.username),
+      sentAt: normalizeText(prepared?.receivedAt),
+    },
+    text: String(prepared?.originalText || prepared?.text || "").trim(),
+    attachments: buildTelegramMediaBridgeAttachments(prepared?.attachments, stateDir),
+  };
+  // One opaque data node keeps every user-controlled field out of bridge markup.
+  const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return `<telegram-inbound version="1" encoding="base64url-json">${encoded}</telegram-inbound>`;
 }
 
-function buildTelegramMediaBridgeLines(attachments) {
-  if (!Array.isArray(attachments)) {
-    return [];
-  }
-  return attachments
-    .filter((attachment) => normalizeText(attachment?.absolutePath))
-    .map((attachment) => {
-      const kind = normalizeText(attachment.kind || attachment.type) || "file";
-      const type = normalizeText(attachment.type || attachment.kind) || kind;
-      const contentType = normalizeText(attachment.contentType);
-      const absolutePath = normalizeText(attachment.absolutePath);
-      return `<media kind="${escapeXmlAttribute(kind)}" type="${escapeXmlAttribute(type)}"${contentType ? ` content_type="${escapeXmlAttribute(contentType)}"` : ""} path="${escapeXmlAttribute(absolutePath)}" />`;
-    });
-}
-
-function escapeXmlAttribute(value) {
-  return String(value || "")
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+function buildTelegramMediaBridgeAttachments(attachments, stateDir) {
+  if (!Array.isArray(attachments) || !normalizeText(stateDir)) return [];
+  return attachments.flatMap((attachment) => {
+    const reference = normalizeText(attachment?.stateMediaRef);
+    if (!reference || !resolveStateMediaReference(stateDir, reference)) return [];
+    return [{
+      kind: normalizeText(attachment.kind || attachment.type),
+      contentType: normalizeText(attachment.contentType),
+      fileName: normalizeText(attachment.fileName),
+      reference,
+    }];
+  });
 }
 
 function sleep(ms) {

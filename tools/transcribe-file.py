@@ -28,8 +28,8 @@ def main():
         return 2
     try:
         from faster_whisper import WhisperModel
-    except Exception as exc:
-        print(json.dumps({"error": "provider_dependency_missing", "detail": str(exc)[:300]}, ensure_ascii=False))
+    except Exception:
+        print(json.dumps({"error": "provider_dependency_missing"}, ensure_ascii=False))
         return 3
     try:
         model = WhisperModel(args.model, device=args.device, compute_type=args.compute_type, download_root=None)
@@ -47,8 +47,8 @@ def main():
                 return 5
         print(json.dumps({"text": " ".join(pieces).strip(), "model": args.model, "elapsedMs": int((time.monotonic() - started) * 1000)}, ensure_ascii=False))
         return 0
-    except Exception as exc:
-        print(json.dumps({"error": "transcription_failed", "detail": str(exc)[:300]}, ensure_ascii=False))
+    except Exception:
+        print(json.dumps({"error": "transcription_failed"}, ensure_ascii=False))
         return 6
 
 

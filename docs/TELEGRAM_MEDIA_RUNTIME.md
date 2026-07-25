@@ -11,12 +11,20 @@ Supported descriptor kinds are `voice`, `audio`, `photo`, and `sticker`. Sticker
 `stickerType` of `webp`, `tgs`, or `webm`. Telegram documents and videos remain
 explicit placeholders and are not downloaded by this path.
 
-Attachment metadata contains a stable `relativePath`, an internal absolute path for
-runtime access, the source reference, content type, size, and download state. Full
-paths are not written to Telegram logs or ordinary prose. The Telegram runtime bridge
-uses a structured `<media ... path="..." />` entry so path-capable runtimes can open
-the saved file without a second media pipeline.
+Attachment metadata contains a stable `relativePath` and `stateMediaRef` such as
+`state-media://media/photos/<file>`. The reference is resolved only against the
+authoritative state media root after confinement checks; it cannot contain a drive,
+UNC path, backslash, `.` or `..` segment. Absolute paths remain internal to the
+service/VoiceService and are never emitted into the model-facing Telegram bridge.
+
+The Telegram runtime bridge is a single `base64url-json` data node. It carries the
+original text and only verified state-media references, so caption, filename, MIME
+and message text cannot create markup, close the bridge, or inject a second media
+entry. Telegram media directories reject links/reparse points and use bounded
+downloads, `.part` files, fsync and rename before an attachment is recorded.
 
 Local Whisper is opt-in with `CYBERBOSS_LOCAL_WHISPER_ENABLED=true`. It requires a
 local model directory, uses argv-only process spawning, has bounded input/output and
-timeout controls, and never downloads a model automatically.
+timeout controls, waits for a terminated process tree before returning, and never
+downloads a model automatically. When enabled, `CYBERBOSS_LOCAL_WHISPER_MODEL` must
+be an existing absolute local directory.

@@ -20,11 +20,13 @@ class LocalWhisperTranscriber {
     if (this.config.localWhisperMaxInputBytes && stat.size > this.config.localWhisperMaxInputBytes) {
       return { ok: false, provider: "local-whisper", error: "input_too_large" };
     }
+    const modelPath = resolveExistingLocalModel(this.config.localWhisperModel);
+    if (!modelPath) return { ok: false, provider: "local-whisper", error: "model_missing" };
     const scriptPath = path.resolve(__dirname, "../../tools/transcribe-file.py");
     const args = [
       scriptPath,
       "--input", inputPath,
-      "--model", String(this.config.localWhisperModel || "small"),
+      "--model", modelPath,
       "--device", String(this.config.localWhisperDevice || "cpu"),
       "--compute-type", String(this.config.localWhisperComputeType || "int8"),
       "--max-audio-seconds", String(this.config.localWhisperMaxAudioSeconds || 180),
@@ -50,42 +52,58 @@ function runWhisperProcess({ command, args, timeoutMs, maxOutputChars, maxStderr
       resolve({ ok: false, provider: "local-whisper", error: "python_spawn_failed" });
       return;
     }
-    let stdout = "";
-    let stderr = "";
+    const stdoutChunks = [];
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
     let settled = false;
-    let timer = setTimeout(() => {
-      terminateProcessTree(child);
-      finish({ ok: false, provider: "local-whisper", error: "timeout" });
-    }, Math.max(1, Number(timeoutMs) || 1));
+    let abortPromise = null;
+    let timer;
     const finish = (result) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       resolve(result);
     };
+    const abort = (error) => {
+      if (abortPromise) return abortPromise;
+      abortPromise = (async () => {
+        clearTimeout(timer);
+        await terminateProcessTree(child);
+        finish({ ok: false, provider: "local-whisper", error });
+      })();
+      return abortPromise;
+    };
+    timer = setTimeout(() => { void abort("timeout"); }, Math.max(1, Number(timeoutMs) || 1));
     child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString("utf8");
-      if (stdout.length > maxOutputChars) {
-        terminateProcessTree(child);
-        finish({ ok: false, provider: "local-whisper", error: "stdout_limit" });
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      if (stdoutBytes + bytes.length > maxOutputChars) {
+        void abort("stdout_limit");
+        return;
       }
+      stdoutBytes += bytes.length;
+      stdoutChunks.push(bytes);
     });
     child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString("utf8");
-      if (stderr.length > maxStderrChars) {
-        terminateProcessTree(child);
-        finish({ ok: false, provider: "local-whisper", error: "stderr_limit" });
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      if (stderrBytes + bytes.length > maxStderrChars) {
+        void abort("stderr_limit");
+        return;
       }
+      stderrBytes += bytes.length;
     });
     child.on("error", (error) => finish({ ok: false, provider: "local-whisper", error: classifyProcessError(error) }));
     child.on("close", (code) => {
-      if (settled) return;
+      if (settled || abortPromise) return;
       if (code !== 0) {
         finish({ ok: false, provider: "local-whisper", error: `process_exit_${code ?? "unknown"}` });
         return;
       }
       try {
-        const payload = JSON.parse(stdout.trim());
+        const payload = JSON.parse(Buffer.concat(stdoutChunks, stdoutBytes).toString("utf8").trim());
+        if (payload?.error) {
+          finish({ ok: false, provider: "local-whisper", error: sanitizeProviderError(payload.error) });
+          return;
+        }
         const text = typeof payload?.text === "string" ? payload.text.trim() : "";
         if (!text) finish({ ok: false, provider: "local-whisper", error: "empty_transcription" });
         else finish({ ok: true, provider: "local-whisper", text, model: payload.model || "", elapsedMs: payload.elapsedMs || 0 });
@@ -96,15 +114,57 @@ function runWhisperProcess({ command, args, timeoutMs, maxOutputChars, maxStderr
   });
 }
 
-function terminateProcessTree(child) {
-  if (!child || child.killed) return;
+async function terminateProcessTree(child) {
+  if (!child?.pid) return;
+  if (process.platform === "win32") {
+    await runTerminator("taskkill", ["/pid", String(child.pid), "/t", "/f"]);
+    await waitForChildClose(child, 5_000);
+    return;
+  }
+  try { child.kill("SIGTERM"); } catch {}
+  if (await waitForChildClose(child, 1_000)) return;
+  try { child.kill("SIGKILL"); } catch {}
+  await waitForChildClose(child, 5_000);
+}
+
+function runTerminator(command, args) {
+  return new Promise((resolve) => {
+    let killer;
+    try { killer = spawn(command, args, { shell: false, windowsHide: true, stdio: "ignore" }); } catch { resolve(); return; }
+    killer.once("error", resolve);
+    killer.once("close", resolve);
+  });
+}
+
+function waitForChildClose(child, timeoutMs) {
+  if (child.exitCode !== null || child.signalCode) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { cleanup(); resolve(false); }, timeoutMs);
+    const onClose = () => { cleanup(); resolve(true); };
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.removeListener("close", onClose);
+    };
+    child.once("close", onClose);
+  });
+}
+
+function sanitizeProviderError(value) {
+  const code = String(value || "").trim();
+  return ["model_missing", "provider_dependency_missing", "audio_duration_limit", "output_limit", "transcription_failed"].includes(code)
+    ? code
+    : "transcription_failed";
+}
+
+function resolveExistingLocalModel(value) {
+  const configured = String(value || "").trim();
+  if (!configured || !path.isAbsolute(configured)) return "";
   try {
-    if (process.platform === "win32" && child.pid) {
-      spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], { shell: false, windowsHide: true, stdio: "ignore" });
-    } else {
-      child.kill("SIGTERM");
-    }
-  } catch {}
+    const resolved = fs.realpathSync(configured);
+    return fs.statSync(resolved).isDirectory() ? resolved : "";
+  } catch {
+    return "";
+  }
 }
 
 function classifyProcessError(error) {
@@ -112,4 +172,4 @@ function classifyProcessError(error) {
   return "python_spawn_failed";
 }
 
-module.exports = { LocalWhisperTranscriber, runWhisperProcess };
+module.exports = { LocalWhisperTranscriber, runWhisperProcess, resolveExistingLocalModel };

@@ -3,7 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const { DEFAULT_MAX_INBOUND_MEDIA_BYTES } = require("./telegram-media-descriptor");
+const { DEFAULT_MAX_INBOUND_MEDIA_BYTES, createTelegramMediaDescriptor } = require("./telegram-media-descriptor");
 
 const MEDIA_DIRS = Object.freeze({
   voice: "voice",
@@ -51,11 +51,13 @@ class MediaInboxService {
     }
     let partPath = "";
     try {
-      const mediaDir = path.join(stateDir, "media", MEDIA_DIRS[descriptor.kind]);
-      fs.mkdirSync(mediaDir, { recursive: true });
+      const mediaRoot = ensureStateMediaRoot(stateDir);
+      const mediaDir = ensureMediaKindDirectory(mediaRoot, descriptor.kind);
       const fileName = buildSafeFileName(normalized, descriptor);
       const finalPath = resolveUniqueTargetPath(mediaDir, fileName);
+      assertPathWithinMediaRoot(mediaRoot, finalPath);
       partPath = `${finalPath}.part`;
+      assertPathWithinMediaRoot(mediaRoot, partPath);
       const fetched = await channelAdapter.fetchFileById({
         fileId: descriptor.fileId,
         maxSizeBytes: this.maxInboundBytes,
@@ -63,6 +65,7 @@ class MediaInboxService {
       if (!fetched?.bytes?.length || fetched.bytes.length > this.maxInboundBytes) {
         throw new Error("media payload exceeds size limit or is empty");
       }
+      assertPathWithinMediaRoot(mediaRoot, partPath);
       const fd = fs.openSync(partPath, "wx");
       try {
         fs.writeFileSync(fd, fetched.bytes);
@@ -70,8 +73,11 @@ class MediaInboxService {
       } finally {
         fs.closeSync(fd);
       }
+      assertPathWithinMediaRoot(mediaRoot, finalPath);
       fs.renameSync(partPath, finalPath);
-      const relativePath = path.relative(stateDir, finalPath).replace(/\\/g, "/");
+      assertSavedFileWithinMediaRoot(mediaRoot, finalPath);
+      const relativePath = relativePathWithinStateMediaRoot(mediaRoot, finalPath);
+      const stateMediaRef = createStateMediaReference(relativePath);
       normalized.attachments.push({
         kind: descriptor.kind,
         type: descriptor.kind,
@@ -81,6 +87,7 @@ class MediaInboxService {
         absolutePath: finalPath,
         path: finalPath,
         relativePath,
+        stateMediaRef,
         sourceRef: attachmentKey,
         sourceFileId: descriptor.fileId,
         sizeBytes: fetched.sizeBytes,
@@ -105,7 +112,8 @@ function legacyDescriptors(normalized) {
 }
 
 function isSafeDescriptor(descriptor) {
-  return Boolean(descriptor && MEDIA_DIRS[descriptor.kind] && normalizeText(descriptor.fileId) && /^\.[a-z0-9]{1,8}$/i.test(descriptor.extension || ""));
+  const validated = createTelegramMediaDescriptor(descriptor);
+  return Boolean(validated && MEDIA_DIRS[validated.kind]);
 }
 
 function buildSafeFileName(normalized, descriptor) {
@@ -123,6 +131,105 @@ function resolveUniqueTargetPath(targetDir, fileName) {
     suffix += 1;
   }
   return candidate;
+}
+
+function ensureStateMediaRoot(stateDir) {
+  const stateRoot = path.resolve(stateDir);
+  fs.mkdirSync(stateRoot, { recursive: true });
+  assertNoLinkedPath(stateRoot);
+  const realStateRoot = fs.realpathSync(stateRoot);
+  const mediaRoot = path.join(realStateRoot, "media");
+  ensureDirectory(mediaRoot);
+  assertNoLinkedPath(mediaRoot);
+  return fs.realpathSync(mediaRoot);
+}
+
+function ensureMediaKindDirectory(mediaRoot, kind) {
+  const directory = MEDIA_DIRS[kind];
+  if (!directory) throw new Error("unsupported media kind");
+  const mediaDir = path.join(mediaRoot, directory);
+  assertPathWithinMediaRoot(mediaRoot, mediaDir);
+  ensureDirectory(mediaDir);
+  assertNoLinkedPath(mediaDir);
+  const realMediaDir = fs.realpathSync(mediaDir);
+  assertPathWithinMediaRoot(mediaRoot, realMediaDir);
+  return realMediaDir;
+}
+
+function ensureDirectory(directory) {
+  fs.mkdirSync(directory, { recursive: true });
+  const stat = fs.lstatSync(directory);
+  if (!stat.isDirectory() || isLinkOrReparsePoint(stat)) throw new Error("media directory is not safe");
+}
+
+function assertNoLinkedPath(targetPath) {
+  const resolved = path.resolve(targetPath);
+  const parsed = path.parse(resolved);
+  const relative = path.relative(parsed.root, resolved);
+  let current = parsed.root;
+  for (const part of relative.split(path.sep).filter(Boolean)) {
+    current = path.join(current, part);
+    const stat = fs.lstatSync(current);
+    if (isLinkOrReparsePoint(stat)) throw new Error("linked media path rejected");
+  }
+}
+
+function isLinkOrReparsePoint(stat) {
+  return Boolean(stat?.isSymbolicLink?.() || stat?.isReparsePoint?.());
+}
+
+function assertPathWithinMediaRoot(mediaRoot, candidate) {
+  const root = path.resolve(mediaRoot);
+  const resolved = path.resolve(candidate);
+  const relative = path.relative(root, resolved);
+  if (!relative || relative === ".." || path.isAbsolute(relative) || relative.split(path.sep).includes("..")) {
+    throw new Error("media path escapes state media root");
+  }
+}
+
+function assertSavedFileWithinMediaRoot(mediaRoot, finalPath) {
+  assertPathWithinMediaRoot(mediaRoot, finalPath);
+  const stat = fs.lstatSync(finalPath);
+  if (!stat.isFile() || isLinkOrReparsePoint(stat)) throw new Error("saved media file is not safe");
+  const realFinalPath = fs.realpathSync(finalPath);
+  assertPathWithinMediaRoot(mediaRoot, realFinalPath);
+}
+
+function relativePathWithinStateMediaRoot(mediaRoot, finalPath) {
+  const mediaRelative = path.relative(mediaRoot, finalPath).replace(/\\/g, "/");
+  if (!mediaRelative || mediaRelative.includes("..") || mediaRelative.startsWith("/")) {
+    throw new Error("invalid saved media path");
+  }
+  return `media/${mediaRelative}`;
+}
+
+function createStateMediaReference(relativePath) {
+  if (!isSafeStateMediaRelativePath(relativePath)) throw new Error("invalid state media reference");
+  return `state-media://${relativePath}`;
+}
+
+function resolveStateMediaReference(stateDir, reference) {
+  const prefix = "state-media://";
+  const normalized = normalizeText(reference);
+  if (!normalized.startsWith(prefix)) return "";
+  const relativePath = normalized.slice(prefix.length);
+  if (!isSafeStateMediaRelativePath(relativePath)) return "";
+  let mediaRoot;
+  try { mediaRoot = ensureStateMediaRoot(stateDir); } catch { return ""; }
+  const candidate = path.join(path.dirname(mediaRoot), ...relativePath.split("/"));
+  try {
+    assertSavedFileWithinMediaRoot(mediaRoot, candidate);
+    return candidate;
+  } catch {
+    return "";
+  }
+}
+
+function isSafeStateMediaRelativePath(value) {
+  if (typeof value !== "string" || !value.startsWith("media/") || value.includes("\\") || value.includes("\0")) return false;
+  if (path.win32.isAbsolute(value) || path.posix.isAbsolute(value) || /^[A-Za-z]:/.test(value) || value.startsWith("//")) return false;
+  const parts = value.split("/");
+  return parts.length >= 3 && parts.every((part) => part && part !== "." && part !== "..");
 }
 
 function normalizeDay(receivedAt) {
@@ -147,5 +254,8 @@ function normalizeText(value) {
 module.exports = {
   DEFAULT_MAX_INBOUND_MEDIA_BYTES,
   MediaInboxService,
+  createStateMediaReference,
+  resolveStateMediaReference,
+  isSafeStateMediaRelativePath,
   writeMediaLog,
 };
