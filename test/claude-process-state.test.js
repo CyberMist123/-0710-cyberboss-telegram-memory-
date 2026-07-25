@@ -11,6 +11,7 @@ const {
   createClaudeCodeRuntimeAdapter,
 } = require("../src/adapters/runtime/claudecode");
 const { ProcessRegistry } = require("../src/adapters/runtime/claudecode/process-registry");
+const { ClaudeCodeProcessClient } = require("../src/adapters/runtime/claudecode/process-client");
 const { buildTelegramRouteLane } = require("../src/core/route-lane");
 const { validateLaunchProfile } = require("../src/adapters/runtime/claudecode/launch-profile");
 
@@ -154,11 +155,58 @@ test("a failed launch leaves no registry entry, no turn and no approval behind",
   }
 });
 
+/**
+ * Polls until no turn slot or workspace lock is held, then returns the routing
+ * snapshot. A fixed sleep would re-introduce exactly the kind of timing
+ * assumption this suite is being hardened against.
+ */
+async function waitUntilSettled(adapter, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const routing = adapter.describeRouting();
+    const idle = routing.activeTurns === 0
+      && routing.workspaceLocks.writers === 0
+      && routing.workspaceLocks.waiting === 0;
+    if (idle || Date.now() >= deadline) {
+      return routing;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+/**
+ * Counts every write the runtime issues for one turn, across relaunches.
+ *
+ * Patching the prototype rather than one client is what makes the count
+ * trustworthy: a replay would run on a *new* client, which an instance-level
+ * spy would silently miss.
+ */
+function countWritesFor(needle) {
+  const original = ClaudeCodeProcessClient.prototype.sendUserMessage;
+  const state = {
+    writes: 0,
+    restore() { ClaudeCodeProcessClient.prototype.sendUserMessage = original; },
+  };
+  ClaudeCodeProcessClient.prototype.sendUserMessage = function patched(payload) {
+    if (String(payload?.text || "").includes(needle)) {
+      state.writes += 1;
+    }
+    return original.call(this, payload);
+  };
+  return state;
+}
+
 test("an indeterminate write is reported as a failure and never replayed", async () => {
   // The child exits after its first turn, so the second write races a dead
-  // pipe. Whatever the outcome, the same turn must not be executed twice.
-  const { adapter, workspaceRoot, readExec } = makeAdapter({ keepAlive: false });
+  // pipe. Which side wins is platform-dependent: posix reports EPIPE, win32 can
+  // accept the bytes into a pipe nobody will ever read again, and either can
+  // lose to the relaunch that happens when 'exit' lands before the write. So
+  // the outcome is deliberately NOT pinned -- 0 executions (nothing read it)
+  // and 1 execution (the relaunched child read it) are both correct. What must
+  // hold on every platform is that the turn is written once and never replayed.
+  const { adapter, workspaceRoot, readExec, readLaunches } = makeAdapter({ keepAlive: false });
   const lane = laneFor(500, 6);
+  const spy = countWritesFor("second");
   try {
     await turn(adapter, workspaceRoot, lane, null, "first");
 
@@ -174,12 +222,67 @@ test("an indeterminate write is reported as a failure and never replayed", async
     }
 
     await new Promise((resolve) => setTimeout(resolve, 60));
-    const executions = readExec().filter((entry) => entry.line.includes("second"));
-    assert.ok(executions.length <= 1, `"second" must not be executed twice (saw ${executions.length})`);
-    if (!secondFailed) {
-      assert.equal(executions.length, 1, "a turn reported as succeeded ran exactly once");
-    }
+    const countExecutions = () => readExec().filter((entry) => entry.line.includes("second")).length;
+    const executions = countExecutions();
+    assert.ok(executions <= 1, `"second" must not be executed twice (saw ${executions})`);
+    assert.equal(spy.writes, 1, "the turn was written exactly once, whatever the write reported");
+    assert.ok(readLaunches().length <= 2, "at most one relaunch, and only before the write");
+
+    // Nothing arrives late either: a replay would show up as a second write, a
+    // further launch or another execution after the call already returned.
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    assert.equal(spy.writes, 1, "no replay after the turn settled");
+    assert.equal(countExecutions(), executions, "the execution count is stable once the turn settled");
+
+    const routing = await waitUntilSettled(adapter);
+    assert.equal(routing.activeTurns, 0, `the turn slot was released (failed=${secondFailed})`);
+    assert.equal(routing.workspaceLocks.writers, 0);
+    assert.equal(routing.workspaceLocks.waiting, 0);
   } finally {
+    spy.restore();
+    await adapter.close();
+  }
+});
+
+test("a write that fails after the attempt began is indeterminate, not retried", async () => {
+  // The deterministic counterpart to the race above. Destroying stdin makes the
+  // write fail on every platform, and pinning `usable` reproduces the window
+  // win32 opens -- 'exit' landing after the pre-write drain -- so the runtime
+  // cannot take the safe relaunch branch. The turn must then surface as an
+  // indeterminate failure with no second write, no relaunch and no execution.
+  const { adapter, workspaceRoot, readExec, readLaunches } = makeAdapter({ keepAlive: true });
+  const lane = laneFor(500, 61);
+  const spy = countWritesFor("second");
+  try {
+    await turn(adapter, workspaceRoot, lane, null, "first");
+
+    const entries = adapter.__internals.processRegistry.listEntries();
+    assert.equal(entries.length, 1, "one live process for this lane");
+    entries[0].client.stdin.destroy();
+    Object.defineProperty(entries[0].client, "usable", { get: () => true, configurable: true });
+    const launchesBefore = readLaunches().length;
+
+    await assert.rejects(
+      () => turn(adapter, workspaceRoot, lane, null, "second"),
+      (error) => {
+        assert.ok(error instanceof IndeterminateTurnWriteError, `unexpected error: ${error.message}`);
+        assert.equal(error.code, "indeterminate_turn_write");
+        assert.equal(error.indeterminate, true);
+        return true;
+      },
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.equal(spy.writes, 1, "exactly one write was attempted; the turn was not retried");
+    assert.equal(readLaunches().length, launchesBefore, "no process was launched after the write began");
+    assert.equal(readExec().filter((entry) => entry.line.includes("second")).length, 0, "nothing reached a child");
+
+    const routing = await waitUntilSettled(adapter);
+    assert.equal(routing.activeTurns, 0, "the turn slot was released");
+    assert.equal(routing.workspaceLocks.writers, 0);
+    assert.equal(routing.workspaceLocks.waiting, 0);
+  } finally {
+    spy.restore();
     await adapter.close();
   }
 });
