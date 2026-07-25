@@ -90,13 +90,17 @@ function runLauncher(descriptorFile) {
 // so Get-CimInstance-based detection can be exercised against a genuine
 // process without ever actually invoking cyberboss.js.
 function spawnFakePoller(entryPath, extraArgs = []) {
+  const fakeScript = path.join(os.tmpdir(), "cyberboss-stable-launcher-idle.ps1");
+  if (!fs.existsSync(fakeScript)) {
+    fs.writeFileSync(fakeScript, "param($entry,$mode,$flag)\nStart-Sleep -Seconds 30\n", "utf8");
+  }
   const args = [
     "-NoProfile",
     "-NonInteractive",
     "-WindowStyle",
     "Hidden",
-    "-Command",
-    "param($entry,$mode,$flag) Start-Sleep -Seconds 30",
+    "-File",
+    fakeScript,
     entryPath,
     "start",
     ...extraArgs,

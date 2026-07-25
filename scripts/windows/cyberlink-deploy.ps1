@@ -39,5 +39,6 @@ if ($legacyTheater -and (Test-Path -LiteralPath $legacyTheater -PathType Contain
 }
 
 Write-TelegramDescriptor -Manifest $manifest | Out-Null
+& (Join-Path $PSScriptRoot 'runtime-startup\install-telegram-watchdog.ps1') -SourceRoot $repoRoot -CyberlinkRoot (Split-Path -Parent $repoRoot)
 Write-Output "Deployed code to runtime apps and web."
 

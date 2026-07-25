@@ -118,11 +118,12 @@ function Start-Dashboard([string]$Path) {
 
 function Start-Memory([string]$Path) {
   $descriptor = Read-Descriptor $Path
-  $releaseRoot = Resolve-ReleaseRoot $descriptor
   $ownerDir = [string]$descriptor.watchdog_owner_dir
-  $watchdog = if ($ownerDir) { Join-Path $ownerDir 'watchdog.py' } else { Join-Path $releaseRoot 'extensions\relationship-memory\launcher\watchdog.py' }
+  $descriptorRoot = Split-Path -Parent (Split-Path -Parent $Path)
+  $watchdogRoot = if ($ownerDir) { $ownerDir } else { Join-Path $descriptorRoot 'runtime\startup' }
+  $watchdog = Join-Path $watchdogRoot 'telegram-watchdog.py'
   if (-not (Test-Path -LiteralPath $watchdog -PathType Leaf)) { throw "Watchdog missing: $watchdog" }
-  $pidFile = Join-Path (Split-Path -Parent $watchdog) 'watchdog.pid'
+  $pidFile = if ($ownerDir) { Join-Path $ownerDir 'watchdog.pid' } else { Join-Path (Split-Path -Parent $watchdog) 'watchdog.pid' }
   if (Test-VerifiedProcess $pidFile $watchdog) { return }
   $python = Resolve-PythonWindowless
   Start-Process -FilePath $python -ArgumentList @($watchdog, '--descriptor', $Path) -WorkingDirectory (Split-Path -Parent $watchdog) -WindowStyle Hidden

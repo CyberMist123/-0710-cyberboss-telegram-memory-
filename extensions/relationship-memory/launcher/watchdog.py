@@ -15,18 +15,22 @@ DEFAULT_DESCRIPTOR = next(
      if (parent / "deployment" / "current.json").exists()),
     Path.cwd() / "deployment" / "current.json",
 )
-LOG_FILE = HERE / "watchdog.log"
-PID_FILE = HERE / "watchdog.pid"
 REQUIRED = (
     "active_release_id", "telegram_entry", "config_dir", "state_dir", "log_dir",
     "pid_file", "watchdog_target", "rollback_release", "last_verified_sha",
 )
 
 
-def log(message: str) -> None:
+def owner_paths(descriptor: dict) -> tuple[Path, Path]:
+    owner_dir = Path(descriptor.get("watchdog_owner_dir") or HERE).resolve()
+    return owner_dir / "watchdog.log", owner_dir / "watchdog.pid"
+
+
+def log(message: str, log_file: Path) -> None:
     line = f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {message}\n"
     try:
-        with LOG_FILE.open("a", encoding="utf-8") as handle:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with log_file.open("a", encoding="utf-8") as handle:
             handle.write(line)
     except OSError:
         pass
@@ -122,26 +126,27 @@ def launch_active_release(descriptor: dict) -> None:
         cwd=str(target.parent), env=environment,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
-    log(f"launched active release {descriptor['active_release_id']} via {target}")
+    log(f"launched active release {descriptor['active_release_id']} via {target}", log_file)
 
 
-def verify_watchdog_owner() -> None:
-    existing = read_pid(PID_FILE)
+def verify_watchdog_owner(pid_file: Path) -> None:
+    existing = read_pid(pid_file)
     if existing and existing != os.getpid():
         row = process_row(existing)
         command = str((row or {}).get("CommandLine") or "").lower()
         if row and "watchdog.py" in command:
             raise RuntimeError(f"watchdog already running with verified pid {existing}")
-    PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    pid_file.write_text(str(os.getpid()), encoding="utf-8")
 
 
-def check_once(descriptor_path: Path) -> bool:
+def check_once(descriptor_path: Path, log_file: Path) -> bool:
     descriptor = load_descriptor(descriptor_path)
     alive, evidence = active_release_alive(descriptor)
     if alive:
-        log(f"healthy active release {descriptor['active_release_id']}: {evidence}")
+        log(f"healthy active release {descriptor['active_release_id']}: {evidence}", log_file)
         return True
-    log(f"active release {descriptor['active_release_id']} unavailable: {evidence}")
+    log(f"active release {descriptor['active_release_id']} unavailable: {evidence}", log_file)
     launch_active_release(descriptor)
     return False
 
@@ -152,22 +157,25 @@ def main() -> int:
     parser.add_argument("--interval", type=float, default=60.0)
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
-    verify_watchdog_owner()
+    descriptor_path = args.descriptor.resolve()
+    descriptor = load_descriptor(descriptor_path)
+    log_file, pid_file = owner_paths(descriptor)
+    verify_watchdog_owner(pid_file)
     try:
         while True:
             try:
-                check_once(args.descriptor.resolve())
+                check_once(descriptor_path, log_file)
             except Exception as error:
-                log(f"check failed: {error}")
+                log(f"check failed: {error}", log_file)
                 if args.once:
                     raise
             if args.once:
                 return 0
             time.sleep(max(1.0, args.interval))
     finally:
-        if read_pid(PID_FILE) == os.getpid():
+        if read_pid(pid_file) == os.getpid():
             try:
-                PID_FILE.unlink()
+                pid_file.unlink()
             except OSError:
                 pass
 

@@ -210,6 +210,7 @@ test("rollback activation preflight refuses to replace the current descriptor wh
 function manifestForWriter(root, descriptorPath) {
   const value = descriptor(root);
   materializeDescriptor(value);
+  fs.mkdirSync(path.join(root, "watchdog-owner"), { recursive: true });
   return {
     telegram: {
       descriptor_path: descriptorPath,
