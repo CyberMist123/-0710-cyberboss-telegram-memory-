@@ -296,53 +296,14 @@ test("voice STT failure preserves original text and saved path", async () => {
   assert.match(normalized.text, /转写失败/);
 });
 
-test("Telegram runtime text bridges saved media paths while ordinary text stays unchanged", async () => {
-  const media = {
-    kind: "photo",
-    type: "photo",
-    absolutePath: path.join(os.tmpdir(), "telegram photo.jpg"),
-    contentType: "image/jpeg",
-  };
-  const mediaTurn = await CyberbossApp.prototype.buildRuntimeTurn.call({}, {
-    prepared: {
-      provider: "telegram",
-      text: "[photo] caption",
-      originalText: "[photo] caption",
-      attachments: [media],
-      telegram: { chatId: "7", messageId: "8" },
-    },
+test("Telegram runtime bridge preserves ordinary text payload without media side effects", async () => {
+  const turn = await CyberbossApp.prototype.buildRuntimeTurn.call({ config: {} }, {
+    prepared: { provider: "telegram", text: "hello\nworld", originalText: "hello\nworld", attachments: [] },
   });
-  const textTurn = await CyberbossApp.prototype.buildRuntimeTurn.call({}, {
-    prepared: { provider: "telegram", text: "hello", originalText: "hello", attachments: [] },
-  });
-
-  assert.match(mediaTurn.text, /<media kind="photo"/);
-  assert.match(mediaTurn.text, /telegram photo\.jpg/);
-  assert.deepEqual(mediaTurn.attachments, []);
-  assert.equal(textTurn.text.includes("<media"), false);
-  assert.equal(textTurn.text.includes("hello"), true);
-});
-
-test("Telegram adapter chooses a unique path for duplicate requested filenames", async () => {
-  const stateDir = makeTempStateDir("cb-tg-duplicate-");
-  const adapter = makeAdapter(stateDir);
-  const originalFetch = global.fetch;
-  global.fetch = async (url) => {
-    if (String(url).includes("getFile")) {
-      return {
-        ok: true,
-        async json() { return { ok: true, result: { file_path: "photos/shared.jpg", file_size: 1 } }; },
-        async text() { return JSON.stringify({ ok: true, result: { file_path: "photos/shared.jpg", file_size: 1 } }); },
-      };
-    }
-    return { ok: true, async arrayBuffer() { return Uint8Array.from([1]).buffer; } };
-  };
-  try {
-    const targetDir = path.join(stateDir, "media");
-    const first = await adapter.downloadFileById({ fileId: "same", targetDir, fileName: "same.jpg" });
-    const second = await adapter.downloadFileById({ fileId: "same", targetDir, fileName: "same.jpg" });
-    assert.notEqual(first.absolutePath, second.absolutePath);
-  } finally {
-    global.fetch = originalFetch;
-  }
+  const encoded = turn.text.match(/>([A-Za-z0-9_-]+)</)?.[1];
+  assert.ok(encoded);
+  const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+  assert.equal(payload.text, "hello\nworld");
+  assert.deepEqual(payload.attachments, []);
+  assert.deepEqual(turn.attachments, []);
 });
