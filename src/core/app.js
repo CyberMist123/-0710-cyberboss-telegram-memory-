@@ -2952,6 +2952,7 @@ function formatTelegramRuntimeText(prepared) {
   const username = normalizeText(prepared?.telegram?.username);
   const sentAt = normalizeText(prepared?.receivedAt);
   const body = String(prepared?.originalText || prepared?.text || "").trim();
+  const mediaLines = buildTelegramMediaBridgeLines(prepared?.attachments);
   const openTag = [
     '<channel source="telegram"',
     chatId ? `chat_id="${escapeXmlAttribute(chatId)}"` : '',
@@ -2963,8 +2964,24 @@ function formatTelegramRuntimeText(prepared) {
   return [
     openTag,
     body,
+    ...mediaLines,
     '</channel>',
   ].join('\n');
+}
+
+function buildTelegramMediaBridgeLines(attachments) {
+  if (!Array.isArray(attachments)) {
+    return [];
+  }
+  return attachments
+    .filter((attachment) => normalizeText(attachment?.absolutePath))
+    .map((attachment) => {
+      const kind = normalizeText(attachment.kind || attachment.type) || "file";
+      const type = normalizeText(attachment.type || attachment.kind) || kind;
+      const contentType = normalizeText(attachment.contentType);
+      const absolutePath = normalizeText(attachment.absolutePath);
+      return `<media kind="${escapeXmlAttribute(kind)}" type="${escapeXmlAttribute(type)}"${contentType ? ` content_type="${escapeXmlAttribute(contentType)}"` : ""} path="${escapeXmlAttribute(absolutePath)}" />`;
+    });
 }
 
 function escapeXmlAttribute(value) {

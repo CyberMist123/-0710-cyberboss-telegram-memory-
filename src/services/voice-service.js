@@ -3,6 +3,10 @@
 const path = require("path");
 
 const { ConversationRecorder } = require("./conversation-recorder");
+const {
+  DEFAULT_MAX_INBOUND_MEDIA_BYTES,
+  writeMediaLog,
+} = require("./media-inbox-service");
 
 const VOICE_PLACEHOLDER = "[语音]";
 
@@ -36,7 +40,7 @@ class VoiceService {
    * download the audio into voiceMediaDir/inbox, attach it, transcribe it,
    * and rewrite `normalized.text`. Never throws.
    */
-  async processInboundVoice({ normalized, channelAdapter }) {
+  async processInboundVoice({ normalized, channelAdapter, log = null }) {
     const voice = normalized?.telegram?.voice;
     if (!voice?.fileId || typeof channelAdapter?.downloadFileById !== "function") {
       return;
@@ -45,34 +49,45 @@ class VoiceService {
     if (!mediaDir) {
       return;
     }
+    const maxInboundBytes = normalizePositiveInt(this.config.mediaInboxMaxBytes)
+      || DEFAULT_MAX_INBOUND_MEDIA_BYTES;
+    if (voice.sizeBytes > maxInboundBytes) {
+      normalized.text = `${normalized.text || VOICE_PLACEHOLDER}（超出大小上限，未下载）`;
+      writeMediaLog(log, `voice inbound skipped messageId=${normalized.messageId} sizeBytes=${voice.sizeBytes} limit=${maxInboundBytes}`);
+      return;
+    }
 
     let saved = null;
     try {
       saved = await channelAdapter.downloadFileById({
         fileId: voice.fileId,
         targetDir: path.join(mediaDir, "inbox"),
+        maxSizeBytes: maxInboundBytes,
       });
       if (!Array.isArray(normalized.attachments)) {
         normalized.attachments = [];
       }
       normalized.attachments.push({
         kind: "voice",
+        type: "voice",
         contentType: voice.mimeType || "audio/ogg",
         isImage: false,
         sourceFileName: "",
         fileName: saved.fileName,
         absolutePath: saved.absolutePath,
+        path: saved.absolutePath,
         relativePath: path.relative(mediaDir, saved.absolutePath).replace(/\\/g, "/"),
         sizeBytes: saved.sizeBytes,
         durationSec: voice.durationSec || 0,
       });
-    } catch {
-      normalized.text = `${VOICE_PLACEHOLDER}（下载失败）`;
+    } catch (error) {
+      normalized.text = `${normalized.text || VOICE_PLACEHOLDER}（下载失败）`;
+      writeMediaLog(log, `voice inbound download failed messageId=${normalized.messageId} error=${error instanceof Error ? error.message : String(error)}`);
       return;
     }
 
     if (!this.kit || !this.kit.sttEnabled()) {
-      // Transcription not configured yet: keep placeholder, file is saved.
+      // Transcription not configured yet: keep the original marker/caption.
       return;
     }
     const result = await this.kit.transcribe({
@@ -81,14 +96,14 @@ class VoiceService {
       language: normalizeText(this.config.voiceSttLanguage),
     });
     if (result.ok) {
-      normalized.text = `${VOICE_PLACEHOLDER} ${result.text}`;
+      normalized.text = `${normalizeText(normalized.text) || VOICE_PLACEHOLDER}\n[语音转写: ${result.text}]`;
       normalized.voiceTranscription = {
         provider: result.provider,
         model: result.model,
         elapsedMs: result.elapsedMs,
       };
     } else {
-      normalized.text = `${VOICE_PLACEHOLDER}（转写失败）`;
+      normalized.text = `${normalizeText(normalized.text) || VOICE_PLACEHOLDER}（转写失败）`;
       normalized.voiceTranscription = { error: result.error, provider: result.provider };
     }
   }
@@ -174,6 +189,11 @@ function loadVoiceKit(config) {
 
 function normalizeText(value) {
   return typeof value === "string" ? value.trim() : String(value || "").trim();
+}
+
+function normalizePositiveInt(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
 }
 
 module.exports = { VoiceService };
