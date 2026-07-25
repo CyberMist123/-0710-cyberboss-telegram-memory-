@@ -13,10 +13,17 @@
 
 - 普通聊天不应该每轮背着完整 CC 工程 harness、全部工具定义、工程规则和长任务日志；
 - Chat 仍应保留完整人格、关系连续性、全量记忆访问和现实行动能力；
-- 长工程、复杂 MCP 调用和其他 AI 的施工过程应可隔离到分支 session；
+- 长工程、复杂 MCP 调用和其他 AI 的施工过程应可隔离到分支 session（比如查项目进度/做project/mcp调用/查todo等）；
 - 主 Chat 只接收必要结果与少量备注，避免人格和上下文被工程过程污染；
 - 某些对关系/RP有意义、需要主 Chat 亲自经历的工具过程，仍允许在原 Chat 内完成；
 - 先利用 Claude Code 已有能力（Tool Search、Output Style、后台/分叉 session 等），再决定是否需要二进制级 patch。
+
+任务可能的难点在于：
+- claudecode harness如何替换，如何在chat窗口和工程窗口加载不同的提示词
+- 如何确定哪些是有利chat 窗口人格连续性、行动能力等的harness提示词，哪些需要修改或替换，哪些格式化文本需要删改
+- 工程窗口，怎样省token和保持行动能力和准确性，并及时返回结果给chat窗口
+- 后续如何支持修改调整（比如后续需要加mcp功能）
+- mcp目录，如何暴露必备和可选项，省token和保证行动能力。
 
 本阶段只要求 Fable 判断：这套思路在当前仓库、本机 Claude Code/Codex 版本和 TG runtime 中是否可行，最小落点在哪里，哪些假设错误，怎么分阶段做。
 
@@ -26,7 +33,7 @@
 
 用户希望：
 
-> chat窗口默认加载【全量记忆 / mcp目录 / 转发工程窗口】mcp
+> chat窗口，初始目录【记忆目录+提示词+mcp目录+部分操作指南】，后续按实际需求，选择【转发工程窗口】mcp or 自己走mcp
 >
 > 工程默认加载【轻量记忆 + chat窗口转发 + 指定mcp功能（比如只需要a功能，就不用加载b功能）】
 >
@@ -156,7 +163,7 @@ task.status / branch.resume
 
 ### 4.3 只将结果胶囊返回主 Chat
 
-建议固定 `result capsule`：
+建议固定 `result capsule`或简单输出检索结果（如查天气温度/历史记忆/user心率/todo）：
 
 ```text
 任务 ID / 分支 ID
@@ -169,6 +176,7 @@ task.status / branch.resume
 需要写入主 Chat 的状态变化
 是否值得继续复用该分支
 ```
+
 
 以下内容留在分支，不自动回灌主 Chat：
 
@@ -232,15 +240,15 @@ research/review
 ## 5. 分支轻量记忆包
 
 这是 Route 1 的关键边界。若不固定，很容易再次变成“把主 Chat 全量搬过去”。
+可以考虑固定prompt+chat窗口增加的额外指令，这样省token。
 
 建议固定六部分：
 
 ### A. 身份种子
 
 - worker 是谁；
-- 服务谁；
+- mcp/任务对象；
 - 最低必要 persona/关系信息；
-- 语言与表达偏好。
 
 ### B. 任务相关用户事实
 
@@ -342,20 +350,8 @@ Route 2 默认应保留主 Chat 当前模型，因为过程会成为人格连续
 → Route 1，不在原 Chat 强行换人格模型
 ```
 
-暂不要求跨模型共享同一 Chat thread。模型切换是否会导致 persona 漂移、cache 失效或 session 不兼容，需实测。
+不要求跨模型共享同一 Chat thread。
 
-### 6.4 不新增 `/effort`
-
-用户不需要 `/effort` 命令。
-
-runtime 可以自主选择 reasoning effort，但必须：
-
-- 不继承全局错误的 `max`；
-- 不让普通聊天无理由长期运行高/最大 effort；
-- 工程/复杂分支可以使用更高 effort；
-- 选择逻辑应可观测和测试，但不必做成 TG 用户命令。
-
-可参考 complexity router 思路，但不要先依赖第三方 patch 才能工作。
 
 ---
 
@@ -596,7 +592,7 @@ Fable 应验证并反驳不成立部分。
 
 ---
 
-## 12. 外部参考资源
+## 12. 外部参考资源（github）
 
 ### A. `PhoenixHairpin/cc-telegram-bridge` / 原 `cloveric/cc-telegram-bridge`
 
