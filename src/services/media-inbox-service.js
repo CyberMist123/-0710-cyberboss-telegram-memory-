@@ -1,18 +1,17 @@
 "use strict";
 
+const fs = require("fs");
 const path = require("path");
 
-// Telegram Bot API getFile refuses files above 20MB, so this is also the
-// practical ceiling for anything downloadable through the bot token.
-const DEFAULT_MAX_INBOUND_MEDIA_BYTES = 20 * 1024 * 1024;
+const { DEFAULT_MAX_INBOUND_MEDIA_BYTES } = require("./telegram-media-descriptor");
 
-/**
- * Persist inbound Telegram photos under `<stateDir>/media/photos/inbox` and
- * record saved-file metadata on `normalized.attachments`.
- *
- * Never throws: download failures are logged and must not break the poller
- * loop. Oversized files are skipped before download.
- */
+const MEDIA_DIRS = Object.freeze({
+  voice: "voice",
+  audio: "audio",
+  photo: "photos",
+  sticker: "stickers",
+});
+
 class MediaInboxService {
   constructor({ config }) {
     this.config = config || {};
@@ -20,88 +19,120 @@ class MediaInboxService {
       || DEFAULT_MAX_INBOUND_MEDIA_BYTES;
   }
 
-  async processInboundPhoto({ normalized, channelAdapter, log = null }) {
-    const photo = normalized?.telegram?.photo;
-    if (!photo?.fileId || typeof channelAdapter?.downloadFileById !== "function") {
+  async processInboundMedia({ normalized, channelAdapter, log = null }) {
+    const descriptors = Array.isArray(normalized?.telegram?.media)
+      ? normalized.telegram.media
+      : legacyDescriptors(normalized);
+    for (const descriptor of descriptors) {
+      await this.processDescriptor({ normalized, descriptor, channelAdapter, log });
+    }
+  }
+
+  async processInboundPhoto(args) {
+    return this.processDescriptor({
+      ...args,
+      descriptor: args?.normalized?.telegram?.photo,
+    });
+  }
+
+  async processDescriptor({ normalized, descriptor, channelAdapter, log = null }) {
+    if (!isSafeDescriptor(descriptor) || typeof channelAdapter?.fetchFileById !== "function") return;
+    if (!Array.isArray(normalized.attachments)) normalized.attachments = [];
+    const attachmentKey = `${normalized.messageId}:${descriptor.kind}:${descriptor.fileId}`;
+    if (normalized.attachments.some((item) => item.sourceRef === attachmentKey)) return;
+    if (descriptor.sizeBytes > this.maxInboundBytes) {
+      writeMediaLog(log, `${descriptor.kind} inbound skipped messageId=${normalized.messageId} limit=${this.maxInboundBytes}`);
       return;
     }
-    const mediaDir = normalizeText(this.config.photoMediaDir);
-    if (!mediaDir) {
+    const stateDir = normalizeText(this.config.stateDir);
+    if (!stateDir) {
+      writeMediaLog(log, `${descriptor.kind} inbound skipped messageId=${normalized.messageId} reason=state_dir_missing`);
       return;
     }
-    if (photo.sizeBytes > this.maxInboundBytes) {
-      writeMediaLog(
-        log,
-        `photo inbound skipped messageId=${normalized.messageId} sizeBytes=${photo.sizeBytes} limit=${this.maxInboundBytes}`
-      );
-      return;
-    }
+    let partPath = "";
     try {
-      const saved = await channelAdapter.downloadFileById({
-        fileId: photo.fileId,
-        targetDir: path.join(mediaDir, "inbox"),
-        fileName: buildInboundMediaFileName(normalized),
+      const mediaDir = path.join(stateDir, "media", MEDIA_DIRS[descriptor.kind]);
+      fs.mkdirSync(mediaDir, { recursive: true });
+      const fileName = buildSafeFileName(normalized, descriptor);
+      const finalPath = resolveUniqueTargetPath(mediaDir, fileName);
+      partPath = `${finalPath}.part`;
+      const fetched = await channelAdapter.fetchFileById({
+        fileId: descriptor.fileId,
         maxSizeBytes: this.maxInboundBytes,
       });
-      if (!Array.isArray(normalized.attachments)) {
-        normalized.attachments = [];
+      if (!fetched?.bytes?.length || fetched.bytes.length > this.maxInboundBytes) {
+        throw new Error("media payload exceeds size limit or is empty");
       }
+      const fd = fs.openSync(partPath, "wx");
+      try {
+        fs.writeFileSync(fd, fetched.bytes);
+        fs.fsyncSync(fd);
+      } finally {
+        fs.closeSync(fd);
+      }
+      fs.renameSync(partPath, finalPath);
+      const relativePath = path.relative(stateDir, finalPath).replace(/\\/g, "/");
       normalized.attachments.push({
-        kind: "photo",
-        type: "photo",
-        contentType: inferImageContentType(saved.fileName),
-        isImage: true,
-        sourceFileName: "",
-        fileName: saved.fileName,
-        absolutePath: saved.absolutePath,
-        path: saved.absolutePath,
-        relativePath: path.relative(mediaDir, saved.absolutePath).replace(/\\/g, "/"),
-        sizeBytes: saved.sizeBytes,
+        kind: descriptor.kind,
+        type: descriptor.kind,
+        contentType: descriptor.contentType,
+        isImage: descriptor.kind === "photo" || (descriptor.kind === "sticker" && descriptor.stickerType === "webp"),
+        fileName: path.basename(finalPath),
+        absolutePath: finalPath,
+        path: finalPath,
+        relativePath,
+        sourceRef: attachmentKey,
+        sourceFileId: descriptor.fileId,
+        sizeBytes: fetched.sizeBytes,
+        durationSec: descriptor.durationSec,
+        width: descriptor.width,
+        height: descriptor.height,
+        stickerType: descriptor.stickerType,
         downloadState: "saved",
-        width: photo.width || 0,
-        height: photo.height || 0,
       });
     } catch (error) {
-      writeMediaLog(
-        log,
-        `photo inbound failed messageId=${normalized.messageId} error=${error instanceof Error ? error.message : String(error)}`
-      );
+      writeMediaLog(log, `${descriptor.kind} inbound failed messageId=${normalized.messageId} error=${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      if (partPath) {
+        try { fs.rmSync(partPath, { force: true }); } catch {}
+      }
     }
   }
 }
 
-function buildInboundMediaFileName(normalized) {
+function legacyDescriptors(normalized) {
+  return [normalized?.telegram?.photo, normalized?.telegram?.voice, normalized?.telegram?.audio, normalized?.telegram?.sticker].filter(Boolean);
+}
+
+function isSafeDescriptor(descriptor) {
+  return Boolean(descriptor && MEDIA_DIRS[descriptor.kind] && normalizeText(descriptor.fileId) && /^\.[a-z0-9]{1,8}$/i.test(descriptor.extension || ""));
+}
+
+function buildSafeFileName(normalized, descriptor) {
   const day = normalizeDay(normalized?.receivedAt);
-  const messageId = normalizeText(normalized?.messageId) || String(Date.now());
-  return `${day}-${messageId}`;
+  const messageId = normalizeText(normalized?.messageId).replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 80) || "message";
+  return `${day}-${messageId}-${descriptor.kind}${descriptor.extension}`;
+}
+
+function resolveUniqueTargetPath(targetDir, fileName) {
+  const parsed = path.parse(fileName);
+  let candidate = path.join(targetDir, `${parsed.name}${parsed.ext}`);
+  let suffix = 1;
+  while (fs.existsSync(candidate) || fs.existsSync(`${candidate}.part`)) {
+    candidate = path.join(targetDir, `${parsed.name}-${suffix}${parsed.ext}`);
+    suffix += 1;
+  }
+  return candidate;
 }
 
 function normalizeDay(receivedAt) {
   const date = receivedAt ? new Date(receivedAt) : new Date();
-  if (Number.isNaN(date.getTime())) {
-    return new Date().toISOString().slice(0, 10);
-  }
-  return date.toISOString().slice(0, 10);
-}
-
-function inferImageContentType(fileName) {
-  const extension = path.extname(normalizeText(fileName)).toLowerCase();
-  if (extension === ".png") {
-    return "image/png";
-  }
-  if (extension === ".webp") {
-    return "image/webp";
-  }
-  return "image/jpeg";
+  return Number.isNaN(date.getTime()) ? new Date().toISOString().slice(0, 10) : date.toISOString().slice(0, 10);
 }
 
 function writeMediaLog(log, message) {
-  if (typeof log !== "function") {
-    return;
-  }
-  try {
-    log(message);
-  } catch {}
+  if (typeof log !== "function") return;
+  try { log(message); } catch {}
 }
 
 function normalizePositiveInt(value) {
@@ -114,7 +145,7 @@ function normalizeText(value) {
 }
 
 module.exports = {
-  MediaInboxService,
   DEFAULT_MAX_INBOUND_MEDIA_BYTES,
+  MediaInboxService,
   writeMediaLog,
 };

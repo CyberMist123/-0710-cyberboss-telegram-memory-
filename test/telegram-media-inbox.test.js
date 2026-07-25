@@ -78,59 +78,56 @@ test("telegram adapter keeps voice caption in text", () => {
 
 test("media inbox service saves photo metadata without rewriting message text", async () => {
   const stateDir = makeTempStateDir("cb-media-photo-");
-  const photoMediaDir = path.join(stateDir, "media", "photos");
-  const service = new MediaInboxService({ config: { photoMediaDir } });
+  const service = new MediaInboxService({ config: { stateDir } });
   const normalized = {
     messageId: "42",
     receivedAt: "2026-07-22T02:00:00.000Z",
     text: "[图片] look at this",
     attachments: [],
-    telegram: { photo: { fileId: "photo-large", width: 900, height: 600, sizeBytes: 50_000 } },
+    telegram: { photo: { kind: "photo", type: "photo", fileId: "photo-large", width: 900, height: 600, sizeBytes: 50_000, extension: ".jpg", contentType: "image/jpeg" } },
   };
   const calls = [];
 
   await service.processInboundPhoto({
     normalized,
     channelAdapter: {
-      async downloadFileById({ fileId, targetDir, fileName, maxSizeBytes }) {
-        calls.push({ fileId, targetDir, fileName, maxSizeBytes });
-        return { absolutePath: path.join(targetDir, `${fileName}.jpg`), fileName: `${fileName}.jpg`, sizeBytes: 50_000 };
+      async fetchFileById({ fileId, maxSizeBytes }) {
+        calls.push({ fileId, maxSizeBytes });
+        return { bytes: Buffer.from("photo"), remotePath: "photo.jpg", fileName: "photo.jpg", sizeBytes: 5 };
       },
     },
   });
 
-  const expectedPath = path.join(photoMediaDir, "inbox", "2026-07-22-42.jpg");
+  const expectedDir = path.join(stateDir, "media", "photos");
   assert.equal(calls.length, 1);
   assert.equal(calls[0].fileId, "photo-large");
-  assert.equal(calls[0].targetDir, path.join(photoMediaDir, "inbox"));
-  assert.equal(calls[0].fileName, "2026-07-22-42");
   assert.equal(calls[0].maxSizeBytes, DEFAULT_MAX_INBOUND_MEDIA_BYTES);
   assert.equal(normalized.text, "[图片] look at this");
   assert.equal(normalized.attachments.length, 1);
   assert.equal(normalized.attachments[0].kind, "photo");
   assert.equal(normalized.attachments[0].type, "photo");
   assert.equal(normalized.attachments[0].isImage, true);
-  assert.equal(normalized.attachments[0].absolutePath, expectedPath);
-  assert.equal(normalized.attachments[0].path, expectedPath);
+  assert.equal(normalized.attachments[0].absolutePath.startsWith(expectedDir), true);
+  assert.equal(normalized.attachments[0].path, normalized.attachments[0].absolutePath);
   assert.equal(normalized.attachments[0].contentType, "image/jpeg");
   assert.equal(normalized.attachments[0].downloadState, "saved");
 });
 
 test("media inbox service logs failures without mutating message text", async () => {
-  const service = new MediaInboxService({ config: { photoMediaDir: path.join(os.tmpdir(), "cb-media-photos") } });
+  const service = new MediaInboxService({ config: { stateDir: makeTempStateDir("cb-media-photo-fail-") } });
   const normalized = {
     messageId: "42",
     receivedAt: "2026-07-22T02:00:00.000Z",
     text: "[图片] look at this",
     attachments: [],
-    telegram: { photo: { fileId: "photo-large", width: 900, height: 600, sizeBytes: 50_000 } },
+    telegram: { photo: { kind: "photo", type: "photo", fileId: "photo-large", width: 900, height: 600, sizeBytes: 50_000, extension: ".jpg", contentType: "image/jpeg" } },
   };
   const logs = [];
 
   await service.processInboundPhoto({
     normalized,
     channelAdapter: {
-      async downloadFileById() {
+      async fetchFileById() {
         throw new Error("boom");
       },
     },
@@ -144,7 +141,7 @@ test("media inbox service logs failures without mutating message text", async ()
 });
 
 test("media inbox service skips oversized photos without downloading", async () => {
-  const service = new MediaInboxService({ config: { photoMediaDir: path.join(os.tmpdir(), "cb-media-photos") } });
+  const service = new MediaInboxService({ config: { stateDir: makeTempStateDir("cb-media-photo-large-") } });
   const normalized = {
     messageId: "42",
     receivedAt: "2026-07-22T02:00:00.000Z",
@@ -152,10 +149,14 @@ test("media inbox service skips oversized photos without downloading", async () 
     attachments: [],
     telegram: {
       photo: {
+        kind: "photo",
+        type: "photo",
         fileId: "photo-large",
         width: 900,
         height: 600,
         sizeBytes: DEFAULT_MAX_INBOUND_MEDIA_BYTES + 1,
+        extension: ".jpg",
+        contentType: "image/jpeg",
       },
     },
   };
@@ -165,7 +166,7 @@ test("media inbox service skips oversized photos without downloading", async () 
   await service.processInboundPhoto({
     normalized,
     channelAdapter: {
-      async downloadFileById() {
+      async fetchFileById() {
         downloadCalls += 1;
         return { absolutePath: path.join(os.tmpdir(), "cb-media-photos", "inbox", "x.jpg"), fileName: "x.jpg", sizeBytes: 1 };
       },
@@ -200,65 +201,68 @@ function makeVoiceNormalized({ text = "[voice] caption" } = {}) {
 function makeVoiceService({ maxBytes = 0 } = {}) {
   return new VoiceService({
     config: {
-      voiceMediaDir: fs.mkdtempSync(path.join(os.tmpdir(), "cb-media-voice-")),
-      mediaInboxMaxBytes: maxBytes,
+      stateDir: fs.mkdtempSync(path.join(os.tmpdir(), "cb-media-voice-")),
+      mediaInboxMaxBytes: maxBytes || DEFAULT_MAX_INBOUND_MEDIA_BYTES,
     },
   });
 }
 
-test("voice service saves a stable path metadata record and passes the size limit", async () => {
-  const service = makeVoiceService({ maxBytes: 10_000 });
+function makeSavedVoiceAttachment() {
+  return {
+    kind: "voice",
+    type: "voice",
+    absolutePath: path.join(os.tmpdir(), "voice-42.oga"),
+    path: path.join(os.tmpdir(), "voice-42.oga"),
+  };
+}
+
+test("voice service preserves saved metadata and appends no path to the text", async () => {
+  const service = makeVoiceService();
   const normalized = makeVoiceNormalized();
-  const calls = [];
+  normalized.attachments = [makeSavedVoiceAttachment()];
 
-  await service.processInboundVoice({
-    normalized,
-    channelAdapter: {
-      async downloadFileById(args) {
-        calls.push(args);
-        return { absolutePath: path.join(args.targetDir, "voice-42.oga"), fileName: "voice-42.oga", sizeBytes: 4_000 };
-      },
-    },
-  });
+  await service.processInboundVoice({ normalized });
 
-  assert.equal(calls[0].maxSizeBytes, 10_000);
   assert.equal(normalized.attachments[0].type, "voice");
   assert.equal(normalized.attachments[0].path, normalized.attachments[0].absolutePath);
   assert.equal(normalized.text, "[voice] caption");
 });
 
-test("voice service rejects oversized media before download and logs it", async () => {
-  const service = makeVoiceService({ maxBytes: 3_000 });
+test("MediaInboxService rejects oversized voice before download", async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "cb-media-voice-large-"));
+  const media = { kind: "voice", type: "voice", fileId: "voice-file", extension: ".oga", contentType: "audio/ogg", sizeBytes: DEFAULT_MAX_INBOUND_MEDIA_BYTES + 1 };
+  const service = new MediaInboxService({ config: { stateDir } });
   const normalized = makeVoiceNormalized();
+  normalized.telegram.media = [media];
   const logs = [];
   let calls = 0;
 
-  await service.processInboundVoice({
+  await service.processInboundMedia({
     normalized,
-    channelAdapter: { async downloadFileById() { calls += 1; } },
+    channelAdapter: { async fetchFileById() { calls += 1; } },
     log: (message) => logs.push(message),
   });
 
   assert.equal(calls, 0);
   assert.deepEqual(normalized.attachments, []);
-  assert.match(normalized.text, /未下载/);
   assert.match(logs[0], /voice inbound skipped/);
 });
 
-test("voice service logs download failure without losing caption", async () => {
-  const service = makeVoiceService();
+test("MediaInboxService logs voice download failure without losing caption", async () => {
+  const service = new MediaInboxService({ config: { stateDir: fs.mkdtempSync(path.join(os.tmpdir(), "cb-media-voice-fail-")) } });
   const normalized = makeVoiceNormalized();
+  normalized.telegram.media = [{ kind: "voice", type: "voice", fileId: "voice-file", extension: ".oga", contentType: "audio/ogg", sizeBytes: 1 }];
   const logs = [];
 
-  await service.processInboundVoice({
+  await service.processInboundMedia({
     normalized,
-    channelAdapter: { async downloadFileById() { throw new Error("download boom"); } },
+    channelAdapter: { async fetchFileById() { throw new Error("download boom"); } },
     log: (message) => logs.push(message),
   });
 
   assert.match(normalized.text, /caption/);
-  assert.match(normalized.text, /下载失败/);
-  assert.match(logs[0], /voice inbound download failed .*download boom/);
+  assert.deepEqual(normalized.attachments, []);
+  assert.match(logs[0], /voice inbound failed .*download boom/);
 });
 
 test("voice STT success appends to the original text", async () => {
@@ -268,11 +272,9 @@ test("voice STT success appends to the original text", async () => {
     async transcribe() { return { ok: true, text: "spoken words", provider: "test", model: "test", elapsedMs: 1 }; },
   };
   const normalized = makeVoiceNormalized({ text: "[voice] keep this caption" });
+  normalized.attachments = [makeSavedVoiceAttachment()];
 
-  await service.processInboundVoice({
-    normalized,
-    channelAdapter: { async downloadFileById(args) { return { absolutePath: path.join(args.targetDir, "voice.oga"), fileName: "voice.oga", sizeBytes: 1 }; } },
-  });
+  await service.processInboundVoice({ normalized });
 
   assert.match(normalized.text, /keep this caption/);
   assert.match(normalized.text, /spoken words/);
@@ -285,14 +287,12 @@ test("voice STT failure preserves original text and saved path", async () => {
     async transcribe() { return { ok: false, error: "stt boom", provider: "test" }; },
   };
   const normalized = makeVoiceNormalized({ text: "[voice] keep this caption" });
+  normalized.attachments = [makeSavedVoiceAttachment()];
 
-  await service.processInboundVoice({
-    normalized,
-    channelAdapter: { async downloadFileById(args) { return { absolutePath: path.join(args.targetDir, "voice.oga"), fileName: "voice.oga", sizeBytes: 1 }; } },
-  });
+  await service.processInboundVoice({ normalized });
 
   assert.match(normalized.text, /keep this caption/);
-  assert.equal(normalized.attachments[0].absolutePath.endsWith("voice.oga"), true);
+  assert.equal(normalized.attachments[0].absolutePath.endsWith("voice-42.oga"), true);
   assert.match(normalized.text, /转写失败/);
 });
 

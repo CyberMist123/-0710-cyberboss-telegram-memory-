@@ -15,6 +15,10 @@ const {
   chunkReplyTextForWeixin,
   normalizeWeixinReplyText,
 } = require("./weixin/index");
+const {
+  buildTelegramMediaDescriptors,
+  pickLargestTelegramPhoto: pickLargestTelegramPhotoDescriptor,
+} = require("../../services/telegram-media-descriptor");
 
 try {
   if (typeof dns.setDefaultResultOrder === "function") {
@@ -41,6 +45,7 @@ function createTelegramChannelAdapter(config) {
 
   return {
     describe() {
+      const media = buildTelegramMediaDescriptors(message);
       return {
         id: "telegram",
         kind: "channel",
@@ -115,6 +120,7 @@ function createTelegramChannelAdapter(config) {
       }
       state.seenMessageKeys.add(dedupeKey);
       saveTelegramState(config, state);
+      const media = buildTelegramMediaDescriptors(message);
       const text = buildIncomingText(message);
       if (!text) {
         return null;
@@ -139,27 +145,18 @@ function createTelegramChannelAdapter(config) {
           firstName: normalizeText(message.from?.first_name),
           lastName: normalizeText(message.from?.last_name),
           caption: normalizeText(message.caption),
-          voice: message.voice
-            ? {
-                fileId: normalizeText(message.voice.file_id),
-                durationSec: Number(message.voice.duration) || 0,
-                mimeType: normalizeText(message.voice.mime_type) || "audio/ogg",
-                sizeBytes: Number(message.voice.file_size) || 0,
-              }
-            : null,
-          photo: pickLargestTelegramPhoto(message.photo),
+          media,
+          voice: media.find((item) => item.kind === "voice") || null,
+          audio: media.find((item) => item.kind === "audio") || null,
+          photo: media.find((item) => item.kind === "photo") || null,
+          sticker: media.find((item) => item.kind === "sticker") || null,
         },
       };
     },
-    async downloadFileById({ fileId, targetDir, fileName = "", maxSizeBytes = 0 }) {
-      if (!token) {
-        throw new Error("telegram bot token missing");
-      }
+    async fetchFileById({ fileId, maxSizeBytes = 0 }) {
+      if (!token) throw new Error("telegram bot token missing");
       const normalizedFileId = normalizeText(fileId);
-      const normalizedTargetDir = normalizeText(targetDir);
-      if (!normalizedFileId || !normalizedTargetDir) {
-        throw new Error("telegram downloadFileById requires fileId and targetDir");
-      }
+      if (!normalizedFileId) throw new Error("telegram fetchFileById requires fileId");
       const sizeLimitBytes = Number(maxSizeBytes) > 0 ? Number(maxSizeBytes) : 0;
       const meta = await fetchJsonWithRetry(`https://api.telegram.org/bot${token}/getFile`, {
         method: "POST",
@@ -167,9 +164,7 @@ function createTelegramChannelAdapter(config) {
         body: JSON.stringify({ file_id: normalizedFileId }),
       }, TELEGRAM_REQUEST_TIMEOUT_MS);
       const remotePath = normalizeText(meta?.result?.file_path);
-      if (!remotePath) {
-        throw new Error("telegram getFile returned no file_path");
-      }
+      if (!remotePath) throw new Error("telegram getFile returned no file_path");
       const declaredSizeBytes = Number(meta?.result?.file_size) || 0;
       if (sizeLimitBytes && declaredSizeBytes > sizeLimitBytes) {
         throw new Error(`telegram file exceeds size limit: ${declaredSizeBytes} > ${sizeLimitBytes} bytes`);
@@ -177,26 +172,33 @@ function createTelegramChannelAdapter(config) {
       const response = await fetch(`https://api.telegram.org/file/bot${token}/${remotePath}`, {
         signal: AbortSignal.timeout(TELEGRAM_REQUEST_TIMEOUT_MS * 2),
       });
-      if (!response.ok) {
-        throw new Error(`telegram file download failed: ${response.status}`);
+      if (!response.ok) throw new Error(`telegram file download failed: ${response.status}`);
+      const bytes = await readResponseBytesBounded(response, sizeLimitBytes);
+      if (!bytes.length) throw new Error("telegram file download returned empty body");
+      return {
+        bytes,
+        remotePath,
+        fileName: path.basename(remotePath),
+        sizeBytes: bytes.length,
+      };
+    },
+    async downloadFileById({ fileId, targetDir, fileName = "", maxSizeBytes = 0 }) {
+      const fetched = await this.fetchFileById({ fileId, maxSizeBytes });
+      const normalizedFileId = normalizeText(fileId);
+      const normalizedTargetDir = normalizeText(targetDir);
+      if (!normalizedFileId || !normalizedTargetDir) {
+        throw new Error("telegram downloadFileById requires fileId and targetDir");
       }
-      const bytes = Buffer.from(await response.arrayBuffer());
-      if (!bytes.length) {
-        throw new Error("telegram file download returned empty body");
-      }
-      if (sizeLimitBytes && bytes.length > sizeLimitBytes) {
-        throw new Error(`telegram file exceeds size limit: ${bytes.length} > ${sizeLimitBytes} bytes`);
-      }
-      const extension = path.extname(remotePath) || ".bin";
+      const extension = path.extname(fetched.remotePath) || ".bin";
       const requestedFileName = sanitizeMediaFileName(fileName);
       const desiredFileName = requestedFileName
         ? (path.extname(requestedFileName) ? requestedFileName : `${requestedFileName}${extension}`)
         : `tg-${Date.now()}-${normalizedFileId.slice(-8)}${extension}`;
       fs.mkdirSync(normalizedTargetDir, { recursive: true });
       const absolutePath = resolveUniqueTargetPath(normalizedTargetDir, desiredFileName);
-      fs.writeFileSync(absolutePath, bytes);
-      writeTelegramLog(config, `downloadFileById ok fileId=${normalizedFileId} path=${absolutePath} sizeBytes=${bytes.length}`);
-      return { absolutePath, fileName: path.basename(absolutePath), sizeBytes: bytes.length };
+      fs.writeFileSync(absolutePath, fetched.bytes);
+      writeTelegramLog(config, `downloadFileById ok fileId=${normalizedFileId} sizeBytes=${fetched.sizeBytes}`);
+      return { absolutePath, fileName: path.basename(absolutePath), sizeBytes: fetched.sizeBytes };
     },
     async sendVoice({ userId, filePath }) {
       if (!token) {
@@ -336,32 +338,6 @@ function buildIncomingText(message) {
   return description || caption;
 }
 
-function pickLargestTelegramPhoto(sizes) {
-  if (!Array.isArray(sizes) || !sizes.length) {
-    return null;
-  }
-  let largest = null;
-  for (const size of sizes) {
-    const fileId = normalizeText(size?.file_id);
-    if (!fileId) {
-      continue;
-    }
-    const pixels = (Number(size?.width) || 0) * (Number(size?.height) || 0);
-    if (!largest || pixels > largest.pixels) {
-      largest = { pixels, fileId, size };
-    }
-  }
-  if (!largest) {
-    return null;
-  }
-  return {
-    fileId: largest.fileId,
-    width: Number(largest.size.width) || 0,
-    height: Number(largest.size.height) || 0,
-    sizeBytes: Number(largest.size.file_size) || 0,
-  };
-}
-
 function sanitizeMediaFileName(value) {
   const normalized = normalizeText(value).replace(/[<>:"/\\|?*\u0000-\u001F]/g, "-").replace(/^\.+/, "");
   return normalized.slice(0, 120);
@@ -433,6 +409,33 @@ function saveTelegramState(config, state) {
   };
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
+}
+
+async function readResponseBytesBounded(response, maxSizeBytes) {
+  if (!response.body?.getReader) {
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (maxSizeBytes && bytes.length > maxSizeBytes) throw new Error("telegram file exceeds size limit during download");
+    return bytes;
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = Buffer.from(value);
+      total += chunk.length;
+      if (maxSizeBytes && total > maxSizeBytes) {
+        await reader.cancel();
+        throw new Error("telegram file exceeds size limit during download");
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    reader.releaseLock?.();
+  }
+  return Buffer.concat(chunks, total);
 }
 
 module.exports = { createTelegramChannelAdapter, chunkReplyTextForTelegram };
