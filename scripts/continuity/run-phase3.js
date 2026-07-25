@@ -1,13 +1,12 @@
 #!/usr/bin/env node
-const path = require("path");
 const { loadEnv } = require("../../src/index");
 const { readConfig } = require("../../src/core/config");
 const { validateStartupPreflight } = require("../../src/core/startup-preflight");
 const { createRuntimeAdapter } = require("../../src/core/app");
 const { authorCloseout } = require("../../src/continuity/background-author");
-const { ContinuityPipeline } = require("../../src/continuity/continuity-pipeline");
 const { resolvePhase3Plan } = require("../../src/continuity/nightly-mode");
 const { runReviewCheckpointed } = require("../../src/continuity/review-checkpoint");
+const { createContinuityPipeline } = require("../../src/continuity/closeout-job");
 
 async function main() {
   loadEnv();
@@ -19,7 +18,7 @@ async function main() {
   });
   const config = readConfig();
   validateStartupPreflight(config);
-  const pipeline = createPipeline(config);
+  const pipeline = createContinuityPipeline(config);
   const output = {};
 
   if (plan.nightly) {
@@ -53,32 +52,10 @@ async function main() {
   console.log(JSON.stringify(output, null, 2));
 }
 
-function createPipeline(config) {
-  return new ContinuityPipeline({
-    continuityDir: requireConfig(config.continuityDir, "CYBERBOSS_CONTINUITY_DIR"),
-    conversationDir: requireConfig(config.conversationDir, "CYBERBOSS_STATE_DIR/conversations"),
-    writerLeaseFile: requireConfig(config.writerLeaseFile, "CYBERBOSS_WRITER_LEASE_FILE"),
-    reviewScript: path.resolve(__dirname, "..", "..", "extensions", "relationship-memory", "memory-kit", "auto_review.py"),
-    janitorScript: path.resolve(__dirname, "..", "..", "extensions", "relationship-memory", "memory-kit", "janitor.py"),
-    transcriptDir: config.claudeTranscriptDir,
-    python: process.env.PYTHON || "python",
-    model: config.runtime === "claudecode" ? config.claudeModel || "configured-claude" : config.codexModel || "configured-codex",
-    branch: requireConfig(config.continuityBranch, "CYBERBOSS_CONTINUITY_BRANCH"),
-    worktree: requireConfig(config.continuityWorktree, "CYBERBOSS_CONTINUITY_WORKTREE"),
-    baseSha: requireConfig(config.continuityBaseSha, "CYBERBOSS_CONTINUITY_BASE_SHA"),
-  });
-}
-
 function readFlag(name) {
   const prefix = `${name}=`;
   const item = process.argv.slice(3).find((arg) => String(arg).startsWith(prefix));
   return item ? item.slice(prefix.length) : "";
-}
-
-function requireConfig(value, label) {
-  const text = typeof value === "string" ? value.trim() : "";
-  if (!text) throw new Error(`${label} is required`);
-  return text;
 }
 
 function shanghaiYesterday() {

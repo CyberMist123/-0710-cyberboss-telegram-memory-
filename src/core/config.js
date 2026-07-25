@@ -158,6 +158,22 @@ function readConfig() {
     desirePlanFile: joinIfBase(stateDir, "desire-checkin-plan.json"),
     desireTelemetry: resolveFeatureGate("CYBERBOSS_DESIRE_TELEMETRY"),
     desireTelemetryFile: resolveConfiguredPath(readTextEnv("CYBERBOSS_DESIRE_TELEMETRY_FILE")) || joinIfBase(stateDir, "desire-usage.jsonl"),
+    nightlyCloseoutEnabled: readStrictBoolEnv("CYBERBOSS_NIGHTLY_CLOSEOUT_ENABLED", false),
+    nightlyCloseoutHour: readBoundedIntEnv("CYBERBOSS_NIGHTLY_CLOSEOUT_HOUR", 4, 0, 23),
+    nightlyCloseoutMinute: readBoundedIntEnv("CYBERBOSS_NIGHTLY_CLOSEOUT_MINUTE", 30, 0, 59),
+    automationTimezone: readTimezoneEnv("CYBERBOSS_AUTOMATION_TIMEZONE", "Australia/Sydney"),
+    canonLivenessEnabled: readStrictBoolEnv("CYBERBOSS_CANON_LIVENESS_ENABLED", false),
+    canonLivenessThresholdHours: readBoundedIntEnv("CYBERBOSS_CANON_LIVENESS_THRESHOLD_HOURS", 48, 0, 8_760),
+    recallLivenessEnabled: readStrictBoolEnv("CYBERBOSS_RECALL_LIVENESS_ENABLED", false),
+    recallLivenessThresholdHours: readBoundedIntEnv("CYBERBOSS_RECALL_LIVENESS_THRESHOLD_HOURS", 48, 0, 8_760),
+    livenessStartupGraceMinutes: readBoundedIntEnv("CYBERBOSS_LIVENESS_STARTUP_GRACE_MINUTES", 30, 0, 10_080),
+    livenessAlertCooldownHours: readBoundedIntEnv("CYBERBOSS_LIVENESS_ALERT_COOLDOWN_HOURS", 24, 0, 8_760),
+    livenessRecoveryEnabled: readStrictBoolEnv("CYBERBOSS_LIVENESS_RECOVERY_ENABLED", true),
+    closeoutLivenessStateFile: joinIfBase(continuityDir, ".jobs", "closeout-liveness-state.json"),
+    closeoutRetryStateFile: joinIfBase(continuityDir, ".jobs", "closeout-retry-state.json"),
+    closeoutAutomationLeaseFile: joinIfBase(continuityDir, ".jobs", "closeout-automation.lease"),
+    closeoutLivenessLeaseFile: joinIfBase(continuityDir, ".jobs", "closeout-liveness.lease"),
+    canonEpisodesFile: joinIfBase(continuityDir, "episodes.jsonl"),
     desireThoughtMax: readIntEnv("CYBERBOSS_DESIRE_THOUGHT_MAX")
       || readIntEnv("TWIN_DESIRE_THOUGHT_MAX")
       || 80,
@@ -221,6 +237,37 @@ function readOptionalBoolEnv(name) {
     return false;
   }
   return undefined;
+}
+
+function readStrictBoolEnv(name, fallback) {
+  const value = readTextEnv(name).toLowerCase();
+  if (!value) return fallback;
+  if (["1", "true", "yes", "on"].includes(value)) return true;
+  if (["0", "false", "no", "off"].includes(value)) return false;
+  throw new Error(`${name} must be an explicit boolean (true/false, 1/0, yes/no, or on/off); received: ${value}`);
+}
+
+function readBoundedIntEnv(name, fallback, minimum, maximum) {
+  const value = readTextEnv(name);
+  if (!value) return fallback;
+  if (!/^-?\d+$/.test(value)) {
+    throw new Error(`${name} must be an integer from ${minimum} to ${maximum}; received: ${value}`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new Error(`${name} must be an integer from ${minimum} to ${maximum}; received: ${value}`);
+  }
+  return parsed;
+}
+
+function readTimezoneEnv(name, fallback) {
+  const value = readTextEnv(name) || fallback;
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: value }).format();
+  } catch {
+    throw new Error(`${name} must be a valid IANA timezone; received: ${value}`);
+  }
+  return value;
 }
 
 function readIntEnv(name) {
