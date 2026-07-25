@@ -96,6 +96,40 @@ function validateTarget(value, target, releaseId, options, errors) {
   return { releasePath, paths };
 }
 
+// The watchdog owner directory holds the *operational* state of the sole
+// Telegram watchdog (its own pid/log/state files) — never the descriptor's
+// telegram/watchdog code targets. It must be an external, stable location
+// that outlives any single release: it must not sit inside the active or
+// rollback release directory, so a release delete/replace can never take
+// the watchdog's own bookkeeping down with it. `watchdog_target` (the
+// script the watchdog launches) is unaffected by this rule and may still
+// live inside the active release.
+function validateWatchdogOwnerDir(value, active, rollback, options, errors) {
+  if (!Object.prototype.hasOwnProperty.call(value, "watchdog_owner_dir")) return;
+  const raw = value.watchdog_owner_dir;
+  if (raw === "" || raw === null || raw === undefined) return;
+  if (typeof raw !== "string") {
+    errors.push("watchdog_owner_dir: must be a string");
+    return;
+  }
+  const ownerDir = canonicalAbsolutePath(raw);
+  if (!ownerDir) {
+    errors.push("watchdog_owner_dir: must be an absolute, normalized path");
+    return;
+  }
+  if (active && isWithin(active.releasePath, ownerDir)) {
+    errors.push("watchdog_owner_dir: must be outside active.release_path (external, stable directory)");
+  }
+  if (rollback && isWithin(rollback.releasePath, ownerDir)) {
+    errors.push("watchdog_owner_dir: must be outside rollback.release_path (external, stable directory)");
+  }
+  if (options.requireExistingPaths) {
+    if (!fs.existsSync(ownerDir) || !fs.statSync(ownerDir).isDirectory()) {
+      errors.push("watchdog_owner_dir: does not exist as a directory");
+    }
+  }
+}
+
 function validateReleaseDescriptor(value, options = {}) {
   const errors = [];
   if (!isObject(value)) return { ok: false, errors: ["descriptor must be an object"] };
@@ -140,6 +174,7 @@ function validateReleaseDescriptor(value, options = {}) {
       addPathError(errors, "rollback", "pid_file", "must be outside active.release_path");
     }
   }
+  validateWatchdogOwnerDir(value, active, rollback, options, errors);
   const sensitiveFields = [];
   collectSensitiveFields(value, "", sensitiveFields);
   for (const field of sensitiveFields) errors.push(`sensitive value must not appear in release descriptor: ${field}`);

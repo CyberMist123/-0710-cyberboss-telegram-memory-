@@ -23,6 +23,19 @@ owner. It reads the active release from `current.json`, validates the PID agains
 the full Telegram entry path and command line, and restores only that release.
 WeChat remains independently owned. The dashboard is not a watchdog target.
 
+`watchdog_owner_dir`, when present, is the external, stable directory that
+holds the sole watchdog's own operational bookkeeping (its `watchdog.pid`,
+`watchdog.log`, and any local state) — never the descriptor's telegram/watchdog
+code targets. Validation (`requireExistingPaths`) requires it to be an
+absolute, normalized path that is *outside* both the active and rollback
+`release_path`, so deleting or replacing a release can never take the
+watchdog's own bookkeeping down with it, and re-pointing it never requires an
+immutable-release rebuild. `watchdog_target` (the script the watchdog
+launches to restore the active release) is unaffected by this rule and may
+still live inside the active release. An empty or absent `watchdog_owner_dir`
+is accepted for backward compatibility with descriptors that predate this
+field; once set, it is validated like any other external path field.
+
 Live state files are external and must not be committed:
 
 - `<cyberlink-root>/MEMORY_WRITER_LEASE.json`
