@@ -521,6 +521,10 @@ CYBERBOSS_MUSIC_MCP_NAME=netease_music_mcp
 
 如果你想要更强的“赛博老板”效果，最好先让 agent 在真实对话里自己长出节奏，再回头修正明显不对的部分。过早手工写死行为，通常会让它更像脚本，不像真的在盯你。
 
+## P0 closeout 与 liveness
+
+夜间 closeout、canon liveness 和 recall liveness 默认关闭。启用方式、Australia/Sydney 调度、有效 JSONL 记录判定、cooldown/recovery、Telegram 投递失败隔离和离线验收见 [`docs/CLOSEOUT_LIVENESS.md`](./docs/CLOSEOUT_LIVENESS.md)。
+
 ## License
 
 本项目主要面向个人本地部署场景设计。由于它会长期处理微信消息、线程上下文、提醒、生活轨迹和其他高度私密的个人信息，我不希望它被闭源包装成云服务后，再反向剥夺用户对代码和数据流向的知情权。

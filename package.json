@@ -33,6 +33,8 @@
     "test:phase4:startup": "python extensions/relationship-memory/memory-kit/tests/test_dashboard_startup_entries_blackbox.py",
     "test:phase4": "node --test test/phase4-dashboard.test.js test/desire-history.test.js test/desire-schedule.test.js && python extensions/relationship-memory/memory-kit/tests/test_dashboard_phase4.py && python extensions/relationship-memory/memory-kit/tests/test_desire_schedule.py && python extensions/relationship-memory/memory-kit/tests/test_dashboard_context_manager.py && python extensions/relationship-memory/memory-kit/tests/test_dashboard_continuity_layers.py && npm run test:phase4:blackbox && npm run test:phase4:startup && npm run test:orchestration",
     "test:phase5a": "node --test test/phase5a-memory-lookup.test.js",
+    "check:p0-closeout-liveness": "node --check ./src/app/closeout-liveness.js && node --check ./src/continuity/closeout-job.js",
+    "test:p0-closeout-liveness": "node --test test/closeout-liveness.test.js",
     "continuity:phase3": "node ./scripts/continuity/run-phase3.js"
   },
   "dependencies": {
