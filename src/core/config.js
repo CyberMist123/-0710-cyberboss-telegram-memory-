@@ -213,6 +213,9 @@ function readConfig() {
     claudeAllowCloudCredentialInheritance: readExactBoolEnv(
       "CYBERBOSS_CLAUDE_ALLOW_CLOUD_CREDENTIAL_INHERITANCE",
     ),
+    // Declares CLI flags this deployment's Claude binary supports beyond the
+    // verified set. Only the known-unverified flags may be declared.
+    claudeCliCapabilitiesJson: readRawEnv("CYBERBOSS_CLAUDE_CLI_CAPABILITIES_JSON"),
     claudeSessionSlotsFile: joinIfBase(stateDir, "claude-session-slots.json"),
     claudeMaxProcesses: readIntEnv("CYBERBOSS_CLAUDE_MAX_PROCESSES"),
     sessionsFile: joinIfBase(stateDir, "sessions.json"),

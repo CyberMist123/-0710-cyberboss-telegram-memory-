@@ -122,8 +122,11 @@ class CyberbossApp {
       || createTelegramProfileRouter({
         profilesJson: config.claudeLaunchProfilesJson || "",
         mappingJson: config.telegramProfileMappingJson || "",
-        baseDir: config.claudeLaunchProfileBaseDir || config.configDir || config.stateDir || process.cwd(),
+        // Explicit only: no current-working-directory fallback, so a relative profile path
+        // cannot resolve differently depending on where the bridge was started.
+        baseDir: config.claudeLaunchProfileBaseDir || config.configDir || config.stateDir,
         allowAuthBackendOverride: config.claudeAllowAuthBackendOverride === true,
+        cliCapabilitiesJson: config.claudeCliCapabilitiesJson || "",
       });
     this.routingCounters = new RoutingCounters();
     this.embeddingService = null;
@@ -867,6 +870,11 @@ class CyberbossApp {
         provider: prepared.provider,
         chatId: prepared.chatId || prepared.telegram?.chatId || "",
         messageThreadId,
+        // Keyed per session slot, so two topics running at once each read back
+        // their own outbound target instead of a workspace singleton.
+        routeToken: turn.routeToken || turn.sessionSlotKey || "",
+        laneKey: turn.laneKey || effectiveLane?.laneKey || "",
+        processKey: turn.processKey || "",
       });
       this.turnGateStore.attachThread(pendingScopeKey, turn.threadId);
       // The reply target carries the originating topic, so a reply, a media
@@ -2607,6 +2615,9 @@ class CyberbossApp {
         this.turnBoundaryScopeKeys.add(scopeKey);
       }
       try {
+        if (event.payload.sessionSlotKey) {
+          this.runtimeContextStore?.clearActiveTurn?.(event.payload.sessionSlotKey);
+        }
         this.turnGateStore.releaseThread(event.payload.threadId);
         if (event.type === "runtime.turn.failed") {
           await this.sendFailureToThread(

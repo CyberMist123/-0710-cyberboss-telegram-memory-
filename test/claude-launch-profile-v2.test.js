@@ -15,6 +15,7 @@ const {
   profileLogicalIdentity,
   validateLaunchProfile,
 } = require("../src/adapters/runtime/claudecode/launch-profile");
+const { resolveCliCapabilities } = require("../src/adapters/runtime/claudecode/cli-capabilities");
 
 function makeBase() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cb-lp-"));
@@ -68,12 +69,13 @@ test("unknown fields fail closed", () => {
 
 test("systemPrompt and outputStyle together fail closed", () => {
   const baseDir = makeBase();
+  const declared = resolveCliCapabilities({ declaredJson: '["--output-style"]' });
   rejects(
-    () => validateLaunchProfile({ systemPrompt: "a", outputStyle: "b" }, { baseDir }),
+    () => validateLaunchProfile({ systemPrompt: "a", outputStyle: "b" }, { baseDir, capabilities: declared }),
     "conflicting_instructions",
   );
   assert.ok(validateLaunchProfile({ systemPrompt: "a" }, { baseDir }));
-  assert.ok(validateLaunchProfile({ outputStyle: "b" }, { baseDir }));
+  assert.ok(validateLaunchProfile({ outputStyle: "b" }, { baseDir, capabilities: declared }));
 });
 
 test("agents are validated structurally on a null-prototype object", () => {
@@ -313,6 +315,7 @@ test("launch telemetry carries shapes and counts, never paths, prompts or env va
       env: { NO_COLOR: "1" },
     },
     baseEnv: {}, baseCwd: baseDir, baseDir,
+    capabilities: resolveCliCapabilities({ declaredJson: '["--config-dir"]' }),
   });
   const serialized = JSON.stringify(launch.telemetry);
   for (const forbidden of ["SECRET-PROMPT-TEXT", baseDir, "settings.json", "NO_COLOR", "safe"]) {

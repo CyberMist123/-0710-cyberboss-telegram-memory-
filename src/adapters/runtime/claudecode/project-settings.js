@@ -2,6 +2,52 @@ const fs = require("fs");
 const path = require("path");
 const { resolveExternalMcpServerConfigs } = require("../../../tools/external-mcp-config");
 
+/**
+ * Per-route MCP configuration.
+ *
+ * The shared `.mcp.json` is a workspace singleton, so every lane's Claude child
+ * used to spawn a tool server that could only identify itself by workspace.
+ * With two topics running at once, whichever turn wrote the active context last
+ * owned every outbound tool send.
+ *
+ * When a routeToken is supplied we additionally write a per-slot config whose
+ * `cyberboss_tools` entry carries `--route-token`, and launch the child against
+ * that file. The tool server then knows exactly which lane it belongs to.
+ */
+function ensureRouteScopedMcpConfig({
+  workspaceRoot,
+  cyberbossHome = "",
+  routeToken = "",
+  configDir = "",
+} = {}) {
+  const normalizedWorkspaceRoot = normalizeText(workspaceRoot);
+  const normalizedToken = normalizeText(routeToken);
+  const normalizedConfigDir = normalizeText(configDir);
+  if (!normalizedWorkspaceRoot || !normalizedToken || !normalizedConfigDir) {
+    return null;
+  }
+  if (!/^[0-9a-f]{16,128}$/.test(normalizedToken)) {
+    throw new Error("route token must be an opaque lowercase hex identifier");
+  }
+
+  fs.mkdirSync(normalizedConfigDir, { recursive: true });
+  const configPath = path.join(normalizedConfigDir, `route-${normalizedToken.slice(0, 16)}.json`);
+  const next = {
+    mcpServers: {
+      cyberboss_tools: buildClaudeProjectMcpServerConfig({
+        workspaceRoot: normalizedWorkspaceRoot,
+        cyberbossHome,
+        routeToken: normalizedToken,
+      }),
+      ...Object.fromEntries(resolveClaudeExternalMcpServerConfigs().map((config) => [config.name, config])),
+    },
+  };
+  if (!jsonEquals(readJsonObject(configPath), next)) {
+    fs.writeFileSync(configPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  }
+  return { configPath, serverName: "cyberboss_tools", routeToken: normalizedToken, config: next };
+}
+
 function ensureClaudeProjectMcpConfig({ workspaceRoot, cyberbossHome = "" } = {}) {
   const normalizedWorkspaceRoot = normalizeText(workspaceRoot);
   if (!normalizedWorkspaceRoot) {
@@ -34,17 +80,26 @@ function ensureClaudeProjectMcpConfig({ workspaceRoot, cyberbossHome = "" } = {}
   };
 }
 
-function buildClaudeProjectMcpServerConfig({ workspaceRoot, cyberbossHome = "" } = {}) {
+function buildClaudeProjectMcpServerConfig({ workspaceRoot, cyberbossHome = "", routeToken = "" } = {}) {
   const normalizedWorkspaceRoot = normalizeText(workspaceRoot);
   const home = normalizeText(cyberbossHome) || process.env.CYBERBOSS_HOME || path.resolve(__dirname, "..", "..", "..", "..");
   const scriptPath = path.join(home, "bin", "cyberboss.js");
   if (!fs.existsSync(scriptPath)) {
     throw new Error(`Cyberboss MCP entrypoint not found: ${scriptPath}`);
   }
-  return {
-    command: process.execPath,
-    args: [scriptPath, "tool-mcp-server", "--runtime-id", "claudecode", "--workspace-root", normalizedWorkspaceRoot],
-  };
+  const args = [scriptPath, "tool-mcp-server", "--runtime-id", "claudecode", "--workspace-root", normalizedWorkspaceRoot];
+  const normalizedToken = normalizeText(routeToken);
+  if (normalizedToken) {
+    args.push("--route-token", normalizedToken);
+  }
+  const entry = { command: process.execPath, args };
+  if (normalizedToken) {
+    // Passed twice on purpose: the argument is what the server reads, the
+    // environment variable is a belt-and-braces signal for a launcher that
+    // rewrites argv.
+    entry.env = { CYBERBOSS_ROUTE_TOKEN: normalizedToken };
+  }
+  return entry;
 }
 
 function resolveClaudeExternalMcpServerConfigs() {
@@ -81,6 +136,7 @@ function normalizeText(value) {
 
 module.exports = {
   ensureClaudeProjectMcpConfig,
+  ensureRouteScopedMcpConfig,
   buildClaudeProjectMcpServerConfig,
   resolveClaudeExternalMcpServerConfigs,
 };

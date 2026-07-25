@@ -16,7 +16,7 @@ const { validateLaunchProfile } = require("../src/adapters/runtime/claudecode/la
 
 const FAKE_CLI = path.join(__dirname, "helpers", "fake-claude-cli.js");
 
-function makeAdapter() {
+function makeAdapter({ keepAlive = false } = {}) {
   const tempDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cb-slot-")));
   const workspaceRoot = path.join(tempDir, "workspace");
   const stateDir = path.join(tempDir, "state");
@@ -28,6 +28,10 @@ function makeAdapter() {
 
   process.env.CB_FAKE_LAUNCH_LOG = launchLog;
   process.env.CB_FAKE_COUNTER = counterFile;
+  // Default: the fixture exits after one turn, which forces a relaunch and
+  // makes `--resume` observable. keepAlive models a real long-lived CLI.
+  process.env.CB_FAKE_KEEP_ALIVE = keepAlive ? "1" : "0";
+  process.env.CB_FAKE_TURN_DELAY_MS = "0";
 
   const adapter = createClaudeCodeRuntimeAdapter({
     stateDir,
@@ -249,7 +253,9 @@ test("concurrent turns in different lanes do not close each other's process", as
 });
 
 test("concurrent turns in one lane serialize onto a single process and session", async () => {
-  const { adapter, tempDir, workspaceRoot, readLaunches } = makeAdapter();
+  // A long-lived child, as the real CLI is: the point here is that the
+  // single-flight gate keeps four concurrent turns on one process and session.
+  const { adapter, tempDir, workspaceRoot, readLaunches } = makeAdapter({ keepAlive: true });
   const profile = validateLaunchProfile({ profileId: "safe", effort: "low" }, { baseDir: tempDir });
   const lane = laneFor(500, 31);
 

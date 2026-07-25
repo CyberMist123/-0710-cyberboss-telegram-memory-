@@ -79,6 +79,115 @@ Model-initiated sends (`src/services/telegram-service.js`) read the active
 turn's topic back out of the runtime context store, so a tool-driven reply lands
 in the topic that asked.
 
+## Session authority
+
+The slot store is the **only** runtime authority for a resume id. `sessions.json`
+remains a continuity / reverse-index mirror, and is never read as a resume
+source, command target, approval target, restore target or process selector.
+
+One exception, tightly scoped: a **one-shot migration** of the private/default
+legacy lane. It applies only when no profile is in force *and* the lane is
+either a non-Telegram legacy lane or a Telegram lane with no topic whose chat id
+equals the binding's own sender id. A topic lane, a group lane and any profiled
+lane are never eligible — which is what stops two unmapped topics inheriting one
+transcript. The migration reads a snapshot of `sessions.json` taken at adapter
+construction, before any lane can mirror a new id into it, and writes a
+permanent marker keyed by (binding, workspace) so it cannot run twice, not even
+after the slot is cleared.
+
+`resumeThread` refuses a session id that is not the slot's own rather than
+adopting it. Startup restore iterates session slots, rebuilding each lane from
+its own persisted route descriptor; a descriptor that cannot be rebuilt is
+skipped, never restored as a bare legacy process.
+
+## Runtime events are self-describing
+
+Every runtime event carries `bindingKey`, `workspaceRoot`, `laneKey`,
+`sessionSlotKey`, `processKey`, `sessionId` and `messageThreadId`. Turn-boundary,
+approval, telemetry and recorder handlers read identity off the event instead of
+inferring it from a binding. Stream delivery no longer falls back to the binding
+reverse lookup at all: a run it cannot locate resolves to `null` rather than to
+whichever topic replied most recently.
+
+## Commands and approvals
+
+`/status`, `/new`, `/reread`, `/compact`, `/switch`, `/stop`, approval
+allow/deny and the conversation recorder all resolve the current route through
+`resolveRouteSession` — current lane → profile fingerprint → slot → session.
+Topic A cannot query, cancel, compact or approve topic B.
+
+shared-open IPC must name a process by `processKey`, `sessionId` or `laneKey`.
+A workspace address is accepted only when exactly one live process matches;
+otherwise it is refused. Approvals answer through their registry owner.
+
+## Tool runtime context
+
+The workspace-singleton active context was a cross-topic hazard: whichever turn
+wrote last owned every outbound tool send. Each Claude child is now launched
+against a per-slot MCP config whose `cyberboss_tools` entry carries
+`--route-token` (and `CYBERBOSS_ROUTE_TOKEN`), and the runtime context store is
+keyed by that token.
+
+A token resolves exactly its own lane and never falls through. Without a token,
+the store reports how many lanes are mid-turn in the workspace; if more than
+one, an outbound tool send is **refused** rather than delivered to a guess.
+
+## Process state machine
+
+* The per-key lock chain drops its map entry once the last waiter drains.
+* A failed `connect()` removes the registry row, closes any child that did
+  start, and clears pending approvals and the in-flight turn before the error
+  propagates.
+* **Full-turn single-flight.** The attach lock only covers attach; a turn spans
+  the write *and* the streamed result. `beginTurn` holds the process key from
+  the write until the turn settles (result, cancel or failure), so a second turn
+  cannot overwrite `pendingTurnId` / `activeThreadId`. A turn that never settles
+  is force-settled after a timeout and logged.
+* **An indeterminate write is never replayed.** If the child is known-unusable
+  *before* the write, nothing was sent and a relaunch is provably safe. Once the
+  write has been attempted, delivery cannot be proven, so the turn surfaces as
+  `IndeterminateTurnWriteError` rather than being re-sent into a possible
+  duplicate execution.
+
+## Workspace read/write lock
+
+Lanes keep independent sessions and processes; only concurrent access to one
+filesystem workspace is serialized.
+
+```text
+workspaceAccess: "read" | "write"     (profile field, default write)
+
+read  + read   -> concurrent
+write + read   -> mutually exclusive
+write + write  -> mutually exclusive
+```
+
+The lock is held for the whole turn and released on result, cancel or failure.
+Waiters are first-in-first-out, so a stream of readers cannot starve a writer.
+Keys are realpath-canonicalized (and case-folded on Windows/macOS), so a
+drive-letter path, the same path written through .., and a symlink to that
+directory are one workspace. `workspaceAccess` schedules turns; it is never
+passed to the CLI. System and background turns declare their access mode
+explicitly.
+
+## Claude CLI compatibility
+
+Verified against Claude Code **2.1.220**, whose help declares `--effort
+low|medium|high|xhigh|max`, `--settings`, `--mcp-config`,
+`--strict-mcp-config`, `--tools`, `--agents` and `--system-prompt`.
+
+`--config-dir` and `--output-style` are **not** declared by that help output, so
+a profile using `configDir` or `outputStyle` fails validation before launch. A
+deployment whose CLI does support them declares it:
+
+```text
+CYBERBOSS_CLAUDE_CLI_CAPABILITIES_JSON=["--output-style"]
+```
+
+Only those two flags are declarable; an arbitrary flag cannot be whitelisted
+into the launch this way. A final guard re-checks every emitted flag immediately
+before spawn, so nothing unverified can reach the child.
+
 ## Session slots
 
 A slot key is `sha256(runtimeId, workspaceRoot, laneKey, profileFingerprint)`.
@@ -211,6 +320,14 @@ profile/session/lane isolation here has been reviewed independently.
 ## Tests
 
 ```text
-npm run test:route-lanes        # the nine focused suites for this branch
+npm run test:route-lanes        # the focused suites for this branch
 npm run test:tg-profile-lanes   # the above plus the Telegram media suite
 ```
+
+## Portability
+
+No launch path resolves against the process working directory. A profile base
+directory must be supplied explicitly; a relative profile path with no
+configured base fails with `missing_base_dir` instead of silently resolving
+against wherever the bridge happened to be started. A test enforces that the
+source tree has no such call sites.

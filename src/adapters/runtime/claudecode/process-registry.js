@@ -21,6 +21,8 @@ const crypto = require("node:crypto");
 //     this registry, so they can only ever reach the process that owns them.
 
 const DEFAULT_MAX_PROCESSES = 12;
+// A turn that never reports a result must not wedge its lane forever.
+const DEFAULT_TURN_TIMEOUT_MS = 15 * 60 * 1000;
 
 function buildProcessKey({
   sessionSlotKey = "",
@@ -43,7 +45,7 @@ function buildProcessKey({
 }
 
 class ProcessRegistry {
-  constructor({ maxProcesses = DEFAULT_MAX_PROCESSES } = {}) {
+  constructor({ maxProcesses = DEFAULT_MAX_PROCESSES, turnTimeoutMs = DEFAULT_TURN_TIMEOUT_MS } = {}) {
     this.maxProcesses = Number.isSafeInteger(maxProcesses) && maxProcesses > 0
       ? maxProcesses
       : DEFAULT_MAX_PROCESSES;
@@ -54,6 +56,12 @@ class ProcessRegistry {
     /** @type {Map<string, {processKey: string, sessionSlotKey: string, laneKey: string}>} */
     this.pendingApprovals = new Map();
     this.maxPendingApprovals = 100;
+    /** @type {Map<string, {turnToken: string, settled: Promise<void>, release: Function, startedAt: number}>} */
+    this.activeTurns = new Map();
+    this.turnSequence = 0;
+    this.turnTimeoutMs = Number.isSafeInteger(turnTimeoutMs) && turnTimeoutMs > 0
+      ? turnTimeoutMs
+      : DEFAULT_TURN_TIMEOUT_MS;
   }
 
   /**
@@ -61,7 +69,9 @@ class ProcessRegistry {
    * goes through here, so they can never interleave.
    *
    * Locks for different keys are independent: a slow relaunch in one lane does
-   * not block a turn in another.
+   * not block a turn in another. The chain entry is removed once the last
+   * waiter drains, so a long-lived process does not accumulate one map entry
+   * per key forever.
    */
   withLock(processKey, fn) {
     const key = normalizeText(processKey);
@@ -71,16 +81,98 @@ class ProcessRegistry {
     const previous = this.locks.get(key) || Promise.resolve();
     // Swallow the predecessor's rejection so one failed launch does not poison
     // every later attempt on the same key.
-    const next = previous.then(() => fn(), () => fn());
-    this.locks.set(key, next.then(() => {}, () => {}));
-    const cleanup = () => {
-      if (this.locks.get(key) === trackedTail) {
+    const result = previous.then(() => fn(), () => fn());
+    const tail = result.then(() => {}, () => {});
+    this.locks.set(key, tail);
+    tail.then(() => {
+      // Only the last waiter clears the entry; an intermediate one would let a
+      // queued caller jump the chain.
+      if (this.locks.get(key) === tail) {
         this.locks.delete(key);
       }
-    };
-    const trackedTail = next.then(() => {}, () => {});
-    trackedTail.then(cleanup, cleanup);
-    return next;
+    });
+    return result;
+  }
+
+  lockCount() {
+    return this.locks.size;
+  }
+
+  /**
+   * Full-turn single-flight for one process key.
+   *
+   * The lock above only covers attach. A turn spans the write *and* the
+   * streamed result, so a second turn arriving mid-stream would overwrite
+   * pendingTurnId / activeThreadId on the same client. `beginTurn` waits until
+   * the previous turn has settled (result, cancel or failure).
+   *
+   * @returns {Promise<{turnToken: string}>}
+   */
+  async beginTurn(processKey, { timeoutMs = this.turnTimeoutMs } = {}) {
+    const key = normalizeText(processKey);
+    if (!key) {
+      return { turnToken: "" };
+    }
+    const budgetMs = Math.max(1, timeoutMs);
+    const deadline = Date.now() + budgetMs;
+    for (;;) {
+      const active = this.activeTurns.get(key);
+      if (!active) {
+        break;
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        // A turn that never settles must not wedge the lane forever. It is
+        // force-settled and logged rather than silently ignored.
+        console.warn(`[claudecode-runtime] force-settling a stuck turn on process ${key.slice(0, 8)}`);
+        this.settleTurn(key, { force: true });
+        break;
+      }
+      // Race the wait against the remaining budget: awaiting `settled` alone
+      // would block forever on a turn that never reports a result.
+      let timer;
+      await Promise.race([
+        active.settled.catch(() => {}),
+        new Promise((resolve) => {
+          timer = setTimeout(resolve, remaining);
+        }),
+      ]);
+      clearTimeout(timer);
+    }
+    this.turnSequence += 1;
+    const turnToken = `t${this.turnSequence}`;
+    let release;
+    const settled = new Promise((resolve) => {
+      release = resolve;
+    });
+    this.activeTurns.set(key, { turnToken, settled, release, startedAt: Date.now() });
+    return { turnToken };
+  }
+
+  /**
+   * Settle the in-flight turn for a process key. Idempotent, and a stale token
+   * is ignored so a late event cannot release a newer turn.
+   */
+  settleTurn(processKey, { turnToken = "", force = false } = {}) {
+    const key = normalizeText(processKey);
+    const active = key ? this.activeTurns.get(key) : null;
+    if (!active) {
+      return false;
+    }
+    if (!force && turnToken && active.turnToken !== turnToken) {
+      return false;
+    }
+    this.activeTurns.delete(key);
+    active.release();
+    return true;
+  }
+
+  hasActiveTurn(processKey) {
+    return this.activeTurns.has(normalizeText(processKey));
+  }
+
+  activeTurnCount() {
+    return this.activeTurns.size;
   }
 
   get(processKey) {
@@ -125,6 +217,9 @@ class ProcessRegistry {
         this.pendingApprovals.delete(requestId);
       }
     }
+    // Retiring a process settles whatever it was running, so a waiter is not
+    // left blocked on a turn whose owner no longer exists.
+    this.settleTurn(key, { force: true });
     return entry;
   }
 
@@ -252,6 +347,7 @@ function normalizeSessionId(value) {
 
 module.exports = {
   DEFAULT_MAX_PROCESSES,
+  DEFAULT_TURN_TIMEOUT_MS,
   ProcessRegistry,
   buildProcessKey,
 };

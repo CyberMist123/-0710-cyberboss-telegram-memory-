@@ -1,5 +1,5 @@
 const fs = require("fs");
-function runToolMcpServer({ toolHost, runtimeId = "", workspaceRoot = "" }) {
+function runToolMcpServer({ toolHost, runtimeId = "", workspaceRoot = "", routeToken = "" }) {
   const reader = createMessageReader(process.stdin);
   const toolCatalog = toolHost.listTools();
   const resources = buildToolResources(toolCatalog);
@@ -97,6 +97,7 @@ function runToolMcpServer({ toolHost, runtimeId = "", workspaceRoot = "" }) {
         const result = await toolHost.invokeTool(toolName, args, {
           runtimeId,
           workspaceRoot,
+          routeToken,
         });
         writeRpcResponse(id, {
           content: [

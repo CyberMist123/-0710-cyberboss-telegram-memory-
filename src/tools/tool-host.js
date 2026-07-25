@@ -51,14 +51,20 @@ class ProjectToolHost {
   resolveContext(context = {}) {
     const explicitWorkspaceRoot = normalizeText(context.workspaceRoot);
     const explicitRuntimeId = normalizeText(context.runtimeId);
+    const explicitRouteToken = normalizeText(context.routeToken);
     this.runtimeContextStore.load?.();
     const active = this.runtimeContextStore.resolveActiveContext({
       workspaceRoot: explicitWorkspaceRoot,
       runtimeId: explicitRuntimeId,
+      routeToken: explicitRouteToken,
     }) || {};
     return {
       runtimeId: explicitRuntimeId || normalizeText(active.runtimeId),
       workspaceRoot: explicitWorkspaceRoot || normalizeText(active.workspaceRoot),
+      routeToken: explicitRouteToken || normalizeText(active.routeToken),
+      // Propagated so a tool that sends outbound can refuse rather than guess.
+      ambiguousRoute: active.ambiguous === true,
+      activeLaneCount: Number(active.activeLaneCount) || 0,
       threadId: normalizeText(context.threadId) || normalizeText(active.threadId),
       bindingKey: normalizeText(context.bindingKey) || normalizeText(active.bindingKey),
       accountId: normalizeText(context.accountId) || normalizeText(active.accountId),

@@ -170,8 +170,13 @@ async function main() {
     if (!workspaceRoot) {
       throw new Error("workspaceRoot is required. Set --workspace-root or CYBERBOSS_WORKSPACE.");
     }
+    // Route token: which session slot this tool server belongs to. Without it
+    // the server can only identify itself by workspace, which is ambiguous once
+    // two lanes run at the same time.
+    const routeToken = readFlagValue(argv.slice(1), "--route-token")
+      || (typeof process.env.CYBERBOSS_ROUTE_TOKEN === "string" ? process.env.CYBERBOSS_ROUTE_TOKEN.trim() : "");
     const { toolHost } = createProjectTooling(config);
-    runToolMcpServer({ toolHost, runtimeId, workspaceRoot });
+    runToolMcpServer({ toolHost, runtimeId, workspaceRoot, routeToken });
     return;
   }
 

@@ -3,7 +3,10 @@ const path = require("path");
 const crypto = require("crypto");
 const { ClaudeCodeProcessClient } = require("./process-client");
 const { mapClaudeCodeMessageToRuntimeEvent } = require("./events");
-const { ensureClaudeProjectMcpConfig } = require("./project-settings");
+const {
+  ensureClaudeProjectMcpConfig,
+  ensureRouteScopedMcpConfig,
+} = require("./project-settings");
 const {
   SessionSlotStore,
   buildLegacyMigrationKey,
@@ -12,10 +15,16 @@ const {
 } = require("./session-slot");
 const { ProcessRegistry, buildProcessKey } = require("./process-registry");
 const { fingerprintLaunchProfile, profileLogicalIdentity } = require("./launch-profile");
+const { resolveCliCapabilities } = require("./cli-capabilities");
 const {
   buildLegacyRouteLane,
   buildSystemRouteLane,
 } = require("../../../core/route-lane");
+const {
+  DEFAULT_ACCESS,
+  WorkspaceLockManager,
+  normalizeAccessMode,
+} = require("../../../core/workspace-lock");
 const { SessionStore } = require("../codex/session-store");
 const { buildOpeningTurnText, buildInstructionRefreshText } = require("../shared-instructions");
 const { ClaudeCodeIpcServer } = require("./ipc-server");
@@ -27,6 +36,31 @@ const {
   prepareRefreshContext,
 } = require("../../../core/hard-context");
 const CLAUDE_RESUME_SESSION_TIMEOUT_MS = 8000;
+
+/**
+ * A turn whose write to the child failed after the attempt began.
+ *
+ * The distinction that matters: if the client was known-unusable *before* the
+ * write, nothing was sent and a relaunch is safe. Once the write has been
+ * attempted, delivery cannot be proven either way, so the turn must surface as
+ * a failure rather than be replayed into a possible duplicate execution.
+ */
+class IndeterminateTurnWriteError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "IndeterminateTurnWriteError";
+    this.code = "indeterminate_turn_write";
+    this.indeterminate = true;
+  }
+}
+
+function isWriteFailure(error) {
+  const code = error?.code || "";
+  return code === "EPIPE"
+    || code === "ERR_STREAM_DESTROYED"
+    || code === "ERR_STREAM_WRITE_AFTER_END"
+    || /not running|EPIPE|write after end/i.test(error?.message || "");
+}
 
 function createClaudeCodeRuntimeAdapter(config) {
   const stateDir = normalizeText(config.stateDir);
@@ -48,10 +82,16 @@ function createClaudeCodeRuntimeAdapter(config) {
     maxProcesses: Number.isSafeInteger(config.claudeMaxProcesses) && config.claudeMaxProcesses > 0
       ? config.claudeMaxProcesses
       : undefined,
+    turnTimeoutMs: config.claudeTurnTimeoutMs,
   });
+  // Lanes keep independent sessions and processes; only concurrent access to
+  // one filesystem workspace is serialized. read+read runs concurrently, a
+  // writer is exclusive, and the lock is held for the whole turn.
+  const workspaceLocks = new WorkspaceLockManager({ timeoutMs: config.claudeWorkspaceLockTimeoutMs });
   const launchProfileBaseDir = normalizeText(config.claudeLaunchProfileBaseDir)
     || normalizeText(config.configDir)
     || stateDir;
+  const cliCapabilities = resolveCliCapabilities({ declaredJson: config.claudeCliCapabilitiesJson || "" });
   const allowAuthBackendOverride = config.claudeAllowAuthBackendOverride === true;
   const allowCloudCredentialInheritance = config.claudeAllowCloudCredentialInheritance === true;
   const pendingModelByWorkspaceRoot = new Map();
@@ -192,6 +232,7 @@ function createClaudeCodeRuntimeAdapter(config) {
     const profileFingerprint = fingerprintLaunchProfile(launchProfile, {
       baseDir: launchProfileBaseDir,
       allowAuthBackendOverride,
+      capabilities: cliCapabilities,
     });
     const sessionSlotKey = buildSessionSlotKey({
       runtimeId: "claudecode",
@@ -254,6 +295,7 @@ function createClaudeCodeRuntimeAdapter(config) {
       storedThreadId,
       agentCwd,
       configIdentity,
+      workspaceAccess: normalizeAccessMode(launchProfile?.workspaceAccess),
       model: resolveModel(model),
     };
   }
@@ -348,10 +390,20 @@ function createClaudeCodeRuntimeAdapter(config) {
 
   function createProcessClient(route, processKey) {
     const { workspaceRoot } = route;
-    const projectSettings = ensureClaudeProjectMcpConfig({
+    const cyberbossHome = process.env.CYBERBOSS_HOME || path.resolve(__dirname, "..", "..", "..", "..");
+    // The shared project config is still maintained (other runtimes read it),
+    // but this child is launched against a per-slot config whose tool server
+    // carries this lane's route token, so its outbound tool sends cannot be
+    // captured by another lane's active context.
+    ensureClaudeProjectMcpConfig({ workspaceRoot, cyberbossHome });
+    const routeScoped = ensureRouteScopedMcpConfig({
       workspaceRoot,
-      cyberbossHome: process.env.CYBERBOSS_HOME || path.resolve(__dirname, "..", "..", "..", ".."),
+      cyberbossHome,
+      routeToken: route.sessionSlotKey,
+      configDir: path.join(stateDir, "claude-mcp"),
     });
+    const projectSettings = routeScoped
+      || ensureClaudeProjectMcpConfig({ workspaceRoot, cyberbossHome });
     console.log(
       `[claudecode-runtime] workspace=${workspaceRoot} mcp_config=${projectSettings.configPath} server=${projectSettings.serverName}`
     );
@@ -367,6 +419,7 @@ function createClaudeCodeRuntimeAdapter(config) {
       mcpConfigPaths: [projectSettings.configPath],
       launchProfile: route.launchProfile,
       launchProfileBaseDir,
+      cliCapabilities,
       allowAuthBackendOverride,
       allowCloudCredentialInheritance,
       onLaunchTelemetry: config.onClaudeLaunchTelemetry,
@@ -410,6 +463,15 @@ function createClaudeCodeRuntimeAdapter(config) {
           sessionSlotKey: route.sessionSlotKey,
           laneKey: route.lane.laneKey,
         });
+      }
+      // The turn slot and the workspace lock are held for the *whole* turn and
+      // released here, on result, cancel or failure -- never when sendTurn
+      // returns, which happens while the reply is still streaming.
+      if (mapped?.type === "runtime.turn.completed"
+        || mapped?.type === "runtime.turn.failed"
+        || event.type === "process.close"
+        || event.type === "process.error") {
+        finishTurn(processKey);
       }
       if (mapped?.type === "runtime.turn.failed") {
         processRegistry.delete(processKey);
@@ -477,7 +539,21 @@ function createClaudeCodeRuntimeAdapter(config) {
           registered.workspaceRoot = route.workspaceRoot;
           registered.bindingKey = route.bindingKey;
         }
-        await client.connect(normalizedThreadId);
+        try {
+          await client.connect(normalizedThreadId);
+        } catch (error) {
+          // A failed launch must not leave a half-registered entry behind: the
+          // registry row, any child that did start, the pending approvals and
+          // the in-flight turn are all cleared before the error propagates.
+          processRegistry.delete(processKey);
+          await client.close().catch(() => {});
+          throw error;
+        }
+        if (!client.usable) {
+          processRegistry.delete(processKey);
+          await client.close().catch(() => {});
+          throw new Error("claudecode process exited during launch");
+        }
       }
 
       await retireIdleStaleProcesses(route, processKey);
@@ -508,7 +584,44 @@ function createClaudeCodeRuntimeAdapter(config) {
     }
   }
 
+  /** @type {Map<string, {turnToken: string, releaseWorkspace: Function}>} */
+  const turnHolds = new Map();
+
+  /**
+   * Take the full-turn hold for a process: single-flight on the process key,
+   * then the workspace lock in the profile's access mode.
+   *
+   * Order matters. The process slot is per key and is never awaited by whoever
+   * holds the workspace lock, so this ordering cannot deadlock.
+   */
+  async function beginTurnHold(route, processKey) {
+    const { turnToken } = await processRegistry.beginTurn(processKey);
+    let releaseWorkspace = () => {};
+    try {
+      const access = route.workspaceAccess || DEFAULT_ACCESS;
+      const handle = await workspaceLocks.acquire(route.agentCwd || route.workspaceRoot, access);
+      releaseWorkspace = handle.release;
+    } catch (error) {
+      processRegistry.settleTurn(processKey, { turnToken });
+      throw error;
+    }
+    turnHolds.set(processKey, { turnToken, releaseWorkspace });
+    return turnToken;
+  }
+
+  function finishTurn(processKey) {
+    const hold = turnHolds.get(processKey);
+    if (!hold) {
+      processRegistry.settleTurn(processKey, { force: true });
+      return;
+    }
+    turnHolds.delete(processKey);
+    hold.releaseWorkspace();
+    processRegistry.settleTurn(processKey, { turnToken: hold.turnToken });
+  }
+
   async function closeProcessKey(processKey) {
+    finishTurn(processKey);
     const entry = processRegistry.delete(processKey);
     if (!entry?.client) {
       return;
@@ -630,9 +743,13 @@ function createClaudeCodeRuntimeAdapter(config) {
       const attached = await attachProcessToSession(route, { threadId: route.storedThreadId });
       return { threadId: attached.threadId, resumed: true, resumeOrigin, empty: false };
     },
-    async runBackgroundTurn({ workspaceRoot, text, model = "" }) {
+    async runBackgroundTurn({ workspaceRoot, text, model = "", workspaceAccess = DEFAULT_ACCESS }) {
       const normalizedWorkspaceRoot = normalizeText(workspaceRoot);
       if (!normalizedWorkspaceRoot) throw new Error("workspaceRoot is required");
+      // System/background turns declare their access mode explicitly rather
+      // than inheriting one; they default to `write`, which is what a closeout
+      // or memory-authoring job actually does.
+      const backgroundAccess = normalizeAccessMode(workspaceAccess);
       const projectSettings = ensureClaudeProjectMcpConfig({
         workspaceRoot: normalizedWorkspaceRoot,
         cyberbossHome: process.env.CYBERBOSS_HOME || path.resolve(__dirname, "..", "..", "..", ".."),
@@ -659,21 +776,33 @@ function createClaudeCodeRuntimeAdapter(config) {
         sessionSlotKey: "",
         processKey: "",
       });
+      const workspaceHold = await workspaceLocks.acquire(
+        resolveAgentCwd(configuredAgentCwd, normalizedWorkspaceRoot),
+        backgroundAccess,
+      );
       try {
         await client.connect("");
         const completion = waitForIsolatedCompletion(client);
         await client.sendUserMessage({ text, threadId: "" });
         return await completion;
       } finally {
+        workspaceHold.release();
         await client.close().catch(() => {});
       }
     },
     async compactThread({ threadId, workspaceRoot, model = "", bindingKey = "", lane = null, launchProfile = null, senderId = "" }) {
       const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, model, senderId });
-      const { client, threadId: activeThreadId } = await attachProcessToSession(route, {
+      const attached = await attachProcessToSession(route, {
         threadId: normalizeThreadId(threadId) || route.storedThreadId,
       });
-      await client.sendUserMessage({ text: "/compact", threadId: activeThreadId });
+      const { client, threadId: activeThreadId } = attached;
+      await beginTurnHold(route, attached.processKey);
+      try {
+        await client.sendUserMessage({ text: "/compact", threadId: activeThreadId });
+      } catch (error) {
+        finishTurn(attached.processKey);
+        throw error;
+      }
       return { threadId: activeThreadId, turnId: client.pendingTurnId };
     },
     async refreshThreadInstructions({
@@ -681,12 +810,19 @@ function createClaudeCodeRuntimeAdapter(config) {
       bindingKey = "", lane = null, launchProfile = null, senderId = "",
     }) {
       const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, model, senderId });
-      const { client, threadId: activeThreadId } = await attachProcessToSession(route, {
+      const attached = await attachProcessToSession(route, {
         threadId: normalizeThreadId(threadId) || route.storedThreadId,
       });
+      const { client, threadId: activeThreadId } = attached;
       const continuity = prepareRefreshContext({ config, reason });
       const refreshText = buildInstructionRefreshText(config, continuity);
-      await client.sendUserMessage({ text: refreshText, threadId: activeThreadId });
+      await beginTurnHold(route, attached.processKey);
+      try {
+        await client.sendUserMessage({ text: refreshText, threadId: activeThreadId });
+      } catch (error) {
+        finishTurn(attached.processKey);
+        throw error;
+      }
       return { threadId: activeThreadId, continuity: { ...continuity, total_chars: countVisibleChars(refreshText) } };
     },
     async sendTextTurn(args) {
@@ -765,18 +901,49 @@ function createClaudeCodeRuntimeAdapter(config) {
       if (outboundThreadId) {
         storeSlotThreadId(route, outboundThreadId, metadata);
       }
-      // The CLI can exit between two turns of the same lane. One relaunch of
-      // this slot's own process is attempted; other lanes are untouched.
+      // Take the full-turn hold before writing: single-flight on this process
+      // key, then the workspace lock. Both are released by the event handler on
+      // result, cancel or failure -- not when this function returns.
       let activeClient = client;
+      let turnHeld = false;
       try {
+        // Let any queued 'exit'/'close' event land before judging usability.
+        // Without this drain a child that died moments ago still looks usable,
+        // and the write below would fail as indeterminate instead of being
+        // safely relaunched.
+        await new Promise((resolve) => setImmediate(resolve));
+        // A dead child is detected *before* the write. Relaunching here is
+        // provably safe because nothing has been sent yet.
+        if (!activeClient.usable) {
+          const reattached = await attachProcessToSession(route, { threadId: outboundThreadId });
+          activeClient = reattached.client;
+        }
+        await beginTurnHold(route, attached.processKey);
+        turnHeld = true;
+        // Re-check after waiting for the hold: the child may have exited while
+        // this turn was queued behind another one.
+        await new Promise((resolve) => setImmediate(resolve));
+        if (!activeClient.usable) {
+          const reattached = await attachProcessToSession(route, { threadId: outboundThreadId });
+          activeClient = reattached.client;
+        }
         await activeClient.sendUserMessage({ text: outboundText, threadId: outboundThreadId });
       } catch (error) {
-        if (activeClient.usable) {
+        if (turnHeld) {
+          finishTurn(attached.processKey);
+        }
+        if (error instanceof IndeterminateTurnWriteError) {
           throw error;
         }
-        const reattached = await attachProcessToSession(route, { threadId: outboundThreadId });
-        activeClient = reattached.client;
-        await activeClient.sendUserMessage({ text: outboundText, threadId: outboundThreadId });
+        // The write itself failed. We cannot prove whether the child received
+        // and began executing it, so the turn is NOT replayed: a silent replay
+        // would risk executing the same tool calls twice.
+        if (isWriteFailure(error)) {
+          throw new IndeterminateTurnWriteError(
+            "claudecode turn write failed with an indeterminate outcome; not replayed",
+          );
+        }
+        throw error;
       }
       const returnedThreadId = outboundThreadId || normalizeThreadId(
         await activeClient.waitForSessionId({ timeoutMs: CLAUDE_RESUME_SESSION_TIMEOUT_MS })
@@ -794,9 +961,11 @@ function createClaudeCodeRuntimeAdapter(config) {
         threadId: returnedThreadId,
         turnId: activeClient.pendingTurnId,
         sessionSlotKey: route.sessionSlotKey,
+        routeToken: route.sessionSlotKey,
         laneKey: route.lane.laneKey,
         processKey: attached.processKey,
         profileId: route.profileId,
+        workspaceAccess: route.workspaceAccess,
         continuity,
       };
     },
@@ -877,11 +1046,15 @@ function createClaudeCodeRuntimeAdapter(config) {
       return {
         processCount: processRegistry.size(),
         slotCount: sessionSlotStore.listSlotKeys().length,
+        lockCount: processRegistry.lockCount(),
+        activeTurns: processRegistry.activeTurnCount(),
+        workspaceLocks: workspaceLocks.describe(),
       };
     },
     __internals: {
       processRegistry,
       sessionSlotStore,
+      workspaceLocks,
       resolveRouteContext,
       computeProcessKey,
     },
@@ -978,7 +1151,7 @@ function resolveAgentCwd(agentCwd, workspaceRoot) {
   return normalizeText(agentCwd) || normalizeText(workspaceRoot);
 }
 
-module.exports = { createClaudeCodeRuntimeAdapter, resolveAgentCwd };
+module.exports = { IndeterminateTurnWriteError, createClaudeCodeRuntimeAdapter, resolveAgentCwd };
 
 function normalizeThreadId(value) {
   return typeof value === "string" ? value.replace(/\s+/g, "").trim() : "";

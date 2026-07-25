@@ -25,10 +25,7 @@ function createTelegramSendService({ config, runtimeContextStore }) {
         throw new Error("telegram send requires text");
       }
 
-      const active = runtimeContextStore?.resolveActiveContext?.({
-        workspaceRoot: normalizeText(context?.workspaceRoot),
-        runtimeId: normalizeText(context?.runtimeId),
-      }) || {};
+      const active = resolveRouteContext(runtimeContextStore, context);
       const target = resolveTelegramTarget(active, context, userId);
       if (!target.chatId) {
         throw new Error("telegram reply target missing");
@@ -71,10 +68,7 @@ function createTelegramSendService({ config, runtimeContextStore }) {
         throw new Error(`telegram send file expects a file, got: ${resolvedPath}`);
       }
 
-      const active = runtimeContextStore?.resolveActiveContext?.({
-        workspaceRoot: normalizeText(context?.workspaceRoot),
-        runtimeId: normalizeText(context?.runtimeId),
-      }) || {};
+      const active = resolveRouteContext(runtimeContextStore, context);
       const target = resolveTelegramTarget(active, context, userId);
       if (!target.chatId) {
         throw new Error("telegram reply target missing");
@@ -109,10 +103,7 @@ function createTelegramSendService({ config, runtimeContextStore }) {
         throw new Error(`telegram voice file does not exist: ${resolvedPath}`);
       }
 
-      const active = runtimeContextStore?.resolveActiveContext?.({
-        workspaceRoot: normalizeText(context?.workspaceRoot),
-        runtimeId: normalizeText(context?.runtimeId),
-      }) || {};
+      const active = resolveRouteContext(runtimeContextStore, context);
       const target = resolveTelegramTarget(active, context, userId);
       if (!target.chatId) {
         throw new Error("telegram reply target missing");
@@ -135,6 +126,27 @@ function createTelegramSendService({ config, runtimeContextStore }) {
       return { userId: target.chatId, filePath: resolvedPath };
     },
   };
+}
+
+/**
+ * Resolve the tool call's own lane context.
+ *
+ * A route token names exactly one lane. Without one, the store reports whether
+ * several lanes are mid-turn in this workspace; if so the send is refused
+ * instead of being delivered to whichever lane wrote the singleton last.
+ */
+function resolveRouteContext(runtimeContextStore, context = {}) {
+  const active = runtimeContextStore?.resolveActiveContext?.({
+    workspaceRoot: normalizeText(context?.workspaceRoot),
+    runtimeId: normalizeText(context?.runtimeId),
+    routeToken: normalizeText(context?.routeToken),
+  }) || {};
+  if (active.ambiguous === true || context?.ambiguousRoute === true) {
+    throw new Error(
+      "telegram send refused: this turn's route lane is ambiguous (several lanes are active in this workspace)",
+    );
+  }
+  return active;
 }
 
 function resolveTelegramTarget(active, context = {}, userId = "") {

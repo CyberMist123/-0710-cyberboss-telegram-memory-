@@ -10,6 +10,12 @@ const {
   createNullPrototypeObject,
   parseStrictBoolean,
 } = require("../../../core/bounded-json");
+const { DEFAULT_ACCESS, normalizeAccessMode } = require("../../../core/workspace-lock");
+const {
+  EFFORT_VALUES,
+  assertLaunchArgsSupported,
+  resolveCliCapabilities,
+} = require("./cli-capabilities");
 
 // Hardened Claude Code launch profiles (v2).
 //
@@ -46,9 +52,11 @@ const PROFILE_FIELDS = Object.freeze(new Set([
   "strictMcpConfig",
   "systemPrompt",
   "outputStyle",
+  "workspaceAccess",
 ]));
 
-const EFFORT_VALUES = Object.freeze(["low", "medium", "high", "max"]);
+// Sourced from the CLI capability table so the enum cannot drift from what the
+// installed Claude CLI actually accepts.
 const EFFORT_SET = new Set(EFFORT_VALUES);
 
 const MCP_CONFIG_MODES = Object.freeze(["inherit", "replace", "clear"]);
@@ -137,6 +145,23 @@ class LaunchProfileError extends Error {
   }
 }
 
+/**
+ * A base directory must be supplied explicitly. Falling back to the process
+ * working directory makes a relative profile path resolve differently depending
+ * on where the bridge was started, which is exactly the portability hazard
+ * Codex flagged.
+ */
+function requireBaseDir(baseDir, field) {
+  const text = typeof baseDir === "string" ? baseDir.trim() : "";
+  if (!text) {
+    throw new LaunchProfileError(
+      `${field} needs an explicit profile base directory; none was configured`,
+      "missing_base_dir",
+    );
+  }
+  return text;
+}
+
 function isPlainObject(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
@@ -199,7 +224,7 @@ function resolveExistingPath(value, {
   if (text.includes("\u0000")) {
     throw new LaunchProfileError(`${field} contains a null byte`, "invalid_path");
   }
-  const normalizedBaseDir = path.resolve(baseDir || process.cwd());
+  const normalizedBaseDir = path.resolve(requireBaseDir(baseDir, field));
   const wasRelative = !path.isAbsolute(text);
   const candidate = wasRelative ? path.resolve(normalizedBaseDir, text) : path.normalize(text);
 
@@ -465,8 +490,9 @@ function serializeAgents(agents) {
  * @returns {object|null} frozen normalized profile, or null when absent.
  */
 function validateLaunchProfile(profile, {
-  baseDir = process.cwd(),
+  baseDir = "",
   allowAuthBackendOverride = false,
+  capabilities = null,
   fs = fsApi,
 } = {}) {
   if (profile === undefined || profile === null) {
@@ -526,6 +552,21 @@ function validateLaunchProfile(profile, {
     );
   }
 
+  const caps = capabilities || resolveCliCapabilities();
+  for (const field of ["configDir", "outputStyle"]) {
+    if (profile[field] !== undefined && !caps.supportsField(field)) {
+      // Fail closed *before* launch. Passing an undeclared flag would either
+      // abort the child or, worse, be ignored -- silently dropping the
+      // restriction the operator asked for.
+      throw new LaunchProfileError(
+        `${field} maps to ${caps.flagForField(field)}, which the verified Claude CLI `
+        + `(${caps.verifiedVersion}) does not declare; declare it in `
+        + "CYBERBOSS_CLAUDE_CLI_CAPABILITIES_JSON if your CLI supports it",
+        "cli_flag_unsupported",
+      );
+    }
+  }
+
   if (profile.cwd !== undefined) {
     const resolved = resolveExistingPath(profile.cwd, { field: "cwd", baseDir, kind: "dir", fs });
     normalized.cwd = resolved.path;
@@ -564,6 +605,11 @@ function validateLaunchProfile(profile, {
   }
   if (profile.env !== undefined) {
     normalized.env = normalizeProfileEnv(profile.env, { allowAuthBackendOverride });
+  }
+  if (profile.workspaceAccess !== undefined) {
+    // Scheduling attribute, not a CLI flag: it decides whether this profile's
+    // turns may run beside another lane's turn in the same working directory.
+    normalized.workspaceAccess = normalizeAccessMode(profile.workspaceAccess);
   }
   if (profile.strictMcpConfig !== undefined) {
     if (typeof profile.strictMcpConfig !== "boolean") {
@@ -653,12 +699,16 @@ function buildProfileLaunch({
   baseCwd = "",
   baseMcpConfigPaths = [],
   extraArgs = [],
-  baseDir = process.cwd(),
+  baseDir = "",
   allowAuthBackendOverride = false,
   allowCloudCredentialInheritance = false,
+  capabilities = null,
   fs = fsApi,
 } = {}) {
-  const normalized = validateLaunchProfile(profile, { baseDir, allowAuthBackendOverride, fs });
+  const caps = capabilities || resolveCliCapabilities();
+  const normalized = validateLaunchProfile(profile, {
+    baseDir, allowAuthBackendOverride, capabilities: caps, fs,
+  });
 
   if (!normalized) {
     return Object.freeze({
@@ -668,6 +718,7 @@ function buildProfileLaunch({
       args: Object.freeze([]),
       mcpConfigPaths: Object.freeze([...(baseMcpConfigPaths || [])]),
       mcpConfigMode: "inherit",
+      workspaceAccess: DEFAULT_ACCESS,
       launchFingerprint: "legacy",
       telemetry: null,
     });
@@ -682,6 +733,8 @@ function buildProfileLaunch({
   }
 
   const args = [];
+  // NOTE: workspaceAccess is deliberately absent here. It schedules turns; it is
+  // not a CLI flag and must never be passed to the child.
   if (normalized.model) args.push("--model", normalized.model);
   if (normalized.effort) args.push("--effort", normalized.effort);
   if (normalized.configDir) args.push("--config-dir", normalized.configDir);
@@ -715,6 +768,10 @@ function buildProfileLaunch({
   const env = buildProfileEnv(baseEnv, normalized.env, { allowCloudCredentialInheritance });
   const cwd = normalized.cwd || baseCwd;
 
+  // Belt: nothing unsupported reaches the child even if a future field forgets
+  // its capability check.
+  assertLaunchArgsSupported(args, caps);
+
   const launchFingerprint = crypto
     .createHash("sha256")
     .update(stableStringify({
@@ -734,6 +791,7 @@ function buildProfileLaunch({
     args: Object.freeze(args),
     mcpConfigPaths: Object.freeze(mcpConfigPaths),
     mcpConfigMode,
+    workspaceAccess: normalized.workspaceAccess || DEFAULT_ACCESS,
     launchFingerprint,
     telemetry: buildLaunchTelemetry(normalized, { mcpConfigPaths, mcpConfigMode }),
   });
@@ -776,6 +834,7 @@ function buildLaunchTelemetry(profile, { mcpConfigPaths = [], mcpConfigMode = "i
     mcpConfigCount: mcpConfigPaths.length,
     mcpConfigMode,
     strictMcpConfig: profile.strictMcpConfig === true,
+    workspaceAccess: profile.workspaceAccess || DEFAULT_ACCESS,
     instructionSource: profile.systemPrompt
       ? "system_prompt"
       : (profile.outputStyle ? "output_style" : "none"),
@@ -788,14 +847,17 @@ function buildLaunchTelemetry(profile, { mcpConfigPaths = [], mcpConfigMode = "i
  * profile is applied, so the unmapped path keeps its pre-v2 identity.
  */
 function fingerprintLaunchProfile(profile, {
-  baseDir = process.cwd(),
+  baseDir = "",
   allowAuthBackendOverride = false,
+  capabilities = null,
   fs = fsApi,
 } = {}) {
   if (profile === undefined || profile === null) {
     return "legacy";
   }
-  const normalized = validateLaunchProfile(profile, { baseDir, allowAuthBackendOverride, fs });
+  const normalized = validateLaunchProfile(profile, {
+    baseDir, allowAuthBackendOverride, capabilities, fs,
+  });
   if (!normalized) {
     return "legacy";
   }
@@ -811,9 +873,9 @@ function fingerprintLaunchProfile(profile, {
 
 module.exports = {
   AGENT_PERMISSION_MODES,
+  EFFORT_VALUES,
   AUTH_BACKEND_ENV_KEYS,
   CLOUD_CREDENTIAL_ENV_PREFIXES,
-  EFFORT_VALUES,
   LIMITS,
   LaunchProfileError,
   MCP_CONFIG_MODES,

@@ -20,6 +20,7 @@ const {
   fingerprintLaunchProfile,
   validateLaunchProfile,
 } = require("./launch-profile");
+const { CliCapabilityError, resolveCliCapabilities } = require("./cli-capabilities");
 
 // Fail-closed Telegram -> Claude profile routing.
 //
@@ -83,6 +84,7 @@ function rethrow(error, prefix) {
     error instanceof BoundedJsonError
     || error instanceof LaunchProfileError
     || error instanceof RouteLaneError
+    || error instanceof CliCapabilityError
   ) {
     throw new ProfileRoutingError(`${prefix}: ${error.message}`, error.code);
   }
@@ -96,7 +98,7 @@ function rethrow(error, prefix) {
  * Parse and validate `CYBERBOSS_CLAUDE_LAUNCH_PROFILES_JSON`.
  * @returns {Map<string, object>} canonical profileId -> validated profile
  */
-function parseLaunchProfiles(raw, { baseDir, allowAuthBackendOverride = false, fs = fsApi } = {}) {
+function parseLaunchProfiles(raw, { baseDir, allowAuthBackendOverride = false, capabilities = null, fs = fsApi } = {}) {
   const registry = new Map();
   const text = typeof raw === "string" ? raw.trim() : "";
   if (!text) {
@@ -176,7 +178,7 @@ function parseLaunchProfiles(raw, { baseDir, allowAuthBackendOverride = false, f
     try {
       validated = validateLaunchProfile(
         { ...rawProfile, profileId },
-        { baseDir, allowAuthBackendOverride, fs },
+        { baseDir, allowAuthBackendOverride, capabilities, fs },
       );
     } catch (error) {
       rethrow(error, `launch profile ${profileId}`);
@@ -288,11 +290,18 @@ function parseProfileMappings(raw, { profiles }) {
 function createTelegramProfileRouter({
   profilesJson = "",
   mappingJson = "",
-  baseDir = process.cwd(),
+  // No current-working-directory default: a relative path inside a profile must resolve
+  // against a directory the deployment chose, not against wherever the bridge
+  // happened to be launched from.
+  baseDir = "",
   allowAuthBackendOverride = false,
+  cliCapabilitiesJson = "",
   fs = fsApi,
 } = {}) {
-  const profiles = parseLaunchProfiles(profilesJson, { baseDir, allowAuthBackendOverride, fs });
+  const capabilities = resolveCliCapabilities({ declaredJson: cliCapabilitiesJson });
+  const profiles = parseLaunchProfiles(profilesJson, {
+    baseDir, allowAuthBackendOverride, capabilities, fs,
+  });
   const mappings = parseProfileMappings(mappingJson, { profiles });
 
   // An empty mapping array is a legitimate "declare profiles now, route later"
@@ -306,7 +315,7 @@ function createTelegramProfileRouter({
   for (const [profileId, profile] of profiles.entries()) {
     fingerprintByProfileId.set(
       profileId,
-      fingerprintLaunchProfile(profile, { baseDir, allowAuthBackendOverride, fs }),
+      fingerprintLaunchProfile(profile, { baseDir, allowAuthBackendOverride, capabilities, fs }),
     );
   }
 

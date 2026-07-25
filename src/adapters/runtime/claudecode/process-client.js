@@ -14,6 +14,7 @@ class ClaudeCodeProcessClient {
     mcpConfigPaths = [],
     launchProfile = null,
     launchProfileBaseDir = "",
+    cliCapabilities = null,
     allowAuthBackendOverride = false,
     allowCloudCredentialInheritance = false,
     onLaunchTelemetry = null,
@@ -36,12 +37,16 @@ class ClaudeCodeProcessClient {
     this.extraArgs = extraArgs;
     this.mcpConfigPaths = mcpConfigPaths;
     this.launchProfile = launchProfile || null;
-    this.launchProfileBaseDir = launchProfileBaseDir || process.cwd();
+    // No current-working-directory default: with a profile applied, an unset base directory
+    // is a configuration error and must surface as one.
+    this.launchProfileBaseDir = typeof launchProfileBaseDir === "string" ? launchProfileBaseDir.trim() : "";
+    this.cliCapabilities = cliCapabilities || null;
     this.allowAuthBackendOverride = Boolean(allowAuthBackendOverride);
     this.allowCloudCredentialInheritance = Boolean(allowCloudCredentialInheritance);
     this.launchProfileFingerprint = fingerprintLaunchProfile(this.launchProfile, {
       baseDir: this.launchProfileBaseDir,
       allowAuthBackendOverride: this.allowAuthBackendOverride,
+      capabilities: this.cliCapabilities,
     });
     this.onLaunchTelemetry = typeof onLaunchTelemetry === "function" ? onLaunchTelemetry : null;
     this.ipcServer = ipcServer;
@@ -116,6 +121,7 @@ class ClaudeCodeProcessClient {
         baseDir: this.launchProfileBaseDir,
         allowAuthBackendOverride: this.allowAuthBackendOverride,
         allowCloudCredentialInheritance: this.allowCloudCredentialInheritance,
+        capabilities: this.cliCapabilities,
       })
       : null;
 
