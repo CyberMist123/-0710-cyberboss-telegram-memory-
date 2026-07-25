@@ -40,6 +40,13 @@ def load_config(path: str) -> tuple[dict, str]:
     for k, v in list(paths.items()):
         if v and not Path(v).is_absolute():
             paths[k] = str((base / v).resolve())
+    # 显式声明的可信真实快照输入目录（index 源路径守卫用，见 core.py）；
+    # 相对路径以配置文件所在目录为基准，语义与 paths.* 一致。
+    roots = cfg.get("trusted_snapshot_roots") or []
+    cfg["trusted_snapshot_roots"] = [
+        str((base / r).resolve()) if not Path(r).is_absolute() else str(Path(r).resolve())
+        for r in roots
+    ]
     cfg_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
     return cfg, cfg_hash
 
@@ -74,12 +81,16 @@ def cmd_index(args):
     episodes = args.episodes or cfg["paths"]["episodes_snapshot"]
     idx = Index.build(episodes, cfg, tok, embedder, cfg["paths"]["workdir"])
     conn = open_db(cfg["paths"]["workdir"])
-    conn.execute(
-        "INSERT OR REPLACE INTO index_versions VALUES (?,?,?,?,?)",
-        (idx.meta["index_version"], idx.meta["embedding_model"],
-         idx.meta["episode_count"], datetime.datetime.now().isoformat(),
-         idx.meta["episodes_snapshot_hash"]))
-    conn.commit()
+    try:
+        # index_versions 只记录构建/审计留痕，不参与运行时加载校验。
+        conn.execute(
+            "INSERT OR REPLACE INTO index_versions VALUES (?,?,?,?,?)",
+            (idx.meta["index_version"], idx.meta["embedding_model"],
+             idx.meta["episode_count"], datetime.datetime.now().isoformat(),
+             idx.meta["episodes_snapshot_hash"]))
+        conn.commit()
+    finally:
+        conn.close()
     print(f"index built: version={idx.meta['index_version']} "
           f"model={idx.meta['embedding_model']} episodes={idx.meta['episode_count']}")
 
@@ -98,56 +109,58 @@ def run_cases(cfg: dict, cfg_hash: str, cases_path: str, run_id: str,
     prompt_text = load_prompt(prompt_path)
     cases = load_cases(cases_path)
     conn = open_db(cfg["paths"]["workdir"])
-    r_cfg = cfg.get("retrieval", {})
+    try:
+        r_cfg = cfg.get("retrieval", {})
 
-    for case in cases:
-        query = case["query"]
-        context = case.get("context", [])
-        explicit = case.get("case_type") == "explicit_recall" or "记得" in query
-        candidates = idx.search(query, r_cfg, embedder)
-        input_payload = build_input_payload(context, query, explicit,
-                                            candidates, idx.episodes)
-        raw = admission.judge(input_payload, prompt_text)
-        gated = validate_and_gate(raw, idx.episodes, tok.words,
-                                  case.get("payload_must_not_contain"))
-        per = {c.get("episode_id"): c for c in gated["per_candidate"]
-               if isinstance(c, dict)}
-        conn.execute(
-            "INSERT OR REPLACE INTO shadow_runs VALUES "
-            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (run_id, case["case_id"], datetime.datetime.now().isoformat(),
-             hashlib.sha256(json.dumps(context + [query], ensure_ascii=False)
-                            .encode("utf-8")).hexdigest()[:16],
-             idx.meta["episodes_snapshot_hash"][:16], idx.meta["embedding_model"],
-             idx.meta["index_version"], cfg_hash,
-             cfg["admission"].get("prompt_version", "v0.1-draft"),
-             admission.model_name, None, DELIVERY_SCHEMA_VERSION,
-             json.dumps(input_payload, ensure_ascii=False),
-             gated["decision"], gated["selected_episode_id"],
-             json.dumps(gated["delivery_payload"], ensure_ascii=False)
-             if gated["delivery_payload"] else None,
-             json.dumps(gated["violations"], ensure_ascii=False),
-             gated["raw_output"]))
-        for c in candidates:
-            pc = per.get(c["episode_id"], {})
-            admitted = 1 if (gated["selected_episode_id"] == c["episode_id"]) else 0
+        for case in cases:
+            query = case["query"]
+            context = case.get("context", [])
+            explicit = case.get("case_type") == "explicit_recall" or "记得" in query
+            candidates = idx.search(query, r_cfg, embedder)
+            input_payload = build_input_payload(context, query, explicit,
+                                                candidates, idx.episodes)
+            raw = admission.judge(input_payload, prompt_text)
+            gated = validate_and_gate(raw, idx.episodes, tok.words,
+                                      case.get("payload_must_not_contain"))
+            per = {c.get("episode_id"): c for c in gated["per_candidate"]
+                   if isinstance(c, dict)}
             conn.execute(
-                "INSERT OR REPLACE INTO retrieval_candidates VALUES "
-                "(?,?,?,?,?,?,?,?,?,?,?)",
-                (run_id, case["case_id"], c["episode_id"], c["rank"],
-                 c["fusion_score"], c["vector_score"], c["bm25_score"], admitted,
-                 pc.get("reject_reason"), pc.get("why_now"),
-                 1 if pc.get("would_request_full_text") else 0))
-    m = compute_metrics(conn, run_id, cases)
-    conn.execute(
-        "INSERT OR REPLACE INTO eval_runs VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-        (run_id, cfg_hash, str(cases_path),
-         json.dumps(m["none_rate_by_type"], ensure_ascii=False),
-         m["hit_at_5"], m["hit_at_10"], m["block_rate"], m["admit_rate"],
-         m["mode_accuracy"], m["payload_violation_rate"],
-         m["concentration_top1"], datetime.datetime.now().isoformat()))
-    conn.commit()
-    conn.close()
+                "INSERT OR REPLACE INTO shadow_runs VALUES "
+                "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (run_id, case["case_id"], datetime.datetime.now().isoformat(),
+                 hashlib.sha256(json.dumps(context + [query], ensure_ascii=False)
+                                .encode("utf-8")).hexdigest()[:16],
+                 idx.meta["episodes_snapshot_hash"][:16], idx.meta["embedding_model"],
+                 idx.meta["index_version"], cfg_hash,
+                 cfg["admission"].get("prompt_version", "v0.1-draft"),
+                 admission.model_name, None, DELIVERY_SCHEMA_VERSION,
+                 json.dumps(input_payload, ensure_ascii=False),
+                 gated["decision"], gated["selected_episode_id"],
+                 json.dumps(gated["delivery_payload"], ensure_ascii=False)
+                 if gated["delivery_payload"] else None,
+                 json.dumps(gated["violations"], ensure_ascii=False),
+                 gated["raw_output"]))
+            for c in candidates:
+                pc = per.get(c["episode_id"], {})
+                admitted = 1 if (gated["selected_episode_id"] == c["episode_id"]) else 0
+                conn.execute(
+                    "INSERT OR REPLACE INTO retrieval_candidates VALUES "
+                    "(?,?,?,?,?,?,?,?,?,?,?)",
+                    (run_id, case["case_id"], c["episode_id"], c["rank"],
+                     c["fusion_score"], c["vector_score"], c["bm25_score"], admitted,
+                     pc.get("reject_reason"), pc.get("why_now"),
+                     1 if pc.get("would_request_full_text") else 0))
+        m = compute_metrics(conn, run_id, cases)
+        conn.execute(
+            "INSERT OR REPLACE INTO eval_runs VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (run_id, cfg_hash, str(cases_path),
+             json.dumps(m["none_rate_by_type"], ensure_ascii=False),
+             m["hit_at_5"], m["hit_at_10"], m["block_rate"], m["admit_rate"],
+             m["mode_accuracy"], m["payload_violation_rate"],
+             m["concentration_top1"], datetime.datetime.now().isoformat()))
+        conn.commit()
+    finally:
+        conn.close()
     return m
 
 
@@ -160,13 +173,19 @@ def cmd_run(args):
 def cmd_report(args):
     cfg, _ = load_config(args.config)
     conn = open_db(cfg["paths"]["workdir"])
-    print(report(conn, args.run_id, load_cases(args.cases), args.cases))
+    try:
+        print(report(conn, args.run_id, load_cases(args.cases), args.cases))
+    finally:
+        conn.close()
 
 
 def cmd_compare(args):
     cfg, _ = load_config(args.config)
     conn = open_db(cfg["paths"]["workdir"])
-    print(compare(conn, args.run_a, args.run_b, load_cases(args.cases), args.cases))
+    try:
+        print(compare(conn, args.run_a, args.run_b, load_cases(args.cases), args.cases))
+    finally:
+        conn.close()
 
 
 def main(argv=None):

@@ -46,6 +46,7 @@ tools/soft-retrieval-replay/var/
 *.npy
 **/trace/
 **/eval/
+tools/soft-retrieval-replay/var/index/
 tools/soft-retrieval-replay/.env
 **/__pycache__/
 *.pyc

@@ -8,6 +8,7 @@ import json
 import math
 import os
 import re
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -15,27 +16,123 @@ import numpy as np
 from .textproc import Tokenizer
 
 # ---------------------------------------------------------------- 守卫
+#
+# 正式库路径守卫（fail-closed，见独立审计 Blocker）。
+#
+# 旧版本靠路径字符串里出现 sample/snapshot/fixture 之类关键词做“看起来
+# 像快照就放行”的启发式判断——这个判断可以被任意重命名或挪目录绕过
+# （例如把正式库整份复制到一个叫 .../snapshot/episodes.jsonl 的路径下，
+# 字符串关键词一样命中，内容却是正式库本体）。新模型改为默认拒绝
+# （allowlist），分两段，语义不同，不能混用：
+#
+#   1) index 命令读取的“源文件”（guard_index_source_path）：
+#      只信任两类显式声明的位置——工具自带的 tests/fixtures/ 目录，
+#      或运营者在配置 paths.trusted_snapshot_roots 里显式列出的目录；
+#      此外一律拒绝。已知的正式库目录（extensions/relationship-memory/
+#      memory/）额外做硬拒绝兜底，即使被误放进 trusted_snapshot_roots
+#      也不放行。
+#
+#   2) run / report / compare 实际读取的 episodes 文件
+#      （guard_snapshot_read_path）：只信任 index 命令自己生成、落在
+#      <workdir>/index/ 下的冻结副本，并且必须与 index 时写入的
+#      meta.json（加载时使用的完整性 manifest）里的 sha256 一致；
+#      SQLite index_versions 只是构建与审计留痕，不参与当前加载校验。
+#      任何外部路径一律拒绝，不看文件名、不看是否叫
+#      snapshot/episodes.jsonl。
+#
+# 两段判断都基于 resolve() 之后的真实路径做祖先关系比较（os.path.
+# commonpath，不是字符串前缀比较），symlink/junction、..、混合斜杠、
+# 盘符大小写都在 resolve() 这一步被拍平，无法绕过。
 
-_FORBIDDEN_PATH_MARKERS = (
-    "extensions/relationship-memory/memory/",
-    "extensions\\relationship-memory\\memory\\",
+_TOOL_ROOT = Path(__file__).resolve().parent.parent
+_TEST_ROOT = (_TOOL_ROOT / "tests" / "fixtures").resolve()
+
+# 已知正式库目录的路径段序列；在任意已 resolve 的路径里出现即拒绝。
+_FORBIDDEN_SUFFIXES = (
+    ("extensions", "relationship-memory", "memory"),
 )
-_SNAPSHOT_MARKERS = ("sample", "snapshot", "fixture")
 
 
-def guard_episodes_path(path: str) -> None:
-    """正式库路径直接拒绝启动（HARNESS §8-13）。"""
-    p = str(path)
-    low = p.lower().replace("\\", "/")
-    for marker in _FORBIDDEN_PATH_MARKERS:
-        if marker.replace("\\", "/") in low:
-            raise SystemExit(f"拒绝启动：episodes 参数指向正式库路径：{path}")
-    base = os.path.basename(low)
-    if base == "episodes.jsonl" and not any(m in low for m in _SNAPSHOT_MARKERS):
+def _resolve(path_str, strict: bool) -> Path:
+    """反斜杠归一化后再 resolve：吃掉 .. /symlink/junction/大小写差异。"""
+    return Path(str(path_str).replace("\\", "/")).resolve(strict=strict)
+
+
+def _is_within(child: Path, parent: Path) -> bool:
+    """真正的祖先关系判断（commonpath），不是脆弱的字符串前缀比较。"""
+    c, p = os.path.normcase(str(child)), os.path.normcase(str(parent))
+    try:
+        common = os.path.commonpath([c, p])
+    except ValueError:
+        return False
+    return common == p
+
+
+def _touches_forbidden_real_store(resolved: Path) -> bool:
+    parts = tuple(p.lower() for p in resolved.parts)
+    for suffix in _FORBIDDEN_SUFFIXES:
+        n = len(suffix)
+        for i in range(len(parts) - n + 1):
+            if parts[i : i + n] == suffix:
+                return True
+    return False
+
+
+def guard_index_source_path(path: str, trusted_roots: list | None = None) -> Path:
+    """index 命令读取源文件前的守卫：默认拒绝，只信任显式声明的位置。"""
+    try:
+        resolved = _resolve(path, strict=False)
+    except OSError as e:
+        raise SystemExit(f"拒绝启动：episodes 源路径无法解析：{path}（{e}）")
+
+    if _touches_forbidden_real_store(resolved):
+        raise SystemExit(f"拒绝启动：episodes 源路径指向正式库目录：{path}")
+
+    allowed_roots = [_TEST_ROOT]
+    for r in trusted_roots or []:
+        try:
+            allowed_roots.append(_resolve(r, strict=False))
+        except OSError:
+            continue
+
+    if not any(_is_within(resolved, root) for root in allowed_roots):
         raise SystemExit(
-            "拒绝启动：episodes 参数看起来是正式库本体（episodes.jsonl）。"
-            "回放器只接受包含 sample/snapshot/fixture 标记的只读副本。"
+            "拒绝启动：episodes 源路径不在任何受信任位置（工具自带 "
+            "tests/fixtures，或配置 paths.trusted_snapshot_roots 显式声明的目录）："
+            f"{path}"
         )
+    return resolved
+
+
+def guard_snapshot_read_path(path: str, snapshot_root, expected_hash: str) -> Path:
+    """run/report/compare 加载索引时的守卫：只信任 index 自己生成、hash 校验通过的冻结副本。"""
+    try:
+        root = Path(snapshot_root).resolve(strict=True)
+    except OSError as e:
+        raise SystemExit(f"拒绝启动：snapshot root 不存在：{snapshot_root}（{e}）")
+    try:
+        resolved = _resolve(path, strict=True)
+    except OSError as e:
+        raise SystemExit(f"拒绝启动：episodes 快照文件无法解析：{path}（{e}）")
+
+    if not _is_within(resolved, root):
+        raise SystemExit(
+            f"拒绝启动：episodes 快照路径不在受控 snapshot root 内：{path}"
+        )
+    if _touches_forbidden_real_store(resolved):
+        raise SystemExit(f"拒绝启动：episodes 快照路径指向正式库目录：{path}")
+
+    actual_hash = file_sha256(str(resolved))
+    if actual_hash != expected_hash:
+        raise SystemExit(
+            "拒绝启动：episodes 快照文件 hash 与 index 时 manifest 记录不一致"
+            f"（可能被替换或篡改）：{path}"
+        )
+    return resolved
+
+
+# 向后兼容别名：旧调用点/文档提到的“episodes 路径守卫”特指 index 源守卫。
+guard_episodes_path = guard_index_source_path
 
 
 def file_sha256(path: str) -> str:
@@ -49,8 +146,11 @@ def file_sha256(path: str) -> str:
 # ---------------------------------------------------------------- Episodes
 
 def load_episodes(path: str) -> list[dict]:
-    """只读加载。坏行跳过并告警，不整体崩溃。"""
-    guard_episodes_path(path)
+    """只读加载。坏行跳过并告警，不整体崩溃。
+
+    不含路径守卫——调用方（Index.build / Index.load）需先分别调用
+    guard_index_source_path / guard_snapshot_read_path 完成对应场景的校验。
+    """
     eps: list[dict] = []
     with open(path, "r", encoding="utf-8") as f:  # 只读句柄，全模块无写路径
         for i, line in enumerate(f, 1):
@@ -264,28 +364,43 @@ class Index:
 
     @staticmethod
     def build(episodes_path, cfg, tokenizer, embedder, workdir) -> "Index":
-        episodes = load_episodes(episodes_path)
+        trusted_roots = (cfg or {}).get("trusted_snapshot_roots") or []
+        source = guard_index_source_path(episodes_path, trusted_roots)
+        episodes = load_episodes(source)
         keys, owner = [], []
         for ep in episodes:
             for _, text in retrieval_keys(ep):
                 keys.append(text)
                 owner.append(ep["id"])
         emb = embedder.embed(keys)
-        snap_hash = file_sha256(episodes_path)
+        snap_hash = file_sha256(str(source))
         version = hashlib.sha256(
             (embedder.model_name + snap_hash).encode("utf-8")
         ).hexdigest()[:12]
+
+        idx_root = Path(workdir) / "index"
+        d = idx_root / version
+        d.mkdir(parents=True, exist_ok=True)
+
+        # 冻结副本：run/report/compare 阶段只信任这一份 index 自己生成的
+        # 只读拷贝，不再回读原始外部 episodes_path（HARNESS §2 / SPEC R9）。
+        frozen_copy = d / "episodes.snapshot.jsonl"
+        shutil.copyfile(str(source), str(frozen_copy))
+        copy_hash = file_sha256(str(frozen_copy))
+        if copy_hash != snap_hash:
+            raise SystemExit("拒绝：快照复制后 hash 与源文件不一致，可能存在竞态写入")
+
         meta = {
             "index_version": version,
             "embedding_model": embedder.model_name,
             "episode_count": len(episodes),
             "episodes_snapshot_hash": snap_hash,
-            "episodes_path": str(episodes_path),
+            "episodes_path": str(frozen_copy),
+            "episodes_source_path_at_index_time": str(source),
+            "snapshot_root": str(idx_root),
             "keys": keys,
             "key_owner": owner,
         }
-        d = Path(workdir) / "index" / version
-        d.mkdir(parents=True, exist_ok=True)
         np.save(d / "embeddings.npy", emb)
         (d / "meta.json").write_text(
             json.dumps(meta, ensure_ascii=False), encoding="utf-8"
@@ -304,8 +419,12 @@ class Index:
                 f"拒绝运行：索引 embedding_model={meta['embedding_model']} "
                 f"与配置 {expected_model} 不一致，禁止混用（SPEC R9）。"
             )
+        snapshot_root = meta.get("snapshot_root", str(idx_root))
+        verified_path = guard_snapshot_read_path(
+            meta["episodes_path"], snapshot_root, meta["episodes_snapshot_hash"]
+        )
         emb = np.load(versions[-1].parent / "embeddings.npy")
-        episodes = load_episodes(meta["episodes_path"])
+        episodes = load_episodes(verified_path)
         return Index(episodes, meta["keys"], meta["key_owner"], emb, meta, tokenizer)
 
     # ---- 检索

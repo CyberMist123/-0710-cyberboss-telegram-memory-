@@ -2,6 +2,12 @@
 
 表结构与 HARNESS §4 一致。NONE 率是分层诊断指标，不设统一目标（SPEC R3）。
 本地盘走 WAL；不支持 WAL 锁的挂载盘自动降级 DELETE 模式。
+
+冻结集判定（is_frozen）读 case-set 里每条 case 自带的 case_set_frozen
+元数据字段，不依赖 cases 文件名——文件名可以被改名绕过或误判。
+
+`meta.json` 是加载时使用的完整性 manifest；`index_versions` 只保留构建与审计留痕，
+不参与当前加载过程的联合校验。
 """
 
 import json
@@ -61,8 +67,16 @@ def open_db(workdir: str) -> sqlite3.Connection:
     return conn
 
 
-def is_frozen(cases_file: str) -> bool:
-    return "test_cases" in Path(cases_file).name
+def is_frozen(cases: list[dict]) -> bool:
+    """冻结集判定：读 case-set 自带的元数据字段，不依赖文件名（HARNESS §7）。
+
+    旧版本靠 cases 文件名里有没有 "test_cases" 字符串判断，这个判断可以被
+    文件改名绕过（冻结集换个名字就能看到逐案例明细），也可能被误判（dev
+    集恰好叫成含 test_cases 的名字就被错误保护）。新版本要求每条 case 自
+    带 case_set_frozen 字段；只要有任意一条声明为 true，整份就按冻结集处
+    理（宁可多保护、不可少保护——载荷可见性是隐私边界，默认从严）。
+    """
+    return any(bool(c.get("case_set_frozen")) for c in cases)
 
 
 # ---------------------------------------------------------------- 指标
@@ -139,10 +153,10 @@ def compute_metrics(conn, run_id: str, cases: list[dict]) -> dict:
 
 # ---------------------------------------------------------------- 报告
 
-def report(conn, run_id: str, cases: list[dict], cases_file: str) -> str:
+def report(conn, run_id: str, cases: list[dict], cases_file: str = "") -> str:
     m = compute_metrics(conn, run_id, cases)
     lines = [f"== report {run_id} ==", json.dumps(m, ensure_ascii=False, indent=2)]
-    if is_frozen(cases_file):
+    if is_frozen(cases):
         lines.append("[冻结集] 只输出聚合分数（HARNESS §7）。")
         return "\n".join(lines)
     by_id = {c["case_id"]: c for c in cases}
@@ -155,13 +169,13 @@ def report(conn, run_id: str, cases: list[dict], cases_file: str) -> str:
     return "\n".join(lines)
 
 
-def compare(conn, run_a: str, run_b: str, cases: list[dict], cases_file: str) -> str:
+def compare(conn, run_a: str, run_b: str, cases: list[dict], cases_file: str = "") -> str:
     ma = compute_metrics(conn, run_a, cases)
     mb = compute_metrics(conn, run_b, cases)
     lines = [f"== compare {run_a} vs {run_b} ==",
              f"A: {json.dumps(ma, ensure_ascii=False)}",
              f"B: {json.dumps(mb, ensure_ascii=False)}"]
-    if is_frozen(cases_file):
+    if is_frozen(cases):
         lines.append("[冻结集] 不输出逐案例差异（HARNESS §7）。")
         return "\n".join(lines)
     a_rows = dict(conn.execute(

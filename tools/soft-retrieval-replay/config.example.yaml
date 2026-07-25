@@ -5,6 +5,12 @@ paths:
   episodes_snapshot: tests/fixtures/episodes.sample.jsonl   # 只读快照；正式库路径会被拒绝
   workdir: var                                              # sqlite / 索引输出（gitignore 覆盖）
 
+# 显式声明的可信真实快照输入目录（index 命令允许从这里读源文件）。
+# 默认为空——这时 index 只接受工具自带的 tests/fixtures/。要索引私有的、
+# 已脱敏的正式快照副本，必须先把该目录的绝对路径显式加在这里；不再靠
+# 路径里出现 snapshot/fixture 之类关键词自动放行（fail-closed）。
+trusted_snapshot_roots: []
+
 tokenizer:
   backend: builtin          # builtin | jieba（机器上装了 jieba 可切换，词典同样生效）
   user_dict: user_dict.txt  # 暗语、人名、地名——不被切碎

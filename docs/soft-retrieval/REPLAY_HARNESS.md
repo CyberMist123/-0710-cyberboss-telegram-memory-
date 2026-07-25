@@ -50,6 +50,10 @@ synthetic_*      由 Episode 自动派生的合成案例，只进 dev，禁止�
 
 `vintage` 必填：用户语言会随系统变好而变省略，评测集需要按时期重采。
 
+以上是物理存放与命名的组织约定；实现层面 `report`/`compare` 是否按冻结集处理
+（见第 7 节）由每条 case 自带的 `case_set_frozen` 元数据字段判定，不读文件名——
+文件名可以被改名绕过或误判，见独立审计修复。
+
 ## 3. 运行流程与命令行接口
 
 ```text
@@ -129,6 +133,9 @@ CREATE TABLE index_versions (
 );
 ```
 
+`meta.json` 是回放器加载时使用的完整性 manifest；`index_versions` 只保留构建与审计留痕，
+不参与当前加载过程的联合校验。
+
 ## 5. Admission 输入 / 输出 schema
 
 **输入**（一次调用判断全部候选；此 JSON 即 `input_payload_json` 存档内容）：
@@ -200,6 +207,9 @@ concentration      单一 episode 被放行的最高占比（回音壁预警）
 - `dev_cases / challenge_cases`：`report` 与 `compare` 可显示逐案例差异与全部明细。
 - `test_cases`：任何命令只输出聚合分数。不显示 case_id、正文、标签、具体失败项或逐案例差异。
 - 最终验收测试可由独立 evaluator（另一个 AI 实例）运行并只回传聚合结果，实现者不接触答案。
+- 实现细节：判定依据是每条 case 的 `case_set_frozen: true` 元数据字段（只要
+  cases 文件里任意一条声明为 true，整份按冻结集处理），不是文件名——冻结集
+  换个文件名不会失去保护，dev 集也不会因为文件名撞上 `test_cases` 而被误保护。
 
 **目的** `compare` 的逐案例差异是最有信息量的调参输入——这正是它绝不能碰冻结集的原因，否则测试集迟早被调参调成训练集。
 
@@ -215,7 +225,7 @@ concentration      单一 episode 被放行的最高占比（回音壁预警）
  7. 载荷句式：delivery_payload 三字段通过 schema 校验；抽样检查无结论/指令句式
  8. 只读守卫：运行全程对 episodes 快照无写操作（以只读权限打开）
  9. 快照完整：每条运行记录的版本字段与 input_payload_json 全部非空
-10. 冻结集保护：对 test_cases 的任何命令不输出逐条明细
+10. 冻结集保护：对 case_set_frozen 元数据为 true 的案例集，任何命令不输出逐条明细
 11. embedding 版本守卫：索引的 embedding_model 与 config 不一致时拒绝运行
 12. UTF-8：含中文与 emoji 的案例全链无乱码
 13. 目录守卫：episodes 参数指向正式库路径时拒绝启动

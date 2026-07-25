@@ -77,8 +77,8 @@ Phase 1 through Phase 5A are present in the selected immutable live release. The
 - Phase 5B remains incomplete.
 - Soft Retrieval：离线 replay harness 已实现并完成本机测试；尚未接入 SHADOW、Telegram 或真实回复链。
   - 位置：`tools/soft-retrieval-replay/`（纯 Python，依赖 numpy + pyyaml；规范见 `docs/soft-retrieval/SPEC.md` 与 `REPLAY_HARNESS.md`）。
-  - 测试：`cd tools/soft-retrieval-replay && python -m unittest discover -s tests` — 15/15 通过（HARNESS §8 十三条清单 + 2 条附加）。
-  - 真实 API smoke：`python smoke_real_apis.py`（读本目录 .env，勿提交）。沙箱内因网络出口 403（请求未到达 API）未能验证 Gemini/DeepSeek 适配器——属环境限制而非适配器缺陷；须在本机跑通一次后方可用于真实回放。
+  - 测试：`cd tools/soft-retrieval-replay && python -m unittest discover -s tests` — 33/33 通过（HARNESS §8 十三条清单 + 附加案例 + 独立审计新增的路径守卫专项测试 9 条 + dynamic alpha/MMR 直接单元测试 8 条），无 ResourceWarning。
+  - 真实 API smoke：`python smoke_real_apis.py`（读本目录 .env，勿提交）。已实跑：Gemini embedding 调用返回 HTTP 404，embedding API 未验证通过；DeepSeek 适配器同样未经真实调用验证。本次修复不对适配器是否存在缺陷下结论——不断言"属环境限制而非适配器缺陷"，需在本机复核请求 URL / 模型名 / 密钥后重新验证一次，方可用于真实回放。
   - 限制：仅 mock/fixture provider 经过验证；检索链只读、无 TG 引用、无常驻进程；独立证据/模式治理仅埋 schema 字段，算法按 SPEC 禁令未实现。
 
 ## Phase 2 Offline Gate
