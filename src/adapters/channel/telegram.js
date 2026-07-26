@@ -50,7 +50,6 @@ function createTelegramChannelAdapter(config) {
 
   return {
     describe() {
-      const media = buildTelegramMediaDescriptors(message);
       return {
         id: "telegram",
         kind: "channel",
