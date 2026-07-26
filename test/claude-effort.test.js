@@ -11,6 +11,7 @@ const {
   resolveEffortLevel,
   resolveStrictMcpConfig,
 } = require("../src/adapters/runtime/claudecode/process-client");
+const { CyberbossApp } = require("../src/core/app");
 
 // A launch built from nothing but the base runtime contract: no model, no
 // profile, no operator extra args. Every case below varies exactly one input
@@ -114,4 +115,86 @@ test("the effort level set is the CLI capability table's, not a second copy", ()
   for (const level of EFFORT_VALUES) {
     assert.equal(flagValue(argsWith({ effort: level }), "--effort"), level);
   }
+});
+
+// --- /effort command ---------------------------------------------------------
+
+// A CyberbossApp reduced to what the command handler touches: a session store
+// that persists runtime params in memory and a channel that records replies.
+function makeApp({ storedEffort = "" } = {}) {
+  const sent = [];
+  const stored = { model: "", modelProvider: "", effort: storedEffort };
+  const sessionStore = {
+    buildBindingKey: () => "binding-1",
+    getRuntimeParamsForWorkspace: () => ({ ...stored }),
+    setRuntimeParamsForWorkspace: (bindingKey, workspaceRoot, params) => {
+      Object.assign(stored, params);
+      return stored;
+    },
+  };
+  const app = Object.create(CyberbossApp.prototype);
+  app.runtimeAdapter = { getSessionStore: () => sessionStore };
+  app.channelAdapter = { sendText: async (payload) => { sent.push(payload); } };
+  app.resolveWorkspaceRoot = () => "/tmp/workspace";
+  return { app, sent, stored };
+}
+
+const INBOUND = { senderId: "user-1", workspaceId: "default", accountId: "telegram", contextToken: "" };
+
+test("/effort with no argument reports the level in force and its source", async () => {
+  const fresh = makeApp();
+  await fresh.app.handleEffortCommand(INBOUND, { name: "effort", args: "" });
+  assert.match(fresh.sent[0].text, /Current effort: medium/);
+  assert.match(fresh.sent[0].text, /Source: default/);
+  assert.match(fresh.sent[0].text, /Available levels: low, medium, high, xhigh, max/);
+
+  const overridden = makeApp({ storedEffort: "high" });
+  await overridden.app.handleEffortCommand(INBOUND, { name: "effort", args: "" });
+  assert.match(overridden.sent[0].text, /Current effort: high/);
+  assert.match(overridden.sent[0].text, /Source: this chat/);
+});
+
+test("/effort with no argument names the environment when that is what applies", async () => {
+  const previous = process.env.CYBERBOSS_CLAUDE_EFFORT;
+  process.env.CYBERBOSS_CLAUDE_EFFORT = "low";
+  try {
+    const { app, sent } = makeApp();
+    await app.handleEffortCommand(INBOUND, { name: "effort", args: "" });
+    assert.match(sent[0].text, /Current effort: low/);
+    assert.match(sent[0].text, /Source: CYBERBOSS_CLAUDE_EFFORT/);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.CYBERBOSS_CLAUDE_EFFORT;
+    } else {
+      process.env.CYBERBOSS_CLAUDE_EFFORT = previous;
+    }
+  }
+});
+
+test("/effort <level> persists the choice for this workspace and confirms it", async () => {
+  const { app, sent, stored } = makeApp();
+  await app.handleEffortCommand(INBOUND, { name: "effort", args: " HIGH " });
+  assert.equal(stored.effort, "high");
+  assert.match(sent[0].text, /Effort switched/);
+  assert.match(sent[0].text, /effort: high/);
+  assert.match(sent[0].text, /workspace: \/tmp\/workspace/);
+});
+
+test("/effort with an unrecognised level changes nothing and prints the usage line", async () => {
+  const { app, sent, stored } = makeApp({ storedEffort: "high" });
+  await app.handleEffortCommand(INBOUND, { name: "effort", args: "turbo" });
+  assert.equal(stored.effort, "high");
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].text, /Usage: \/effort low\|medium\|high\|xhigh\|max/);
+});
+
+test("/effort is dispatched by name and is listed in the help output", async () => {
+  const { app, stored } = makeApp();
+  await CyberbossApp.prototype.dispatchChannelCommand.call(
+    app, INBOUND, { name: "effort", args: "max" },
+  );
+  assert.equal(stored.effort, "max");
+
+  const { buildWeixinHelpText } = require("../src/core/command-registry");
+  assert.match(buildWeixinHelpText(), /\/effort, \/effort <level>/);
 });
