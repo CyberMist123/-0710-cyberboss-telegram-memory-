@@ -22,11 +22,6 @@ function manifestCovers(manifest, releaseDir, file, bytes = fs.readFileSync(file
   if (!record || record.sha256 !== sha256Bytes(bytes)) throw new Error(`startup source is not covered by the verified manifest: ${rel}`);
   return record;
 }
-function readManifest(pathname) {
-  const bytes = fs.readFileSync(pathname);
-  if (hasBom(bytes)) throw new Error("manifest must be UTF-8 without BOM");
-  return JSON.parse(bytes.toString("utf8"));
-}
 function installDescriptor({ candidatePath, expectedCandidateSha256, manifestPath, expectedManifestSha256, auditDirectory, targetPath, repoDir, verify = verifyManifest }) {
   const candidate = path.resolve(candidatePath); const manifestFile = path.resolve(manifestPath); const target = path.resolve(targetPath);
   // Single read: every check below (hash pin, BOM, schema validation, the
@@ -67,10 +62,17 @@ function installDescriptor({ candidatePath, expectedCandidateSha256, manifestPat
     return audit;
   } finally { if (fs.existsSync(temp)) fs.unlinkSync(temp); }
 }
-function installStartupArtifact({ source, target, manifestPath, releaseDir, verify = verifyManifest, repoDir }) {
-  const result = verify({ manifestPath, releaseDir, repoDir: repoDir || null });
+function installStartupArtifact({ source, target, manifestPath, expectedManifestSha256, releaseDir, verify = verifyManifest, repoDir }) {
+  // Single read of the manifest, pinned to the operator's explicit hash
+  // (same double-anchor discipline as installDescriptor): verification,
+  // coverage and the post-write comparison all judge these exact bytes, so
+  // a manifest swapped mid-install cannot self-certify (R4 F2).
+  const manifestBytes = fs.readFileSync(manifestPath);
+  if (hasBom(manifestBytes)) throw new Error("manifest must be UTF-8 without BOM");
+  equalHash(sha256Bytes(manifestBytes), expectedManifestSha256, "manifest");
+  const result = verify({ manifestPath, releaseDir, repoDir: repoDir || null, manifestBytes });
   if (!result.ok) throw new Error(`manifest verification failed: ${(result.errors || []).join("; ")}`);
-  const manifest = readManifest(manifestPath);
+  const manifest = JSON.parse(manifestBytes.toString("utf8"));
   // Single read of the source; install exactly the bytes that passed the
   // coverage check, and judge the installed file against the manifest's
   // recorded hash rather than a re-read of the (swappable) source.

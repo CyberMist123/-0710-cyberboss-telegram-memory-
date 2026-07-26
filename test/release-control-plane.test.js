@@ -20,7 +20,34 @@ test("candidate install creates missing formal descriptor as exact UTF-8 bytes",
 test("candidate replacement retains an immutable backup and audit",()=>{const x=setup(); fs.mkdirSync(path.dirname(x.targetFile),{recursive:true}); fs.writeFileSync(x.targetFile,"old"); const audit=install(x); assert.ok(audit.backup_path && fs.existsSync(audit.backup_path)); assert.equal(fs.readFileSync(audit.backup_path,"utf8"),"old");});
 test("hash mismatch, BOM, and validation failure do not damage old descriptor",()=>{const x=setup(); fs.mkdirSync(path.dirname(x.targetFile),{recursive:true}); fs.writeFileSync(x.targetFile,"old"); assert.throws(()=>install(x,{expectedCandidateSha256:"0".repeat(64)})); fs.writeFileSync(x.candidate,Buffer.concat([Buffer.from([0xef,0xbb,0xbf]),fs.readFileSync(x.candidate)])); assert.throws(()=>install(x)); assert.equal(fs.readFileSync(x.targetFile,"utf8"),"old");});
 test("manifest failure and descriptor schema/path failures retain the old descriptor",()=>{const x=setup(); fs.mkdirSync(path.dirname(x.targetFile),{recursive:true}); fs.writeFileSync(x.targetFile,"old"); assert.throws(()=>install(x,{verify:()=>({ok:false,errors:["tampered"]})}),/manifest verification failed/); const bad=JSON.parse(fs.readFileSync(x.candidate)); bad.telegram_entry=path.join(x.r,"missing","cyberboss.js"); fs.writeFileSync(x.candidate,JSON.stringify(bad)); assert.throws(()=>install(x),/Invalid release descriptor/); assert.equal(fs.readFileSync(x.targetFile,"utf8"),"old");});
-test("startup artifacts require manifest coverage and copy hash exactly",()=>{const r=root(), rel=path.join(r,"release"), src=path.join(rel,"watchdog.py"), dest=path.join(r,"runtime","watchdog.py"), manifest=path.join(r,"manifest.json"); fs.mkdirSync(rel,{recursive:true}); fs.writeFileSync(src,"watchdog"); fs.writeFileSync(manifest,JSON.stringify({files:[{path:"watchdog.py",sha256:sha256(src)}]})); installStartupArtifact({source:src,target:dest,manifestPath:manifest,releaseDir:rel,verify:()=>({ok:true})}); assert.equal(sha256(src),sha256(dest)); fs.writeFileSync(src,"changed"); assert.throws(()=>installStartupArtifact({source:src,target:dest,manifestPath:manifest,releaseDir:rel,verify:()=>({ok:true})}),/not covered/);});
+test("startup artifacts require manifest coverage and copy hash exactly",()=>{const r=root(), rel=path.join(r,"release"), src=path.join(rel,"watchdog.py"), dest=path.join(r,"runtime","watchdog.py"), manifest=path.join(r,"manifest.json"); fs.mkdirSync(rel,{recursive:true}); fs.writeFileSync(src,"watchdog"); fs.writeFileSync(manifest,JSON.stringify({files:[{path:"watchdog.py",sha256:sha256(src)}]})); installStartupArtifact({source:src,target:dest,manifestPath:manifest,expectedManifestSha256:sha256(manifest),releaseDir:rel,verify:()=>({ok:true})}); assert.equal(sha256(src),sha256(dest)); fs.writeFileSync(src,"changed"); assert.throws(()=>installStartupArtifact({source:src,target:dest,manifestPath:manifest,expectedManifestSha256:sha256(manifest),releaseDir:rel,verify:()=>({ok:true})}),/not covered/);});
+test("startup artifact install is anchored to the operator's explicit manifest hash",()=>{
+  const r=root(), rel=path.join(r,"release"), src=path.join(rel,"watchdog.py"), dest=path.join(r,"runtime","watchdog.py"), manifest=path.join(r,"manifest.json");
+  fs.mkdirSync(rel,{recursive:true}); fs.writeFileSync(src,"watchdog");
+  fs.writeFileSync(manifest,JSON.stringify({files:[{path:"watchdog.py",sha256:sha256(src)}]}));
+  const pinned=sha256(manifest);
+  // a manifest swapped after the operator hashed it must be rejected even if
+  // the swapped-in manifest is internally consistent and covers the source
+  fs.writeFileSync(manifest,JSON.stringify({files:[{path:"watchdog.py",sha256:sha256(src)}],swapped:true}));
+  assert.throws(()=>installStartupArtifact({source:src,target:dest,manifestPath:manifest,expectedManifestSha256:pinned,releaseDir:rel,verify:()=>({ok:true})}),/manifest SHA256 does not match/);
+  assert.equal(fs.existsSync(dest),false);
+  // missing anchor is a hard failure, not a downgrade to unanchored install
+  assert.throws(()=>installStartupArtifact({source:src,target:dest,manifestPath:manifest,releaseDir:rel,verify:()=>({ok:true})}),/manifest SHA256 does not match/);
+  // a BOM on the manifest fails closed before any verification
+  fs.writeFileSync(manifest,Buffer.concat([Buffer.from([0xef,0xbb,0xbf]),Buffer.from("{}")]));
+  assert.throws(()=>installStartupArtifact({source:src,target:dest,manifestPath:manifest,expectedManifestSha256:sha256(manifest),releaseDir:rel,verify:()=>({ok:true})}),/without BOM/);
+});
+test("startup artifact verification judges the pinned manifest bytes, not a re-read",()=>{
+  const r=root(), rel=path.join(r,"release"), src=path.join(rel,"watchdog.py"), dest=path.join(r,"runtime","watchdog.py"), manifest=path.join(r,"manifest.json");
+  fs.mkdirSync(rel,{recursive:true}); fs.writeFileSync(src,"watchdog");
+  const body=JSON.stringify({files:[{path:"watchdog.py",sha256:sha256(src)}]});
+  fs.writeFileSync(manifest,body);
+  let sawPinnedBytes=null;
+  const verify=({manifestBytes})=>{ sawPinnedBytes=Boolean(manifestBytes && manifestBytes.toString("utf8")===body); return {ok:true}; };
+  installStartupArtifact({source:src,target:dest,manifestPath:manifest,expectedManifestSha256:sha256(manifest),releaseDir:rel,verify});
+  assert.equal(sawPinnedBytes,true);
+  assert.equal(sha256(dest),sha256(src));
+});
 test("manifest coverage judges the caller's bytes, so a source swapped after reading cannot self-certify",()=>{const r=root(), rel=path.join(r,"release"), src=path.join(rel,"watchdog.py"); fs.mkdirSync(rel,{recursive:true}); fs.writeFileSync(src,"original"); const originalBytes=fs.readFileSync(src); const manifest={files:[{path:"watchdog.py",sha256:sha256Bytes(originalBytes)}]}; fs.writeFileSync(src,"swapped after the caller's read"); const record=manifestCovers(manifest,rel,src,originalBytes); assert.equal(record.sha256,sha256Bytes(originalBytes)); assert.throws(()=>manifestCovers(manifest,rel,src),/not covered/);});
 test("post-write validation failure restores the previous descriptor and removes a fresh install",()=>{
   const x=setup(); fs.mkdirSync(path.dirname(x.targetFile),{recursive:true}); fs.writeFileSync(x.targetFile,"old");
@@ -111,7 +138,7 @@ test("startup artifacts installer copies both manifest-covered sources only to i
     const active = makeRelease(r, "active", true); const descriptorFile = path.join(r, "descriptor.json"); const manifest = path.join(r, "release-manifest.json"); const startup = path.join(r, "runtime", "startup");
     const fixture = makeFixtureRepo(r);
     write(descriptorFile, JSON.stringify(makeDescriptor(r, active))); writeVerifiedManifest(active.release, manifest, fixture);
-    const result = runPowerShell(installers.startup, ["-DescriptorPath", descriptorFile, "-ManifestPath", manifest, "-TargetStartupDirectory", startup, "-RepositoryDirectory", fixture.repoDir]);
+    const result = runPowerShell(installers.startup, ["-DescriptorPath", descriptorFile, "-ManifestPath", manifest, "-ExpectedManifestSha256", sha256(manifest), "-TargetStartupDirectory", startup, "-RepositoryDirectory", fixture.repoDir]);
     assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
     assert.equal(sha256(path.join(startup, "telegram-watchdog.py")), sha256(path.join(active.release, "extensions", "relationship-memory", "launcher", "watchdog.py")));
     assert.equal(sha256(path.join(startup, "stable-telegram-launcher.ps1")), sha256(path.join(active.release, "scripts", "windows", "runtime-startup", "stable-telegram-launcher.candidate.ps1")));
@@ -140,7 +167,7 @@ test("startup artifacts installer rejects a relative target before it can create
   const r = root();
   try {
     const fakeProduction = path.join(r, "deployment", "current.json"); write(fakeProduction, "production sentinel bytes");
-    const result = runPowerShell(installers.startup, ["-DescriptorPath", path.join(r, "missing.json"), "-ManifestPath", path.join(r, "missing-manifest.json"), "-TargetStartupDirectory", ".\\runtime\\startup", "-RepositoryDirectory", packageRoot]);
+    const result = runPowerShell(installers.startup, ["-DescriptorPath", path.join(r, "missing.json"), "-ManifestPath", path.join(r, "missing-manifest.json"), "-ExpectedManifestSha256", "0".repeat(64), "-TargetStartupDirectory", ".\\runtime\\startup", "-RepositoryDirectory", packageRoot]);
     assertFailedClosed(result, "startup installer accepted a relative target"); assert.match(`${result.stderr}\n${result.stdout}`, /TargetStartupDirectory must be an absolute path/);
     assert.equal(fs.readFileSync(fakeProduction, "utf8"), "production sentinel bytes"); assert.equal(fs.existsSync(path.join(r, "runtime", "startup", "telegram-watchdog.py")), false); assert.equal(fs.existsSync(path.join(r, "runtime", "startup", "stable-telegram-launcher.ps1")), false);
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
