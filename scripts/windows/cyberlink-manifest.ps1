@@ -1,8 +1,7 @@
-﻿[CmdletBinding()]
-param(
-  [string]$ManifestPath = ""
-)
-
+﻿# Dot-sourced function library. It must not declare a param() block: when a
+# caller dot-sources this file, param defaults execute in the caller's scope
+# and silently clobber the caller's own variables of the same name (this
+# previously erased continuity-nightly.ps1's -ManifestPath argument).
 $ErrorActionPreference = "Stop"
 
 function Resolve-CyberlinkManifestPath {
