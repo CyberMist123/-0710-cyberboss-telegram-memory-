@@ -8,7 +8,10 @@ const { execFileSync, spawnSync } = require("child_process");
 const { installDescriptor, installStartupArtifact, manifestCovers, sha256, sha256Bytes } = require("../scripts/orchestration/release-control-plane");
 const { EXCLUDED_RELATIONSHIP_MEMORY_FILES, SCHEMA_VERSION } = require("../src/orchestration/release-manifest");
 
-function root() { return fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-control-plane-")); }
+// realpathSync.native expands Windows 8.3 short paths (the GitHub runner's
+// TEMP is C:\Users\RUNNER~1\...): the installers reject any spelling that is
+// not the canonical long form, and production always passes long-form paths.
+function root() { return fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-control-plane-"))); }
 function target(root, name) { const release=path.join(root,name); const bin=path.join(release,"bin"); fs.mkdirSync(bin,{recursive:true}); const entry=path.join(bin,"cyberboss.js"); const watch=path.join(release,"start-safe.ps1"); fs.writeFileSync(entry,"//x"); fs.writeFileSync(watch,"#x"); for(const dir of ["config","state","logs"]) fs.mkdirSync(path.join(root,`${name}-${dir}`),{recursive:true}); return { telegram_entry:entry,config_dir:path.join(root,`${name}-config`),state_dir:path.join(root,`${name}-state`),log_dir:path.join(root,`${name}-logs`),pid_file:path.join(root,`${name}-state`,`x.pid`),watchdog_target:watch }; }
 function descriptor(root) { const a=target(root,"active"), b=target(root,"rollback"); return {active_release_id:"active",...a,last_verified_sha:"a".repeat(40),rollback_release:{release_id:"rollback",...b,last_verified_sha:"b".repeat(40)}}; }
 function setup() { const r=root(), candidate=path.join(r,"candidate.json"), manifest=path.join(r,"manifest.json"), audit=path.join(r,"audit"), targetFile=path.join(r,"deployment","current.json"); fs.writeFileSync(candidate,JSON.stringify(descriptor(r))); fs.writeFileSync(manifest,"{}"); return {r,candidate,manifest,audit,targetFile}; }
