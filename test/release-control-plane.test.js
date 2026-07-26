@@ -9,8 +9,8 @@ const { installDescriptor, installStartupArtifact, manifestCovers, sha256, sha25
 const { EXCLUDED_RELATIONSHIP_MEMORY_FILES, SCHEMA_VERSION } = require("../src/orchestration/release-manifest");
 
 // realpathSync.native expands Windows 8.3 short paths (the GitHub runner's
-// TEMP is C:\Users\RUNNER~1\...): the installers reject any spelling that is
-// not the canonical long form, and production always passes long-form paths.
+// TEMP directory is spelled in short form): the installers reject any spelling
+// that is not the canonical long form, which is what production passes.
 function root() { return fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-control-plane-"))); }
 function target(root, name) { const release=path.join(root,name); const bin=path.join(release,"bin"); fs.mkdirSync(bin,{recursive:true}); const entry=path.join(bin,"cyberboss.js"); const watch=path.join(release,"start-safe.ps1"); fs.writeFileSync(entry,"//x"); fs.writeFileSync(watch,"#x"); for(const dir of ["config","state","logs"]) fs.mkdirSync(path.join(root,`${name}-${dir}`),{recursive:true}); return { telegram_entry:entry,config_dir:path.join(root,`${name}-config`),state_dir:path.join(root,`${name}-state`),log_dir:path.join(root,`${name}-logs`),pid_file:path.join(root,`${name}-state`,`x.pid`),watchdog_target:watch }; }
 function descriptor(root) { const a=target(root,"active"), b=target(root,"rollback"); return {active_release_id:"active",...a,last_verified_sha:"a".repeat(40),rollback_release:{release_id:"rollback",...b,last_verified_sha:"b".repeat(40)}}; }
