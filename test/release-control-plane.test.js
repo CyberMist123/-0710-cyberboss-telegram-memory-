@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { spawnSync } = require("child_process");
 const { installDescriptor, installStartupArtifact, sha256 } = require("../scripts/orchestration/release-control-plane");
 
 function root() { return fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-control-plane-")); }
@@ -16,3 +17,25 @@ test("candidate replacement retains an immutable backup and audit",()=>{const x=
 test("hash mismatch, BOM, and validation failure do not damage old descriptor",()=>{const x=setup(); fs.mkdirSync(path.dirname(x.targetFile),{recursive:true}); fs.writeFileSync(x.targetFile,"old"); assert.throws(()=>install(x,{expectedCandidateSha256:"0".repeat(64)})); fs.writeFileSync(x.candidate,Buffer.concat([Buffer.from([0xef,0xbb,0xbf]),fs.readFileSync(x.candidate)])); assert.throws(()=>install(x)); assert.equal(fs.readFileSync(x.targetFile,"utf8"),"old");});
 test("manifest failure and descriptor schema/path failures retain the old descriptor",()=>{const x=setup(); fs.mkdirSync(path.dirname(x.targetFile),{recursive:true}); fs.writeFileSync(x.targetFile,"old"); assert.throws(()=>install(x,{verify:()=>({ok:false,errors:["tampered"]})}),/manifest verification failed/); const bad=JSON.parse(fs.readFileSync(x.candidate)); bad.telegram_entry=path.join(x.r,"missing","cyberboss.js"); fs.writeFileSync(x.candidate,JSON.stringify(bad)); assert.throws(()=>install(x),/Invalid release descriptor/); assert.equal(fs.readFileSync(x.targetFile,"utf8"),"old");});
 test("startup artifacts require manifest coverage and copy hash exactly",()=>{const r=root(), rel=path.join(r,"release"), src=path.join(rel,"watchdog.py"), dest=path.join(r,"runtime","watchdog.py"), manifest=path.join(r,"manifest.json"); fs.mkdirSync(rel,{recursive:true}); fs.writeFileSync(src,"watchdog"); fs.writeFileSync(manifest,JSON.stringify({files:[{path:"watchdog.py",sha256:sha256(src)}]})); installStartupArtifact({source:src,target:dest,manifestPath:manifest,releaseDir:rel,verify:()=>({ok:true})}); assert.equal(sha256(src),sha256(dest)); fs.writeFileSync(src,"changed"); assert.throws(()=>installStartupArtifact({source:src,target:dest,manifestPath:manifest,releaseDir:rel,verify:()=>({ok:true})}),/not covered/);});
+
+test("PowerShell installers require explicit normalized targets and contain no production default",()=>{
+  const base=path.join(__dirname,"..","scripts","windows","runtime-startup");
+  const descriptorInstaller=path.join(base,"install-release-descriptor.ps1");
+  const startupInstaller=path.join(base,"install-runtime-startup-artifacts.ps1");
+  const descriptorSource=fs.readFileSync(descriptorInstaller,"utf8");
+  const startupSource=fs.readFileSync(startupInstaller,"utf8");
+  assert.match(descriptorSource,/\[Parameter\(Mandatory=\$true\)\]\[string\]\$TargetDescriptorPath/);
+  assert.match(startupSource,/\[Parameter\(Mandatory=\$true\)\]\[string\]\$TargetStartupDirectory/);
+  assert.doesNotMatch(descriptorSource,/deployment['"]?\s*\)|DeploymentDirectory/);
+  assert.doesNotMatch(startupSource,/runtime\\startup|CyberlinkRoot/);
+  const r=root(), fakeProduction=path.join(r,"deployment","current.json"); fs.mkdirSync(path.dirname(fakeProduction),{recursive:true}); fs.writeFileSync(fakeProduction,"do-not-touch");
+  for (const installer of [descriptorInstaller,startupInstaller]) {
+    const result=spawnSync("powershell.exe",["-NoProfile","-NonInteractive","-File",installer],{encoding:"utf8"});
+    assert.notEqual(result.status,0,`${installer} unexpectedly accepted a missing target`);
+    assert.equal(fs.readFileSync(fakeProduction,"utf8"),"do-not-touch");
+  }
+  const relative=spawnSync("powershell.exe",["-NoProfile","-NonInteractive","-Command",`& '${descriptorInstaller.replace(/'/g,"''")}' -CandidatePath x -ExpectedCandidateSha256 x -ManifestPath x -ExpectedManifestSha256 x -AuditDirectory x -TargetDescriptorPath relative.json`],{encoding:"utf8"});
+  assert.notEqual(relative.status,0);
+  assert.match(`${relative.stderr}${relative.stdout}`,/absolute path/);
+  assert.equal(fs.readFileSync(fakeProduction,"utf8"),"do-not-touch");
+});

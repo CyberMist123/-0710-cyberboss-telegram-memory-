@@ -2,17 +2,18 @@
 param(
   [Parameter(Mandatory=$true)][string]$DescriptorPath,
   [Parameter(Mandatory=$true)][string]$ManifestPath,
-  [string]$CyberlinkRoot = '',
+  [Parameter(Mandatory=$true)][string]$TargetStartupDirectory,
   [string]$RepositoryDirectory = ''
 )
 $ErrorActionPreference = 'Stop'
 $repo = if ($RepositoryDirectory) { $RepositoryDirectory } else { Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) }
-$cyberlink = if ($CyberlinkRoot) { $CyberlinkRoot } else { Split-Path -Parent $repo }
+$targetDir = [IO.Path]::GetFullPath($TargetStartupDirectory)
+if (-not [IO.Path]::IsPathRooted($TargetStartupDirectory)) { throw 'TargetStartupDirectory must be an absolute path' }
+if ($targetDir -ne $TargetStartupDirectory) { throw 'TargetStartupDirectory must be a normalized absolute path' }
 $raw = [IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $DescriptorPath))
 if ($raw.Length -ge 3 -and $raw[0] -eq 0xef -and $raw[1] -eq 0xbb -and $raw[2] -eq 0xbf) { throw 'Descriptor must be UTF-8 without BOM' }
 $descriptor = [Text.Encoding]::UTF8.GetString($raw) | ConvertFrom-Json -ErrorAction Stop
 $release = Split-Path -Parent (Split-Path -Parent ([string]$descriptor.telegram_entry))
-$targetDir = Join-Path $cyberlink 'runtime\startup'
 $pairs = @(
   @{ Source = (Join-Path $release 'extensions\relationship-memory\launcher\watchdog.py'); Target = (Join-Path $targetDir 'telegram-watchdog.py') },
   @{ Source = (Join-Path $release 'scripts\windows\runtime-startup\stable-telegram-launcher.candidate.ps1'); Target = (Join-Path $targetDir 'stable-telegram-launcher.ps1') }

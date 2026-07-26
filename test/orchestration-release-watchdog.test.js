@@ -309,3 +309,76 @@ test("dashboard is isolated from TG watchdog and automatic memory writes remain 
   const watchdog = fs.readFileSync(path.join(__dirname, "..", "extensions", "relationship-memory", "launcher", "watchdog.py"), "utf8");
   assert.doesNotMatch(watchdog, /dashboard/i);
 });
+
+function pythonWatchdog(code, args = []) {
+  const watchdog = path.join(__dirname, "..", "extensions", "relationship-memory", "launcher", "watchdog.py");
+  return spawnSync(process.env.PYTHON || "python", ["-c", code, watchdog, ...args], { encoding: "utf8" });
+}
+
+test("watchdog keeps one loop alive across initial BOM, JSON, and schema failures without launching", () => {
+  const probe = `import importlib.util,json,sys,tempfile
+from pathlib import Path
+s=importlib.util.spec_from_file_location('w',sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+root=Path(tempfile.mkdtemp()); d=root/'current.json'; logs=[]; launches=[]
+for raw in [b'\\xef\\xbb\\xbf{}', b'{ invalid', b'{}']:
+ d.write_bytes(raw); logs.clear(); launches.clear()
+ m.run_watchdog(d, 0, iterations=2, sleep=lambda _:None, launcher=lambda *a:launches.append(1), health=lambda _: (True,'ok'), owner_verifier=lambda *a:None, log_sink=lambda message,_:logs.append(message))
+ assert not launches and len(logs)==1 and 'will retry' in logs[0], (raw, logs, launches)
+print('ok')`;
+  const result = pythonWatchdog(probe);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /ok/);
+});
+
+test("watchdog recovers in the same finite loop after atomic descriptor replacement and logs state transitions", () => {
+  const probe = `import importlib.util,json,sys,tempfile
+from pathlib import Path
+s=importlib.util.spec_from_file_location('w',sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+root=Path(tempfile.mkdtemp()); state=root/'state'; state.mkdir(); d=root/'current.json'; d.write_text('{ bad',encoding='utf8'); logs=[]; healthy=[]
+value={'active_release_id':'a','telegram_entry':str(root/'entry'),'config_dir':str(root/'config'),'state_dir':str(state),'log_dir':str(root/'logs'),'pid_file':str(state/'a.pid'),'watchdog_target':str(root/'start.ps1'),'rollback_release':{},'last_verified_sha':'x'}
+def sleep(_):
+ if len(logs)==1:
+  temp=root/'current.tmp'; temp.write_text(json.dumps(value),encoding='utf8'); temp.replace(d)
+def health(_): healthy.append(1); return True,'ok'
+m.run_watchdog(d,0,iterations=3,sleep=sleep,launcher=lambda *a:(_ for _ in ()).throw(AssertionError('launcher')),health=health,owner_verifier=lambda *a:None,log_sink=lambda message,_:logs.append(message))
+assert len(healthy)==2 and sum('will retry' in x for x in logs)==1 and any('recovered' in x for x in logs), logs
+print('ok')`;
+  const result = pythonWatchdog(probe);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /ok/);
+});
+
+test("watchdog owner identity parses quoted Windows argv and accepts only exact current or allowlisted pairs", () => {
+  const probe = `import importlib.util,sys,tempfile
+from pathlib import Path
+s=importlib.util.spec_from_file_location('w',sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+root=Path(tempfile.mkdtemp()); script=root/'space dir'/'watchdog.py'; descriptor=root/'descriptor dir'/'current.json'; other=root/'other cyberboss'/'watchdog.py'; legacy=root/'legacy'/'watchdog.py'; legacyd=root/'legacy'/'current.json'
+row=lambda command:{'ExecutablePath':r'C:\\\\Python\\\\python.exe','CommandLine':command}
+cmd='"C:\\\\Python\\\\python.exe" "'+str(script)+'" --descriptor "'+str(descriptor)+'"'
+assert m.watchdog_identity(row(cmd),descriptor,script)
+assert m.watchdog_identity(row('"C:\\\\Python\\\\python.exe" "'+str(script)+'" --descriptor="'+str(descriptor)+'"'),descriptor,script)
+assert not m.watchdog_identity(row(cmd),descriptor,other)
+assert not m.watchdog_identity(row('"C:\\\\Python\\\\python.exe" "'+str(other)+'" --descriptor "'+str(descriptor)+'"'),descriptor,script)
+assert not m.watchdog_identity(row('"C:\\\\Python\\\\python.exe" "'+str(legacy)+'" --descriptor "'+str(legacyd)+'"'),descriptor,script)
+assert m.watchdog_identity(row('"C:\\\\Python\\\\python.exe" "'+str(legacy)+'" --descriptor "'+str(legacyd)+'"'),legacyd,legacy)
+# A stale/reused PID is overwritten; only an exact current or supplied legacy
+# pair blocks ownership, including two independently discovered exact owners.
+m.WATCHDOG_SCRIPT=script; pid=root/'owner'/'watchdog.pid'; m.read_pid=lambda _:77; m.process_row=lambda _:row('"C:\\\\Python\\\\python.exe" "'+str(other)+'" --descriptor "'+str(descriptor)+'"'); m.watchdog_rows=lambda:[]
+m.verify_watchdog_owner(pid,descriptor); assert pid.read_text() == str(m.os.getpid())
+m.watchdog_rows=lambda:[dict(row(cmd),ProcessId=101),dict(row(cmd),ProcessId=102)]
+try: m.verify_watchdog_owner(pid,descriptor)
+except RuntimeError: pass
+else: raise AssertionError('exact duplicate owner was not blocked')
+m.watchdog_rows=lambda:[dict(row('"C:\\\\Python\\\\python.exe" "'+str(legacy)+'" --descriptor "'+str(legacyd)+'"'),ProcessId=103)]
+try: m.verify_watchdog_owner(pid,descriptor,[(legacy,legacyd)])
+except RuntimeError: pass
+else: raise AssertionError('exact legacy owner was not blocked')
+print('ok')`;
+  const result = pythonWatchdog(probe);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /ok/);
+  const source = fs.readFileSync(path.join(__dirname, "..", "extensions", "relationship-memory", "launcher", "watchdog.py"), "utf8");
+  assert.match(source, /Path\(__file__\)\.resolve\(\)/);
+  assert.match(source, /CommandLineToArgvW/);
+  assert.doesNotMatch(source, /cyberboss.*in token|watchdog\\\\\.py.*-match/);
+});
