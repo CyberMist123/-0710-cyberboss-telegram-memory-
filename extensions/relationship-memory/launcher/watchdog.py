@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 """Single-owner Telegram watchdog driven only by deployment/current.json."""
+# `annotations` must stay first: without it, the PEP 604/585 annotations below
+# make *import itself* explode on Python < 3.10 with an unexplained TypeError
+# (R4 finding F5), which is indistinguishable from "watchdog silently absent".
+from __future__ import annotations
+
 import argparse
 import ctypes
 import json
@@ -9,6 +14,22 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
+# The supervised production interpreter is validated on 3.10+ only. On an older
+# interpreter the watchdog must refuse to run with a clear diagnosis instead of
+# failing later in ways that read as "supervisor silently absent" (R4 F5).
+MINIMUM_PYTHON = (3, 10)
+
+
+def enforce_python_floor() -> None:
+    if sys.version_info < MINIMUM_PYTHON:
+        floor = ".".join(str(part) for part in MINIMUM_PYTHON)
+        found = ".".join(str(part) for part in sys.version_info[:3])
+        raise SystemExit(
+            f"watchdog.py requires Python {floor}+ but was started with {found} "
+            f"({sys.executable}); refusing to supervise with an unvalidated interpreter"
+        )
+
 
 HERE = Path(__file__).resolve().parent
 WATCHDOG_SCRIPT = Path(__file__).resolve()
@@ -268,6 +289,7 @@ def run_watchdog(descriptor_path: Path, interval: float, iterations: int | None 
 
 
 def main() -> int:
+    enforce_python_floor()
     parser = argparse.ArgumentParser()
     parser.add_argument("--descriptor", type=Path, default=DEFAULT_DESCRIPTOR)
     parser.add_argument("--interval", type=float, default=60.0)

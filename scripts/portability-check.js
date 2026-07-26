@@ -57,6 +57,9 @@ for (const relativePath of trackedFiles) {
       continue;
     }
     for (const check of checks) {
+      if (isAuditEvidenceQuote(normalizedPath, check.name)) {
+        continue;
+      }
       if (check.pattern.test(line)) {
         findings.push({
           check: check.name,
@@ -89,6 +92,14 @@ function isProbablyBinary(relativePath) {
 
 function isAllowedPortabilityFixture(relativePath, line) {
   return relativePath.startsWith("test/") && /PORTABILITY_FIXTURE/.test(line);
+}
+
+function isAuditEvidenceQuote(relativePath, checkName) {
+  // Audit reports must quote evidence verbatim, including synthetic fixture
+  // paths such as `D:\release\bin\cyberboss.js` taken from test files. Only
+  // the bare drive-path shape is exempted for them; user paths, private
+  // names, and every other check still apply to docs/audit/ unchanged.
+  return relativePath.startsWith("docs/audit/") && checkName === "windows-drive-path";
 }
 
 function isPortabilityCheckDefinition(relativePath) {

@@ -230,6 +230,18 @@ function manifestForWriter(root, descriptorPath) {
   };
 }
 
+// R4 F1: on non-Windows machines spawnSync("powershell.exe") returns
+// { status: null, error: ENOENT } without throwing, so `notEqual(status, 0)`
+// is vacuously true. Fail-closed assertions must first prove the process ran.
+// Only the two PowerShell-spawning tests are guarded; the Python-based tests
+// below are platform-neutral and must keep running everywhere (R4 F1.3b).
+const IS_WINDOWS = process.platform === "win32";
+function assertFailedClosed(result, message) {
+  assert.equal(result.error, undefined, `process never ran: ${result.error}`);
+  assert.notEqual(result.status, null, "process never ran: spawnSync returned status null");
+  assert.notEqual(result.status, 0, `${message}\nstderr: ${result.stderr}\nstdout: ${result.stdout}`);
+}
+
 function runWriter(manifest) {
   const script = path.join(__dirname, "..", "scripts", "windows", "cyberlink-manifest.ps1");
   const command = `. '${script.replace(/'/g, "''")}'; $manifest = $env:CYBERBOSS_TEST_MANIFEST | ConvertFrom-Json; Write-TelegramDescriptor -Manifest $manifest`;
@@ -239,18 +251,18 @@ function runWriter(manifest) {
   });
 }
 
-test("legacy manifest writer is retired so it cannot overwrite the formal descriptor", () => {
+test("legacy manifest writer is retired so it cannot overwrite the formal descriptor", { skip: !IS_WINDOWS }, () => {
   const root = tempRoot();
   const descriptorPath = path.join(root, "external", "current.json");
   fs.mkdirSync(path.dirname(descriptorPath), { recursive: true });
   fs.writeFileSync(descriptorPath, '{"old":true}\n', "utf8");
   const result = runWriter(manifestForWriter(root, descriptorPath));
-  assert.notEqual(result.status, 0);
+  assertFailedClosed(result, "legacy manifest writer did not fail closed");
   assert.match(result.stderr, /Write-TelegramDescriptor is retired/);
   assert.equal(fs.readFileSync(descriptorPath, "utf8"), '{"old":true}\n');
 });
 
-test("legacy manifest writer fails closed before it can alter a descriptor", () => {
+test("legacy manifest writer fails closed before it can alter a descriptor", { skip: !IS_WINDOWS }, () => {
   const root = tempRoot();
   const descriptorPath = path.join(root, "external", "current.json");
   fs.mkdirSync(path.dirname(descriptorPath), { recursive: true });
@@ -259,7 +271,7 @@ test("legacy manifest writer fails closed before it can alter a descriptor", () 
   const manifest = manifestForWriter(root, descriptorPath);
   manifest.rollback.telegram_entry = path.join(root, "legacy", "bin", "missing-cyberboss.js");
   const result = runWriter(manifest);
-  assert.notEqual(result.status, 0);
+  assertFailedClosed(result, "legacy manifest writer did not fail closed");
   assert.match(result.stderr, /Write-TelegramDescriptor is retired/);
   assert.equal(fs.readFileSync(descriptorPath, "utf8"), old);
   assert.equal(fs.readdirSync(path.dirname(descriptorPath)).filter((name) => /\.(tmp|bak)$/.test(name)).length, 0);

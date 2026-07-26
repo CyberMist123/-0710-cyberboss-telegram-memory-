@@ -1,5 +1,17 @@
 # Implementation Status
 
+## 2026-07-26 翻盘清单第 1/2/4/5 条：接线测试门（`fix/r4-test-gate`）
+
+恢复工作的第一步，按 R4 报告末尾清单的序号执行。本分支只动测试门与 watchdog 版本守卫，不碰 F2/F4 的代码修复（清单 6–9 留待后续 `fix/*` 分支）。
+
+**顺带修复了一个更急的问题：`main` 的 CI 自审计报告并入后一直是红的。** 根因是 `scripts/portability-check.js` 的 `windows-drive-path` 检查命中了 `docs/audit/R4_FINAL_CODE_REVIEW.md` 里逐字引用的证据路径（盘符开头的合成夹具路径，来自 status-script 测试）。修法：仅对 `docs/audit/` 豁免 `windows-drive-path` 这一条 —— 审计报告必须逐字引用证据；用户路径、私名等其余检查对 docs 照常生效。
+
+- **清单 1（F1.4）**：`npm run test:orchestration` 从 7 个文件扩到 11 个（补 `status-script`、`release-manifest`、`stable-telegram-launcher`、`release-descriptor-watchdog-owner` —— 最后一个此前不被任何脚本引用），并作为独立步骤接进 `.github/workflows/phase1-offline.yml`。5 个 release/cutover 测试文件自此全部在 windows-latest 上真实执行。
+- **清单 2（F1）**：`release-control-plane`（4 个 PS 测试）、`orchestration-release-watchdog`（2 个 PS 测试）、`status-script`（2 个 Windows 路径断言测试）补 `{ skip: !IS_WINDOWS }`。只守卫真正 Windows-only 的测试；Python 探针类测试保持全平台执行（F1.3(b) 的教训：那些不是平台问题，skip 等于埋掉缺陷）。
+- **清单 4（F1.1/F1.2）**：5 处 `assert.notEqual(status, 0)` 假绿断言收紧为 `assertFailedClosed`：先断言 `result.error` 为空、`status !== null`（证明进程真的跑过），失败信息携带 stderr/stdout。ENOENT 不再静默成 `null !== 0` 通过。
+- **清单 5（F5）**：`watchdog.py` 加 `from __future__ import annotations`（低版本导入不再炸出无解释的 TypeError），`main()` 入口加 `enforce_python_floor()`（< 3.10 时带明确诊断 fail-closed）。CI 末尾新增 Python 3.9 探针步骤，断言 watchdog 确实以清晰信息拒绝启动 —— 守住 CI 主流程 Python 3.12 复现不了该缺陷的盲区。
+- **清单 3** 的首轮证据由接线后的 windows-latest CI run 提供（PS 测试真实执行的完整输出）；真机 Windows 留证仍待生产机操作时补。
+
 ## 2026-07-26 项目搁置：状态快照与恢复条件
 
 **当前状态：搁置（shelved）。不得切生产。** 恢复工作前先读完本节。

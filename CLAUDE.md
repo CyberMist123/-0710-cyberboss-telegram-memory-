@@ -26,13 +26,13 @@ Cyberboss Telegram Memory：Telegram 侧的关系记忆系统，生产机是一�
 
 `docs/audit/R4_FINAL_CODE_REVIEW.md`（2026-07-26）判 FAIL。**合并进 `main` 不等于批准部署**。五条发现，翻盘清单在报告末尾，按序号顺序做：
 
-| | 问题 | 位置 |
-|---|---|---|
-| F1.4 | **CI 只跑 4/82 个测试文件**，release/cutover 那批一个都不在内 —— 门不存在。清单第 1 条，优先于所有代码修复 | `.github/workflows/phase1-offline.yml` |
-| F1 | 4 个 PS 测试文件无平台守卫；5 处 `assert.notEqual(status, 0)` 在 ENOENT 下恒真（假绿） | `test/release-control-plane.test.js`、`test/orchestration-release-watchdog.test.js` |
-| F2 | `installStartupArtifact` 无 manifest 哈希锚定且读两次；`verifyManifest` 的 git 校验只证存在性 | `scripts/orchestration/release-control-plane.js`、`src/orchestration/release-manifest.js` |
-| F4 | 向上摸目录取最近匹配祖先，`$root` 决定被执行的 Python 文件与密钥路径 | `scripts/windows/runtime-startup/start-dashboard.ps1`、`start-telegram.ps1` |
-| F5 | 硬依赖 Python ≥ 3.10 却无版本声明，3.9 上导入即失败 | `extensions/relationship-memory/launcher/watchdog.py` |
+| | 问题 | 位置 | 状态 |
+|---|---|---|---|
+| F1.4 | CI 缺 release/cutover 测试门 | `.github/workflows/phase1-offline.yml` | ✅ 已接线（清单 1，`fix/r4-test-gate`） |
+| F1 | PS 测试无平台守卫；5 处 fail-closed 断言在 ENOENT 下恒真（假绿） | `test/release-control-plane.test.js`、`test/orchestration-release-watchdog.test.js` | ✅ 守卫与断言已修（清单 2/4） |
+| F2 | `installStartupArtifact` 无 manifest 哈希锚定且读两次；`verifyManifest` 的 git 校验只证存在性 | `scripts/orchestration/release-control-plane.js`、`src/orchestration/release-manifest.js` | ⏳ 待修（清单 6/7） |
+| F4 | 向上摸目录取最近匹配祖先，`$root` 决定被执行的 Python 文件与密钥路径 | `scripts/windows/runtime-startup/start-dashboard.ps1`、`start-telegram.ps1` | ⏳ 待修（清单 8/9） |
+| F5 | 硬依赖 Python ≥ 3.10 却无版本声明，3.9 上导入即失败 | `extensions/relationship-memory/launcher/watchdog.py` | ✅ 已修（清单 5：future import + 版本守卫 + CI 3.9 探针） |
 
 ## 跑测试：先读这段，否则会误判
 
@@ -40,11 +40,9 @@ Node ≥ 22。**没有 `npm test`**，测试按 `npm run test:*` 分组（`test:
 
 三个会让你把红当绿、或把绿当过的陷阱：
 
-1. **非 Windows 机器上**，调 `powershell.exe` 的测试会 `spawnSync` ENOENT，`status` 为 `null` 且不抛异常。于是 `assert.notEqual(status, 0)` 这类 fail-closed 断言**恒真** ——「脚本没跑」和「脚本正确退役」不可区分。这类测试在本机的绿灯**没有意义**。
-2. **Python 需 ≥ 3.10**（见 F5）。3.9 上 `watchdog.py` 导入即 `TypeError`，相关测试全红，且失败信息不会告诉你是版本问题。
-3. **CI 不是全量门**。`.github/workflows/phase1-offline.yml` 只跑 `npm run test:phase1`（4 个文件）。CI 绿 ≠ 你改的代码被验证过。改 `scripts/orchestration/`、`scripts/windows/`、`extensions/relationship-memory/launcher/` 时，必须自己指定测试文件跑，并说明在什么平台跑的。
-
-现成但未接线：`npm run test:orchestration` 已覆盖 `release-control-plane` 与 `orchestration-release-watchdog`；`status-script`、`release-manifest`、`stable-telegram-launcher` 还需补进去。
+1. **非 Windows 机器上**，调 `powershell.exe` 的测试有 `{ skip: !IS_WINDOWS }` 守卫，本机会显示诚实的 skip —— 这些测试的真实信号只来自 windows-latest CI 或真 Windows 机。历史教训（R4 F1）：守卫补齐前，`spawnSync` ENOENT 使 `assert.notEqual(status, 0)` 恒真，「脚本没跑」和「脚本正确退役」不可区分。新增这类测试时必须复用 `assertFailedClosed` 模式（先证进程真的跑了），不要裸写 `notEqual(status, 0)`。
+2. **Python 需 ≥ 3.10**。`watchdog.py` 已有 `from __future__ import annotations` 与启动版本守卫：低版本上模块可导入（探针测试全平台可跑），但作为程序启动会带明确诊断 fail-closed。CI 有 Python 3.9 探针步骤守这个行为。
+3. **CI 门在 `.github/workflows/phase1-offline.yml`**：phase1–5a 加 `npm run test:orchestration`（11 个文件，含全部 5 个 release/cutover 测试）。改 `scripts/orchestration/`、`scripts/windows/`、`extensions/relationship-memory/launcher/` 的代码有 CI 信号了，但仍建议本地先指定测试文件跑一轮，并说明在什么平台跑的。
 
 ## 硬性禁止
 

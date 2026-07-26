@@ -53,5 +53,28 @@ jobs:
       - name: Phase 5A user-pull lookup tests
         run: npm run test:phase5a
 
+      # R4 翻盘清单第 1 条（F1.4）：release/cutover 测试门。
+      # windows-latest 提供真实 powershell.exe，Python 3.12 满足 watchdog 版本前提，
+      # 这里产生的是真实信号，不是 ENOENT 假绿。
+      - name: Release/cutover control-plane tests
+        run: npm run test:orchestration
+
+      # R4 翻盘清单第 5 条（F5）：低版本 Python 上 watchdog 必须 fail-closed 且给出
+      # 明确诊断，而不是静默不启动或含糊的 TypeError。
+      - name: Setup Python 3.9 for the version-floor probe
+        id: py39
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+          update-environment: false
+
+      - name: Watchdog fails closed on unsupported Python
+        run: |
+          $py39 = "${{ steps.py39.outputs.python-path }}"
+          $result = & $py39 extensions/relationship-memory/launcher/watchdog.py --once 2>&1 | Out-String
+          if ($LASTEXITCODE -eq 0) { Write-Error "watchdog.py did not fail closed on Python 3.9"; exit 1 }
+          if ($result -notmatch "requires Python") { Write-Error "watchdog.py failed without a clear version diagnosis: $result"; exit 1 }
+          Write-Output "watchdog.py failed closed with a clear version diagnosis on Python 3.9"
+
       - name: Diff hygiene
         run: git diff --check
