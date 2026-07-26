@@ -12,7 +12,9 @@
 
 FAIL 不是否定加固设计。主链路的工程质量确实高：TOCTOU 单读纪律、原子 `rename` + 回读 + 回滚、全链路拒 BOM、精确身份匹配、旧可变部署 fail-closed 退役，这些都在代码里落实了，并且有实测通过的测试背书（见「确认扎实的部分」）。
 
-FAIL 的理由是**当前状态下无法取得切生产所需的证据**：改动生产机的那批入口，在离线测试门上是零信号或反向信号；而锚定最弱的那个安装函数，恰好只能通过零信号的那个入口到达。在补齐 F1 之前，"测试全绿"这句话不能作为放行依据。
+FAIL 的理由是**当前状态下无法取得切生产所需的证据**：改动生产机的那批入口，在离线测试门上是零信号或反向信号（F1.1–F1.3），而在 CI 上连信号都不产生 —— 那 5 个 release/cutover 测试文件根本不在 `npm run test:phase1` 的执行范围内（F1.4）。与此同时，锚定最弱的那个安装函数（F2）恰好只能通过这批无门入口到达。
+
+换句话说：不是门不够牢，是这段链路上**没有门**。在 F1.4 接线、F1 其余各项补齐之前，"测试全绿"这句话不构成放行依据 —— 因为绿灯从未覆盖过这些代码。
 
 ---
 
@@ -88,7 +90,33 @@ null !== 0
 
 > (c) 的具体表现：`resolveProcessDirectory('node "D:\\release\\bin\\cyberboss.js"')` 期望 `D:\release\bin`，POSIX 下实得 `.`。这是纯函数单元测试，**完全不 spawn 子进程**。如果用"非 Windows 一律 skip"来把门刷绿，这条合法失败也会被一起埋掉。
 
-**结论：改动生产机的那几个 PS 入口，在离线门上零信号；其中 5 处 fail-closed 断言是反向信号（假绿）。**
+### F1.4 CI 根本不跑这批测试 —— 门不存在，而非门不牢
+
+前三小节讨论的是"离线门给出假信号"。但复核 CI 配置后发现更基础的问题：**这批测试在 CI 里从未被执行过。**
+
+`.github/workflows/phase1-offline.yml` 的环境其实是正确的：
+
+```yaml
+runs-on: windows-latest          # :13   —— powershell.exe 存在
+python-version: "3.12"           # :30   —— 不触发 F5
+run: npm run test:phase1         # :42
+```
+
+问题在 `npm run test:phase1` 的覆盖面。全仓 **82** 个 `test/*.test.js`，该脚本只列了 **4** 个，且 release/cutover 相关的一个都不在其中：
+
+| 测试文件 | 在 CI 中 |
+| --- | --- |
+| `test/release-control-plane.test.js` | ❌ |
+| `test/orchestration-release-watchdog.test.js` | ❌ |
+| `test/status-script.test.js` | ❌ |
+| `test/release-manifest.test.js` | ❌ |
+| `test/stable-telegram-launcher.test.js` | ❌ |
+
+另一个 workflow `secret-audit.yml` 跑在 `ubuntu-latest`，只执行 `scripts/secret_audit_scan.py`，与本议题无关。
+
+也就是说：项目已经具备一台配置完全正确的 Windows CI（`windows-latest` + Python 3.12，两个致命环境前提都满足），却没有把守护生产切换的那批测试接进去。F1.1 的假绿断言与 F5 的 Python 缺陷之所以能长期存活，直接原因就是**没有任何自动化环节执行过它们**。
+
+**结论：改动生产机的那几个 PS 入口，在离线门上零信号，其中 5 处 fail-closed 断言是反向信号（假绿）；而在 CI 上连信号都不产生 —— 门不存在。这是本次判 FAIL 最根本的一条。**
 
 ---
 
@@ -274,14 +302,15 @@ TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
 
 按依赖顺序，全部完成方可重新申请放行：
 
-1. **【F1｜必须】** 给 4 个无守卫的 PS 测试文件补 `{ skip: !IS_WINDOWS }`，对齐 `stable-telegram-launcher.test.js` 的既有写法。**注意**：不要用"非 Windows 一律 skip"一刀切 —— F1 分类 (b)(c) 那 8 条不是平台问题，skip 掉等于埋掉真实缺陷。
-2. **【F1｜必须】** 在真 Windows 机器上跑那 6 条 PowerShell 测试并留证（完整 `node --test` 输出 + 机器/PowerShell 版本），归档进 `docs/audit/`。这是切生产的核心证据，目前完全缺失。
-3. **【F1｜必须】** 收紧 5 处 fail-closed 断言。最小改法：断言前先确认进程真的跑过 —— 检查 `result.error` 为空且 `result.status !== null`，再断言 `notEqual(status, 0)`。同时把 `result.error` 纳入失败信息，别再让 ENOENT 静默成 `null !== 0`。
-4. **【F5｜必须】** 修 `watchdog.py` 的 Python 版本依赖（加 `from __future__ import annotations`），并在启动路径上补版本守卫使其 fail-closed。
-5. **【F2｜必须】** 给 `installStartupArtifact` 补 manifest 锚定：新增 `expectedManifestSha256` 参数，单读 manifest bytes 后先 `equalHash` 再用于 `verify` 和 `manifestCovers`（消除双读），并把该参数一路打通到 `install-runtime-startup-artifacts.ps1`。
-6. **【F2｜建议】** 在 `verifyManifest` 里把 git 校验从存在性提升为关系校验：`rev-parse ${commit.sha}^{tree}` 与 `manifest.commit.tree_sha` 比对；生成路径已有现成辅助函数 `gitCommitTreeSha` 可复用。
-7. **【F4.1/F4.2｜必须】** 消除 `start-dashboard.ps1` / `start-telegram.ps1` 的祖先回溯。最省的做法：在安装期把 `CYBERLINK_ROOT` 固化进启动项（回溯逻辑已让位于它），或改为像 `stable-telegram-launcher.candidate.ps1` 那样从 descriptor 反推根目录。
-8. **【F4.3｜建议】** 去掉 `watchdog.py` 的 `Path.cwd()` 兜底，改为无显式 `--descriptor` 时 fail-closed。
+1. **【F1.4｜必须·最高优先】** 把 release/cutover 那 5 个测试文件接进 `npm run test:phase1`（或新增一个 CI job 调用它们）。CI 已经是 `windows-latest` + Python 3.12，两个环境前提都满足，接线即可产生真实信号。**这一条必须排在所有修复之前** —— 否则后续每一项修复都无法被自动验证，只能靠人工断言，而人工断言正是本次 FAIL 的成因。
+2. **【F1｜必须】** 给 4 个无守卫的 PS 测试文件补 `{ skip: !IS_WINDOWS }`，对齐 `stable-telegram-launcher.test.js` 的既有写法。**注意**：不要用"非 Windows 一律 skip"一刀切 —— F1 分类 (b)(c) 那 8 条不是平台问题，skip 掉等于埋掉真实缺陷。守卫的目的是让本机开发者看到诚实的 skip，不是让 CI 也跳过。
+3. **【F1｜必须】** 在真 Windows 机器（或第 1 条接线后的 CI）上跑那 6 条 PowerShell 测试并留证（完整 `node --test` 输出 + 机器/PowerShell 版本），归档进 `docs/audit/`。这是切生产的核心证据，目前完全缺失。
+4. **【F1｜必须】** 收紧 5 处 fail-closed 断言。最小改法：断言前先确认进程真的跑过 —— 检查 `result.error` 为空且 `result.status !== null`，再断言 `notEqual(status, 0)`。同时把 `result.error` 纳入失败信息，别再让 ENOENT 静默成 `null !== 0`。
+5. **【F5｜必须】** 修 `watchdog.py` 的 Python 版本依赖（加 `from __future__ import annotations`），并在启动路径上补版本守卫使其 fail-closed。注意 CI 用 Python 3.12，**不会**复现该缺陷；需另加一个低版本 job 或显式版本断言才能守住。
+6. **【F2｜必须】** 给 `installStartupArtifact` 补 manifest 锚定：新增 `expectedManifestSha256` 参数，单读 manifest bytes 后先 `equalHash` 再用于 `verify` 和 `manifestCovers`（消除双读），并把该参数一路打通到 `install-runtime-startup-artifacts.ps1`。
+7. **【F2｜建议】** 在 `verifyManifest` 里把 git 校验从存在性提升为关系校验：`rev-parse ${commit.sha}^{tree}` 与 `manifest.commit.tree_sha` 比对；生成路径已有现成辅助函数 `gitCommitTreeSha` 可复用。
+8. **【F4.1/F4.2｜必须】** 消除 `start-dashboard.ps1` / `start-telegram.ps1` 的祖先回溯。最省的做法：在安装期把 `CYBERLINK_ROOT` 固化进启动项（回溯逻辑已让位于它），或改为像 `stable-telegram-launcher.candidate.ps1` 那样从 descriptor 反推根目录。
+9. **【F4.3｜建议】** 去掉 `watchdog.py` 的 `Path.cwd()` 兜底，改为无显式 `--descriptor` 时 fail-closed。
 
 ---
 
@@ -297,3 +326,10 @@ TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
 | F4.3 watchdog | 与 F4.1 同等严重度 | 下调至低：`watchdog_identity` 要求精确 `--descriptor` token，生产路径必然显式传参 |
 
 初稿的 `verifyManifest` 只做 `cat-file -e` 这一判断经复核**成立**（`ls-tree` / `rev-parse ^{tree}` 只在生成路径），此处无修正。
+
+本报告另有两处初稿未涉及的发现，均为新增而非修正：
+
+- **F1.4** —— CI 只执行 4/82 个测试文件，5 个 release/cutover 测试文件全部在外。初稿将 F1 定性为"靠平台巧合才绿"，实际更基础：这批测试在自动化环节中从未被执行。
+- **F5** —— `watchdog.py` 硬依赖 Python ≥ 3.10 且无任何版本声明。
+
+两者互为因果：正因为 F1.4 的门不存在，F5 这类导入即失败的缺陷才能进入 `main` 而无人察觉。
