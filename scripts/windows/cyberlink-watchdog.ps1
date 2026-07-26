@@ -53,7 +53,11 @@ try {
   while ($true) {
     $manifest = Read-CyberlinkManifest -PathHint $ManifestPath
     if (-not (Test-TelegramAlive -Manifest $manifest)) {
-      & (Join-Path $PSScriptRoot "cyberlink-start.ps1") -Mode Telegram -ManifestPath [string]$manifest.__manifest_path | Out-Null
+      # NOTE: relaunch goes through cyberlink-start.ps1 -Mode Telegram, which
+      # is retired and now throws; this legacy watchdog can no longer
+      # resurrect a manifest-topology Telegram. (Also fixed: the argument was
+      # previously passed unparenthesized as literal "[string]$manifest...".)
+      & (Join-Path $PSScriptRoot "cyberlink-start.ps1") -Mode Telegram -ManifestPath ([string]$manifest.__manifest_path) | Out-Null
     }
     Start-Sleep -Seconds $interval
   }

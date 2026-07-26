@@ -5,7 +5,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { execFileSync, spawnSync } = require("child_process");
-const { installDescriptor, installStartupArtifact, sha256 } = require("../scripts/orchestration/release-control-plane");
+const { installDescriptor, installStartupArtifact, manifestCovers, sha256, sha256Bytes } = require("../scripts/orchestration/release-control-plane");
 const { EXCLUDED_RELATIONSHIP_MEMORY_FILES, SCHEMA_VERSION } = require("../src/orchestration/release-manifest");
 
 function root() { return fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-control-plane-")); }
@@ -18,6 +18,16 @@ test("candidate replacement retains an immutable backup and audit",()=>{const x=
 test("hash mismatch, BOM, and validation failure do not damage old descriptor",()=>{const x=setup(); fs.mkdirSync(path.dirname(x.targetFile),{recursive:true}); fs.writeFileSync(x.targetFile,"old"); assert.throws(()=>install(x,{expectedCandidateSha256:"0".repeat(64)})); fs.writeFileSync(x.candidate,Buffer.concat([Buffer.from([0xef,0xbb,0xbf]),fs.readFileSync(x.candidate)])); assert.throws(()=>install(x)); assert.equal(fs.readFileSync(x.targetFile,"utf8"),"old");});
 test("manifest failure and descriptor schema/path failures retain the old descriptor",()=>{const x=setup(); fs.mkdirSync(path.dirname(x.targetFile),{recursive:true}); fs.writeFileSync(x.targetFile,"old"); assert.throws(()=>install(x,{verify:()=>({ok:false,errors:["tampered"]})}),/manifest verification failed/); const bad=JSON.parse(fs.readFileSync(x.candidate)); bad.telegram_entry=path.join(x.r,"missing","cyberboss.js"); fs.writeFileSync(x.candidate,JSON.stringify(bad)); assert.throws(()=>install(x),/Invalid release descriptor/); assert.equal(fs.readFileSync(x.targetFile,"utf8"),"old");});
 test("startup artifacts require manifest coverage and copy hash exactly",()=>{const r=root(), rel=path.join(r,"release"), src=path.join(rel,"watchdog.py"), dest=path.join(r,"runtime","watchdog.py"), manifest=path.join(r,"manifest.json"); fs.mkdirSync(rel,{recursive:true}); fs.writeFileSync(src,"watchdog"); fs.writeFileSync(manifest,JSON.stringify({files:[{path:"watchdog.py",sha256:sha256(src)}]})); installStartupArtifact({source:src,target:dest,manifestPath:manifest,releaseDir:rel,verify:()=>({ok:true})}); assert.equal(sha256(src),sha256(dest)); fs.writeFileSync(src,"changed"); assert.throws(()=>installStartupArtifact({source:src,target:dest,manifestPath:manifest,releaseDir:rel,verify:()=>({ok:true})}),/not covered/);});
+test("manifest coverage judges the caller's bytes, so a source swapped after reading cannot self-certify",()=>{const r=root(), rel=path.join(r,"release"), src=path.join(rel,"watchdog.py"); fs.mkdirSync(rel,{recursive:true}); fs.writeFileSync(src,"original"); const originalBytes=fs.readFileSync(src); const manifest={files:[{path:"watchdog.py",sha256:sha256Bytes(originalBytes)}]}; fs.writeFileSync(src,"swapped after the caller's read"); const record=manifestCovers(manifest,rel,src,originalBytes); assert.equal(record.sha256,sha256Bytes(originalBytes)); assert.throws(()=>manifestCovers(manifest,rel,src),/not covered/);});
+test("post-write validation failure restores the previous descriptor and removes a fresh install",()=>{
+  const x=setup(); fs.mkdirSync(path.dirname(x.targetFile),{recursive:true}); fs.writeFileSync(x.targetFile,"old");
+  const sabotage=(candidateFile)=>()=>{ const parsed=JSON.parse(fs.readFileSync(candidateFile)); fs.rmSync(parsed.telegram_entry); return {ok:true,errors:[]}; };
+  assert.throws(()=>install(x,{verify:sabotage(x.candidate)}),/previous descriptor was restored/);
+  assert.equal(fs.readFileSync(x.targetFile,"utf8"),"old");
+  const y=setup();
+  assert.throws(()=>install(y,{verify:sabotage(y.candidate)}),/previous descriptor was restored/);
+  assert.equal(fs.existsSync(y.targetFile),false);
+});
 
 const packageRoot = path.resolve(__dirname, "..");
 const installers = {
@@ -93,6 +103,23 @@ test("startup artifacts installer copies both manifest-covered sources only to i
     assert.equal(sha256(path.join(startup, "telegram-watchdog.py")), sha256(path.join(active.release, "extensions", "relationship-memory", "launcher", "watchdog.py")));
     assert.equal(sha256(path.join(startup, "stable-telegram-launcher.ps1")), sha256(path.join(active.release, "scripts", "windows", "runtime-startup", "stable-telegram-launcher.candidate.ps1")));
     assert.deepEqual(fs.readdirSync(r).sort().filter((name) => !["active", "active-config", "active-logs", "active-state", "descriptor.json", "release-manifest.json", "repo-fixture", "rollback", "rollback-config", "rollback-logs", "rollback-state", "runtime"].includes(name)), []);
+  } finally { fs.rmSync(r, { recursive: true, force: true }); }
+});
+
+test("retired legacy deploy and manifest-topology launch paths fail closed with explicit guidance", () => {
+  const r = root();
+  try {
+    const scripts = path.join(packageRoot, "scripts", "windows");
+    for (const retired of [path.join(scripts, "runtime-startup", "install-telegram-watchdog.ps1"), path.join(scripts, "cyberlink-deploy.ps1")]) {
+      const result = runPowerShell(retired, []);
+      assert.notEqual(result.status, 0, `${retired} did not fail closed`);
+      assert.match(`${result.stderr}${result.stdout}`, /retired/i);
+    }
+    const manifest = path.join(r, "manifest.json");
+    fs.writeFileSync(manifest, JSON.stringify({ workspace_root: r, formal_repo: {}, telegram: {}, dashboard: {}, watchdog: {}, soft_retrieval: {} }));
+    const telegramMode = runPowerShell(path.join(scripts, "cyberlink-start.ps1"), ["-Mode", "Telegram", "-ManifestPath", manifest]);
+    assert.notEqual(telegramMode.status, 0, "cyberlink-start.ps1 -Mode Telegram did not fail closed");
+    assert.match(`${telegramMode.stderr}${telegramMode.stdout}`, /Start-TelegramLine is retired/);
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 

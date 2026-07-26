@@ -348,6 +348,30 @@ print('ok')`;
   assert.match(result.stdout, /ok/);
 });
 
+test("watchdog --once reports its single cycle's outcome through the exit code", () => {
+  const watchdog = path.join(__dirname, "..", "extensions", "relationship-memory", "launcher", "watchdog.py");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-watchdog-once-"));
+  const bad = path.join(root, "current.json");
+  fs.writeFileSync(bad, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("{}")]));
+  const failing = spawnSync(process.env.PYTHON || "python", [watchdog, "--once", "--descriptor", bad], { encoding: "utf8" });
+  assert.equal(failing.status, 1, `--once accepted a BOM descriptor: ${failing.stderr}\n${failing.stdout}`);
+  const probe = `import importlib.util,json,sys,tempfile
+from pathlib import Path
+s=importlib.util.spec_from_file_location('w',sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+root=Path(tempfile.mkdtemp()); state=root/'state'; state.mkdir(); d=root/'current.json'
+value={'active_release_id':'a','telegram_entry':str(root/'entry'),'config_dir':str(root/'config'),'state_dir':str(state),'log_dir':str(root/'logs'),'pid_file':str(state/'a.pid'),'watchdog_target':str(root/'start.ps1'),'rollback_release':{},'last_verified_sha':'x'}
+d.write_text(json.dumps(value),encoding='utf8')
+err=m.run_watchdog(d,0,iterations=1,sleep=lambda _:None,launcher=lambda *a:None,health=lambda _:(True,'ok'),owner_verifier=lambda *a:None,log_sink=lambda *a:None)
+assert err is None, err
+d.write_bytes(b'\\xef\\xbb\\xbf{}')
+err=m.run_watchdog(d,0,iterations=1,sleep=lambda _:None,launcher=lambda *a:None,health=lambda _:(True,'ok'),owner_verifier=lambda *a:None,log_sink=lambda *a:None)
+assert err is not None, 'failed cycle must surface its error marker'
+print('ok')`;
+  const result = pythonWatchdog(probe);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /ok/);
+});
+
 test("watchdog owner identity parses quoted Windows argv and accepts only exact current or allowlisted pairs", () => {
   const probe = `import importlib.util,sys,tempfile
 from pathlib import Path

@@ -48,26 +48,11 @@ function Read-PidFileValue {
 function Start-TelegramLine {
   param($Manifest)
 
-  $entry = [string]$Manifest.telegram.entry
-  $pidFile = [string]$Manifest.telegram.pid_file
-  $currentPid = Read-PidFileValue -Path $pidFile
-  if ($currentPid -gt 0 -and (Test-ProcessMatches -ProcessId $currentPid -ExpectedTokens @($entry, "cyberboss.js", " start"))) {
-    Write-Output "Telegram already running with PID $currentPid"
-    return
-  }
-
-  Write-TelegramDescriptor -Manifest $Manifest | Out-Null
-  $env:CYBERBOSS_STATE_DIR = [string]$Manifest.telegram.state_dir
-  $env:CYBERBOSS_WORKSPACE = [string]$Manifest.workspace_root
-  $env:CYBERBOSS_WORKSPACE_ROOT = [string]$Manifest.workspace_root
-  $env:CYBERBOSS_CONFIG_DIR = [string]$Manifest.telegram.config_dir
-  $env:CYBERBOSS_LOG_DIR = [string]$Manifest.telegram.log_dir
-  $env:CYBERBOSS_ENV_FILE = [string]$Manifest.telegram.env_file
-  $launcher = [string]$Manifest.telegram.watchdog_target
-  & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $launcher
-  if ($LASTEXITCODE -ne 0) {
-    throw "Telegram launcher failed with exit code $LASTEXITCODE"
-  }
+  # Retired path, explicitly fail-closed. Launching Telegram from
+  # settings/manifest.json topology could resurrect an old release behind the
+  # formal deployment descriptor's back; it previously only failed indirectly
+  # through the Write-TelegramDescriptor throw below.
+  throw 'Start-TelegramLine is retired. Telegram is launched only from deployment/current.json via the release watchdog and stable launcher (runtime-startup installers).'
 }
 
 function Start-DashboardPanel {

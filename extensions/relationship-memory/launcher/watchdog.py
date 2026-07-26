@@ -225,8 +225,13 @@ def verify_watchdog_owner(pid_file: Path, descriptor_path: Path, legacy_owners: 
     pid_file.write_text(str(os.getpid()), encoding="utf-8")
 
 
-def run_watchdog(descriptor_path: Path, interval: float, iterations: int | None = None, sleep=time.sleep, launcher=launch_active_release, health=active_release_alive, owner_verifier=verify_watchdog_owner, log_sink=log, legacy_owners=None) -> None:
-    """One recoverable loop; injectable seams keep tests finite and process-free."""
+def run_watchdog(descriptor_path: Path, interval: float, iterations: int | None = None, sleep=time.sleep, launcher=launch_active_release, health=active_release_alive, owner_verifier=verify_watchdog_owner, log_sink=log, legacy_owners=None) -> str | None:
+    """One recoverable loop; injectable seams keep tests finite and process-free.
+
+    Returns the last cycle's error marker (or None if it ended healthy) so a
+    bounded run such as --once can report failure through its exit code while
+    the unbounded service loop keeps swallowing errors and retrying.
+    """
     fallback_log = descriptor_path.parent / "watchdog.log"
     log_file, pid_file, owner_ready, last_error = fallback_log, None, False, None
     cycle = 0
@@ -259,6 +264,7 @@ def run_watchdog(descriptor_path: Path, interval: float, iterations: int | None 
             pid_file.unlink()
         except OSError:
             pass
+    return last_error
 
 
 def main() -> int:
@@ -274,7 +280,11 @@ def main() -> int:
         if not separator or not script or not descriptor:
             parser.error("--legacy-owner must be exact SCRIPT|DESCRIPTOR")
         legacy.append((Path(script).resolve(), Path(descriptor).resolve()))
-    run_watchdog(args.descriptor.resolve(), args.interval, iterations=1 if args.once else None, legacy_owners=legacy)
+    last_error = run_watchdog(args.descriptor.resolve(), args.interval, iterations=1 if args.once else None, legacy_owners=legacy)
+    if args.once and last_error is not None:
+        # A bounded probe must not report success when its only cycle failed;
+        # external canaries rely on this exit code.
+        return 1
     return 0
 
 
