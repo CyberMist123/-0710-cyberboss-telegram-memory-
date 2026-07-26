@@ -1,5 +1,17 @@
 # Implementation Status
 
+## 2026-07-26 翻盘清单第 6/7/8/9 条：F2 锚定与 F4 寻根（`fix/r4-checklist-6-9`）
+
+代码侧的翻盘清单至此全部完成（1/2/4/5 见下一条目）。**唯一未完成的是第 3 条：在真 Windows 生产机上跑一轮 release/cutover 测试并把完整输出归档进 `docs/audit/`** —— windows-latest CI 的首轮证据已有，真机留证待恢复生产操作时补。重新申请放行前先补这一条。
+
+- **清单 6（F2）**：`installStartupArtifact` 新增必填 `expectedManifestSha256`。manifest 单读、BOM 检查、`equalHash` 锚定，验证 / 覆盖检查 / 事后比对全部作用于这同一份 bytes —— 中途换 manifest 无法自我认证，与 `installDescriptor` 的双锚定纪律对齐。`install-runtime-startup-artifacts.ps1` 新增必填 `-ExpectedManifestSha256` 并打通到 node。
+- **清单 7（F2）**：`verifyManifest` 的 git 校验从存在性提升为关系校验：`rev-parse ^{tree}` 比对 `commit.tree_sha` 确为 `commit.sha` 的 tree；同时支持调用方传入已锚定的 `manifestBytes`（消除二次读取）。
+- **清单 8（F4.1/F4.2）**：`start-dashboard.ps1` / `start-telegram.ps1` 删除祖先回溯。`CYBERLINK_ROOT` 必须显式设置，脚本会 resolve 并校验其确含 `runtime/` 与 `settings/`，否则 fail-closed —— 诱饵祖先目录不再能决定被执行的 Python 文件与密钥路径。
+- **清单 9（F4.3）**：`watchdog.py` 删除 `DEFAULT_DESCRIPTOR`（祖先探测 + cwd 兜底），`--descriptor` 改为必填。
+- 新增 `test/runtime-startup-root.test.js`（已接入 `test:orchestration` 与 CI）：静态断言回溯逻辑不存在（全平台），行为断言三条 fail-closed 路径（windows-latest 真实执行）。
+
+**切生产前的新前置条件**：生产机启动项必须先固化 `CYBERLINK_ROOT`（`cyberboss-memory` 仓库的 SETUP.md 已有此步骤），并且启动 watchdog 的入口必须显式传 `--descriptor`（现有生产路径本就如此，见 F4.3 下调理由）。
+
 ## 2026-07-26 翻盘清单第 1/2/4/5 条：接线测试门（`fix/r4-test-gate`）
 
 恢复工作的第一步，按 R4 报告末尾清单的序号执行。本分支只动测试门与 watchdog 版本守卫，不碰 F2/F4 的代码修复（清单 6–9 留待后续 `fix/*` 分支）。

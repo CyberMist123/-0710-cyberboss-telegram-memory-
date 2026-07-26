@@ -18,9 +18,9 @@ Cyberboss Telegram Memory：Telegram 侧的关系记忆系统，生产机是一�
 
 `README.md` 第八节「给执行模型」是实施纪律，动代码前必读。
 
-## 当前状态：**项目已搁置**（2026-07-26），且 R4 终审 **FAIL**，不得切生产
+## 当前状态：恢复工作中（2026-07-26 晚），R4 判决尚未翻盘，不得切生产
 
-项目于 2026-07-26 主动搁置。恢复工作前先读 `docs/IMPLEMENTATION_STATUS.md` 的最顶部条目 —— 那里有完整状态快照、半成品清单与恢复条件。**不要**在没读它的情况下开始改代码。
+翻盘清单的代码侧（1/2/4/5/6/7/8/9）已全部完成并合入 `main`；**唯一未完成的是第 3 条：真 Windows 生产机上的测试留证**。重新申请放行前先补它。最新进度看 `docs/IMPLEMENTATION_STATUS.md` 最顶部条目。**不要**在没读它的情况下开始改代码。
 
 架构决定：Windows 机长期开机充当服务器，**单后端**。Mac 只做代码编辑与人工查看，不运行 bot、不启用每晚 closeout 作业。
 
@@ -30,8 +30,8 @@ Cyberboss Telegram Memory：Telegram 侧的关系记忆系统，生产机是一�
 |---|---|---|---|
 | F1.4 | CI 缺 release/cutover 测试门 | `.github/workflows/phase1-offline.yml` | ✅ 已接线（清单 1，`fix/r4-test-gate`） |
 | F1 | PS 测试无平台守卫；5 处 fail-closed 断言在 ENOENT 下恒真（假绿） | `test/release-control-plane.test.js`、`test/orchestration-release-watchdog.test.js` | ✅ 守卫与断言已修（清单 2/4） |
-| F2 | `installStartupArtifact` 无 manifest 哈希锚定且读两次；`verifyManifest` 的 git 校验只证存在性 | `scripts/orchestration/release-control-plane.js`、`src/orchestration/release-manifest.js` | ⏳ 待修（清单 6/7） |
-| F4 | 向上摸目录取最近匹配祖先，`$root` 决定被执行的 Python 文件与密钥路径 | `scripts/windows/runtime-startup/start-dashboard.ps1`、`start-telegram.ps1` | ⏳ 待修（清单 8/9） |
+| F2 | `installStartupArtifact` 无 manifest 哈希锚定且读两次；`verifyManifest` 的 git 校验只证存在性 | `scripts/orchestration/release-control-plane.js`、`src/orchestration/release-manifest.js` | ✅ 已修（清单 6/7：必填哈希锚定 + `^{tree}` 关系校验） |
+| F4 | 向上摸目录取最近匹配祖先，`$root` 决定被执行的 Python 文件与密钥路径 | `scripts/windows/runtime-startup/start-dashboard.ps1`、`start-telegram.ps1` | ✅ 已修（清单 8/9：`CYBERLINK_ROOT` 必填 fail-closed；`--descriptor` 必填） |
 | F5 | 硬依赖 Python ≥ 3.10 却无版本声明，3.9 上导入即失败 | `extensions/relationship-memory/launcher/watchdog.py` | ✅ 已修（清单 5：future import + 版本守卫 + CI 3.9 探针） |
 
 ## 跑测试：先读这段，否则会误判
