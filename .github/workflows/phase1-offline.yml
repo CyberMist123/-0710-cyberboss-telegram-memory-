@@ -38,8 +38,18 @@ jobs:
       - name: Static checks
         run: npm run check
 
+      # 失败输出经 annotation 暴露：run 页面的 annotation 无需登录即可读取，
+      # 让失败可以在没有仓库凭据的环境（手机、外部会话）里被诊断。
       - name: Phase 1 tests
-        run: npm run test:phase1
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "phase1.log"
+          npm run test:phase1 2>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) {
+            $interesting = (Get-Content $log | Select-String -Pattern 'not ok|failing|failed|Error|error TS|npm ERR|AssertionError|✖' -SimpleMatch:$false | Select-Object -Last 40 | ForEach-Object { $_.Line }) -join '%0A'
+            if (-not $interesting) { $interesting = ((Get-Content $log | Select-Object -Last 40) -join '%0A') }
+            Write-Output "::error title=phase1 failing output::$interesting"
+            exit 1
+          }
 
       - name: Phase 2 hard-context tests
         run: npm run test:phase2
@@ -57,7 +67,15 @@ jobs:
       # windows-latest 提供真实 powershell.exe，Python 3.12 满足 watchdog 版本前提，
       # 这里产生的是真实信号，不是 ENOENT 假绿。
       - name: Release/cutover control-plane tests
-        run: npm run test:orchestration
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "orchestration.log"
+          npm run test:orchestration 2>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) {
+            $interesting = (Get-Content $log | Select-String -Pattern 'not ok|failing|failed|Error|AssertionError|✖' | Select-Object -Last 40 | ForEach-Object { $_.Line }) -join '%0A'
+            if (-not $interesting) { $interesting = ((Get-Content $log | Select-Object -Last 40) -join '%0A') }
+            Write-Output "::error title=orchestration failing output::$interesting"
+            exit 1
+          }
 
       # R4 翻盘清单第 5 条（F5）：低版本 Python 上 watchdog 必须 fail-closed 且给出
       # 明确诊断，而不是静默不启动或含糊的 TypeError。
