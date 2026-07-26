@@ -176,6 +176,21 @@ def command_descriptor(tokens: list[str]) -> str | None:
     return None
 
 
+def same_file_path(token: str, target: Path) -> bool:
+    """Exact path identity, canonicalizing both sides first.
+
+    `normalize()` alone (normcase + abspath) cannot equate Windows 8.3 short
+    paths (e.g. RUNNER~1) with their long forms, so a watchdog started via a
+    short path would not be recognized as the same script — the duplicate
+    check would silently fail open. Path.resolve() expands the existing part
+    of both sides to canonical form; the comparison stays an exact match.
+    """
+    try:
+        return normalize(str(Path(token).resolve())) == normalize(str(target.resolve()))
+    except (OSError, ValueError):
+        return False
+
+
 def watchdog_identity(row: dict, descriptor_path: Path, script_path: Path = WATCHDOG_SCRIPT) -> bool:
     """Require an exact Python, script and descriptor token triple."""
     if not is_python_process(row):
@@ -185,8 +200,8 @@ def watchdog_identity(row: dict, descriptor_path: Path, script_path: Path = WATC
     except (OSError, ValueError):
         return False
     descriptor = command_descriptor(tokens)
-    return (len(tokens) >= 2 and normalize(tokens[1]) == normalize(str(script_path.resolve()))
-            and descriptor is not None and normalize(descriptor) == normalize(str(descriptor_path.resolve())))
+    return (len(tokens) >= 2 and same_file_path(tokens[1], script_path)
+            and descriptor is not None and same_file_path(descriptor, descriptor_path))
 
 
 def active_release_alive(descriptor: dict) -> tuple[bool, str]:
