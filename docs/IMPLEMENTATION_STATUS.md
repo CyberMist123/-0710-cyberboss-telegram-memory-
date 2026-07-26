@@ -1,5 +1,59 @@
 # Implementation Status
 
+## 2026-07-26 项目搁置：状态快照与恢复条件
+
+**当前状态：搁置（shelved）。不得切生产。** 恢复工作前先读完本节。
+
+### 为什么不能切生产
+
+R4 终审判 **FAIL**，结论与完整证据见 [`docs/audit/R4_FINAL_CODE_REVIEW.md`](./audit/R4_FINAL_CODE_REVIEW.md)。**五条发现全部仍在 `main` 上，一条都没修。**
+
+判 FAIL 的根本理由不是这五条本身，而是：**改动生产机的那批 PowerShell 入口在任何地方都没有测试门。** CI 只执行 `npm run test:phase1` 的 4 个文件（全仓 82 个），release/cutover 那批一个都不在内；而在非 Windows 的本机上，5 处 `assert.notEqual(status, 0)` 因 `spawnSync` ENOENT（`status === null`）而**恒真** —— 「脚本没跑」与「脚本正确退役」不可区分。所以"测试全绿"在这段链路上不构成任何证据。
+
+这不是理论风险，当天就被证实了一次：`c399901` 引入的一行死代码让**每一次 Telegram 启动必死**（`describe()` 里引用了作用域内不存在的 `message`，`ReferenceError`），当天进 `main`、靠人肉发现。全仓有 5 个测试文件构造 Telegram adapter，**没有一个调用 `describe()`**，而那 5 个文件也都不在 CI 内。
+
+### 恢复工作时的第一件事
+
+翻盘清单在审计报告末尾，共 9 项，**必须按序号顺序做**。第 1 条是接线 CI，优先于所有代码修复 —— 否则后续每一项修复都只能靠人工断言，而人工断言正是本次判 FAIL 的成因。
+
+好消息是第 1 条几乎零成本：`npm run test:orchestration` **本来就存在**，已覆盖 `release-control-plane` 与 `orchestration-release-watchdog`，CI 只是没调用它。补 `status-script`、`release-manifest`、`stable-telegram-launcher` 三个文件进该脚本，再把它加进 `.github/workflows/phase1-offline.yml` 即可。CI 已是 `windows-latest` + Python 3.12，两个环境前提都满足。
+
+注意 CI 的 Python 3.12 **不会**复现 F5（`watchdog.py` 硬依赖 Python ≥ 3.10 却无版本声明，3.9 上导入即 `TypeError`），需另加低版本 job 或显式版本断言才守得住。
+
+### 本次会话已完成的工作
+
+- **修复 1 个启动致命回归**：移除 `src/adapters/channel/telegram.js` 中 `describe()` 里的死代码（`10157ae`，已合并）。修复前后均实测：`main` 上 `ReferenceError: message is not defined`，修复后正常返回。
+- **审计报告归档**：`docs/audit/R4_FINAL_CODE_REVIEW.md`，含 F1/F1.4/F2/F4/F5 与翻盘清单。
+- **文档入口重建**：新增 `CLAUDE.md`（AI 协作入口，自动载入）与 `AGENTS.md`（指向前者）。修正 `README.md` 第九节已完全失效的分支表（原列 5 个分支，其中 3 个在 origin 上不存在），第七节文档地图补入审计报告与设计文档。
+- **根目录整理**：9 个散落的 md/txt 收敛为 1 个。删除上游继承的 `README.en.md` / `README.zh-CN.md`（来自 `c41f9bd`，描述的是微信桥接，与本项目不符；需要时从该提交取回）。
+- **分支收敛**：6 个分支收为 2 个（`main` 与 `audit/r4-final-review`）。删除的 3 个是 `ahead=0` 的死分支，其 tip 均已在 `main` 历史中。
+- **vendor 可执行位修正**（`b1b4377`）：两个 bin 入口原为 100644，`npm ci` 每次改成 755 导致工作区凭空变脏。
+
+### 半成品：记忆跨机同步
+
+**Mac 侧与 GitHub 侧已完成，Windows 侧待执行。**
+
+私有仓库 `CyberMist123/cyberboss-memory` 已创建（private 已验证：未认证访问 API 与 raw 均返回 404），含 `.gitattributes`、`.gitignore`、`README.md`、`SETUP.md`（接入手册，命令均已实测）、`PROPOSAL.md`（设计提案与验收修正）。
+
+**Windows 侧要做的**：按 `SETUP.md` 执行 —— 先固定 `CYBERLINK_ROOT`（这同时是 F4 的缓解措施，代码支持但未启用），再量体（`.backups/` 无清理逻辑，体量未实测），再 `git init` 并推送首次快照。
+
+设计要点（避免恢复工作时重新踩坑）：
+
+- `.jobs/` **必须**排除。写者租约无 host 标识、无 TTL、无 fencing token，存活检查是 `process.kill(pid, 0)`（`src/orchestration/writer-lease.js:120`），只对本机 PID 有意义。同步它会制造代码无法兑现的跨机互斥假象。
+- `.gitattributes` 的 `* -text` **不可删**。本项目对字节敏感（全链路拒 BOM、多处 sha256 比对），行尾转换会静默破坏哈希。
+- 密钥**不走**该仓库。`keys.local.json` 不是只读配置，生产机会自动写它（`extensions/relationship-memory/memory-kit/dashboard.py:296`）；双向同步会导致旧副本回传 → 面板 401 → `apply_keys_to_env.py` 把旧 key 刷进 `.env` → Telegram 起不来。
+
+### 架构决定：单后端
+
+Windows 机长期开机充当服务器，因此**不需要第二个后端**。Mac 的定位是代码编辑与人工查看，**不运行 bot、不启用每晚的 closeout 作业** —— closeout 是唯一会自动改动 canon 的写入方，只应在 Windows 上跑。人工编辑不受此限（记忆仓库两侧均可写，收敛依赖分层策略而非锁）。
+
+此决定也意味着：Mac 上跑不了 PowerShell 测试（即 F1），生产门只能在 Windows 机或 `windows-latest` CI 上验证 —— 这进一步说明翻盘清单第 1 条为何优先。
+
+### 遗留的两个未审项
+
+- `.github/workflows/secret-audit.yml` 的触发器只有 `pull_request` 与 `workflow_dispatch`，**没有 `push`**。直接推 `main` 不过密钥闸，目前只能靠本机 hook 补。
+- 生产实际面板入口 `dashboard_continuity.py` 的**写入面从未被审查**（仅旧 `dashboard.py` 审过）。在考虑任何形式的 520 远程访问之前必须补审。
+
 ## 2026-07-20 Configurable desire schedule and 520 time display
 
 - Desire check-ins remain on the existing model, Telegram binding, SessionStore thread, MCP configuration, tool set, and full eight-dimensional prompt/context. No short thread, model switch, retry/fallback, input/output cap, or MCP reduction was added.
