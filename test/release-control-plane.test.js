@@ -8,7 +8,10 @@ const { execFileSync, spawnSync } = require("child_process");
 const { installDescriptor, installStartupArtifact, manifestCovers, sha256, sha256Bytes } = require("../scripts/orchestration/release-control-plane");
 const { EXCLUDED_RELATIONSHIP_MEMORY_FILES, SCHEMA_VERSION } = require("../src/orchestration/release-manifest");
 
-function root() { return fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-control-plane-")); }
+// realpathSync.native expands Windows 8.3 short paths (the GitHub runner's
+// TEMP directory is spelled in short form): the installers reject any spelling
+// that is not the canonical long form, which is what production passes.
+function root() { return fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-control-plane-"))); }
 function target(root, name) { const release=path.join(root,name); const bin=path.join(release,"bin"); fs.mkdirSync(bin,{recursive:true}); const entry=path.join(bin,"cyberboss.js"); const watch=path.join(release,"start-safe.ps1"); fs.writeFileSync(entry,"//x"); fs.writeFileSync(watch,"#x"); for(const dir of ["config","state","logs"]) fs.mkdirSync(path.join(root,`${name}-${dir}`),{recursive:true}); return { telegram_entry:entry,config_dir:path.join(root,`${name}-config`),state_dir:path.join(root,`${name}-state`),log_dir:path.join(root,`${name}-logs`),pid_file:path.join(root,`${name}-state`,`x.pid`),watchdog_target:watch }; }
 function descriptor(root) { const a=target(root,"active"), b=target(root,"rollback"); return {active_release_id:"active",...a,last_verified_sha:"a".repeat(40),rollback_release:{release_id:"rollback",...b,last_verified_sha:"b".repeat(40)}}; }
 function setup() { const r=root(), candidate=path.join(r,"candidate.json"), manifest=path.join(r,"manifest.json"), audit=path.join(r,"audit"), targetFile=path.join(r,"deployment","current.json"); fs.writeFileSync(candidate,JSON.stringify(descriptor(r))); fs.writeFileSync(manifest,"{}"); return {r,candidate,manifest,audit,targetFile}; }
@@ -78,7 +81,17 @@ function writeVerifiedManifest(release, file, fixture) {
 }
 function runPowerShell(script, args) { return spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-File", script, ...args], { encoding: "utf8" }); }
 
-test("descriptor installer writes only an explicit temporary absolute target", () => {
+// R4 F1: on non-Windows machines spawnSync("powershell.exe") returns
+// { status: null, error: ENOENT } without throwing, so `notEqual(status, 0)`
+// is vacuously true. Fail-closed assertions must first prove the process ran.
+const IS_WINDOWS = process.platform === "win32";
+function assertFailedClosed(result, message) {
+  assert.equal(result.error, undefined, `process never ran: ${result.error}`);
+  assert.notEqual(result.status, null, "process never ran: spawnSync returned status null");
+  assert.notEqual(result.status, 0, `${message}\nstderr: ${result.stderr}\nstdout: ${result.stdout}`);
+}
+
+test("descriptor installer writes only an explicit temporary absolute target", { skip: !IS_WINDOWS }, () => {
   const r = root();
   try {
     const active = makeRelease(r, "active"); const candidate = path.join(r, "candidate.json"); const manifest = path.join(r, "release-manifest.json"); const audit = path.join(r, "audit"); const target = path.join(r, "deployment", "current.json");
@@ -92,7 +105,7 @@ test("descriptor installer writes only an explicit temporary absolute target", (
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
-test("startup artifacts installer copies both manifest-covered sources only to its explicit temporary target", () => {
+test("startup artifacts installer copies both manifest-covered sources only to its explicit temporary target", { skip: !IS_WINDOWS }, () => {
   const r = root();
   try {
     const active = makeRelease(r, "active", true); const descriptorFile = path.join(r, "descriptor.json"); const manifest = path.join(r, "release-manifest.json"); const startup = path.join(r, "runtime", "startup");
@@ -106,29 +119,29 @@ test("startup artifacts installer copies both manifest-covered sources only to i
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
-test("retired legacy deploy and manifest-topology launch paths fail closed with explicit guidance", () => {
+test("retired legacy deploy and manifest-topology launch paths fail closed with explicit guidance", { skip: !IS_WINDOWS }, () => {
   const r = root();
   try {
     const scripts = path.join(packageRoot, "scripts", "windows");
     for (const retired of [path.join(scripts, "runtime-startup", "install-telegram-watchdog.ps1"), path.join(scripts, "cyberlink-deploy.ps1")]) {
       const result = runPowerShell(retired, []);
-      assert.notEqual(result.status, 0, `${retired} did not fail closed`);
+      assertFailedClosed(result, `${retired} did not fail closed`);
       assert.match(`${result.stderr}${result.stdout}`, /retired/i);
     }
     const manifest = path.join(r, "manifest.json");
     fs.writeFileSync(manifest, JSON.stringify({ workspace_root: r, formal_repo: {}, telegram: {}, dashboard: {}, watchdog: {}, soft_retrieval: {} }));
     const telegramMode = runPowerShell(path.join(scripts, "cyberlink-start.ps1"), ["-Mode", "Telegram", "-ManifestPath", manifest]);
-    assert.notEqual(telegramMode.status, 0, "cyberlink-start.ps1 -Mode Telegram did not fail closed");
+    assertFailedClosed(telegramMode, "cyberlink-start.ps1 -Mode Telegram did not fail closed");
     assert.match(`${telegramMode.stderr}${telegramMode.stdout}`, /Start-TelegramLine is retired/);
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
-test("startup artifacts installer rejects a relative target before it can create artifacts", () => {
+test("startup artifacts installer rejects a relative target before it can create artifacts", { skip: !IS_WINDOWS }, () => {
   const r = root();
   try {
     const fakeProduction = path.join(r, "deployment", "current.json"); write(fakeProduction, "production sentinel bytes");
     const result = runPowerShell(installers.startup, ["-DescriptorPath", path.join(r, "missing.json"), "-ManifestPath", path.join(r, "missing-manifest.json"), "-TargetStartupDirectory", ".\\runtime\\startup", "-RepositoryDirectory", packageRoot]);
-    assert.notEqual(result.status, 0); assert.match(`${result.stderr}\n${result.stdout}`, /TargetStartupDirectory must be an absolute path/);
+    assertFailedClosed(result, "startup installer accepted a relative target"); assert.match(`${result.stderr}\n${result.stdout}`, /TargetStartupDirectory must be an absolute path/);
     assert.equal(fs.readFileSync(fakeProduction, "utf8"), "production sentinel bytes"); assert.equal(fs.existsSync(path.join(r, "runtime", "startup", "telegram-watchdog.py")), false); assert.equal(fs.existsSync(path.join(r, "runtime", "startup", "stable-telegram-launcher.ps1")), false);
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });

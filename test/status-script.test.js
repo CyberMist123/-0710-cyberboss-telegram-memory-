@@ -2,7 +2,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { collectStatus, formatStatus, resolveProcessDirectory } = require("../scripts/status");
 
-test("status recognizes official Telegram runtime and separates legacy app-server", () => {
+// R4 F1.3(c): these fixtures assert Windows command-line path parsing.
+// resolveProcessDirectory is Windows-only by construction, so the honest guard
+// is a skip on other platforms — CI runs them for real on windows-latest.
+const IS_WINDOWS = process.platform === "win32";
+
+test("status recognizes official Telegram runtime and separates legacy app-server", { skip: !IS_WINDOWS }, () => {
   const values = new Map([
     ["branch", "feat/q3-status-script"],
     ["sha", "abc1234"],
@@ -48,7 +53,7 @@ test("status reports nginx as containerized when docker exposes an nginx contain
   assert.match(formatStatus(status), /nginx: UP \(PID 501\) — containerized \(docker\)/);
 });
 
-test("missing process is reported down and paths are parsed", () => {
+test("missing process is reported down and paths are parsed", { skip: !IS_WINDOWS }, () => {
   assert.equal(resolveProcessDirectory('node "D:\\release\\bin\\cyberboss.js"'), "D:\\release\\bin");
   const status = collectStatus({ run: () => "", processSnapshot: [] });
   assert.equal(status.services.runtime.alive, false);

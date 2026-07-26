@@ -16,6 +16,6 @@ $packageRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScr
 $repo = if ($RepositoryDirectory) { $RepositoryDirectory } else { $packageRoot }
 $target = [IO.Path]::GetFullPath($TargetDescriptorPath)
 if (-not [IO.Path]::IsPathRooted($TargetDescriptorPath)) { throw 'TargetDescriptorPath must be an absolute path' }
-if ($target -ne $TargetDescriptorPath) { throw 'TargetDescriptorPath must be a normalized absolute path' }
+if ($target -ne $TargetDescriptorPath) { throw "TargetDescriptorPath must be a normalized absolute path (given: '$TargetDescriptorPath', normalized: '$target')" }
 & node (Join-Path $packageRoot 'scripts\orchestration\release-control-plane.js') install-descriptor --candidate $CandidatePath --candidate-sha256 $ExpectedCandidateSha256 --manifest $ManifestPath --manifest-sha256 $ExpectedManifestSha256 --audit $AuditDirectory --target $target --repo $repo
 if ($LASTEXITCODE -ne 0) { throw 'release descriptor installation failed' }

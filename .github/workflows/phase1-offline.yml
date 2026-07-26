@@ -30,28 +30,95 @@ jobs:
           python-version: "3.12"
 
       - name: Install Node dependencies
+        id: npmci
         run: npm ci
 
       - name: Install Python dependencies for phase 1 tests
+        id: pipdeps
         run: python -m pip install -r extensions/relationship-memory/memory-kit/requirements.txt
 
       - name: Static checks
+        id: static
         run: npm run check
 
+      # 失败输出经 annotation 暴露（scripts/ci/run-annotated.ps1）：run 页面的
+      # annotation 无需登录即可读取，让失败可以在没有仓库凭据的环境里被诊断。
       - name: Phase 1 tests
-        run: npm run test:phase1
+        id: p1
+        run: ./scripts/ci/run-annotated.ps1 -Name phase1 -Command 'npm run test:phase1'
 
       - name: Phase 2 hard-context tests
-        run: npm run test:phase2
+        id: p2
+        run: ./scripts/ci/run-annotated.ps1 -Name phase2 -Command 'npm run test:phase2'
 
       - name: Phase 3 continuity-pipeline tests
-        run: npm run test:phase3
+        id: p3
+        run: ./scripts/ci/run-annotated.ps1 -Name phase3 -Command 'npm run test:phase3'
 
       - name: Phase 4 read-only console tests
-        run: npm run test:phase4
+        id: p4
+        run: ./scripts/ci/run-annotated.ps1 -Name phase4 -Command 'npm run test:phase4'
 
       - name: Phase 5A user-pull lookup tests
-        run: npm run test:phase5a
+        id: p5a
+        run: ./scripts/ci/run-annotated.ps1 -Name phase5a -Command 'npm run test:phase5a'
+
+      # R4 翻盘清单第 1 条（F1.4）：release/cutover 测试门。
+      # windows-latest 提供真实 powershell.exe，Python 3.12 满足 watchdog 版本前提，
+      # 这里产生的是真实信号，不是 ENOENT 假绿。
+      - name: Release/cutover control-plane tests
+        id: orch
+        run: ./scripts/ci/run-annotated.ps1 -Name orchestration -Command 'npm run test:orchestration'
+
+      # R4 翻盘清单第 5 条（F5）：低版本 Python 上 watchdog 必须 fail-closed 且给出
+      # 明确诊断，而不是静默不启动或含糊的 TypeError。
+      - name: Setup Python 3.9 for the version-floor probe
+        id: py39
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+          update-environment: false
+
+      - name: Watchdog fails closed on unsupported Python
+        id: probe
+        run: |
+          try {
+            $py39 = "${{ steps.py39.outputs.python-path }}"
+            Write-Output "::notice title=py39 path::[$py39]"
+            if (-not $py39 -or -not (Test-Path -LiteralPath $py39)) {
+              Write-Output "::error title=py39 probe::setup-python did not yield a usable python-path: [$py39]"
+              exit 1
+            }
+            $result = (& $py39 extensions/relationship-memory/launcher/watchdog.py --once 2>&1 | Out-String)
+            $code = $LASTEXITCODE
+            $flat = $result -replace "(`r|`n)+", '%0A'
+            if ($code -eq 0) { Write-Output "::error title=py39 probe::watchdog.py did not fail closed on Python 3.9. output: $flat"; exit 1 }
+            if ($result -notmatch "requires Python") { Write-Output "::error title=py39 probe::watchdog.py failed without a clear version diagnosis (exit $code): $flat"; exit 1 }
+            Write-Output "watchdog.py failed closed with a clear version diagnosis on Python 3.9"
+            # GitHub's pwsh wrapper fails the step on a trailing nonzero
+            # $LASTEXITCODE (here: the probe's expected exit 1) — clear it.
+            exit 0
+          } catch {
+            $detail = ($_ | Out-String) -replace "(`r|`n)+", '%0A'
+            Write-Output "::error title=py39 probe exception::$detail"
+            exit 1
+          }
 
       - name: Diff hygiene
-        run: git diff --check
+        id: diff
+        run: |
+          $diff = git diff --check 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error title=diff hygiene::$($diff -replace "`n", '%0A')"; exit 1 }
+
+      - name: Report step outcomes
+        if: always()
+        run: |
+          $outcomes = @(
+            "npmci=${{ steps.npmci.outcome }}", "pipdeps=${{ steps.pipdeps.outcome }}",
+            "static=${{ steps.static.outcome }}", "p1=${{ steps.p1.outcome }}",
+            "p2=${{ steps.p2.outcome }}", "p3=${{ steps.p3.outcome }}",
+            "p4=${{ steps.p4.outcome }}", "p5a=${{ steps.p5a.outcome }}",
+            "orch=${{ steps.orch.outcome }}", "py39=${{ steps.py39.outcome }}",
+            "probe=${{ steps.probe.outcome }}", "diff=${{ steps.diff.outcome }}"
+          ) -join ' | '
+          Write-Output "::notice title=step outcomes::$outcomes"

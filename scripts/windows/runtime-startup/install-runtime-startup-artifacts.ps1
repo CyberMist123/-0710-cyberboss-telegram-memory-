@@ -13,7 +13,7 @@ $packageRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScr
 $repo = if ($RepositoryDirectory) { $RepositoryDirectory } else { $packageRoot }
 $targetDir = [IO.Path]::GetFullPath($TargetStartupDirectory)
 if (-not [IO.Path]::IsPathRooted($TargetStartupDirectory)) { throw 'TargetStartupDirectory must be an absolute path' }
-if ($targetDir -ne $TargetStartupDirectory) { throw 'TargetStartupDirectory must be a normalized absolute path' }
+if ($targetDir -ne $TargetStartupDirectory) { throw "TargetStartupDirectory must be a normalized absolute path (given: '$TargetStartupDirectory', normalized: '$targetDir')" }
 $raw = [IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $DescriptorPath))
 if ($raw.Length -ge 3 -and $raw[0] -eq 0xef -and $raw[1] -eq 0xbb -and $raw[2] -eq 0xbf) { throw 'Descriptor must be UTF-8 without BOM' }
 $descriptor = [Text.Encoding]::UTF8.GetString($raw) | ConvertFrom-Json -ErrorAction Stop

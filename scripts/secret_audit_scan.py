@@ -43,6 +43,7 @@ PLACEHOLDER_MARKERS = (
     "test-key",
     "fake_offline_token",
     "must-not-be-stored",
+    "never-print-this",
     "crypto.randombytes",
     "xxxxx",
     "redacted",

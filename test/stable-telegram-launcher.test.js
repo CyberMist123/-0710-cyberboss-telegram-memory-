@@ -16,7 +16,10 @@ const LAUNCHER = path.join(__dirname, "..", "scripts", "windows", "runtime-start
 const IS_WINDOWS = process.platform === "win32";
 
 function tempRoot() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-launcher-"));
+  // realpathSync.native expands Windows 8.3 short paths (the runner's TEMP
+  // directory is spelled in short form); the launcher requires the canonical
+  // long form.
+  return fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-launcher-")));
 }
 
 function makeReleaseFiles(root, name) {

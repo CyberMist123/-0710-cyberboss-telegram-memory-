@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 """Single-owner Telegram watchdog driven only by deployment/current.json."""
+# `annotations` must stay first: without it, the PEP 604/585 annotations below
+# make *import itself* explode on Python < 3.10 with an unexplained TypeError
+# (R4 finding F5), which is indistinguishable from "watchdog silently absent".
+from __future__ import annotations
+
 import argparse
 import ctypes
 import json
@@ -9,6 +14,22 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
+# The supervised production interpreter is validated on 3.10+ only. On an older
+# interpreter the watchdog must refuse to run with a clear diagnosis instead of
+# failing later in ways that read as "supervisor silently absent" (R4 F5).
+MINIMUM_PYTHON = (3, 10)
+
+
+def enforce_python_floor() -> None:
+    if sys.version_info < MINIMUM_PYTHON:
+        floor = ".".join(str(part) for part in MINIMUM_PYTHON)
+        found = ".".join(str(part) for part in sys.version_info[:3])
+        raise SystemExit(
+            f"watchdog.py requires Python {floor}+ but was started with {found} "
+            f"({sys.executable}); refusing to supervise with an unvalidated interpreter"
+        )
+
 
 HERE = Path(__file__).resolve().parent
 WATCHDOG_SCRIPT = Path(__file__).resolve()
@@ -155,6 +176,21 @@ def command_descriptor(tokens: list[str]) -> str | None:
     return None
 
 
+def same_file_path(token: str, target: Path) -> bool:
+    """Exact path identity, canonicalizing both sides first.
+
+    `normalize()` alone (normcase + abspath) cannot equate Windows 8.3 short
+    paths (e.g. RUNNER~1) with their long forms, so a watchdog started via a
+    short path would not be recognized as the same script — the duplicate
+    check would silently fail open. Path.resolve() expands the existing part
+    of both sides to canonical form; the comparison stays an exact match.
+    """
+    try:
+        return normalize(str(Path(token).resolve())) == normalize(str(target.resolve()))
+    except (OSError, ValueError):
+        return False
+
+
 def watchdog_identity(row: dict, descriptor_path: Path, script_path: Path = WATCHDOG_SCRIPT) -> bool:
     """Require an exact Python, script and descriptor token triple."""
     if not is_python_process(row):
@@ -164,8 +200,8 @@ def watchdog_identity(row: dict, descriptor_path: Path, script_path: Path = WATC
     except (OSError, ValueError):
         return False
     descriptor = command_descriptor(tokens)
-    return (len(tokens) >= 2 and normalize(tokens[1]) == normalize(str(script_path.resolve()))
-            and descriptor is not None and normalize(descriptor) == normalize(str(descriptor_path.resolve())))
+    return (len(tokens) >= 2 and same_file_path(tokens[1], script_path)
+            and descriptor is not None and same_file_path(descriptor, descriptor_path))
 
 
 def active_release_alive(descriptor: dict) -> tuple[bool, str]:
@@ -268,6 +304,7 @@ def run_watchdog(descriptor_path: Path, interval: float, iterations: int | None 
 
 
 def main() -> int:
+    enforce_python_floor()
     parser = argparse.ArgumentParser()
     parser.add_argument("--descriptor", type=Path, default=DEFAULT_DESCRIPTOR)
     parser.add_argument("--interval", type=float, default=60.0)

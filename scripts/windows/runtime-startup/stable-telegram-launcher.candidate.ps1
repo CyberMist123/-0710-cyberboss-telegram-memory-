@@ -47,7 +47,7 @@ function Require-AbsolutePath {
   }
   $full = [IO.Path]::GetFullPath($Value)
   if ($full -ne $Value) {
-    throw "$Field must be normalized."
+    throw "$Field must be normalized. (given: '$Value', normalized: '$full')"
   }
   return $full
 }
