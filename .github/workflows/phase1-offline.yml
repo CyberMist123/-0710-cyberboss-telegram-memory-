@@ -82,11 +82,24 @@ jobs:
       - name: Watchdog fails closed on unsupported Python
         id: probe
         run: |
-          $py39 = "${{ steps.py39.outputs.python-path }}"
-          $result = & $py39 extensions/relationship-memory/launcher/watchdog.py --once 2>&1 | Out-String
-          if ($LASTEXITCODE -eq 0) { Write-Output "::error title=py39 probe::watchdog.py did not fail closed on Python 3.9"; exit 1 }
-          if ($result -notmatch "requires Python") { Write-Output "::error title=py39 probe::watchdog.py failed without a clear version diagnosis: $($result -replace "`n", '%0A')"; exit 1 }
-          Write-Output "watchdog.py failed closed with a clear version diagnosis on Python 3.9"
+          try {
+            $py39 = "${{ steps.py39.outputs.python-path }}"
+            Write-Output "::notice title=py39 path::[$py39]"
+            if (-not $py39 -or -not (Test-Path -LiteralPath $py39)) {
+              Write-Output "::error title=py39 probe::setup-python did not yield a usable python-path: [$py39]"
+              exit 1
+            }
+            $result = (& $py39 extensions/relationship-memory/launcher/watchdog.py --once 2>&1 | Out-String)
+            $code = $LASTEXITCODE
+            $flat = $result -replace "(`r|`n)+", '%0A'
+            if ($code -eq 0) { Write-Output "::error title=py39 probe::watchdog.py did not fail closed on Python 3.9. output: $flat"; exit 1 }
+            if ($result -notmatch "requires Python") { Write-Output "::error title=py39 probe::watchdog.py failed without a clear version diagnosis (exit $code): $flat"; exit 1 }
+            Write-Output "watchdog.py failed closed with a clear version diagnosis on Python 3.9"
+          } catch {
+            $detail = ($_ | Out-String) -replace "(`r|`n)+", '%0A'
+            Write-Output "::error title=py39 probe exception::$detail"
+            exit 1
+          }
 
       - name: Diff hygiene
         id: diff
