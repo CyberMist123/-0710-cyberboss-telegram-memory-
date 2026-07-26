@@ -122,9 +122,14 @@ class SessionStore {
     const runtimeId = normalizeValue(this.runtimeId);
     const entry = getRuntimeParamsMapForRuntime(current, runtimeId)[normalizedWorkspaceRoot]
       || (runtimeId === "codex" ? getCodexParamsMap(current)[normalizedWorkspaceRoot] : null);
+    const effort = normalizeValue(entry?.effort);
     return {
       model: normalizeValue(entry?.model),
       modelProvider: normalizeValue(entry?.modelProvider || entry?.model_provider),
+      // Present only once the binding has actually chosen a level. Absent means
+      // "no override", which is what every binding that has never run /effort
+      // reports -- their params keep the exact shape they had before.
+      ...(effort ? { effort } : {}),
     };
   }
 
@@ -140,6 +145,12 @@ class SessionStore {
       || {};
     const hasModel = Object.prototype.hasOwnProperty.call(params, "model");
     const hasModelProvider = Object.prototype.hasOwnProperty.call(params, "modelProvider");
+    // Each field is only rewritten when the caller names it, so /model does not
+    // reset the binding's effort and /effort does not reset its model.
+    const hasEffort = Object.prototype.hasOwnProperty.call(params, "effort");
+    const nextEffort = hasEffort
+      ? normalizeValue(params.effort)
+      : normalizeValue(previousEntry.effort);
     const nextEntry = {
       ...previousEntry,
       model: hasModel ? normalizeValue(params.model) : normalizeValue(previousEntry.model),
@@ -147,6 +158,14 @@ class SessionStore {
         ? normalizeValue(params.modelProvider)
         : normalizeValue(previousEntry.modelProvider || previousEntry.model_provider),
     };
+    // Only written once a level has been chosen, so a binding that never runs
+    // /effort keeps the record it already had on disk. Clearing the level
+    // removes the key rather than leaving an empty one behind.
+    if (nextEffort) {
+      nextEntry.effort = nextEffort;
+    } else {
+      delete nextEntry.effort;
+    }
     const runtimeParamsByWorkspaceRootByRuntime = {
       ...getRuntimeParamsRuntimeMap(current),
       [runtimeId]: {

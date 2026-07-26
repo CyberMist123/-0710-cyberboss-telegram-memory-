@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { ClaudeCodeProcessClient } = require("./process-client");
+const { ClaudeCodeProcessClient, normalizeEffort } = require("./process-client");
 const { mapClaudeCodeMessageToRuntimeEvent } = require("./events");
 const {
   ensureClaudeProjectMcpConfig,
@@ -221,6 +221,10 @@ function createClaudeCodeRuntimeAdapter(config) {
     lane = null,
     launchProfile = null,
     model = "",
+    // Per-binding reasoning effort. Unlike `model` there is no deployment-wide
+    // override that outranks it: the chat's own /effort choice is the most
+    // specific level, and the env default only applies when it is absent.
+    effort = "",
     // Required for the one-shot legacy migration: only a Telegram private
     // chat's default lane (chatId === the binding's own senderId) qualifies.
     senderId = "",
@@ -297,6 +301,7 @@ function createClaudeCodeRuntimeAdapter(config) {
       configIdentity,
       workspaceAccess: normalizeAccessMode(launchProfile?.workspaceAccess),
       model: resolveModel(model),
+      effort: normalizeEffort(effort),
     };
   }
 
@@ -413,6 +418,7 @@ function createClaudeCodeRuntimeAdapter(config) {
       cwd: route.agentCwd,
       env: filterClaudeCodeEnv(process.env),
       model: route.model,
+      effort: route.effort,
       permissionMode: config.claudePermissionMode || "default",
       disableVerbose: Boolean(config.claudeDisableVerbose),
       extraArgs: config.claudeExtraArgs || [],
@@ -501,7 +507,12 @@ function createClaudeCodeRuntimeAdapter(config) {
       let entry = processRegistry.get(processKey);
       let client = entry?.client || null;
 
-      if (client?.usable && normalizeText(client.model) !== route.model) {
+      // Model and effort are launch flags, not turn parameters: changing either
+      // means this slot's child is retired and relaunched. The stored session id
+      // is passed straight back in as --resume, so the thread survives the swap.
+      if (client?.usable
+        && (normalizeText(client.model) !== route.model
+          || normalizeEffort(client.effort) !== route.effort)) {
         await closeProcessKey(processKey);
         client = null;
       }
@@ -723,13 +734,13 @@ function createClaudeCodeRuntimeAdapter(config) {
       return { threadId, turnId };
     },
     async resumeThread({
-      threadId, workspaceRoot, model = "", resumeOrigin = "implicit_restore",
+      threadId, workspaceRoot, model = "", effort = "", resumeOrigin = "implicit_restore",
       bindingKey = "", lane = null, launchProfile = null, senderId = "",
     }) {
       if (!workspaceRoot) {
         return { threadId, resumed: true, resumeOrigin, empty: false };
       }
-      const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, model, senderId });
+      const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, model, effort, senderId });
       // Only this slot's own stored session id may be resumed. A caller-supplied
       // id that does not match the slot is refused rather than adopted -- that
       // was the last path by which a binding-latest session could reach a lane.
@@ -765,6 +776,10 @@ function createClaudeCodeRuntimeAdapter(config) {
         cwd: resolveAgentCwd(configuredAgentCwd, normalizedWorkspaceRoot),
         env: filterClaudeCodeEnv(process.env),
         model: resolveModel(model),
+        // No binding, no chat, so no /effort choice reaches this launch: it
+        // stays at the CLI's own default rather than inheriting a level meant
+        // for interactive turns.
+        emitEffort: false,
         permissionMode: config.claudePermissionMode || "default",
         disableVerbose: Boolean(config.claudeDisableVerbose),
         extraArgs: config.claudeExtraArgs || [],
@@ -790,8 +805,8 @@ function createClaudeCodeRuntimeAdapter(config) {
         await client.close().catch(() => {});
       }
     },
-    async compactThread({ threadId, workspaceRoot, model = "", bindingKey = "", lane = null, launchProfile = null, senderId = "" }) {
-      const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, model, senderId });
+    async compactThread({ threadId, workspaceRoot, model = "", effort = "", bindingKey = "", lane = null, launchProfile = null, senderId = "" }) {
+      const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, model, effort, senderId });
       const attached = await attachProcessToSession(route, {
         threadId: normalizeThreadId(threadId) || route.storedThreadId,
       });
@@ -806,10 +821,10 @@ function createClaudeCodeRuntimeAdapter(config) {
       return { threadId: activeThreadId, turnId: client.pendingTurnId };
     },
     async refreshThreadInstructions({
-      threadId, workspaceRoot, model = "", reason = "refresh",
+      threadId, workspaceRoot, model = "", effort = "", reason = "refresh",
       bindingKey = "", lane = null, launchProfile = null, senderId = "",
     }) {
-      const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, model, senderId });
+      const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, model, effort, senderId });
       const attached = await attachProcessToSession(route, {
         threadId: normalizeThreadId(threadId) || route.storedThreadId,
       });
@@ -829,12 +844,12 @@ function createClaudeCodeRuntimeAdapter(config) {
       return this.sendTurn(args);
     },
     async sendTurn({
-      bindingKey, workspaceRoot, text, metadata = {}, model = "",
+      bindingKey, workspaceRoot, text, metadata = {}, model = "", effort = "",
       lane = null, launchProfile = null, senderId = "",
     }) {
       const desiredModel = resolveModel(model);
       const route = resolveRouteContext({
-        bindingKey, workspaceRoot, lane, launchProfile, model: desiredModel, senderId,
+        bindingKey, workspaceRoot, lane, launchProfile, model: desiredModel, effort, senderId,
       });
       // The resume id comes from this slot only. Another lane's session id is
       // simply not reachable from here, which is the structural guarantee that

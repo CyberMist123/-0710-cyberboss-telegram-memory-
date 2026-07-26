@@ -37,6 +37,12 @@ const { resolveVisionContext } = require("../services/vision-context");
 const {
   buildWeixinHelpText,
 } = require("./command-registry");
+const {
+  DEFAULT_EFFORT,
+  EFFORT_VALUES,
+  normalizeEffort,
+  resolveEffortLevel,
+} = require("../adapters/runtime/claudecode/process-client");
 const { CheckinConfigStore, parseCheckinRangeMinutes, resolveDefaultCheckinRange } = require("./checkin-config-store");
 const { resolvePreferredSenderId, resolvePreferredWorkspaceRoot } = require("./default-targets");
 const { StreamDelivery, createSystemReplyPolicy, resolveSystemReplyDelivery } = require("./stream-delivery");
@@ -835,7 +841,8 @@ class CyberbossApp {
     }).catch(() => {});
 
     try {
-      const model = this.runtimeAdapter.getSessionStore().getRuntimeParamsForWorkspace(bindingKey, workspaceRoot).model;
+      const turnParams = this.runtimeAdapter.getSessionStore().getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
+      const model = turnParams.model;
       const runtimeTurn = await this.buildRuntimeTurn({ prepared, model });
       const sendTurn = typeof this.runtimeAdapter.sendTurn === "function"
         ? this.runtimeAdapter.sendTurn.bind(this.runtimeAdapter)
@@ -846,6 +853,7 @@ class CyberbossApp {
         text: runtimeTurn.text,
         attachments: runtimeTurn.attachments,
         model,
+        effort: turnParams.effort,
         lane: effectiveLane,
         launchProfile: this.resolveLaunchProfileForLane?.(effectiveLane) || null,
         senderId: prepared.senderId || "",
@@ -1629,6 +1637,9 @@ class CyberbossApp {
       case "model":
         await this.handleModelCommand(normalized, command);
         return;
+      case "effort":
+        await this.handleEffortCommand(normalized, command);
+        return;
       case "star":
         await this.handleStarCommand(normalized);
         return;
@@ -1809,6 +1820,7 @@ class CyberbossApp {
         workspaceRoot,
         model: runtimeParams.model,
         modelProvider: runtimeParams.modelProvider,
+        effort: runtimeParams.effort,
         reason: "reread",
       });
       this.recordContextTrace?.(threadId, refreshed?.turnId || "", refreshed?.continuity);
@@ -1915,6 +1927,7 @@ class CyberbossApp {
         workspaceRoot,
         model: runtimeParams.model,
         modelProvider: runtimeParams.modelProvider,
+        effort: runtimeParams.effort,
         resumeOrigin: "user_switch",
       });
     } catch (error) {
@@ -2181,6 +2194,68 @@ class CyberbossApp {
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
       text: `✅ Model switched\nworkspace: ${workspaceRoot}\nmodel: ${matched.model}`,
+      contextToken: normalized.contextToken,
+      ...outboundThreadIdField(normalized),
+    });
+  }
+
+  /**
+   * Inspect or switch the reasoning effort the Claude Code child is launched
+   * with, for this binding's workspace only.
+   *
+   * Stored beside the binding's model in the same runtime-params record, so the
+   * choice survives a restart. The next turn notices the change, retires this
+   * slot's child and relaunches it with `--resume`, so the thread is kept.
+   */
+  async handleEffortCommand(normalized, command) {
+    const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
+      workspaceId: normalized.workspaceId,
+      accountId: normalized.accountId,
+      senderId: normalized.senderId,
+    });
+    const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
+    const sessionStore = this.runtimeAdapter.getSessionStore();
+    const requested = normalizeCommandArgument(command.args);
+
+    if (!requested) {
+      const storedEffort = sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot).effort;
+      const envEffort = normalizeEffort(process.env.CYBERBOSS_CLAUDE_EFFORT);
+      let source = "default";
+      if (normalizeEffort(storedEffort)) {
+        source = "this chat";
+      } else if (envEffort) {
+        source = "CYBERBOSS_CLAUDE_EFFORT";
+      }
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: [
+          `Current effort: ${resolveEffortLevel(storedEffort)}`,
+          `Source: ${source}`,
+          `Available levels: ${EFFORT_VALUES.join(", ")} (default: ${DEFAULT_EFFORT})`,
+        ].join("\n"),
+        contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
+      });
+      return;
+    }
+
+    const matched = normalizeEffort(requested);
+    if (!matched) {
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: `💡 Usage: /effort ${EFFORT_VALUES.join("|")}`,
+        contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
+      });
+      return;
+    }
+
+    sessionStore.setRuntimeParamsForWorkspace(bindingKey, workspaceRoot, {
+      effort: matched,
+    });
+    await this.channelAdapter.sendText({
+      userId: normalized.senderId,
+      text: `✅ Effort switched\nworkspace: ${workspaceRoot}\neffort: ${matched}`,
       contextToken: normalized.contextToken,
       ...outboundThreadIdField(normalized),
     });

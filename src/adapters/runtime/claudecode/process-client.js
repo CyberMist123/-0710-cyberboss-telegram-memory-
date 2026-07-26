@@ -1,5 +1,22 @@
 const { spawn } = require("child_process");
 const { buildProfileLaunch, fingerprintLaunchProfile } = require("./launch-profile");
+const { EFFORT_VALUES } = require("./cli-capabilities");
+
+// Reasoning effort for the legacy (profile-less) launch.
+//
+// The level set is sourced from the CLI capability table, so it cannot drift
+// from what the verified Claude binary actually accepts. `medium` is the
+// runtime's own default: the CLI's default is not part of its stability
+// contract, and a bridge whose depth of thought silently changes under it is
+// worse than one that always states what it asked for.
+const DEFAULT_EFFORT = "medium";
+const EFFORT_SET = new Set(EFFORT_VALUES);
+
+// Strict MCP configuration is on by default: the child must see the tool
+// servers Cyberboss injected through --mcp-config and nothing else. Without it
+// a stray user-level or project-level .mcp.json joins the launch, and one
+// lane's route-scoped tool server stops being the only server it can reach.
+const STRICT_MCP_DISABLE_VALUES = new Set(["0", "false", "no", "off"]);
 
 class ClaudeCodeProcessClient {
   constructor({
@@ -8,6 +25,14 @@ class ClaudeCodeProcessClient {
     cwd,
     env,
     model = "",
+    // Per-binding reasoning effort override. Empty means "no override": the
+    // env default, and then the runtime default, apply instead.
+    effort = "",
+    // Isolated system launches (background author, closeout) opt out entirely.
+    // They answer to no chat, so no /effort choice applies to them, and an
+    // unattended job must not change depth just because a deployment-wide
+    // default was set for interactive turns.
+    emitEffort = true,
     permissionMode = "default",
     disableVerbose = false,
     extraArgs = [],
@@ -32,6 +57,8 @@ class ClaudeCodeProcessClient {
     this.cwd = cwd;
     this.env = env;
     this.model = model;
+    this.effort = normalizeEffort(effort);
+    this.emitEffort = emitEffort !== false;
     this.permissionMode = permissionMode;
     this.disableVerbose = disableVerbose;
     this.extraArgs = extraArgs;
@@ -130,11 +157,17 @@ class ClaudeCodeProcessClient {
     // sit alongside a validated one.
     const args = buildArgs({
       model: profileLaunch ? "" : this.model,
+      effort: profileLaunch ? "" : this.effort,
+      emitEffort: this.emitEffort,
       permissionMode: this.permissionMode,
       disableVerbose: this.disableVerbose,
       extraArgs: profileLaunch ? [] : this.extraArgs,
       mcpConfigPaths: profileLaunch ? [] : this.mcpConfigPaths,
       resumeSessionId,
+      // A validated profile owns --effort and --strict-mcp-config exactly as it
+      // owns --model and --mcp-config, so the base launch must not emit its own
+      // copy alongside the profile's.
+      profileManaged: Boolean(profileLaunch),
     });
     const launchArgs = profileLaunch ? [...args, ...profileLaunch.args] : args;
     const launchCwd = profileLaunch ? profileLaunch.cwd : this.cwd;
@@ -493,7 +526,67 @@ class ClaudeCodeProcessClient {
   }
 }
 
-function buildArgs({ model, permissionMode, disableVerbose, extraArgs, mcpConfigPaths, resumeSessionId }) {
+function normalizeEffort(value) {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return EFFORT_SET.has(normalized) ? normalized : "";
+}
+
+/**
+ * Reasoning effort actually handed to the child.
+ *
+ * Precedence, most specific first:
+ *   1. the binding's own override (/effort in a chat)
+ *   2. CYBERBOSS_CLAUDE_EFFORT, the deployment-wide default
+ *   3. DEFAULT_EFFORT
+ *
+ * An unrecognised value at any level is not an error here -- it simply does not
+ * win, and the next level down applies. Rejecting the operator's typo is the
+ * command layer's job; a launch must not be blocked by it.
+ */
+function resolveEffortLevel(requested = "", env = process.env) {
+  return normalizeEffort(requested)
+    || normalizeEffort(env?.CYBERBOSS_CLAUDE_EFFORT)
+    || DEFAULT_EFFORT;
+}
+
+function resolveStrictMcpConfig(env = process.env) {
+  const raw = typeof env?.CYBERBOSS_CLAUDE_STRICT_MCP === "string"
+    ? env.CYBERBOSS_CLAUDE_STRICT_MCP.trim().toLowerCase()
+    : "";
+  return !STRICT_MCP_DISABLE_VALUES.has(raw);
+}
+
+/**
+ * True when the operator already passes this flag through
+ * CYBERBOSS_CLAUDE_EXTRA_ARGS, in either `--flag value` or `--flag=value` form.
+ * An explicit extra arg wins: emitting the runtime's copy as well would hand the
+ * CLI the same flag twice and leave which one applies up to its parser.
+ */
+function extraArgsContainFlag(extraArgs, flag) {
+  if (!Array.isArray(extraArgs)) {
+    return false;
+  }
+  return extraArgs.some((arg) => {
+    if (typeof arg !== "string") {
+      return false;
+    }
+    const trimmed = arg.trim();
+    return trimmed === flag || trimmed.startsWith(`${flag}=`);
+  });
+}
+
+function buildArgs({
+  model,
+  permissionMode,
+  disableVerbose,
+  extraArgs,
+  mcpConfigPaths,
+  resumeSessionId,
+  effort = "",
+  emitEffort = true,
+  profileManaged = false,
+  env = process.env,
+}) {
   const args = [
     "--output-format", "stream-json",
     "--input-format", "stream-json",
@@ -511,12 +604,20 @@ function buildArgs({ model, permissionMode, disableVerbose, extraArgs, mcpConfig
   if (model) {
     args.push("--model", model);
   }
+  if (!profileManaged && emitEffort !== false && !extraArgsContainFlag(extraArgs, "--effort")) {
+    args.push("--effort", resolveEffortLevel(effort, env));
+  }
   if (Array.isArray(mcpConfigPaths)) {
     for (const configPath of mcpConfigPaths) {
       if (typeof configPath === "string" && configPath.trim()) {
         args.push("--mcp-config", configPath.trim());
       }
     }
+  }
+  if (!profileManaged
+    && resolveStrictMcpConfig(env)
+    && !extraArgsContainFlag(extraArgs, "--strict-mcp-config")) {
+    args.push("--strict-mcp-config");
   }
   if (Array.isArray(extraArgs)) {
     const safe = extraArgs.filter((arg) =>
@@ -542,4 +643,12 @@ function isPotentiallySensitive(text) {
   return SENSITIVE_KEYWORDS.test(text) || SENSITIVE_PATTERNS.test(text);
 }
 
-module.exports = { ClaudeCodeProcessClient };
+module.exports = {
+  ClaudeCodeProcessClient,
+  DEFAULT_EFFORT,
+  EFFORT_VALUES,
+  buildArgs,
+  normalizeEffort,
+  resolveEffortLevel,
+  resolveStrictMcpConfig,
+};

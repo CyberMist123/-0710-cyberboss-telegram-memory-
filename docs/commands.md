@@ -48,6 +48,7 @@ The runtime can be `codex` or `claudecode`, but the documented command surface s
 
 - `model.inspect`
 - `model.select`
+- `runtime.effort`
 - `channel.send_file`
 - `timeline.write`
 - `reminder.create`
@@ -109,6 +110,7 @@ Notes:
 - `/no`
 - `/model`
 - `/model <id>`
+- `/effort` / `/effort <low|medium|high|xhigh|max>`
 - `/star`
 - `/help`
 
@@ -116,5 +118,6 @@ Notes:
 
 - `/status` covers thread, workspace, and context details
 - there is no separate `/context` command; use `/status` and read the `📦 context` line
+- `/effort` with no argument reports the level in force and where it came from: this chat's own choice, `CYBERBOSS_CLAUDE_EFFORT`, or the `medium` default. Setting a level relaunches the workspace's Claude child and resumes the same thread
 - `/compact` asks the current thread to compact its context and reports start / finish back to WeChat
 - file sending is still available, but no longer exposed as a WeChat command
