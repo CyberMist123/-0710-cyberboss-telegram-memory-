@@ -95,6 +95,9 @@ jobs:
             if ($code -eq 0) { Write-Output "::error title=py39 probe::watchdog.py did not fail closed on Python 3.9. output: $flat"; exit 1 }
             if ($result -notmatch "requires Python") { Write-Output "::error title=py39 probe::watchdog.py failed without a clear version diagnosis (exit $code): $flat"; exit 1 }
             Write-Output "watchdog.py failed closed with a clear version diagnosis on Python 3.9"
+            # GitHub's pwsh wrapper fails the step on a trailing nonzero
+            # $LASTEXITCODE (here: the probe's expected exit 1) — clear it.
+            exit 0
           } catch {
             $detail = ($_ | Out-String) -replace "(`r|`n)+", '%0A'
             Write-Output "::error title=py39 probe exception::$detail"
