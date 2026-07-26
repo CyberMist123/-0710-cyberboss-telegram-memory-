@@ -188,3 +188,31 @@ test("verifyManifest checks commit/tree SHA existence against an external read-o
   assert.equal(verification.ok, false);
   assert.match(verification.errors.join("\n"), /commit\.sha: does not exist in the external repository/);
 });
+
+test("verifyManifest rejects a tree_sha that exists but is not the tree of commit.sha", () => {
+  const { repoDir, commit } = makeFixtureRepo();
+  const releaseDir = makeFixtureRelease();
+  const manifest = buildManifest({ releaseId: "x", releaseDir, repoDir, commit, buildTime: "t", buildTimeSource: "test", nodeVersion: "v", npmVersion: "v" });
+  // the commit SHA itself exists in the repository, so a pure existence
+  // check passes — but it is an unrelated object, not this commit's tree
+  manifest.commit.tree_sha = commit;
+  const outPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-manifest-out-")), "manifest.json");
+  writeManifestFile(manifest, outPath);
+  const verification = verifyManifest({ manifestPath: outPath, releaseDir, repoDir });
+  assert.equal(verification.ok, false);
+  assert.match(verification.errors.join("\n"), /commit\.tree_sha: is not the tree of commit\.sha/);
+});
+
+test("verifyManifest judges caller-pinned manifest bytes over the file on disk", () => {
+  const { repoDir, commit } = makeFixtureRepo();
+  const releaseDir = makeFixtureRelease();
+  const manifest = buildManifest({ releaseId: "x", releaseDir, repoDir, commit, buildTime: "t", buildTimeSource: "test", nodeVersion: "v", npmVersion: "v" });
+  const outPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-manifest-out-")), "manifest.json");
+  writeManifestFile(manifest, outPath);
+  const pinnedBytes = fs.readFileSync(outPath);
+  // swap the on-disk manifest for garbage: verification must still succeed
+  // because it judges the pinned bytes, proving there is no second read
+  fs.writeFileSync(outPath, "{ not json");
+  const verification = verifyManifest({ manifestPath: outPath, releaseDir, repoDir, manifestBytes: pinnedBytes });
+  assert.equal(verification.ok, true, verification.errors.join("\n"));
+});

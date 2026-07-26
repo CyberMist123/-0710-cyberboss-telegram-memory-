@@ -1,23 +1,19 @@
 $ErrorActionPreference = "Stop"
 
 $scriptRoot = (Resolve-Path $PSScriptRoot).Path
+# R4 F4.1: no ancestor walking. The workspace root decides which python file
+# gets executed and where the dashboard keys live, so it must be pinned
+# explicitly at install time — a nearer decoy directory that happens to
+# contain runtime/ and settings/ must never win.
 $root = $env:CYBERLINK_ROOT
 if (-not $root) {
-    $candidate = $scriptRoot
-    while ($candidate) {
-        if ((Test-Path (Join-Path $candidate "runtime")) -and (Test-Path (Join-Path $candidate "settings"))) {
-            $root = $candidate
-            break
-        }
-        $parent = Split-Path -Parent $candidate
-        if ($parent -eq $candidate) {
-            break
-        }
-        $candidate = $parent
-    }
+    throw "CYBERLINK_ROOT is not set. Refusing to guess the workspace root (R4 F4): pin CYBERLINK_ROOT in the startup entry before starting the dashboard."
 }
-if (-not $root) {
-    throw "Unable to locate CYBERLINK_ROOT; set CYBERLINK_ROOT before starting the dashboard."
+$root = (Resolve-Path -LiteralPath $root -ErrorAction Stop).Path
+foreach ($required in @("runtime", "settings")) {
+    if (-not (Test-Path (Join-Path $root $required))) {
+        throw "CYBERLINK_ROOT does not look like the workspace root (missing '$required'): $root"
+    }
 }
 
 $runtime   = Join-Path $root "runtime"

@@ -299,13 +299,22 @@ function readManifestFile(manifestPath) {
 // Verifies a previously generated manifest against the release directory it
 // describes. Optionally verifies the recorded commit/tree SHA exist in an
 // external, read-only, trusted git repository (no .git is required inside
-// the release itself). Every failure names the specific file/field at
-// fault; file contents and secret values are never included in errors.
-function verifyManifest({ manifestPath, releaseDir, repoDir }) {
+// the release itself) and that tree_sha is actually the tree of commit.sha.
+// Every failure names the specific file/field at fault; file contents and
+// secret values are never included in errors.
+// When the caller has already read (and hash-pinned) the manifest, it passes
+// those exact bytes via `manifestBytes` so this verification cannot be
+// diverted by a concurrent swap of the file at manifestPath (R4 F2).
+function verifyManifest({ manifestPath, releaseDir, repoDir, manifestBytes }) {
   const errors = [];
   let manifest;
   try {
-    manifest = readManifestFile(manifestPath);
+    if (manifestBytes) {
+      if (hasUtf8Bom(manifestBytes)) throw new Error(`manifest must be UTF-8 without BOM: ${manifestPath}`);
+      manifest = JSON.parse(manifestBytes.toString("utf8"));
+    } else {
+      manifest = readManifestFile(manifestPath);
+    }
   } catch (error) {
     return { ok: false, errors: [error.message] };
   }
@@ -327,6 +336,18 @@ function verifyManifest({ manifestPath, releaseDir, repoDir }) {
       } catch {
         errors.push(`${field}: does not exist in the external repository ${repoDir}`);
       }
+    }
+    // Existence alone is not a relation: any pair of SHAs that happen to
+    // live in the trusted repository would pass. Require tree_sha to be
+    // the actual tree of commit.sha (R4 checklist item 7).
+    try {
+      const actualTree = gitCommitTreeSha(repoDir, manifest.commit.sha);
+      if (actualTree.toLowerCase() !== String(manifest.commit.tree_sha || "").toLowerCase()) {
+        errors.push(`commit.tree_sha: is not the tree of commit.sha in the external repository ${repoDir}`);
+      }
+    } catch {
+      // commit.sha itself is missing or unresolvable; the existence check
+      // above already reported it.
     }
   }
 

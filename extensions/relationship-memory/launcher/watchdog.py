@@ -33,11 +33,10 @@ def enforce_python_floor() -> None:
 
 HERE = Path(__file__).resolve().parent
 WATCHDOG_SCRIPT = Path(__file__).resolve()
-DEFAULT_DESCRIPTOR = next(
-    (parent / "deployment" / "current.json" for parent in HERE.parents
-     if (parent / "deployment" / "current.json").exists()),
-    Path.cwd() / "deployment" / "current.json",
-)
+# R4 F4.3: no ancestor probing and no cwd fallback for the descriptor. The
+# single-owner supervisor must be told explicitly which deployment/current.json
+# it owns (--descriptor is required); guessing from the filesystem or the
+# caller's working directory is fail-open.
 REQUIRED = (
     "active_release_id", "telegram_entry", "config_dir", "state_dir", "log_dir",
     "pid_file", "watchdog_target", "rollback_release", "last_verified_sha",
@@ -306,7 +305,7 @@ def run_watchdog(descriptor_path: Path, interval: float, iterations: int | None 
 def main() -> int:
     enforce_python_floor()
     parser = argparse.ArgumentParser()
-    parser.add_argument("--descriptor", type=Path, default=DEFAULT_DESCRIPTOR)
+    parser.add_argument("--descriptor", type=Path, required=True)
     parser.add_argument("--interval", type=float, default=60.0)
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--legacy-owner", action="append", default=[], metavar="SCRIPT|DESCRIPTOR")

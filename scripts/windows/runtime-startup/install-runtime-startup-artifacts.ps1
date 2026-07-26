@@ -2,6 +2,7 @@
 param(
   [Parameter(Mandatory=$true)][string]$DescriptorPath,
   [Parameter(Mandatory=$true)][string]$ManifestPath,
+  [Parameter(Mandatory=$true)][string]$ExpectedManifestSha256,
   [Parameter(Mandatory=$true)][string]$TargetStartupDirectory,
   [string]$RepositoryDirectory = ''
 )
@@ -24,6 +25,6 @@ $pairs = @(
 )
 foreach ($pair in $pairs) {
   if (-not (Test-Path -LiteralPath $pair.Source -PathType Leaf)) { throw "Active release startup source is missing: $($pair.Source)" }
-  & node -e "const c=require(process.argv[1]);c.installStartupArtifact({source:process.argv[2],target:process.argv[3],manifestPath:process.argv[4],releaseDir:process.argv[5],repoDir:process.argv[6]})" (Join-Path $packageRoot 'scripts\orchestration\release-control-plane.js') $pair.Source $pair.Target $ManifestPath $release $repo
+  & node -e "const c=require(process.argv[1]);c.installStartupArtifact({source:process.argv[2],target:process.argv[3],manifestPath:process.argv[4],releaseDir:process.argv[5],repoDir:process.argv[6],expectedManifestSha256:process.argv[7]})" (Join-Path $packageRoot 'scripts\orchestration\release-control-plane.js') $pair.Source $pair.Target $ManifestPath $release $repo $ExpectedManifestSha256
   if ($LASTEXITCODE -ne 0) { throw "Startup artifact installation failed manifest/hash verification: $($pair.Source)" }
 }
