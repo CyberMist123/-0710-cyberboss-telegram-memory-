@@ -45,9 +45,11 @@ jobs:
           $log = Join-Path $env:RUNNER_TEMP "phase1.log"
           npm run test:phase1 2>&1 | Tee-Object -FilePath $log
           if ($LASTEXITCODE -ne 0) {
-            $interesting = (Get-Content $log | Select-String -Pattern 'not ok|failing|failed|Error|error TS|npm ERR|AssertionError|✖' -SimpleMatch:$false | Select-Object -Last 40 | ForEach-Object { $_.Line }) -join '%0A'
-            if (-not $interesting) { $interesting = ((Get-Content $log | Select-Object -Last 40) -join '%0A') }
-            Write-Output "::error title=phase1 failing output::$interesting"
+            $blocks = Select-String -Path $log -Pattern 'not ok' -Context 0,30
+            $chunk = ($blocks | ForEach-Object { ,$_.Line + $_.Context.PostContext } | ForEach-Object { $_ }) -join '%0A'
+            if (-not $chunk) { $chunk = ((Get-Content $log | Select-Object -Last 60) -join '%0A') }
+            if ($chunk.Length -gt 3800) { $chunk = $chunk.Substring(0, 3800) }
+            Write-Output "::error title=phase1 failing output::$chunk"
             exit 1
           }
 
@@ -71,9 +73,11 @@ jobs:
           $log = Join-Path $env:RUNNER_TEMP "orchestration.log"
           npm run test:orchestration 2>&1 | Tee-Object -FilePath $log
           if ($LASTEXITCODE -ne 0) {
-            $interesting = (Get-Content $log | Select-String -Pattern 'not ok|failing|failed|Error|AssertionError|✖' | Select-Object -Last 40 | ForEach-Object { $_.Line }) -join '%0A'
-            if (-not $interesting) { $interesting = ((Get-Content $log | Select-Object -Last 40) -join '%0A') }
-            Write-Output "::error title=orchestration failing output::$interesting"
+            $blocks = Select-String -Path $log -Pattern 'not ok' -Context 0,30
+            $chunk = ($blocks | ForEach-Object { ,$_.Line + $_.Context.PostContext } | ForEach-Object { $_ }) -join '%0A'
+            if (-not $chunk) { $chunk = ((Get-Content $log | Select-Object -Last 60) -join '%0A') }
+            if ($chunk.Length -gt 3800) { $chunk = $chunk.Substring(0, 3800) }
+            Write-Output "::error title=orchestration failing output::$chunk"
             exit 1
           }
 
