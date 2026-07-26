@@ -3302,36 +3302,44 @@ function detectSleepModeIntent(text) {
 }
 
 function formatTelegramRuntimeText(prepared, { stateDir = "" } = {}) {
-  const payload = {
-    version: 1,
-    source: "telegram",
-    message: {
-      chatId: normalizeText(prepared?.chatId || prepared?.telegram?.chatId),
-      messageId: normalizeText(prepared?.messageId || prepared?.telegram?.messageId),
-      userId: normalizeText(prepared?.senderId || prepared?.telegram?.userId),
-      username: normalizeText(prepared?.telegram?.username),
-      sentAt: normalizeText(prepared?.receivedAt),
-    },
-    text: String(prepared?.originalText || prepared?.text || "").trim(),
-    attachments: buildTelegramMediaBridgeAttachments(prepared?.attachments, stateDir),
-  };
-  // One opaque data node keeps every user-controlled field out of bridge markup.
-  const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-  return `<telegram-inbound version="1" encoding="base64url-json">${encoded}</telegram-inbound>`;
+  const chatId = normalizeText(prepared?.chatId || prepared?.telegram?.chatId);
+  const messageId = normalizeText(prepared?.messageId || prepared?.telegram?.messageId);
+  const userId = normalizeText(prepared?.senderId || prepared?.telegram?.userId);
+  const sentAt = normalizeText(prepared?.receivedAt);
+  const body = escapeTelegramChannelBody(String(prepared?.originalText || prepared?.text || "").trim());
+  const mediaLines = buildTelegramMediaBridgeLines(prepared?.attachments, stateDir);
+  const openTag = [
+    '<channel source="telegram"',
+    chatId ? `chat_id="${escapeXmlAttribute(chatId)}"` : "",
+    messageId ? `message_id="${escapeXmlAttribute(messageId)}"` : "",
+    userId ? `user_id="${escapeXmlAttribute(userId)}"` : "",
+    sentAt ? `sent_at="${escapeXmlAttribute(sentAt)}"` : "",
+  ].filter(Boolean).join(" ") + ">";
+  return [openTag, body, ...mediaLines, "</channel>"].join("\n");
 }
 
-function buildTelegramMediaBridgeAttachments(attachments, stateDir) {
+function buildTelegramMediaBridgeLines(attachments, stateDir) {
   if (!Array.isArray(attachments) || !normalizeText(stateDir)) return [];
   return attachments.flatMap((attachment) => {
     const reference = normalizeText(attachment?.stateMediaRef);
     if (!reference || !resolveStateMediaReference(stateDir, reference)) return [];
-    return [{
-      kind: normalizeText(attachment.kind || attachment.type),
-      contentType: normalizeText(attachment.contentType),
-      fileName: normalizeText(attachment.fileName),
-      reference,
-    }];
+    const kind = normalizeText(attachment.kind || attachment.type) || "file";
+    const contentType = normalizeText(attachment.contentType);
+    const fileName = normalizeText(attachment.fileName);
+    return [`<media kind="${escapeXmlAttribute(kind)}"${contentType ? ` content_type="${escapeXmlAttribute(contentType)}"` : ""}${fileName ? ` file_name="${escapeXmlAttribute(fileName)}"` : ""} reference="${escapeXmlAttribute(reference)}" />`];
   });
+}
+
+function escapeTelegramChannelBody(value) {
+  return String(value || "").replace(/<\/channel>/g, "&lt;/channel&gt;");
+}
+
+function escapeXmlAttribute(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function sleep(ms) {

@@ -17,11 +17,14 @@ authoritative state media root after confinement checks; it cannot contain a dri
 UNC path, backslash, `.` or `..` segment. Absolute paths remain internal to the
 service/VoiceService and are never emitted into the model-facing Telegram bridge.
 
-The Telegram runtime bridge is a single `base64url-json` data node. It carries the
-original text and only verified state-media references, so caption, filename, MIME
-and message text cannot create markup, close the bridge, or inject a second media
-entry. Telegram media directories reject links/reparse points and use bounded
-downloads, `.part` files, fsync and rename before an attachment is recorded.
+The Telegram runtime bridge uses the deployed plaintext `<channel source="telegram"
+...>` envelope. Message text remains readable; a literal `</channel>` in the body is
+escaped as `&lt;/channel&gt;` so it cannot close the envelope. Attachments are emitted as
+`<media ... reference="state-media://..." />` entries only after their references
+resolve below the authoritative state media root. User-controlled media attributes
+are XML-escaped, and absolute paths are never exposed. Telegram media directories
+reject links/reparse points and use bounded downloads, `.part` files, fsync and rename
+before an attachment is recorded.
 
 Local Whisper is opt-in with `CYBERBOSS_LOCAL_WHISPER_ENABLED=true`. It requires a
 local model directory, uses argv-only process spawning, has bounded input/output and
