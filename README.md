@@ -203,7 +203,7 @@ Auto Review 是海关，不是编辑。它核对来源、冲突、重复、长�
 
 ## 七、文档地图
 
-仓库只有四份权威文档：
+仓库有五份权威文档：
 
 | 想知道 | 去读 |
 |---|---|
@@ -211,6 +211,13 @@ Auto Review 是海关，不是编辑。它核对来源、冲突、重复、长�
 | 当前做到哪里、验收与下一步 | [`docs/IMPLEMENTATION_STATUS.md`](./docs/IMPLEMENTATION_STATUS.md) |
 | 520 的职责与边界 | [`docs/520_CONSOLE.md`](./docs/520_CONSOLE.md) |
 | 暂缓的自动召回与研究路线 | [`docs/SOFT_RETRIEVAL.md`](./docs/SOFT_RETRIEVAL.md) |
+| **能不能切生产**：R4 终审结论与翻盘清单 | [`docs/audit/R4_FINAL_CODE_REVIEW.md`](./docs/audit/R4_FINAL_CODE_REVIEW.md) |
+
+设计与交接（TG 聊天路由 / 上下文预算，三份互相引用）：
+
+- [`docs/design/DESIGN-TG-CHAT-ROUTING-CONTEXT-BUDGET.md`](./docs/design/DESIGN-TG-CHAT-ROUTING-CONTEXT-BUDGET.md)：设计正文；
+- [`docs/design/REVIEW-TG-CHAT-ROUTING-CONTEXT-BUDGET.md`](./docs/design/REVIEW-TG-CHAT-ROUTING-CONTEXT-BUDGET.md)：架构复核；
+- [`docs/design/HANDOFF-P0-FABLE-CHAT-PROFILE.md`](./docs/design/HANDOFF-P0-FABLE-CHAT-PROFILE.md)：P0 交接。
 
 补充材料：
 
@@ -219,9 +226,14 @@ Auto Review 是海关，不是编辑。它核对来源、冲突、重复、长�
 - [`docs/WINDOWS_SILENT_STARTUP.md`](./docs/WINDOWS_SILENT_STARTUP.md)：独立 PS1 静默自启、状态与取消；
 - [`docs/prompts/DEPLOY_EXECUTION_PROMPT.md`](./docs/prompts/DEPLOY_EXECUTION_PROMPT.md)：实施入口；
 - [`docs/prompts/ARCH_REVIEW_PROMPT.md`](./docs/prompts/ARCH_REVIEW_PROMPT.md)：阶段复核；
+- [`docs/UPSTREAM_BASELINE.md`](./docs/UPSTREAM_BASELINE.md)：上游脱敏基线说明；
 - [`docs/archive/20260710_DESIGN_DRAFTS.md`](./docs/archive/20260710_DESIGN_DRAFTS.md)：旧设计草稿索引。
 
-优先级：四份权威文档 > Handoff > 已验证源码与运行证据 > Liveness Notes > README 与其他说明。
+已归档、**不要再依据它们做判断**：`docs/archive/README-CUSTOM.md`（2026-07-10，其三个链接均已失效）、`docs/archive/cyberboss-outage-report.txt`（2026-06-13 断线诊断，历史记录）。
+
+优先级：五份权威文档 > Handoff > 已验证源码与运行证据 > Liveness Notes > README 与其他说明。
+
+根目录只保留本文件与 `CLAUDE.md` / `AGENTS.md`，其余文档一律在 `docs/` 下。上游继承的两份叙事 README（`README.en.md` / `README.zh-CN.md`，描述的是微信桥接）已于 2026-07-26 删除 —— 它们与本项目（Telegram）不符，需要时从历史提交 `c41f9bd` 取回。**本文件是唯一的工程入口。**
 
 ## 八、给执行模型
 
@@ -235,13 +247,19 @@ Auto Review 是海关，不是编辑。它核对来源、冲突、重复、长�
 
 ## 九、分支与隐私
 
+分支模型（截至 2026-07-26，与 origin 实际状态一致）：
+
 | 分支 | 用途 |
 |---|---|
-| `main` | 最终稳定目标，不直接承接未经验证的设计稿 |
-| `design/living-memory-rfc` | 设计、Handoff 与 Prompt 收口 |
-| `impl/*` 或 `fix/*` | 从设计基线切出的单阶段实施分支 |
-| `legacy-current` | 曾运行现场，只作救援对照 |
-| `upstream-baseline` | 上游脱敏基线，只作比较 |
+| `main` | 唯一主干。所有已验证工作都在这里；**合并进 main ≠ 批准切生产**，放行判据见 `docs/audit/R4_FINAL_CODE_REVIEW.md` |
+| `fix/*` | 单一问题的修复分支，从 main 切出，合并后即删 |
+| `audit/*` | 只读审查产出，只加报告文件、不改被审代码，作为留痕保留 |
+
+规矩：
+
+- 动手前先跑 `git rev-list --left-right --count origin/main...<分支>`。`ahead=0` 意味着该分支的每个提交都已在 main 里 —— 它是死分支，删掉即可，不要再往里做事。
+- 合并后立刻删分支。留着已合并的分支会让人（和 AI）误以为还有未交付的工作。
+- 历史上曾有 `design/living-memory-rfc`、`legacy-current`、`upstream-baseline`、`impl/*` 等分支，**均已不存在**；上游基线内容现在见 `docs/UPSTREAM_BASELINE.md`。
 
 真实 token、会话、日志、私人 Episodes、Self-notes、Portrait、Desire live state、PID、缓存与 lock 文件永不提交 Git。公开仓库的其他分支也不是私密空间。
 
