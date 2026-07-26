@@ -12,6 +12,18 @@
 - **清单 5（F5）**：`watchdog.py` 加 `from __future__ import annotations`（低版本导入不再炸出无解释的 TypeError），`main()` 入口加 `enforce_python_floor()`（< 3.10 时带明确诊断 fail-closed）。CI 末尾新增 Python 3.9 探针步骤，断言 watchdog 确实以清晰信息拒绝启动 —— 守住 CI 主流程 Python 3.12 复现不了该缺陷的盲区。
 - **清单 3** 的首轮证据由接线后的 windows-latest CI run 提供（PS 测试真实执行的完整输出）；真机 Windows 留证仍待生产机操作时补。
 
+**接线后测试门立刻抓到并修复了两个真实 Windows 缺陷**（此前 Mac 上被 F5 全红遮蔽、CI 上从未执行过）：
+
+1. `watchdog_identity` 的路径比较（normcase+abspath）无法把 Windows 8.3 短路径与长路径判为同一文件 —— 短路径启动的重复 watchdog 不会被重复守卫拦截（fail-open）。修法：比较前两侧都 `Path.resolve()` 规范化（`same_file_path`），语义仍是精确三元组匹配。
+2. 安装器测试把 8.3 短路径喂给了要求"输入必须等于规范长形"的 fail-closed 校验（生产传的是长路径）。修法在测试侧：`fs.realpathSync.native` 先展开临时目录。同时给三处校验的报错补上 given/normalized 对照（F1.2 的教训：fail-closed 报错必须携带诊断）。
+
+**另外解掉两个与本清单无关但挡路的存量红灯**：
+
+- `main` 的 CI（phase1-offline）自 7 月 25 日起持续红：`portability-check` 的 `windows-drive-path` 命中审计报告的证据引用。修法：仅对 `docs/audit/` 豁免该单条检查。
+- 密钥审计（PR 门）在 `main` 上也已是红的：redaction 夹具 sentinel `never-print-this` 的历史 blob 触发 `generic_secret_assignment`。按既有先例把该 sentinel 归类为占位符。本次合并前已在本地全量跑通该审计。
+
+**CI 可观测性**：所有测试步骤经 `scripts/ci/run-annotated.ps1` 执行，失败时把 TAP 失败块写成 run 页面 annotation（无需登录即可读取），另有 step outcomes 汇总 annotation —— 无仓库凭据的环境（手机、外部会话）也能诊断 CI 失败。注意 GitHub pwsh 步骤会以结尾的 `$LASTEXITCODE` 判定成败，凡"预期非零退出"的步骤必须显式 `exit 0`。
+
 ## 2026-07-26 项目搁置：状态快照与恢复条件
 
 **当前状态：搁置（shelved）。不得切生产。** 恢复工作前先读完本节。
