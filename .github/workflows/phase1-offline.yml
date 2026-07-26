@@ -38,48 +38,28 @@ jobs:
       - name: Static checks
         run: npm run check
 
-      # 失败输出经 annotation 暴露：run 页面的 annotation 无需登录即可读取，
-      # 让失败可以在没有仓库凭据的环境（手机、外部会话）里被诊断。
+      # 失败输出经 annotation 暴露（scripts/ci/run-annotated.ps1）：run 页面的
+      # annotation 无需登录即可读取，让失败可以在没有仓库凭据的环境里被诊断。
       - name: Phase 1 tests
-        run: |
-          $log = Join-Path $env:RUNNER_TEMP "phase1.log"
-          npm run test:phase1 2>&1 | Tee-Object -FilePath $log
-          if ($LASTEXITCODE -ne 0) {
-            $blocks = Select-String -Path $log -Pattern 'not ok' -Context 0,30
-            $chunk = ($blocks | ForEach-Object { ,$_.Line + $_.Context.PostContext } | ForEach-Object { $_ }) -join '%0A'
-            if (-not $chunk) { $chunk = ((Get-Content $log | Select-Object -Last 60) -join '%0A') }
-            if ($chunk.Length -gt 3800) { $chunk = $chunk.Substring(0, 3800) }
-            Write-Output "::error title=phase1 failing output::$chunk"
-            exit 1
-          }
+        run: ./scripts/ci/run-annotated.ps1 -Name phase1 -Command 'npm run test:phase1'
 
       - name: Phase 2 hard-context tests
-        run: npm run test:phase2
+        run: ./scripts/ci/run-annotated.ps1 -Name phase2 -Command 'npm run test:phase2'
 
       - name: Phase 3 continuity-pipeline tests
-        run: npm run test:phase3
+        run: ./scripts/ci/run-annotated.ps1 -Name phase3 -Command 'npm run test:phase3'
 
       - name: Phase 4 read-only console tests
-        run: npm run test:phase4
+        run: ./scripts/ci/run-annotated.ps1 -Name phase4 -Command 'npm run test:phase4'
 
       - name: Phase 5A user-pull lookup tests
-        run: npm run test:phase5a
+        run: ./scripts/ci/run-annotated.ps1 -Name phase5a -Command 'npm run test:phase5a'
 
       # R4 翻盘清单第 1 条（F1.4）：release/cutover 测试门。
       # windows-latest 提供真实 powershell.exe，Python 3.12 满足 watchdog 版本前提，
       # 这里产生的是真实信号，不是 ENOENT 假绿。
       - name: Release/cutover control-plane tests
-        run: |
-          $log = Join-Path $env:RUNNER_TEMP "orchestration.log"
-          npm run test:orchestration 2>&1 | Tee-Object -FilePath $log
-          if ($LASTEXITCODE -ne 0) {
-            $blocks = Select-String -Path $log -Pattern 'not ok' -Context 0,30
-            $chunk = ($blocks | ForEach-Object { ,$_.Line + $_.Context.PostContext } | ForEach-Object { $_ }) -join '%0A'
-            if (-not $chunk) { $chunk = ((Get-Content $log | Select-Object -Last 60) -join '%0A') }
-            if ($chunk.Length -gt 3800) { $chunk = $chunk.Substring(0, 3800) }
-            Write-Output "::error title=orchestration failing output::$chunk"
-            exit 1
-          }
+        run: ./scripts/ci/run-annotated.ps1 -Name orchestration -Command 'npm run test:orchestration'
 
       # R4 翻盘清单第 5 条（F5）：低版本 Python 上 watchdog 必须 fail-closed 且给出
       # 明确诊断，而不是静默不启动或含糊的 TypeError。
@@ -94,9 +74,11 @@ jobs:
         run: |
           $py39 = "${{ steps.py39.outputs.python-path }}"
           $result = & $py39 extensions/relationship-memory/launcher/watchdog.py --once 2>&1 | Out-String
-          if ($LASTEXITCODE -eq 0) { Write-Error "watchdog.py did not fail closed on Python 3.9"; exit 1 }
-          if ($result -notmatch "requires Python") { Write-Error "watchdog.py failed without a clear version diagnosis: $result"; exit 1 }
+          if ($LASTEXITCODE -eq 0) { Write-Output "::error title=py39 probe::watchdog.py did not fail closed on Python 3.9"; exit 1 }
+          if ($result -notmatch "requires Python") { Write-Output "::error title=py39 probe::watchdog.py failed without a clear version diagnosis: $($result -replace "`n", '%0A')"; exit 1 }
           Write-Output "watchdog.py failed closed with a clear version diagnosis on Python 3.9"
 
       - name: Diff hygiene
-        run: git diff --check
+        run: |
+          $diff = git diff --check 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error title=diff hygiene::$($diff -replace "`n", '%0A')"; exit 1 }
