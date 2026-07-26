@@ -300,10 +300,7 @@ test("Telegram runtime bridge preserves ordinary text payload without media side
   const turn = await CyberbossApp.prototype.buildRuntimeTurn.call({ config: {} }, {
     prepared: { provider: "telegram", text: "hello\nworld", originalText: "hello\nworld", attachments: [] },
   });
-  const encoded = turn.text.match(/>([A-Za-z0-9_-]+)</)?.[1];
-  assert.ok(encoded);
-  const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
-  assert.equal(payload.text, "hello\nworld");
-  assert.deepEqual(payload.attachments, []);
+  assert.equal(turn.text, '<channel source="telegram">\nhello\nworld\n</channel>');
+  assert.equal(turn.text.split("\n").filter((line) => line.startsWith("<media ")).length, 0);
   assert.deepEqual(turn.attachments, []);
 });

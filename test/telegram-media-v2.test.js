@@ -220,7 +220,6 @@ test("Telegram handler completes media and STT before record and runtime draft, 
   assert.equal(stt, 1);
   assert.deepEqual(records, [{ attachments: 1, text: normalized.text }]);
   assert.equal(drafts.length, 1);
-  const payload = JSON.parse(Buffer.from(drafts[0].text.match(/>([A-Za-z0-9_-]+)</)[1], "base64url").toString("utf8"));
-  assert.equal(payload.attachments.length, 1);
-  assert.match(payload.text, /caption/);
+  assert.equal(drafts[0].text.split("\n").filter((line) => line.startsWith("<media ")).length, 1);
+  assert.match(drafts[0].text, /caption/);
 });
