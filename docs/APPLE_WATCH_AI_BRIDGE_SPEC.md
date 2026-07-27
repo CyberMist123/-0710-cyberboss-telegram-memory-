@@ -1,3 +1,6 @@
+> **Status: proposal（无代码）** — 这是一份规格 / 提案，仓库里没有任何对应实现。
+> 不要把本文件读作「已实现」。当前能力表见 [`docs/CURRENT_STATUS.md`](./CURRENT_STATUS.md)。
+
 # Apple Watch ↔ AI 双向接入技术规格
 
 > 目标：通过「中继服务 + Apple Watch 设备端 + MCP」让 AI 读取 Apple Watch 健康快照，并向手表发送可识别的触觉节奏；AI 不直接连接设备。

@@ -1,3 +1,6 @@
+> **Status: superseded** — 部署期临时交接文档。
+> 当前进度与下一步见 [`docs/CURRENT_STATUS.md`](./CURRENT_STATUS.md)；稳定结构见 [`docs/architecture/`](./architecture/)。
+
 # Implementation Handoff — 实施交接
 
 > 状态：临时交接文档，**不是第五份架构真相**。

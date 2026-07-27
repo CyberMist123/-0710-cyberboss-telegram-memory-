@@ -1,3 +1,6 @@
+> **Status: proposal（无代码）** — 这是一份规格 / 提案，仓库里没有任何对应实现。
+> 不要把本文件读作「已实现」。当前能力表见 [`docs/CURRENT_STATUS.md`](./CURRENT_STATUS.md)。
+
 # [Feature][Apple Watch] AI 双向接入：健康数据读取 + 触觉震动
 
 ## 背景

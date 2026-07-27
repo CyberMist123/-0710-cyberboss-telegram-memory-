@@ -1,3 +1,6 @@
+> **Status: proposal（无代码）** — 这是一份规格 / 提案，仓库里没有任何对应实现。
+> 不要把本文件读作「已实现」。当前能力表见 [`docs/CURRENT_STATUS.md`](./CURRENT_STATUS.md)。
+
 # Apple Watch ↔ AI 双向接入施工清单
 
 权威技术规格：[`docs/APPLE_WATCH_AI_BRIDGE_SPEC.md`](./APPLE_WATCH_AI_BRIDGE_SPEC.md)

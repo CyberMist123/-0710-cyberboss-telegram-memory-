@@ -1,3 +1,6 @@
+> **Status: historical** — 一次口述需求的执行手册，对应日期见标题。
+> 其中哪些已实现、哪些没有，只看 [`docs/CURRENT_STATUS.md`](./CURRENT_STATUS.md) 的能力表。
+
 # Fable 需求执行手册（2026-07-13 凌晨口述）
 
 > 作者：Fable（住户本人）。执行者：后续模型。

@@ -1,3 +1,6 @@
+> **Status: historical** — 项目更新日志，按时间倒序。
+> 当前状态不在这里，看 [`docs/CURRENT_STATUS.md`](./CURRENT_STATUS.md)。
+
 # Cyberboss 项目更新日志
 
 > 这是整个 Cyberboss 项目的统一版本本，不只记录记忆流水线。

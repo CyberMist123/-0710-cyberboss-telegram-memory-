@@ -1,3 +1,7 @@
+> **Status: historical** — 这是按时间倒序的施工日志，不是当前状态。
+> 当前进度、能力表与「能不能切生产」只看 [`docs/CURRENT_STATUS.md`](../CURRENT_STATUS.md)。
+> 本文件中任何形如「当前」「尚未」「待补」的措辞，都只对它所在条目的日期有效。
+
 # Implementation Status
 
 ## 2026-07-26 翻盘清单第 6/7/8/9 条：F2 锚定与 F4 寻根（`fix/r4-checklist-6-9`）

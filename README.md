@@ -8,54 +8,9 @@
 【现已上传所有api key已失效，懒得改设置了】
 
 </div>
-
 > [!IMPORTANT]
-> 当前阶段：**Phase 1–5A 已实现，当前发布临时标绿**。用户已明确放弃本轮 Telegram canary；离线门、进程矩阵与 watchdog 周期通过，但这不等于 canary 通过。实时进度只看 [`docs/IMPLEMENTATION_STATUS.md`](./docs/IMPLEMENTATION_STATUS.md)。
-
-## 当前实现状态（2026-07-13）
-
-| 模块 | 状态 | 已实现边界 |
-|---|---|---|
-| Phase 1 runtime / orchestration | 已上线 | 唯一 TG poller、release descriptor、watchdog、回滚与 CI |
-| Phase 2 hard context | 已实现 | 首轮 Re-entry、Current State、Context Trace、旧档四门禁 |
-| Phase 3 continuity pipeline | 已实现 | Closeout / Janitor candidates、Auto Review decisions、唯一 History writer |
-| Phase 4 / 520 | 已实现并继续优化 | 独立只读控制台、Trace/candidate/decision、八维实时态与连续历史 |
-| Phase 5A memory lookup | 已实现 | 仅 `user_pull`、字面查询、预算/熔断与 recall evidence |
-| Phase 5B / 自动 Soft Retrieval | **未实现** | 自动召回、embedding、BM25、reranker、GraphRAG 仍关闭 |
-
-本次收口验证：旧版 118 个记忆文件已安全复制到统一 memory，Episode 11 条均可解析，`memory_lookup` 离线测试通过；旧 workspace 尚未删除或归档。520 Context Manager 的分层、snapshot、TODO 备份、API/UI 与测试已提交到实施分支。Phase 5B / Soft Retrieval 仍关闭。
-
-当前 520 的八维页直接读取 runtime 的 `desire-state.json`，并优先读取由 Desire 唯一 writer 追加的 `desire-history.jsonl`；只有连续历史不存在时才只读回退到冻结的 `state_log.jsonl`。页面显示数据源、路径、新鲜度、维度完整度与回退状态，不写 Desire 或 canon。
-
-本机运行路径模板（`CYBERLINK_ROOT` 在当前机器指向用户文档目录下的 `cyberlink`；实际活动值以 descriptor 为准）：
-
-- 开发 worktree：`<CYBERLINK_ROOT>/cyberboss-codex-cheap-prework-20260711-170034`
-- 当前不可变 release：`<CYBERLINK_ROOT>/releases/<ACTIVE_RELEASE>`
-- release descriptor：`<CYBERLINK_ROOT>/deployment/current.json`
-- continuity / legacy memory workspace：`<CYBERLINK_ROOT>/<WORKSPACE_DIR>`
-- 外部证据：`<CYBERLINK_ROOT>/PHASE2_5A_EVIDENCE_20260711`
-
-Windows 上的 520 与 memory watchdog 使用仓库内独立 PowerShell 计划任务接线，不依赖 Te Launcher。见 [`docs/WINDOWS_SILENT_STARTUP.md`](./docs/WINDOWS_SILENT_STARTUP.md)。
-
-## 先看：还没实现 / 当前不要做
-
-下面是进入仓库后最容易误判的地方。详细状态仍以 `IMPLEMENTATION_STATUS.md` 为准。
-
-**当前仍未收敛：**
-
-- Self-note 的生产级低频回读调度；
-- 520 的 Prompt 版本管理、撤回与 Memory Access Lab；
-- Phase 5B 自动 Soft Retrieval；
-- 从干净 `main` clone 开始的端到端验证。
-
-**明确暂缓，不得顺手实现：**
-
-- AI 主动翻旧档（共鸣 / 利害 / 修复触发）；
-- 自动 Soft Retrieval、embedding、BM25、LLM reranker；
-- Memory Family、GraphRAG、PPR；
-- 全量旧数据迁移；
-- Re-entry 的 Episode 数量元信息行、topic index 与召回冷却；
-- 主动消息、天气、经期、语音、剧场等产品扩展。
+> **这份 README 不写当前进度。** 项目做到哪一步、哪些能力已接生产、能不能切生产，只看 [`docs/CURRENT_STATUS.md`](./docs/CURRENT_STATUS.md)。
+> README 讲的是这个项目是什么、为什么这样设计 —— 这些几个月不会变。进度每周都在变，两处都写必然分叉。
 
 ## 一、这个项目在做什么
 
@@ -142,6 +97,8 @@ Self-note 不为取悦用户而写，不进入普通对话，只在 Closeout / R
 
 ## 四、架构
 
+> 这里只给最小骨架。完整调用链、三种身份、上下文分档与各领域入口见 [`docs/architecture/SYSTEM_OVERVIEW.md`](./docs/architecture/SYSTEM_OVERVIEW.md)。
+
 ```text
 Telegram / 当前对话
         ↓
@@ -200,68 +157,59 @@ Auto Review 是海关，不是编辑。它核对来源、冲突、重复、长�
 - 回复中出现无来源的“我记得”；
 - “默认隐藏”被实现成“无法查询”；
 - 记忆注入块或工具结果被重新抽成新 Episode。
-
 ## 七、文档地图
 
-仓库有五份权威文档：
+按这个顺序读，不需要先做全仓审计：
+
+| 顺序 | 文档 | 回答什么 |
+|---|---|---|
+| 1 | [`CLAUDE.md`](./CLAUDE.md) | AI 协作入口：硬约束、测试陷阱、改动收尾纪律 |
+| 2 | [`docs/CURRENT_STATUS.md`](./docs/CURRENT_STATUS.md) | **唯一的当前进度真相**：能力表、P0/P1、能不能切生产 |
+| 3 | [`docs/architecture/SYSTEM_OVERVIEW.md`](./docs/architecture/SYSTEM_OVERVIEW.md) | 系统怎么走：消息路径、三种身份、上下文分档 |
+| 4 | 领域文档（见下） | 具体那一块的稳定结构 |
+| 5 | 真实源码与测试 | — |
+
+领域文档：
 
 | 想知道 | 去读 |
 |---|---|
-| 架构：谁读、谁写、什么进上下文 | [`docs/CONTINUITY_ARCHITECTURE.md`](./docs/CONTINUITY_ARCHITECTURE.md) |
-| 当前做到哪里、验收与下一步 | [`docs/IMPLEMENTATION_STATUS.md`](./docs/IMPLEMENTATION_STATUS.md) |
+| 记忆：谁读、谁写、什么进上下文 | [`docs/architecture/MEMORY.md`](./docs/architecture/MEMORY.md) |
+| Windows 生产启动 / descriptor / watchdog / 回滚 | [`docs/architecture/WINDOWS_RUNTIME.md`](./docs/architecture/WINDOWS_RUNTIME.md) |
 | 520 的职责与边界 | [`docs/520_CONSOLE.md`](./docs/520_CONSOLE.md) |
 | 暂缓的自动召回与研究路线 | [`docs/SOFT_RETRIEVAL.md`](./docs/SOFT_RETRIEVAL.md) |
-| **能不能切生产**：R4 终审结论与翻盘清单 | [`docs/audit/R4_FINAL_CODE_REVIEW.md`](./docs/audit/R4_FINAL_CODE_REVIEW.md) |
+| Telegram 媒体运行时契约 | [`docs/TELEGRAM_MEDIA_RUNTIME.md`](./docs/TELEGRAM_MEDIA_RUNTIME.md) |
+| Telegram route lanes v2 | [`docs/TELEGRAM_ROUTE_LANES_V2.md`](./docs/TELEGRAM_ROUTE_LANES_V2.md) |
+| Windows 静默自启、状态与取消 | [`docs/WINDOWS_SILENT_STARTUP.md`](./docs/WINDOWS_SILENT_STARTUP.md) |
+| 命令清单 | [`docs/commands.md`](./docs/commands.md) |
 
-设计与交接（TG 聊天路由 / 上下文预算，三份互相引用）：
+**历史材料**：`docs/audit/` 是审查报告（每份顶部标注它审的是哪个 SHA，结论只对那个 SHA 有效），`docs/archive/` 是已失效的过程记录。**Agent 默认不读 `docs/archive/`**，除非正在调查历史原因。
 
-- [`docs/design/DESIGN-TG-CHAT-ROUTING-CONTEXT-BUDGET.md`](./docs/design/DESIGN-TG-CHAT-ROUTING-CONTEXT-BUDGET.md)：设计正文；
-- [`docs/design/REVIEW-TG-CHAT-ROUTING-CONTEXT-BUDGET.md`](./docs/design/REVIEW-TG-CHAT-ROUTING-CONTEXT-BUDGET.md)：架构复核；
-- [`docs/design/HANDOFF-P0-FABLE-CHAT-PROFILE.md`](./docs/design/HANDOFF-P0-FABLE-CHAT-PROFILE.md)：P0 交接。
-
-补充材料：
-
-- [`docs/MEMORY_LIVENESS_NOTES.md`](./docs/MEMORY_LIVENESS_NOTES.md)：非权威设计笔记；
-- [`docs/IMPLEMENTATION_HANDOFF.md`](./docs/IMPLEMENTATION_HANDOFF.md)：部署期临时交接，首次端到端跑通后应被吸收或作废；
-- [`docs/WINDOWS_SILENT_STARTUP.md`](./docs/WINDOWS_SILENT_STARTUP.md)：独立 PS1 静默自启、状态与取消；
-- [`docs/prompts/DEPLOY_EXECUTION_PROMPT.md`](./docs/prompts/DEPLOY_EXECUTION_PROMPT.md)：实施入口；
-- [`docs/prompts/ARCH_REVIEW_PROMPT.md`](./docs/prompts/ARCH_REVIEW_PROMPT.md)：阶段复核；
-- [`docs/UPSTREAM_BASELINE.md`](./docs/UPSTREAM_BASELINE.md)：上游脱敏基线说明；
-- [`docs/archive/20260710_DESIGN_DRAFTS.md`](./docs/archive/20260710_DESIGN_DRAFTS.md)：旧设计草稿索引。
-
-已归档、**不要再依据它们做判断**：`docs/archive/README-CUSTOM.md`（2026-07-10，其三个链接均已失效）、`docs/archive/cyberboss-outage-report.txt`（2026-06-13 断线诊断，历史记录）。
-
-优先级：五份权威文档 > Handoff > 已验证源码与运行证据 > Liveness Notes > README 与其他说明。
-
-根目录只保留本文件与 `CLAUDE.md` / `AGENTS.md`，其余文档一律在 `docs/` 下。上游继承的两份叙事 README（`README.en.md` / `README.zh-CN.md`，描述的是微信桥接）已于 2026-07-26 删除 —— 它们与本项目（Telegram）不符，需要时从历史提交 `c41f9bd` 取回。**本文件是唯一的工程入口。**
+根目录只保留本文件与 `CLAUDE.md` / `AGENTS.md`，其余文档一律在 `docs/` 下。上游继承的两份叙事 README（`README.en.md` / `README.zh-CN.md`，描述的是微信桥接）已删除 —— 它们与本项目（Telegram）不符，需要时从历史提交 `c41f9bd` 取回。
 
 ## 八、给执行模型
 
-实施时严格按以下顺序：
-
-1. 先运行阶段 0，只读审计，不改代码；
-2. 按 `IMPLEMENTATION_HANDOFF.md` 的阶段门逐阶段推进；
-3. 每阶段交付 diff、实际测试、Context Trace、writer 变化与回滚方法；
-4. 阶段结束后，由未参与实施的独立实例运行架构复核；
-5. 暂缓项即使“顺手就能做”，也不得进入 diff。
+1. 先读 `CLAUDE.md` 与 `docs/CURRENT_STATUS.md`，**不要先做全仓审计**；
+2. 只读任务相关的领域文档与源码。正在读第五个跟任务无关的文件时，停下来；
+3. 每阶段交付 diff、实际测试（说明在什么平台跑的）、Context Trace、writer 变化与回滚方法；
+4. 收尾按 `CLAUDE.md` 第七节：更新 `CURRENT_STATUS.md` 对应的那一行，其余文档能不动就不动；
+5. 暂缓项即使"顺手就能做"也不得进 diff。当前暂缓清单在 `docs/CURRENT_STATUS.md`，不在这里。
 
 ## 九、分支与隐私
 
-分支模型（截至 2026-07-26，与 origin 实际状态一致）：
-
 | 分支 | 用途 |
 |---|---|
-| `main` | 唯一主干。所有已验证工作都在这里；**合并进 main ≠ 批准切生产**，放行判据见 `docs/audit/R4_FINAL_CODE_REVIEW.md` |
+| `main` | 唯一主干。**合并进 main ≠ 批准切生产**，放行判据见 `docs/CURRENT_STATUS.md` |
 | `fix/*` | 单一问题的修复分支，从 main 切出，合并后即删 |
 | `audit/*` | 只读审查产出，只加报告文件、不改被审代码，作为留痕保留 |
 
 规矩：
 
-- 动手前先跑 `git rev-list --left-right --count origin/main...<分支>`。`ahead=0` 意味着该分支的每个提交都已在 main 里 —— 它是死分支，删掉即可，不要再往里做事。
+- 动手前先跑 `git rev-list --left-right --count origin/main...<分支>`。`ahead=0` 意味着该分支的每个提交都已在 main 里 —— 死分支，删掉即可，不要再往里做事。
 - 合并后立刻删分支。留着已合并的分支会让人（和 AI）误以为还有未交付的工作。
-- 历史上曾有 `design/living-memory-rfc`、`legacy-current`、`upstream-baseline`、`impl/*` 等分支，**均已不存在**；上游基线内容现在见 `docs/UPSTREAM_BASELINE.md`。
 
-真实 token、会话、日志、私人 Episodes、Self-notes、Portrait、Desire live state、PID、缓存与 lock 文件永不提交 Git。公开仓库的其他分支也不是私密空间。
+真实 token、会话、日志、私人 Episodes、Self-notes、Portrait、Desire live state、PID、缓存与 lock 文件永不提交 Git。`runtime/`、`memory/`、`settings/secrets/*.local.json` 不在版本控制内，保持这样。`deployment/current.json` 与 `runtime/` 按机器不同，不要跨机同步。
+
+**公开仓库的其他分支也不是私密空间。**
 
 ## 十、上游与参照
 
