@@ -1,8 +1,8 @@
 # Continuity Architecture
 
-> 状态：唯一架构真相  
-> 最后更新：2026-07-11  
-> 本文只说明稳定结构，不记录每天进度。
+> **Status: stable domain architecture**
+> **Scope:** memory / continuity only —— 本文只说明这一域的稳定结构，不记录进度。
+> 系统级总览见 [`SYSTEM_OVERVIEW.md`](./SYSTEM_OVERVIEW.md)；当前实现状态见 [`../CURRENT_STATUS.md`](../CURRENT_STATUS.md)。
 
 ## 目标
 

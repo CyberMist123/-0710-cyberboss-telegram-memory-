@@ -1,7 +1,7 @@
 # 记忆语义修复计划
 
 > 状态：执行计划，不是新的架构真相。  
-> 权威结构仍以 `CONTINUITY_ARCHITECTURE.md` 为准；本计划完成后，应把最终规则吸收回权威文档，并将本文件标记为完成。  
+> 权威结构仍以 `architecture/MEMORY.md` 为准；本计划完成后，应把最终规则吸收回权威文档，并将本文件标记为完成。  
 > 适用分支：`impl/codex-cheap-prework-20260711-170034`  
 > 建立日期：2026-07-12
 
@@ -228,7 +228,7 @@ Nightly 不是默认自动发布者。
 
 验收：
 
-- 与 `CONTINUITY_ARCHITECTURE.md` 不冲突；
+- 与 `architecture/MEMORY.md` 不冲突；
 - 找到并吸收 Fable 的 F2 工程门、F4 体验门与三层长期评估；
 - 不增加第五份架构真相。
 
@@ -313,8 +313,8 @@ manual | shadow | auto
 ### S7 — 收口
 
 - 虚构数据完整回放；
-- 更新 `CONTINUITY_ARCHITECTURE.md`；
-- 更新 `IMPLEMENTATION_STATUS.md` 和 `PROJECT_CHANGELOG.md`；
+- 更新 `architecture/MEMORY.md`；
+- 更新 `CURRENT_STATUS.md` 和 `PROJECT_CHANGELOG.md`；
 - 本计划标记完成；
 - 再决定是否部署。
 

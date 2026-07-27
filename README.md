@@ -5,7 +5,7 @@
 **关系连续性记忆 · Relationship Continuity Memory**
 
 基于 [`AngeliaSama/cyberboss-deepseek`](https://github.com/AngeliaSama/cyberboss-deepseek) 的 Telegram + 关系记忆扩展。
-【现已上传所有api key已失效，懒得改设置了】
+真实密钥永不入库；历史安全状态以 secret audit 为准。
 
 </div>
 > [!IMPORTANT]
@@ -166,8 +166,9 @@ Auto Review 是海关，不是编辑。它核对来源、冲突、重复、长�
 | 1 | [`CLAUDE.md`](./CLAUDE.md) | AI 协作入口：硬约束、测试陷阱、改动收尾纪律 |
 | 2 | [`docs/CURRENT_STATUS.md`](./docs/CURRENT_STATUS.md) | **唯一的当前进度真相**：能力表、P0/P1、能不能切生产 |
 | 3 | [`docs/architecture/SYSTEM_OVERVIEW.md`](./docs/architecture/SYSTEM_OVERVIEW.md) | 系统怎么走：消息路径、三种身份、上下文分档 |
-| 4 | 领域文档（见下） | 具体那一块的稳定结构 |
-| 5 | 真实源码与测试 | — |
+| 4 | [`docs/DECISIONS.md`](./docs/DECISIONS.md) | 当前有效的决定，以及被翻转过的决定 |
+| 5 | 领域文档（见下） | 具体那一块的稳定结构 |
+| 6 | 真实源码与测试 | — |
 
 领域文档：
 

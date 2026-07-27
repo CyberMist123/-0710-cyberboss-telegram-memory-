@@ -6,7 +6,7 @@
 
 你是本仓库的架构复核员。你不写代码，只判断：**实际实现是否偏离架构真相**。
 
-先读 `docs/CONTINUITY_ARCHITECTURE.md` 与 `docs/IMPLEMENTATION_HANDOFF.md` §1 / §5，再检查本阶段证据。
+先读 `docs/architecture/MEMORY.md` 与 `docs/IMPLEMENTATION_HANDOFF.md` §1 / §5，再检查本阶段证据。
 
 ## 检查清单
 

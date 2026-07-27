@@ -3,7 +3,7 @@
 给 AI 协作者的入口。**本文件不写状态、不写日期、不写 SHA** —— 那些只在 `docs/CURRENT_STATUS.md`。
 本文件只回答两件事：这个项目为什么存在，以及动手前必须知道的硬约束。
 
-Cyberboss Telegram Memory：Telegram 侧的关系连续性记忆系统，生产机是一台长期开机的 Windows。约 518 个跟踪文件、`src` \+ `scripts` \+ `extensions` 近 5 万行、85 个测试文件 —— 不要试图通读，按下面的路径定位。
+Cyberboss Telegram Memory：Telegram 侧的关系连续性记忆系统，生产机是一台长期开机的 Windows。仓库规模足够大到不能通读 —— 按下面的路径定位。
 
 * * *
 
@@ -13,8 +13,9 @@ Cyberboss Telegram Memory：Telegram 侧的关系连续性记忆系统，生产�
 1. CLAUDE.md              ← 你在这里
 2. docs/CURRENT_STATUS.md ← 现在做到哪、能不能切生产
 3. docs/architecture/SYSTEM_OVERVIEW.md ← 系统怎么走的
-4. 任务相关的领域文档（见下表）
-5. 真实源码与测试
+4. docs/DECISIONS.md      ← 哪些决定已定、哪些翻转过、哪些还没定
+5. 任务相关的领域文档（见下表）
+6. 真实源码与测试
 ```
 
 **不需要先做全仓审计。** 上面四步是地图，不是全部知识；地图告诉你接下来该读哪几条路。
@@ -23,9 +24,10 @@ Cyberboss Telegram Memory：Telegram 侧的关系连续性记忆系统，生产�
 
 | 任务 | 读什么 |
 | --- | --- |
-| 小改（一个命令、一个测试） | 1 \+ 2 \+ 相关源码测试 |
-| 单领域（如修 memory context 通路） | 1 \+ 2 \+ 3 \+ 该领域架构文档 \+ 源码测试 |
-| 跨领域（如统一 closeout / nightly / Windows 计划任务） | 全部四层 \+ 相关生产脚本 |
+| 小改（一个命令、一个测试） | 1 + 2 + 相关源码测试 |
+| 要改一个已有决定 | 1 + 2 + 4，**先确认它是不是 D 系列里的既定决定** |
+| 单领域（如修 memory context 通路） | 1 + 2 + 3 + 该领域架构文档 + 源码测试 |
+| 跨领域（如统一 closeout / nightly / Windows 计划任务） | 全部四层 + 相关生产脚本 |
 
 * * *
 
@@ -40,10 +42,10 @@ Cyberboss Telegram Memory：Telegram 侧的关系连续性记忆系统，生产�
 3. **她此刻的话大于旧档。** 旧画像不能覆盖用户现在说的话。需要确认时在自然对话里顺口求证，不要把用户放进后台审批队列。
 4. **Chat 省 Token 不能以丢失人格、记忆访问和行动能力为代价。** 上下文预算是约束，不是可以牺牲主体性的借口。砍注入前先问：砍掉后 AI 还是不是同一个。
 5. **Work 过程应隔离，结果胶囊回主 Chat。** 长任务的中间过程不污染主对话；回来的应该是结论，不是过程日志。
-6. **单 writer，fail\-open。** 每份文件只有一个写入者（见 SYSTEM\_OVERVIEW 的写入权表）。记忆链全程 fail\-open：宁可本轮失忆，不可本轮失联。
+6. **单 writer，fail-open。** 每份文件只有一个写入者（见 SYSTEM_OVERVIEW 的写入权表）。记忆链全程 fail-open：宁可本轮失忆，不可本轮失联。
 7. **文件存在不代表已接生产。** 这条被违反的次数最多。`src/` 里有个文件、`test/` 里有个测试，都不说明生产机上跑着它。判断只看 `docs/CURRENT_STATUS.md` 的能力表。
 
-出现下列任一情况，停下来记录，不要"顺手修好"：同一文件出现第二个 writer；Re\-entry 注入字数持续上涨；Context Trace 无法解释实际上下文；Review 开始改写措辞；520 出现绕过 Review 的写路径；回复中出现无来源的"我记得"；"默认隐藏"被实现成"无法查询"。
+出现下列任一情况，停下来记录，不要"顺手修好"：同一文件出现第二个 writer；Re-entry 注入字数持续上涨；Context Trace 无法解释实际上下文；Review 开始改写措辞；520 出现绕过 Review 的写路径；回复中出现无来源的"我记得"；"默认隐藏"被实现成"无法查询"。
 
 * * *
 
@@ -53,9 +55,9 @@ Node ≥ 22。**没有 `npm test`**，测试按 `npm run test:*` 分组，完整
 
 三个会让你把红当绿、或把绿当过的陷阱：
 
-1. **非 Windows 机器上**，调 `powershell.exe` 的测试有 `{ skip: !IS_WINDOWS }` 守卫，本机显示诚实的 skip —— 真实信号只来自 windows\-latest CI 或真 Windows 机。新增这类测试必须复用 `assertFailedClosed`（先证进程真的跑了），不要裸写 `assert.notEqual(status, 0)` —— ENOENT 会让它恒真。
-2. **Python 需 ≥ 3.10。** `watchdog.py` 有 `from __future__ import annotations` 与启动版本守卫：低版本可导入、但启动时带明确诊断 fail\-closed。CI 有 3.9 探针守这个行为。
-3. **本地跑绿 ≠ 有 CI 信号。** 主 CI 只执行六个分组（`test:phase1` / `phase2` / `phase3` / `phase4` / `phase5a` / `orchestration`），85 个测试文件里只有 37 个在其中。改代码前先确认你的测试在不在 CI 里；不在的话，本地跑绿只是你一个人知道。缺口清单见 `docs/CURRENT_STATUS.md` 的 P0\-2。
+1. **非 Windows 机器上**，调 `powershell.exe` 的测试有 `{ skip: !IS_WINDOWS }` 守卫，本机显示诚实的 skip —— 真实信号只来自 windows-latest CI 或真 Windows 机。新增这类测试必须复用 `assertFailedClosed`（先证进程真的跑了），不要裸写 `assert.notEqual(status, 0)` —— ENOENT 会让它恒真。
+2. **Python 需 ≥ 3.10。** `watchdog.py` 有 `from __future__ import annotations` 与启动版本守卫：低版本可导入、但启动时带明确诊断 fail-closed。CI 有 3.9 探针守这个行为。
+3. **本地跑绿 ≠ 有 CI 信号。** 主 CI 只执行 `phase1-offline.yml` 里列出的那几个 `npm run test:*` 分组，仓库里相当一部分测试文件不在其中。**改代码前先确认你要跑的测试在不在 CI 里**；不在的话，本地跑绿只是你一个人知道。当前覆盖数与缺口清单见 `docs/CURRENT_STATUS.md`。
 
 跑完请说明**在什么平台跑的**。
 
@@ -64,11 +66,11 @@ Node ≥ 22。**没有 `npm test`**，测试按 `npm run test:*` 分组，完整
 ## 四、硬性禁止
 
 - **这是公开仓库。** 所有分支都不是私密空间。
-- 永不提交：真实 token、会话、日志、私人 Episodes / Self\-notes / Portrait、Desire live state、PID、缓存、lock。对应目录 `runtime/`、`memory/`、`settings/secrets/*.local.json` 均不在版本控制内，保持这样。
+- 永不提交：真实 token、会话、日志、私人 Episodes / Self-notes / Portrait、Desire live state、PID、缓存、lock。对应目录 `runtime/`、`memory/`、`settings/secrets/*.local.json` 均不在版本控制内，保持这样。
 - `deployment/current.json` 与 `runtime/` **按机器不同**，不要跨机同步。
 - `vendor/` 是上游拷贝，不要在里面改东西。
 - **暂缓项即使"顺手就能做"也不得进 diff。** 当前暂缓清单见 `docs/CURRENT_STATUS.md`，不看 README —— README 不再维护暂缓状态。
-- **520 不是只读面板。** 它能改生产运行时提示词、上下文分层、注入门控与 Desire 调度。改 `dashboard.py` 的写端点等于改生产行为，尤其 `FROZEN_WRITE_ENDPOINTS`：那七个端点被冻结是**当前生效的设计**，解冻任何一个之前先证明它不会绕过 Review。边界见 `docs/architecture/SYSTEM_OVERVIEW.md` 第六节。
+- **520 不是只读面板。** 它能改生产运行时提示词、上下文分层、注入门控与 Desire 调度。改 `dashboard.py` 的写端点等于改生产行为。`FROZEN_WRITE_ENDPOINTS` 共 7 个，性质不同：**5 个是安全冻结**（能绕过 Review 或直接改正式档，解冻前必须先证明不绕过 Review），**2 个 care 端点只是前端未接完**，属未完成的工程，补前端时一并解冻即可。边界见 `docs/architecture/SYSTEM_OVERVIEW.md` 第六节。
 - **候选与正式分离是全局禁区。** 任何路径都不许让外部直接写 `episodes.jsonl` 正式文件。
 
 ## 五、分支
@@ -92,7 +94,7 @@ git rev-list --left-right --count origin/main...<分支>
 | 路径 | 内容 |
 | --- | --- |
 | `src/core/app.js` | 启动编排与命令处理，主链的中枢 |
-| `src/core/hard-context.js` | Re\-entry / Current State / memory\_context 三门装配 |
+| `src/core/hard-context.js` | Re-entry / Current State / memory_context 三门装配 |
 | `src/core/route-lane.js` | 路由 lane 决策 |
 | `src/adapters/channel/telegram.js` | Telegram 通道适配器 |
 | `src/adapters/runtime/claudecode/` | Claude Code 子进程适配器、launch profile、session slot |
@@ -102,7 +104,7 @@ git rev-list --left-right --count origin/main...<分支>
 | `scripts/orchestration/release-control-plane.js` | 发布控制平面：描述符与启动件安装 |
 | `scripts/windows/runtime-startup/` | 生产机 PowerShell 入口 —— **改这里最危险** |
 | `extensions/relationship-memory/` | 记忆内核与 520 面板；watchdog 在 `launcher/watchdog.py` |
-| `test/` | 85 个测试文件 |
+| `test/` | 全部测试 |
 
 领域文档：
 
@@ -114,6 +116,7 @@ git rev-list --left-right --count origin/main...<分支>
 | 520 的职责与边界 | `docs/520_CONSOLE.md` |
 | 暂缓的自动召回路线 | `docs/SOFT_RETRIEVAL.md` |
 | 当前进度、P0、能不能切生产 | `docs/CURRENT_STATUS.md` |
+| 某个决定是怎么定的、有没有翻转过 | `docs/DECISIONS.md` |
 
 `docs/archive/` 下的内容是历史，**不要据此判断当前状态**。审计报告在 `docs/audit/`，每份顶部标注了它审的是哪个 SHA —— 审计结论只对那个 SHA 有效。
 
@@ -121,11 +124,12 @@ git rev-list --left-right --count origin/main...<分支>
 
 这一节是纪律，不是建议。不做，下一个 Agent 就得把你做过的事重新查一遍。
 
-### 每次改动结束，必须做的三件事
+### 每次改动结束，必须做的四件事
 
 1. **更新 `docs/CURRENT_STATUS.md` 里对应的那一行** —— 只改那一行。不要顺手改 README、CLAUDE.md 或架构文档：它们里没有状态结论可改，这是刻意的。
-2. **如果改的是稳定结构**（谁调用谁、谁写什么、注入分几档），更新 `docs/architecture/` 下对应那一份。行为变了才改，进度变了不改。
-3. **如果这次改动使某份历史文档失效**，在它顶部加标记，不要删：
+2. **如果这次改动做出或翻转了一个决定**，在 `docs/DECISIONS.md` 加一条。翻转时**保留原条目并标 `已翻转`**，不要原地改写 —— 翻转本身是信息。
+3. **如果改的是稳定结构**（谁调用谁、谁写什么、注入分几档），更新 `docs/architecture/` 下对应那一份。行为变了才改，进度变了不改。
+4. **如果这次改动使某份历史文档失效**，在它顶部加标记，不要删：
 
 ```text
 Status: historical
@@ -133,7 +137,7 @@ Audited commit: <SHA>
 Current status: see docs/CURRENT_STATUS.md
 ```
 
-Handoff 类文档用 `Status: active / completed / superseded` \+ `Base SHA` \+ `Result`。任务完成即标 `completed` 或移进 `docs/archive/`。**Agent 默认不读 `docs/archive/`**，除非正在调查历史原因。
+Handoff 类文档用 `Status: active / completed / superseded` + `Base SHA` + `Result`。任务完成即标 `completed` 或移进 `docs/archive/`。**Agent 默认不读 `docs/archive/`**，除非正在调查历史原因。
 
 ### PR 描述必须回答
 
