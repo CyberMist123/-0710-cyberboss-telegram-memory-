@@ -10,9 +10,7 @@
 
 ## D1 · 生产机单后端，Windows 是唯一 owner
 
-**有效。** Windows 机长期开机充当服务器。Mac 只做代码编辑与人工查看，不运行 bot、不启用每晚 closeout 作业。
-
-跨机同步 `deployment/current.json` 或 `runtime/` 会直接产生错误的生产行为。
+**有效。** Windows 机长期开机充当服务器。跨机同步 `deployment/current.json` 或 `runtime/` 暂时不做。
 
 ## D2 · 状态真相唯一：`docs/CURRENT_STATUS.md`
 
@@ -46,7 +44,7 @@
 
 **有效。** Episodes 及下游旧档默认不进普通对话上下文。用户明确寻找旧事时，AI 可通过 `memory_lookup` 受控查询。
 
-AI 自己因共鸣、利害或修复需要主动翻档，**仍是设计候选，未开放** —— 必须等真实 `why_now`、查询日志与翻错案例。
+AI 自己因共鸣、利害或修复需要主动翻档，**仍是设计候选，未开放** —— 必须等真实 `why_now`、查询日志与翻错案例。后续可考虑增加模糊检索，但现在不做。
 
 ## D8 · 不许向上摸目录找根
 
@@ -57,6 +55,7 @@ AI 自己因共鸣、利害或修复需要主动翻档，**仍是设计候选，
 ## D9 · Telegram 送给模型的信封是明文
 
 **有效。** `formatTelegramRuntimeText()` 产出 `<channel source="telegram" …>` 信封 + 用户原文 + `<media>` 引用。用户打的字就是模型读到的字，只转义可能提前闭合信封的序列。
+后续考虑把对话脱水成md格式，只留简写工具调用，作为记忆检索等材料。
 
 **这条与 G1（memory_context 断链）耦合**：修 G1 时改的是同一段代码，必须显式决定 memory_context 拼在信封哪一侧，并配一条钉住信封格式的测试。见 `CURRENT_STATUS.md` P0-1。
 
@@ -64,19 +63,13 @@ AI 自己因共鸣、利害或修复需要主动翻档，**仍是设计候选，
 
 **有效。** 该方向已被 main 的 route lanes v2 超集重写替代。仓库与工作区不存在等待集成的 launch-profile 补丁，origin 上没有对应分支。**历史分支不得 cherry-pick 回 main。**
 
-## D11 · `/effort` 做（**已翻转**）
-
-**原决定：不做。** **现状态：已实现并合入 `main`**（PR #23，`feat(telegram): add /effort to inspect and switch the reasoning level`）。
-
-注册在 `src/core/command-registry.js`，handler 在 `src/core/app.js`，测试 `test/claude-effort.test.js` 在 `test:phase1` 分组内、进主 CI。
-
-保留这条是因为它是"决定翻转但文档没跟上"的典型样本。
+d11删了，感觉没用。
 
 ## D12 · 暂缓项清单只在 `CURRENT_STATUS.md`（**已翻转**）
 
 **原做法：写在 README 的「明确暂缓，不得顺手实现」一节。** 该清单与实际代码出现过五处冲突（语音、天气、经期/关怀、剧场、embedding），已随本次文档收口从 README 移除。
 
-**现规则：README 不参与能力状态判定。** 暂缓与否只看 `CURRENT_STATUS.md`。
+**现规则：README 不参与能力状态判定。README 是宪法级不变文件。** 暂缓与否只看 `CURRENT_STATUS.md`。
 
 ---
 
@@ -84,7 +77,7 @@ AI 自己因共鸣、利害或修复需要主动翻档，**仍是设计候选，
 
 下列是**尚未做出**的决定，不要当成已定：
 
-- 语音 / 天气 / embedding：承认已实现，还是承认越界撤掉？（`CURRENT_STATUS.md` P1-4）
+- 语音 / 天气 / embedding：承认已实现，还是承认越界撤掉？（`CURRENT_STATUS.md` P1-4）做了一半，备注即可，
 - 后台 memory owner 与 nightly closeout 的边界；nightly 三个开关何时默认开启。
-- 子代理运行时是否接 Codex；子代理输出如何胶囊化。
+- 子代理运行时是否接 Codex；子代理输出如何胶囊化。待考察
 - 多 Bot、Route 1 / Route 2、Apple Watch、CMX —— 当前一律 DEFERRED，未排期。
