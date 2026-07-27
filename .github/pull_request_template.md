@@ -43,9 +43,9 @@
 - **If evidence changed but the conclusion did not, which supplemental files changed?**
 - **If the conclusion changed, which authority document was updated?**
 
-> **补充材料发生变化，不要求自动修改 `docs/CURRENT_STATUS.md`。只有补充材料导致当前结论变化时，才修改权威文档。**
+> **补充材料发生变化，不要求自动修改 `CURRENT_STATUS.md`。只有补充材料导致当前结论变化时，才修改权威文档。**
 >
-> 反过来也成立：改了当前结论却没动 `docs/CURRENT_STATUS.md`，这个 PR 不该合。
+> 反过来也成立：改了当前结论却没动 `CURRENT_STATUS.md`，这个 PR 不该合。
 
 ### Supplemental materials
 
@@ -53,15 +53,16 @@
 |---|---|---|---|
 |  |  |  |  |
 
-`Status` 只允许零个值：
+`Status` 只允许四个值：
 
 - `NEW` —— 新补充材料；
-- `REFRESHED` —— 内容更新，结论Ꜫ变；
+- `REFRESHED` —— 内容更新，结论未变；
 - `SUPERSEDED` —— 被新材料取代；
-- `PROMOTED` —— 其结親被正式采纳进 `docs/CURRENT_STATUS.md` / `docs/DECISIONS.md` / `architecture/`。
+- `PROMOTED` —— 其结论被正式采纳进 `CURRENT_STATUS.md` / `DECISIONS.md` / `architecture/`。
 
 ## 测试
-跑了哪些 `npm run test:*`，**在什么平台跑的**：
+
+跑了哪些 `npm run test:*`，**在什么平台跑的**：
 
 ```text
 
