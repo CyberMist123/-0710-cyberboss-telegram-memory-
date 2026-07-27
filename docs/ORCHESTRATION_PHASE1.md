@@ -1,5 +1,13 @@
 # Phase 1 Orchestration
 
+```text
+Status: active
+Authority: stable architecture
+Scope: Phase 1 编排与 release descriptor
+Current status: docs/CURRENT_STATUS.md
+```
+
+
 The live release descriptor is external to the repository at
 `<cyberlink-root>/deployment/current.json`. The repository
 contains only its schema, example, loader, validation, and atomic rollback tool.

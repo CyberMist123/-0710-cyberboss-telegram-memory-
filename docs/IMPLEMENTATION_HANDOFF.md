@@ -1,7 +1,16 @@
+```text
+Status: superseded
+Date: 2026-07-11
+Base SHA: 44b7c0a
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> 部署期临时交接文档，已被当前状态页与架构文档取代。稳定结构见 [`docs/architecture/`](./architecture/)。
+
 # Implementation Handoff — 实施交接
 
 > 状态：临时交接文档，**不是第五份架构真相**。
-> 权威文档仍然只有四份：`CONTINUITY_ARCHITECTURE.md`（结构）、`IMPLEMENTATION_STATUS.md`（进度）、`520_CONSOLE.md`（前端边界）、`SOFT_RETRIEVAL.md`（暂缓项）。设计补充见 `MEMORY_LIVENESS_NOTES.md`。
+> 权威文档仍然只有四份：`architecture/MEMORY.md`（结构）、`CURRENT_STATUS.md`（进度）、`520_CONSOLE.md`（前端边界）、`SOFT_RETRIEVAL.md`（暂缓项）。设计补充见 `MEMORY_LIVENESS_NOTES.md`。
 > 本文与权威文档冲突时，以权威文档为准。首次端到端跑通后，本文大部分内容应被吸收或作废。
 > 配套：`docs/prompts/DEPLOY_EXECUTION_PROMPT.md`（执行者入口）、`docs/prompts/ARCH_REVIEW_PROMPT.md`（阶段复核）。
 
@@ -21,7 +30,7 @@
 
 ## 2. 最小实施顺序与阶段门
 
-严格按序，前一阶段验收未过不得进入下一阶段。每阶段 = 审计 → 修改 → 测试 → 更新 `IMPLEMENTATION_STATUS.md`。
+严格按序，前一阶段验收未过不得进入下一阶段。每阶段 = 审计 → 修改 → 测试 → 更新 `CURRENT_STATUS.md`。
 
 ### 阶段 0 · 只读审计（不改任何文件）
 
@@ -31,7 +40,7 @@
 - 双写点列表；
 - Prompt、workspace 与 state-dir 的实际来源；
 - TG poller、旧 MemoryService、520 与 Desire 的真实接线；
-- `IMPLEMENTATION_STATUS.md` 未收敛项在源码和运行现场是否仍成立；
+- `CURRENT_STATUS.md` 未收敛项在源码和运行现场是否仍成立；
 - Closeout / Janitor 输入是否混入注入块、工具结果或自动附件。
 
 ### 阶段 1 · 干净主链
@@ -98,7 +107,7 @@ resonance / stakes / repair 不在本轮实施。等真实 `why_now`、查询日
 
 ## 5. 常见腐化信号与停止条件
 
-出现任一信号：停止当前阶段，写入 `IMPLEMENTATION_STATUS.md` 的 bug 记录，等用户决定。
+出现任一信号：停止当前阶段，写入 `CURRENT_STATUS.md` 的 bug 记录，等用户决定。
 
 - 第二个 writer 出现；
 - Re-entry 注入字数持续上涨；

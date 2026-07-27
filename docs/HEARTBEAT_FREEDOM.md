@@ -1,5 +1,18 @@
 # HEARTBEAT_FREEDOM — 心跳自由活动设计
 
+```text
+Status: supplemental
+Authority: none
+Scope: 心跳自由活动设计草稿
+Last reviewed: 2026-07-27
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> This document may change independently. It is supporting material, not current project truth or an approved decision.
+>
+> 本文可以独立更新，只提供参考或证据；它不是当前状态，也不是已经批准的决定。
+
+
 状态：v0 草稿。Fable 2026-07-22 起笔；方向她已口头点头（原话存档见文末），细节待她过目后施工。
 一句话：把 55 分钟一次的"八维打卡"升级成"自由活动时间"——AI 醒来后可以选择做点什么，而不只是填报表。
 

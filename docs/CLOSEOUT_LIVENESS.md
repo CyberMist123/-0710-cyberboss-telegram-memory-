@@ -1,5 +1,13 @@
 # Closeout and canon/recall liveness
 
+```text
+Status: active
+Authority: stable architecture
+Scope: Closeout 与 canon/recall liveness 的结构
+Current status: docs/CURRENT_STATUS.md
+```
+
+
 The P0 automation is disabled by default. When enabled, `CyberbossApp` registers one independent closeout/liveness owner during `start()`. It owns one cancellable timer and does not modify the existing Desire scheduler or normal Telegram/WeChat turn path.
 
 ## Configuration

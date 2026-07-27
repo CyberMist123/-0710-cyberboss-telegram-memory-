@@ -1,5 +1,18 @@
 # 实现审计 Prompt（SPEC 对照审计，给复核 AI 使用）
 
+```text
+Status: supplemental
+Authority: none
+Scope: SPEC 对照实现审计 prompt
+Last reviewed: 2026-07-27
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> This document may change independently. It is supporting material, not current project truth or an approved decision.
+>
+> 本文可以独立更新，只提供参考或证据；它不是当前状态，也不是已经批准的决定。
+
+
 > 用途：Codex（或任何执行者）完成回放器 / Shadow 实现后，用本 prompt 驱动一次独立审计。
 > 审计者应当是与实现者不同的 AI 实例或窗口。
 > 写作背景：本 prompt 由设计评审窗口留下，编码了"实现最可能在哪里腐坏"的判断。

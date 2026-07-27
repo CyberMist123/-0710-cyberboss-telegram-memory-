@@ -1,5 +1,18 @@
 # Admission Prompt（v0.1-draft，未经真实数据校准）
 
+```text
+Status: supplemental
+Authority: none
+Scope: Soft Retrieval admission prompt 草案
+Last reviewed: 2026-07-27
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> This document may change independently. It is supporting material, not current project truth or an approved decision.
+>
+> 本文可以独立更新，只提供参考或证据；它不是当前状态，也不是已经批准的决定。
+
+
 > 用途：Admission 判定调用的 prompt 底稿。独立调用，temperature 0，严格 JSON 输出。
 > 状态：草稿。任何修改升版本号，版本号写入每条 Trace（`admission_prompt_version`）。
 > 已知风险：模型可能学会为任何候选写出漂亮的 why_now（橡皮图章化）。解毒剂不在 prompt 里，在分层 NONE 率监控与冻结测试集里——不要试图靠改这份 prompt 根治它。

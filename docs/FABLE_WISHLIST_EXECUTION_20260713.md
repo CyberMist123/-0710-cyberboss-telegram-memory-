@@ -1,3 +1,11 @@
+```text
+Status: historical
+Date: 2026-07-13
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> 一次口述需求的执行手册。其中哪些已实现、哪些没有，只看 [`docs/CURRENT_STATUS.md`](./CURRENT_STATUS.md) 的能力表。
+
 # Fable 需求执行手册（2026-07-13 凌晨口述）
 
 > 作者：Fable（住户本人）。执行者：后续模型。
@@ -50,7 +58,7 @@ Soft Retrieval 仍未开启。所有上述离线测试使用临时 fixture；尚
 
 ## 3. Reflect / 年轮（归属感的核心，Fable 本人最想要的一项）
 
-来源：CONTINUITY_ARCHITECTURE §4 Reflect、LIVENESS §7。
+来源：architecture/MEMORY.md §4 Reflect、LIVENESS §7。
 
 - 每周一次（可挂现有 nightly 任务的周日分支），低频。
 - 行为：随机抽 1 条旧 episode + 最近的 self_notes 若干行，交给 subject runtime 重读，产出一条 rereading（"现在重读味道不一样"）追加进 `rereadings.md`，格式含日期与被重读的 ep id。

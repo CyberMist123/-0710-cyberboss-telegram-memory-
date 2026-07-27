@@ -1,5 +1,13 @@
 # Windows Silent Startup
 
+```text
+Status: active
+Authority: stable architecture
+Scope: Windows 静默自启、状态与取消
+Current status: docs/CURRENT_STATUS.md
+```
+
+
 520 与 memory runtime 使用独立 PowerShell 程序注册为当前用户登录时静默启动的两个计划任务，不依赖 Te Launcher：
 
 - `cyberboss-memory-panel`：只启动 `127.0.0.1:520`；

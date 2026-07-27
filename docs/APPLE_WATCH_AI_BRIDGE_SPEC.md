@@ -1,3 +1,15 @@
+```text
+Status: supplemental
+Authority: none
+Scope: Apple Watch bridge 规格 / 提案（仓库无任何对应实现）
+Last reviewed: 2026-07-27
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> This document may change independently. It is supporting material, not current project truth or an approved decision.
+>
+> 本文是提案，不要读作「已实现」。当前能力表见 `docs/CURRENT_STATUS.md`。
+
 # Apple Watch ↔ AI 双向接入技术规格
 
 > 目标：通过「中继服务 + Apple Watch 设备端 + MCP」让 AI 读取 Apple Watch 健康快照，并向手表发送可识别的触觉节奏；AI 不直接连接设备。

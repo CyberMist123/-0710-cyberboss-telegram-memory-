@@ -1,3 +1,12 @@
+```text
+Status: historical
+Date: 2026-07-26
+Audited SHA: 82e6667 (fix/r4-followups)
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> 审计报告只对它审查的那个 commit 有效。之后的修复进展与当前放行判据见 [`docs/CURRENT_STATUS.md`](../CURRENT_STATUS.md)。
+
 # R4 终审 · 只读代码审查结论：**FAIL**
 
 | 项 | 值 |

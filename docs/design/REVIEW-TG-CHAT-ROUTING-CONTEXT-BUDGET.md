@@ -1,5 +1,18 @@
 # REVIEW: TG Chat 路由、上下文与 Token 减负 — 架构可行性审查
 
+```text
+Status: supplemental
+Authority: none
+Scope: 上述设计的架构复核意见
+Last reviewed: 2026-07-27
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> This document may change independently. It is supporting material, not current project truth or an approved decision.
+>
+> 本文可以独立更新，只提供参考或证据；它不是当前状态，也不是已经批准的决定。
+
+
 状态：**Fable 只读审查结论（无生产代码改动，未触碰 live TG，无 PR）**
 分支：`fix/p0-fable-chat-profile` @ `c531cda`（main `0480be7` + 2 份文档，与 main 代码零差异）
 关联：Issue #15、`DESIGN-TG-CHAT-ROUTING-CONTEXT-BUDGET.md`、`HANDOFF-P0-FABLE-CHAT-PROFILE.md`

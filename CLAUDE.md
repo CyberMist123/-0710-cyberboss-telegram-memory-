@@ -1,78 +1,151 @@
 # CLAUDE.md
 
-给 AI 协作者的入口。**本文件只指路，不复制内容** —— 详情一律去 `README.md` 与 `docs/`。
+```text
+Status: active
+Authority: stable architecture
+Scope: AI 协作入口 —— 不变量、禁令、阅读路由、文档治理
+Current status: docs/CURRENT_STATUS.md
+```
 
-Cyberboss Telegram Memory：Telegram 侧的关系记忆系统，生产机是一台 Windows。规模约 513 个跟踪文件、48k 行代码（`src` + `scripts` + `extensions`）、85 个测试文件 —— 不要试图通读，按下面的路径定位。
+本文件是自动加载的入口，**不写状态、不写日期、不写 SHA、不写覆盖数字**。当前做到哪一步只看 `docs/CURRENT_STATUS.md`。
 
-## 先读什么
+## 一、北极星
 
-`README.md` 第七节「文档地图」是权威索引，给出了五份权威文档及**优先级排序**：权威文档 > Handoff > 已验证源码与运行证据 > Liveness Notes > README 与其他说明。
+Cyberboss Telegram Memory：Telegram 侧的关系连续性记忆系统。目标不是让 AI 记住一切，而是让**一个每天只活一天的存在，能给明天的自己留下自己的笔迹**。
 
-最常用的三个入口：
+最高判据：
 
-- 架构（谁读、谁写、什么进上下文）→ `docs/CONTINUITY_ARCHITECTURE.md`
-- 当前进度与验收 → `docs/IMPLEMENTATION_STATUS.md`
-- **能不能切生产** → `docs/audit/R4_FINAL_CODE_REVIEW.md`
+> **记忆成功 = 它主要改变下一句话的姿态；记忆失败 = 它替 AI 决定下一句话的内容。**
 
-`docs/archive/` 下的内容已失效，**不要据此做判断**。
+检验方法是删除测试：拿掉这条记忆，改变的是分寸（姿态，对）还是信息（台词，错）？
 
-`README.md` 第八节「给执行模型」是实施纪律，动代码前必读。
+完整理念见 `README.md` 第一至三节。
 
-## 当前状态：恢复工作中（2026-07-26 晚），R4 判决尚未翻盘，不得切生产
+## 二、读取顺序
 
-翻盘清单的代码侧（1/2/4/5/6/7/8/9）已全部完成并合入 `main`；**唯一未完成的是第 3 条：真 Windows 生产机上的测试留证**。重新申请放行前先补它。最新进度看 `docs/IMPLEMENTATION_STATUS.md` 最顶部条目。**不要**在没读它的情况下开始改代码。
+```text
+1. CLAUDE.md               ← 你在这里
+2. docs/CURRENT_STATUS.md  ← 现在做到哪、Gate 状态、能不能切生产
+3. docs/architecture/SYSTEM_OVERVIEW.md ← 系统怎么走
+4. docs/DECISIONS.md       ← 哪些决定已定、哪些被取代、哪些还没定
+5. 任务相关的领域文档
+6. 真实源码与测试
+```
 
-架构决定：Windows 机长期开机充当服务器，**单后端**。Mac 只做代码编辑与人工查看，不运行 bot、不启用每晚 closeout 作业。
+**不需要先做全仓审计。** 前四步是地图，不是全部知识。
 
-`docs/audit/R4_FINAL_CODE_REVIEW.md`（2026-07-26）判 FAIL。**合并进 `main` 不等于批准部署**。五条发现，翻盘清单在报告末尾，按序号顺序做：
+| 任务 | 读什么 |
+|---|---|
+| 小改（一个命令、一个测试） | 1 + 2 + 相关源码测试 |
+| 单领域 | 1 + 2 + 3 + 该领域文档 + 源码测试 |
+| 要改一个已有决定 | 1 + 2 + 4，**先确认它是不是 D 系列里的既定决定** |
+| 跨领域 | 全部六层 + 相关生产脚本 |
 
-| | 问题 | 位置 | 状态 |
-|---|---|---|---|
-| F1.4 | CI 缺 release/cutover 测试门 | `.github/workflows/phase1-offline.yml` | ✅ 已接线（清单 1，`fix/r4-test-gate`） |
-| F1 | PS 测试无平台守卫；5 处 fail-closed 断言在 ENOENT 下恒真（假绿） | `test/release-control-plane.test.js`、`test/orchestration-release-watchdog.test.js` | ✅ 守卫与断言已修（清单 2/4） |
-| F2 | `installStartupArtifact` 无 manifest 哈希锚定且读两次；`verifyManifest` 的 git 校验只证存在性 | `scripts/orchestration/release-control-plane.js`、`src/orchestration/release-manifest.js` | ✅ 已修（清单 6/7：必填哈希锚定 + `^{tree}` 关系校验） |
-| F4 | 向上摸目录取最近匹配祖先，`$root` 决定被执行的 Python 文件与密钥路径 | `scripts/windows/runtime-startup/start-dashboard.ps1`、`start-telegram.ps1` | ✅ 已修（清单 8/9：`CYBERLINK_ROOT` 必填 fail-closed；`--descriptor` 必填） |
-| F5 | 硬依赖 Python ≥ 3.10 却无版本声明，3.9 上导入即失败 | `extensions/relationship-memory/launcher/watchdog.py` | ✅ 已修（清单 5：future import + 版本守卫 + CI 3.9 探针） |
+## 三、不可破坏的不变量
 
-## 跑测试：先读这段，否则会误判
+1. **主 Chat 是人格与调度中心。** 路由和会话管理服务于人格的连续，不是反过来。
+2. **她此刻的话大于旧档。** 旧画像不能覆盖用户现在说的话；需要确认时在对话里顺口求证，不要把用户放进后台审批队列。
+3. **省 Token 不能以丢失人格、记忆访问和行动能力为代价。** 砍注入前先问：砍掉后还是不是同一个。零工具 / 零 MCP 是已废弃方案（`DECISIONS.md` D13）。
+4. **单 writer。** 每份文件只有一个写入者。同一文件出现第二个 writer 是一级腐化信号。
+5. **fail-open。** 宁可本轮失忆，不可本轮失联。
+6. **候选与正式分离是全局禁区。** 任何路径都不许让外部直接写 `episodes.jsonl` 正式档。
+7. **文件存在不代表已接生产。** 这条被违反的次数最多。判断只看 `CURRENT_STATUS.md` 的能力表。
 
-Node ≥ 22。**没有 `npm test`**，测试按 `npm run test:*` 分组（`test:phase1`、`test:orchestration`、`test:route-lanes` 等，完整列表见 `package.json`）。
+其他腐化信号：Re-entry 注入字数持续上涨；Context Trace 无法解释实际上下文；Review 开始改写措辞；520 出现绕过 Review 的写路径；回复中出现无来源的"我记得"；"默认隐藏"被实现成"无法查询"。**出现即停下记录，不要顺手修好。**
 
-三个会让你把红当绿、或把绿当过的陷阱：
-
-1. **非 Windows 机器上**，调 `powershell.exe` 的测试有 `{ skip: !IS_WINDOWS }` 守卫，本机会显示诚实的 skip —— 这些测试的真实信号只来自 windows-latest CI 或真 Windows 机。历史教训（R4 F1）：守卫补齐前，`spawnSync` ENOENT 使 `assert.notEqual(status, 0)` 恒真，「脚本没跑」和「脚本正确退役」不可区分。新增这类测试时必须复用 `assertFailedClosed` 模式（先证进程真的跑了），不要裸写 `notEqual(status, 0)`。
-2. **Python 需 ≥ 3.10**。`watchdog.py` 已有 `from __future__ import annotations` 与启动版本守卫：低版本上模块可导入（探针测试全平台可跑），但作为程序启动会带明确诊断 fail-closed。CI 有 Python 3.9 探针步骤守这个行为。
-3. **CI 门在 `.github/workflows/phase1-offline.yml`**：phase1–5a 加 `npm run test:orchestration`（11 个文件，含全部 5 个 release/cutover 测试）。改 `scripts/orchestration/`、`scripts/windows/`、`extensions/relationship-memory/launcher/` 的代码有 CI 信号了，但仍建议本地先指定测试文件跑一轮，并说明在什么平台跑的。
-
-## 硬性禁止
+## 四、安全与生产禁令
 
 - **这是公开仓库。** 所有分支都不是私密空间。
-- 永不提交：真实 token、会话、日志、私人 Episodes / Self-notes / Portrait、Desire live state、PID、缓存、lock。对应目录 `runtime/`、`memory/`、`settings/secrets/*.local.json` 均不在版本控制内，保持这样。
-- `deployment/current.json` 与 `runtime/` 是**按机器不同**的，不要跨机同步。
-- `README.md` 的「先看：还没实现 / 当前不要做」一节列出的暂缓项，即使「顺手就能做」也不得进 diff。
+- 永不提交：真实 token、会话、日志、私人 Episodes / Self-notes / Portrait、Desire live state、PID、缓存、lock。`runtime/`、`memory/`、`settings/secrets/*.local.json` 不在版本控制内，保持这样。
+- `deployment/current.json` 与 `runtime/` 是**机器状态**，不得跨机同步（`DECISIONS.md` D1）。
 - `vendor/` 是上游拷贝，不要在里面改东西。
+- **不许向上摸目录找根。** `CYBERLINK_ROOT` 必填并校验，`watchdog.py` 的 `--descriptor` 必填（D8）。
+- **520 不是只读面板。** 它能改生产运行时提示词、上下文分层、注入门控与 Desire 调度。`FROZEN_WRITE_ENDPOINTS` 共 7 个：5 个是安全冻结（解冻前必须证明不绕过 Review），2 个 care 端点只是前端未接完。
+- **暂缓项即使"顺手就能做"也不得进 diff。** 当前暂缓清单在 `CURRENT_STATUS.md`，不在 README。
 
-## 分支
+## 五、测试陷阱
 
-`main` 是唯一主干；`fix/*` 单一问题，合并后即删；`audit/*` 只加报告、不改被审代码，作为留痕保留。
+Node ≥ 22。**没有 `npm test`**，测试按 `npm run test:*` 分组，见 `package.json`。
 
-判断一个分支还有没有活儿：
+1. **非 Windows 机器上**，调 `powershell.exe` 的测试有 `{ skip: !IS_WINDOWS }` 守卫，本机显示诚实的 skip —— 真实信号只来自 windows-latest CI 或真 Windows 机。
+2. **fail-closed 断言必须先证明进程真的跑过。** 复用 `assertFailedClosed`，不要裸写 `assert.notEqual(status, 0)` —— ENOENT 下它恒真。
+3. **Python 需 ≥ 3.10。** `watchdog.py` 有版本守卫，CI 有 3.9 探针守这个行为。
+4. **本地跑绿 ≠ 有 CI 信号。** 主 CI 只执行 `.github/workflows/phase1-offline.yml` 里列出的分组，仓库里相当一部分测试不在其中。**改代码前先确认你要跑的测试在不在 CI 里。** 当前覆盖情况见 `CURRENT_STATUS.md`。
+5. **一个相关单测进了 CI，不等于这条能力的完整通路有 CI 信号。** 判断通路覆盖用 `CURRENT_STATUS.md` 的状态词典。
 
-```
-git rev-list --left-right --count origin/main...<分支>
-```
+跑完请说明**在什么平台跑的**。
 
-`ahead=0` 意味着它的每个提交都已在 `main` 里 —— 死分支，删掉，不要再往里做事。
+## 六、文档治理与收尾
 
-## 目录速查
+### 文档类型
+
+| 类型 | 顶部标识 | 有没有日期 |
+|---|---|---|
+| 当前状态（`CURRENT_STATUS.md`） | `Status: active` / `Authority: current project status` / `Last verified` / `Verified against` | **有**日期与 main SHA |
+| 稳定架构（本文件、README、`docs/architecture/*`、领域文档） | `Status: active` / `Authority: stable architecture` / `Scope` / `Current status` | 无 |
+| 决策（`DECISIONS.md`） | 每条 `Status: ACTIVE / SUPERSEDED / DEFERRED` + `Decision date` | 每条有 |
+| 审计 / Handoff | `Status` / `Date` / `Base SHA` 或 `Audited SHA` / `Current authority` | 有 |
+| 补充材料（调研、实验、外部资料、未采纳方案） | `Status: supplemental` / `Authority: none` / `Scope` / `Last reviewed` / `Current authority` | 有 |
+
+**状态写在文件顶部，永远不写进文件名。** 文件名加 `[ACTIVE]_` / 日期前缀会制造死链、逼迫改名、断掉 Git 历史与外部引用，还会让 Agent 把文件名当成比正文更高的事实。
+
+### 每次改动结束
+
+1. **更新 `docs/CURRENT_STATUS.md` 对应的那一行** —— 只改那一行，状态词只能取它第二节词典里的值。
+2. **做出或取代了一个决定** → 在 `docs/DECISIONS.md` 登记。取代时把原条目标 `SUPERSEDED` 并新增一条，**编号留空缺，不重排**。尚未决定的放 Candidates。
+3. **改了稳定结构**（谁调用谁、谁写什么、注入分档）→ 更新 `docs/architecture/` 对应那份。行为变了才改，进度变了不改。
+4. **使某份历史文档失效** → 在它顶部标 `completed` / `superseded` / `historical` 并指向当前 authority，**不要删**。
+5. **只新增或刷新了证据**（调研、实验、日志、外部材料）→ 更新补充材料本身即可，**不要求**改 `CURRENT_STATUS.md`。只有当证据导致当前结论变化时才动权威文档。
+
+PR 必须使用 `.github/pull_request_template.md`，并显式判断状态、架构、决策、生产接线和补充材料是否受影响。
+
+### 全仓审计只在三个时机做
+
+准备切生产；跨三个以上领域的架构调整；`CURRENT_STATUS.md` 与实际代码出现明显冲突。**其余情况只做任务相关检查。** 正在读第五个跟任务无关的文件时，停下来。
+
+### 加 / 减一个能力
+
+1. 它落在哪一档？常驻注入 / 目录式 / 完全按需（`SYSTEM_OVERVIEW.md` 第四节）。默认落第三档。
+2. 有没有新的 writer？有就停 —— 单 writer 是硬约束。
+3. 测试进哪个 `npm run test:*` 分组？不进分组 = 无 CI 信号；新分组要同时接进 `phase1-offline.yml`。
+4. 需要生产接线吗？需要就在能力表的「生产接线」列写 `WIRED`，真机留证后才改 `VERIFIED`。
+5. 默认开还是默认关？新能力默认关，用显式 env 开关。
+
+## 七、目录速查
 
 | 路径 | 内容 |
 |---|---|
+| `src/core/app.js` | 当前 turn、Telegram envelope、memory_context 与 vision context 的拼装；命令处理 |
+| `src/core/hard-context.js` | Re-entry / Current State 装配、context gate 与 trace 基础结构 |
+| `src/core/route-lane.js` | 三种身份与 lane 决策（无依赖，必须保持无依赖） |
 | `src/adapters/channel/telegram.js` | Telegram 通道适配器 |
-| `src/core/app.js` | 启动编排（`describe()` 在此被调用打印横幅） |
-| `src/orchestration/release-manifest.js` | manifest 生成与校验 |
-| `scripts/orchestration/release-control-plane.js` | 发布控制平面：描述符与启动件安装 |
-| `scripts/windows/runtime-startup/` | 生产机 PowerShell 入口 —— **改这里最危险**，见 F1/F2/F4 |
-| `extensions/relationship-memory/` | 记忆内核与 520 面板；监督进程在 `extensions/relationship-memory/launcher/watchdog.py` |
-| `test/` | 85 个测试文件 |
-| `docs/` | 全部文档；`docs/audit/` 审查报告，`docs/archive/` 已失效 |
+| `src/adapters/runtime/claudecode/` | Claude Code 子进程、launch profile、session slot、opening context 注入 |
+| `src/continuity/` | Closeout / Janitor / Review / History writer |
+| `src/services/memory-lookup-service.js` | Phase 5A 受控翻档 |
+| `scripts/orchestration/release-control-plane.js` | 发布控制平面 |
+| `scripts/windows/runtime-startup/` | 生产机 PowerShell 入口 —— **改这里最危险** |
+| `extensions/relationship-memory/` | 记忆内核与 520 面板；watchdog 在 `launcher/watchdog.py` |
+
+| 想知道 | 去读 |
+|---|---|
+| 系统整体怎么走 | `docs/architecture/SYSTEM_OVERVIEW.md` |
+| 记忆：谁读、谁写、什么进上下文 | `docs/architecture/MEMORY.md` |
+| Windows 生产启动 / descriptor / watchdog / 回滚 | `docs/architecture/WINDOWS_RUNTIME.md` |
+| 520 的职责与边界 | `docs/520_CONSOLE.md` |
+| 命令清单 | `docs/commands.md` |
+| 当前进度、Gate、能不能切生产 | `docs/CURRENT_STATUS.md` |
+| 某个决定是怎么定的、有没有被取代 | `docs/DECISIONS.md` |
+
+`docs/archive/` 是历史，不据此判断当前状态。`docs/audit/` 的结论只对它审的那个 SHA 有效。标了 `Status: supplemental` 的文档不是当前真相，也不是已批准的决定。
+
+## 八、分支
+
+`main` 是唯一主干；`fix/*` 单一问题，合并后即删；`audit/*` 只加报告、不改被审代码。
+
+**合并进 `main` ≠ 批准部署**（`DECISIONS.md` D3）。放行判据见 `CURRENT_STATUS.md` 第五节。
+
+```bash
+git rev-list --left-right --count origin/main...<分支>
+```
+
+`ahead=0` = 死分支，删掉，不要再往里做事。

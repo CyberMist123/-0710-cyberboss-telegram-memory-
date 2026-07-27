@@ -1,3 +1,9 @@
+```text
+Status: historical
+Date: 2026-07-12
+Current authority: docs/CURRENT_STATUS.md
+```
+
 # 记忆流水线工作记录（已并入全项目日志）
 
 这份文件最初只记录 Candidate → Review → History Writer 的修复过程，范围过窄。

@@ -1,5 +1,18 @@
 # Soft Retrieval 行为规范（SPEC）
 
+```text
+Status: supplemental
+Authority: none
+Scope: Soft Retrieval 行为规范草案
+Last reviewed: 2026-07-27
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> This document may change independently. It is supporting material, not current project truth or an approved decision.
+>
+> 本文可以独立更新，只提供参考或证据；它不是当前状态，也不是已经批准的决定。
+
+
 > 本文件是 Soft Retrieval 的唯一规范源，给执行 AI（Codex 等）与代码评审使用。
 > 与 README.md 冲突时以本文件为准。与 `docs/IMPLEMENTATION_HANDOFF.md` 的阶段纪律冲突时，以 HANDOFF 为准。
 > 版本：v0.2.1（2026-07-11 二轮终审定稿）

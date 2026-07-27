@@ -1,5 +1,18 @@
 # Soft Retrieval
 
+```text
+Status: supplemental
+Authority: none
+Scope: 暂缓的自动召回研究路线
+Last reviewed: 2026-07-27
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> This document may change independently. It is supporting material, not current project truth or an approved decision.
+>
+> 本文可以独立更新，只提供参考或证据；它不是当前状态，也不是已经批准的决定。
+
+
 > 状态：Phase 5A 仅实现用户明确拉线后的 `user_pull` 字符串查询；自动 Soft Retrieval 仍暂缓
 > 当前决定：不实现自动调用、embedding、BM25、reranker 或 5B 主动翻档，也不为了展示而做假的 preview。
 
@@ -152,7 +165,7 @@ Soft Retrieval 只有在以下条件满足后再开工：
 
 无。
 
-先完成 `IMPLEMENTATION_STATUS.md` 中的硬上下文、后台循环、Desire 和 520 收口。以后重新启动本模块时，再在本文末尾记录实验数据和明确决策。
+先完成 `CURRENT_STATUS.md` 中的硬上下文、后台循环、Desire 和 520 收口。以后重新启动本模块时，再在本文末尾记录实验数据和明确决策。
 
 #参考的数据
 嘿嘿记忆被动浮现优化成效显著

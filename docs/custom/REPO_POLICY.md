@@ -1,5 +1,13 @@
 # Repository policy
 
+```text
+Status: active
+Authority: stable architecture
+Scope: 仓库策略
+Current status: docs/CURRENT_STATUS.md
+```
+
+
 - The trusted runtime reference is upstream commit `ecc98cd`.
 - Keep upstream core behavior unless a narrowly reproduced need proves a patch necessary.
 - Relationship memory, dashboard, and Windows launch helpers are additive extensions.

@@ -1,5 +1,12 @@
 # Cyberboss Telegram Memory — private extension repository
 
+```text
+Status: historical
+Date: 2026-07-10
+Current authority: docs/CURRENT_STATUS.md
+```
+
+
 Private review repository based on `AngeliaSama/cyberboss-deepseek` commit `ecc98cd`.
 
 ## Start here

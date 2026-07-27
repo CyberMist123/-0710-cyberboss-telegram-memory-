@@ -1,5 +1,13 @@
 # Commands
 
+```text
+Status: active
+Authority: stable architecture
+Scope: 命令清单与设计原则
+Current status: docs/CURRENT_STATUS.md
+```
+
+
 ## Design Principles
 
 `Cyberboss` does not hard-code one shared string format across terminal commands, WeChat commands, and different agent runtimes.

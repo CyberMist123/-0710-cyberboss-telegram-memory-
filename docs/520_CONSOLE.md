@@ -1,5 +1,13 @@
 # 520 Console
 
+```text
+Status: active
+Authority: stable architecture
+Scope: 520 控制台的职责与边界
+Current status: docs/CURRENT_STATUS.md
+```
+
+
 > 状态：Phase 4 提供受控上下文编辑与只读记忆观察；八维实时/历史数据接线已补齐，后续交互能力仍按本文分阶段开放
 > 520 是查看、调试、模式切换与评测前端，不是记忆后端。
 
@@ -270,3 +278,54 @@ failed
 - `state_log.jsonl` 不再被页面写入；
 - 正式记忆不能从通用文件编辑接口修改；
 - 页面崩溃不会导致 Telegram 重启或重复 poller。
+
+---
+
+## 写权限分两层
+
+> 本节是 520 端点的**权威描述**。`docs/architecture/SYSTEM_OVERVIEW.md` 第六节只给骨架并链接过来，不复制这里的表格。
+
+**活跃写端点**（全部需要 `X-Api-Token`；只读端点因只绑本机而免 token）：
+
+| 端点 | 改什么 | 保护 |
+|---|---|---|
+| `/api/runtime-prompt/save`、`/restore` | **生产运行时提示词正文** | sha256 乐观锁、自动备份、历史版本下拉回滚、保存前 diff 预览 |
+| `/api/context-layout/save`、`/snapshot`、`/restore` | 上下文分层布局与逐模块开关 | 快照 + 回滚 |
+| `/api/context-gates` | 运行时三门 `reentry` / `current_state` / `memory_context` | 不重启 TG 进程即时生效 |
+| `/api/desire-schedule` | Desire 调度配置（时区、夜间跳过等） | revision 乐观锁、自动备份、审计日志 `desire_schedule_saved` |
+| `/api/context-source/save` | 上下文源 | — |
+| `/api/todo/save` | Todo / Current Focus | — |
+| `/api/review/retry` | 重跑单条 Review（调 `scripts/continuity/run-phase3.js review --candidate-id=`） | 候选 id 白名单正则 |
+
+**冻结写端点** —— 一律 403 `write_frozen`，由 `test_dashboard_write_freeze.py` 守卫。名单在 `dashboard.py` 的 `FROZEN_WRITE_ENDPOINTS`，其中混着两种性质完全不同的东西，**不要一视同仁**：
+
+| 端点 | 性质 |
+|---|---|
+| `/api/save`（任意文件写） | **安全冻结** —— 解冻前必须先证明不绕过 Review |
+| `/api/state_log`（八维状态史追加） | 安全冻结 |
+| `/api/episode_candidate`（Episode 候选追加） | 安全冻结 |
+| `/api/janitor/run`（触发 janitor） | 安全冻结 |
+| `/api/config`（chat provider / model） | 安全冻结 |
+| `/api/care/config` | **工程未完成** —— 关怀页读路径已通，写路径待补前端；不是安全边界，补前端时一并解冻 |
+| `/api/care/cycle` | 工程未完成，同上 |
+
+剧场页（`/api/theater/scripts`）目前纯展示只读，没有写端点。
+
+## 上下文分层：520 能关掉的模块
+
+`DEFAULT_CONTEXT_LAYOUT` 定义四组，每组每模块各有独立 `enabled` 开关，组级 `runtime_gate` 映射到硬上下文三门：
+
+| 组 | 含义 | runtime_gate | 模块 |
+|---|---|---|---|
+| Base | 稳定层 | 无（恒在最前） | 人物卡 / AI Identity、关系 / 情感注入、Tool / AI 自主活动规则 |
+| Re-entry | 慢变化层 | `reentry` | Boundary、History / Timeline 摘要、AI Portrait、User Portrait |
+| Live State | 鲜活状态层 | `current_state` | 最近状态摘要 / 小纸条、**八维 / Desire**、承诺、Todo / Current Focus、Health / 手机 Monitor、Location / Weather、RP 预设 / Overlays |
+| Cache | 会话连续层 | 无 | 上一会话摘要、上一会话原文 / 最近 N 轮 |
+
+「八维开关」就是 Live State 组里的 `desire` 模块开关。布局落 `context-layout.json`，门控落 `context-gates.json`，两者都在 `CYBERBOSS_STATE_DIR`，TG 进程下一轮重建上下文时读到。
+
+`compute_module_state()` 另外给出记忆链各模块的运行态（`on` / `available` / `preview` / `not_implemented`），依据是对应文件在不在，不是配置声明。
+
+## 八维页的数据源
+
+优先读 `desire-history.jsonl`（Desire 唯一 writer 追加）；只有连续历史不存在时才只读回退到冻结的 `state_log.jsonl`。页面显示数据源、路径、新鲜度、维度完整度与回退状态。八维曲线是内联 canvas 手绘，无外部 CDN。

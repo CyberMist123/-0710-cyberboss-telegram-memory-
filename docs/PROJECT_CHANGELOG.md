@@ -1,3 +1,11 @@
+```text
+Status: historical
+Date: 2026-07-23
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> 项目更新日志，按时间倒序。当前状态不在这里。
+
 # Cyberboss 项目更新日志
 
 > 这是整个 Cyberboss 项目的统一版本本，不只记录记忆流水线。

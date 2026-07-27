@@ -1,5 +1,18 @@
 # Phase 1 Offline Runbook
 
+```text
+Status: supplemental
+Authority: none
+Scope: Phase 1 离线 runbook（占位）
+Last reviewed: 2026-07-27
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> This document may change independently. It is supporting material, not current project truth or an approved decision.
+>
+> 本文可以独立更新，只提供参考或证据；它不是当前状态，也不是已经批准的决定。
+
+
 This runbook is intentionally placeholder-only. Do not paste real tokens, live memory paths, sessions, conversations, or logs into it.
 
 ## Offline Acceptance
