@@ -1,5 +1,13 @@
 # Telegram / Claude route lanes v2
 
+```text
+Status: active
+Authority: stable architecture
+Scope: Telegram / Claude route lanes v2
+Current status: docs/CURRENT_STATUS.md
+```
+
+
 This branch replaces the C1 profile-selector prototype. It is not a patch on
 top of it: the selector is rebuilt fail-closed, and the routing seam it plugged
 into is rebuilt around three identities that were previously conflated.

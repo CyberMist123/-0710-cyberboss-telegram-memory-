@@ -1,5 +1,10 @@
-> **Status: historical** — 项目更新日志，按时间倒序。
-> 当前状态不在这里，看 [`docs/CURRENT_STATUS.md`](./CURRENT_STATUS.md)。
+```text
+Status: historical
+Date: 2026-07-23
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> 项目更新日志，按时间倒序。当前状态不在这里。
 
 # Cyberboss 项目更新日志
 

@@ -1,5 +1,11 @@
-> **Status: superseded** — 部署期临时交接文档。
-> 当前进度与下一步见 [`docs/CURRENT_STATUS.md`](./CURRENT_STATUS.md)；稳定结构见 [`docs/architecture/`](./architecture/)。
+```text
+Status: superseded
+Date: 2026-07-11
+Base SHA: 44b7c0a
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> 部署期临时交接文档，已被当前状态页与架构文档取代。稳定结构见 [`docs/architecture/`](./architecture/)。
 
 # Implementation Handoff — 实施交接
 

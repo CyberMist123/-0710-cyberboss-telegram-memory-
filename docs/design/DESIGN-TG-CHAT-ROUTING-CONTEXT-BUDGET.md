@@ -1,5 +1,18 @@
 # TG Chat 路由、上下文与 Token 减负设计草案
 
+```text
+Status: supplemental
+Authority: none
+Scope: TG Chat 路由与上下文预算设计草案
+Last reviewed: 2026-07-27
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> This document may change independently. It is supporting material, not current project truth or an approved decision.
+>
+> 本文可以独立更新，只提供参考或证据；它不是当前状态，也不是已经批准的决定。
+
+
 状态：**架构头脑风暴稿，供 Fable 只读审查；尚未批准施工**  
 仓库：`CyberMist123/-0710-cyberboss-telegram-memory-`  
 分支：`fix/p0-fable-chat-profile`  

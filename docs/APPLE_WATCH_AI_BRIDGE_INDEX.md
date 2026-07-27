@@ -1,5 +1,14 @@
-> **Status: proposal（无代码）** — 这是一份规格 / 提案，仓库里没有任何对应实现。
-> 不要把本文件读作「已实现」。当前能力表见 [`docs/CURRENT_STATUS.md`](./CURRENT_STATUS.md)。
+```text
+Status: supplemental
+Authority: none
+Scope: Apple Watch bridge 规格 / 提案（仓库无任何对应实现）
+Last reviewed: 2026-07-27
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> This document may change independently. It is supporting material, not current project truth or an approved decision.
+>
+> 本文是提案，不要读作「已实现」。当前能力表见 `docs/CURRENT_STATUS.md`。
 
 # Apple Watch AI Bridge
 

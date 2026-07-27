@@ -1,5 +1,12 @@
 # System Overview
 
+```text
+Status: active
+Authority: stable architecture
+Scope: 全系统调用链、身份模型、上下文分档、写入权
+Current status: docs/CURRENT_STATUS.md
+```
+
 > **这份文档只描述稳定结构** —— 谁调用谁、谁写什么、边界在哪。
 > 它**不写**当前完成度、日期、SHA 或"能不能切生产"。那些只在 `docs/CURRENT_STATUS.md`。
 > 一个模块在这里被描述，不代表它已接生产。
@@ -11,36 +18,42 @@
 ## 一、一条消息的完整路径
 
 ```text
-Telegram
+Telegram 用户消息
   │
   ▼
-src/adapters/channel/telegram.js          通道适配器：拉取、去重、媒体描述符
-  │   └── src/services/telegram-media-descriptor.js
-  │   └── src/services/media-inbox-service.js
+src/adapters/channel/telegram.js      通道适配器：拉取、去重、媒体描述符
   ▼
-src/core/route-lane.js                     算出 route lane（见第二节的三种身份）
+src/core/route-lane.js                算出 route lane（第二节的三种身份）
   ▼
-src/core/app.js                            中枢：命令分流、上下文装配、回复投递
+src/core/app.js                       中枢：命令分流、投递
   │
-  ├── 命令？ ──► src/core/command-registry.js  ──► app.js 内的 handler
-  │              （/effort、/model、能力操作等）
+  ├── 命令？ ──► src/core/command-registry.js ──► app.js 内的 handler
   │
-  └── 对话 ──► src/core/hard-context.js       装配硬上下文三块
-                  ├── Re-entry        ← src/core/reentry-loader.js
-                  ├── Current State   ← src/core/current-state.js
-                  └── memory_context  ← app.js 内装配，受 gate 控制
-                  ▼
-                  ├── launch-profile.js          profile → 启动参数（含 --effort）
-                  ├── session-slot.js            native transcript 身份
-                  ├── process-registry.js        进程与 lane 的对应
-                  └── telegram-profile-router.js profile 选择
-                  ▼
-              模型回复
-                  ▼
-src/core/stream-delivery.js                分块、typing、投递回原 lane
+  ├── 通路 A：buildRuntimeTurn()        —— 本轮 turn 的拼装
+  │     ├── Telegram plaintext <channel> envelope
+  │     │     （formatTelegramRuntimeText()）
+  │     └── memory_context
+  │           ⚠️ 当前 Telegram 在此之前提前 return，故断开
+  │              非 telegram 才会走到 resolveVisionContext()
+  │              与 resolveMemoryContextForPrepared()
+  │
+  └── 通路 B：runtime opening context   —— 运行时适配器注入
+        （src/adapters/runtime/claudecode|codex 调 prepareOpeningContext()）
+          ├── Re-entry
+          └── Current State
+  ▼
+模型回复 ──► src/core/stream-delivery.js  分块、typing、投递回原 lane
 ```
 
-送进模型的默认上下文只有四块：**System Prompt + Role Card + 首轮 Re-entry + 轻量 Current State + 当前对话**。Episodes 及下游旧档**默认不进**普通对话上下文 —— 这是设计，不是缺陷。
+**通路 A 与通路 B 不是同一个函数，也不是同一条执行路径。**
+
+- Re-entry 与 Current State 属于 **opening context**（通路 B）；
+- memory_context 属于 **runtime turn 拼装**（通路 A）；
+- 所以 G1 `FAIL` 只意味着 **memory_context 失败**，不代表 Re-entry 和 Current State 失败。
+
+把三者画成同一条装配链是上一版文档的错误，也是这个缺陷长期没被发现的原因之一。当前各自的状态见 `docs/CURRENT_STATUS.md`。
+
+默认模型输入由**稳定提示层、首轮 Re-entry、轻量 Current State、当前真实对话**组成。Episodes 及下游旧档**默认不进**普通对话上下文 —— 这是设计，不是缺陷。
 
 `src/core/context-trace.js` 记录每一轮装配了什么、跳过了什么、为什么。
 
@@ -90,16 +103,7 @@ Claude Code 子进程自己可以再起**子代理**。这条链路目前不由�
 
 代码位置：`src/continuity/`（`closeout-job.js`、`continuity-pipeline.js`、`candidate-authority.js`、`review-checkpoint.js`、`continuity-store.js`、`conversation-purity.js`）。调度在 `src/app/closeout-liveness.js`，由 `src/core/app.js` 装配。
 
-**写入权唯一** —— 同一文件出现第二个 writer 是一级腐化信号：
-
-| 内容 | 唯一 writer |
-| --- | --- |
-| 原始会话 log | 系统 |
-| candidates | Closeout / Janitor |
-| Review decisions | Auto Review |
-| Episode canon | History writer |
-| Re-entry / Self-note 正文 | 主体 AI |
-| Desire 状态 | Desire runtime |
+**写入权唯一，谁写什么见 [`MEMORY.md`](./MEMORY.md) 第 7 节。** 同一文件出现第二个 writer 是一级腐化信号 —— 那张表只在 MEMORY.md 维护，这里不复制。
 
 跨进程互斥靠 `src/orchestration/writer-lease.js`（租约，支持 stale 恢复）与 `src/core/workspace-lock.js`。
 
@@ -183,117 +187,36 @@ Desire 状态由 Desire runtime 唯一写入；八维实时态落 `desire-state.
 
 ## 六、520 控制台
 
-`extensions/relationship-memory/memory-kit/dashboard.py`（5,834 行，零第三方依赖，内联 HTML/JS 前端）与 `dashboard_continuity.py`。只绑 `127.0.0.1:0520`，不对外。
+`extensions/relationship-memory/memory-kit/dashboard.py` 与 `dashboard_continuity.py`。只绑 `127.0.0.1:0520`，不对外。
 
-**520 是记忆系统的控制平面前端，不是只读面板。** 它能改提示词、改上下文分层、开关注入门、改 Desire 调度。六个 tab：健康度 / 时间线 / 八维 / 关怀 / 剧场 / 文件。
+**520 是记忆系统的控制平面前端，不是只读面板。** 它能改生产运行时提示词、上下文分层与逐模块开关（含「八维 / Desire」）、注入门控、Desire 调度，并能重跑单条 Review。写端点全部需要 `X-Api-Token`。
 
-### 写权限分两层
+`FROZEN_WRITE_ENDPOINTS` 共 7 个，性质不同：5 个是**安全冻结**（能绕过 Review 或直接改正式档），2 个 `care` 端点只是**前端未接完**。
 
-**活跃写端点**（全部需要 `X-Api-Token`；只读端点因只绑本机而免 token）：
+**完整端点表、分层模块表与保护机制见 [`../520_CONSOLE.md`](../520_CONSOLE.md)。**
 
-| 端点 | 改什么 | 保护 |
-| --- | --- | --- |
-| `/api/runtime-prompt/save`、`/restore` | **生产运行时提示词正文** | sha256 乐观锁、自动备份、历史版本下拉回滚、保存前 diff 预览 |
-| `/api/context-layout/save`、`/snapshot`、`/restore` | 上下文分层布局与逐模块开关 | 快照 + 回滚 |
-| `/api/context-gates` | 运行时三门 `reentry` / `current_state` / `memory_context` | 不重启 TG 进程即时生效 |
-| `/api/desire-schedule` | Desire 调度配置（时区、夜间跳过等） | revision 乐观锁、自动备份、审计日志 `desire_schedule_saved` |
-| `/api/context-source/save` | 上下文源 | — |
-| `/api/todo/save` | Todo / Current Focus | — |
-| `/api/review/retry` | 重跑单条 Review（调 `scripts/continuity/run-phase3.js review --candidate-id=`） | 候选 id 白名单正则 |
+三条不可越过的边界：
 
-**冻结写端点** —— 一律 403 `write_frozen`，由 `test_dashboard_write_freeze.py` 守卫：
+- **API 桥永不让外部直接写 `episodes.jsonl` 正式档。候选与正式分离是全局禁区。**
+- **520 出现绕过 Review 的写路径 = 一级腐化信号。**
+- 关掉 520 后，Telegram、上下文装配与后台任务必须仍然正常工作 —— 它是编辑器，不是运行时依赖。
 
-```text
-/api/save              任意文件写
-/api/state_log         八维状态史追加
-/api/episode_candidate Episode 候选追加
-/api/janitor/run       触发 janitor
-/api/care/config       关怀配置
-/api/care/cycle        cycle 录入
-/api/config            chat provider / model
-```
-
-冻结名单在 `dashboard.py` 的 `FROZEN_WRITE_ENDPOINTS`。**冻结名单里混着两种性质完全不同的东西，不要一视同仁：**
-
-- `/api/save`、`/api/state_log`、`/api/episode_candidate`、`/api/janitor/run`、`/api/config` —— **按设计冻结**。它们能绕过 Review 或直接改正式档，解冻前必须先证明不绕过 Review。
-- `/api/care/config`、`/api/care/cycle` —— **只是前端还没接**。关怀页的读路径已通，写路径待补，属于未完成的工程，不是安全边界。补前端时一并解冻即可。
-
-剧场页（`/api/theater/scripts`）目前纯展示只读，没有写端点。
-
-### 上下文分层：520 能关掉的模块
-
-`DEFAULT_CONTEXT_LAYOUT` 定义四组，每组每模块各有独立 `enabled` 开关，组级 `runtime_gate` 映射到硬上下文三门：
-
-| 组 | 含义 | runtime_gate | 模块 |
-| --- | --- | --- | --- |
-| Base | 稳定层 | 无（恒在最前） | 人物卡 / AI Identity、关系 / 情感注入、Tool / AI 自主活动规则 |
-| Re-entry | 慢变化层 | `reentry` | Boundary、History / Timeline 摘要、AI Portrait、User Portrait |
-| Live State | 鲜活状态层 | `current_state` | 最近状态摘要 / 小纸条、**八维 / Desire**、承诺、Todo / Current Focus、Health / 手机 Monitor、Location / Weather、RP 预设 / Overlays |
-| Cache | 会话连续层 | 无 | 上一会话摘要、上一会话原文 / 最近 N 轮 |
-
-「八维开关」就是 Live State 组里的 `desire` 模块开关。布局落 `context-layout.json`，门控落 `context-gates.json`，两者都在 `CYBERBOSS_STATE_DIR`，TG 进程下一轮重建上下文时读到。
-
-`compute_module_state()` 另外给出记忆链各模块的运行态（`on` / `available` / `preview` / `not_implemented`），依据是对应文件在不在，不是配置声明。
-
-### 不可越过的边界
-
-- **API 桥永不让外部直接写 `episodes.jsonl` 正式文件。候选与正式分离是全局禁区。**
-- **520 出现绕过 Review 的写路径 \= 一级腐化信号。** 冻结名单存在的理由就是这条。
-- 关怀页 cycle 只由用户本人录入，数据永不进 `user_portrait` / `episodes`，不做分析图表。
-- 关掉 520 后，Telegram、上下文装配与后台任务必须仍然正常工作 —— 520 是编辑器，不是运行时依赖。
-
-### 八维页的数据源
-
-优先读 `desire-history.jsonl`（Desire 唯一 writer 追加）；只有连续历史不存在时才只读回退到冻结的 `state_log.jsonl`。页面显示数据源、路径、新鲜度、维度完整度与回退状态。八维曲线是内联 canvas 手绘，无外部 CDN。
+`context-gates.json`（三门）与 `context-layout.json`（分层）都落在 `CYBERBOSS_STATE_DIR`，TG 进程下一轮重建上下文时读到，**不需要重启**。
 
 ## 七、Windows 生产运行时
 
-细节见 `docs/architecture/WINDOWS_RUNTIME.md`，此处只给骨架。
-
 ```text
-deployment/current.json          release descriptor（按机器不同，不入版本控制）
-        │
-        ▼
-scripts/orchestration/release-control-plane.js   安装 descriptor 与启动件
-        │  锚定：manifest 必须带 expectedManifestSha256，单读、BOM 检查、哈希锚定
-        ▼
-src/orchestration/release-manifest.js            manifest 生成与校验
-        │  git 校验是关系校验：rev-parse ^{tree} 比对 commit.tree_sha
-        ▼
-scripts/windows/runtime-startup/                 生产机 PowerShell 入口
-        ├── start-telegram.ps1     必须显式设置 CYBERLINK_ROOT，否则 fail-closed
-        ├── start-dashboard.ps1    同上
-        └── install-*.ps1          安装器
-        ▼
-extensions/relationship-memory/launcher/watchdog.py
-        --descriptor 必填（无祖先探测、无 cwd 兜底）；Python ≥ 3.10
+deployment/current.json  →  release-control-plane.js  →  scripts/windows/runtime-startup/*.ps1
+       descriptor              哈希锚定安装                    生产机入口
+                                                                    ↓
+                                             extensions/relationship-memory/launcher/watchdog.py
 ```
 
-**两条不可回退的纪律**（来自 R4 审查）：
+descriptor 是唯一事实来源，**按机器不同、不入版本控制、不跨机同步**；`runtime/`、`memory/`、`settings/secrets/*.local.json` 同理。
 
-1. **不许向上摸目录找根。** `CYBERLINK_ROOT` 必须显式设置并校验其确含 `runtime/` 与 `settings/`。祖先回溯让一个诱饵目录就能决定被执行的 Python 文件与密钥路径。
-2. **fail-closed 断言必须先证明进程真的跑过。** 复用 `assertFailedClosed`，不要裸写 `assert.notEqual(status, 0)` —— ENOENT 下它恒真，"脚本没跑"和"脚本正确退役"不可区分。
+**完整内容 —— descriptor 字段、安装链路的哈希锚定关系、两条不可回退的纪律（不许祖先回溯找根、fail-closed 断言必须先证明进程跑过）、watchdog 契约、回滚路径 —— 全部在 [`WINDOWS_RUNTIME.md`](./WINDOWS_RUNTIME.md)，这里不复制。**
 
-回滚：`scripts/windows/phase1-rollback.ps1`、`phase1-switch.ps1`。
-
-* * *
-
-## 八、按机器不同的东西
-
-下列内容**永不入版本控制、永不跨机同步**：
-
-```text
-deployment/current.json          活动 release descriptor
-runtime/                         PID、缓存、lock、live state
-memory/                          私人 Episodes / Self-notes / Portrait
-settings/secrets/*.local.json    密钥
-```
-
-`vendor/` 是上游拷贝，不在里面改东西。
-
-* * *
-
-## 九、各领域入口速查
+## 八、各领域入口速查
 
 | 域 | 入口文件 | 领域文档 |
 | --- | --- | --- |

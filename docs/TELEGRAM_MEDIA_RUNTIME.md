@@ -1,5 +1,13 @@
 # Telegram media runtime contract
 
+```text
+Status: active
+Authority: stable architecture
+Scope: Telegram 入站媒体运行时契约
+Current status: docs/CURRENT_STATUS.md
+```
+
+
 Telegram inbound media has one production path:
 
 1. `telegram.js` normalizes supported media into `telegram.media[]` descriptors.

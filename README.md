@@ -1,4 +1,6 @@
+```{=html}
 <div align="center">
+```
 
 # Cyberboss Telegram Memory
 
@@ -7,8 +9,18 @@
 基于 [`AngeliaSama/cyberboss-deepseek`](https://github.com/AngeliaSama/cyberboss-deepseek) 的 Telegram + 关系记忆扩展。
 真实密钥永不入库；历史安全状态以 secret audit 为准。
 
+```{=html}
 </div>
-> [!IMPORTANT]
+```
+
+```text
+Status: active
+Authority: stable architecture
+Scope: 项目定位、北极星判据、记忆理念、文档地图
+Current status: docs/CURRENT_STATUS.md
+```
+
+> [\!IMPORTANT]
 > **这份 README 不写当前进度。** 项目做到哪一步、哪些能力已接生产、能不能切生产，只看 [`docs/CURRENT_STATUS.md`](./docs/CURRENT_STATUS.md)。
 > README 讲的是这个项目是什么、为什么这样设计 —— 这些几个月不会变。进度每周都在变，两处都写必然分叉。
 
@@ -28,7 +40,7 @@
 
 整个仓库只有一条最高标准：
 
-> **记忆成功 = 它主要改变下一句话的姿态；记忆失败 = 它替 AI 决定下一句话的内容。**
+> **记忆成功 \= 它主要改变下一句话的姿态；记忆失败 \= 它替 AI 决定下一句话的内容。**
 
 记忆是背景，不是台词。它应当影响语气、分寸、确定度、什么时候沉默、什么时候求证、敢不敢开玩笑；不应让 AI 无缘无故背诵几个月前的旧事来证明在乎。
 
@@ -117,20 +129,7 @@ System Prompt + Role Card + 首轮 Re-entry + 轻量 Current State + 当前对�
   → Reflect 低频更新 Timeline / Rereadings / Portrait
 ```
 
-**写入权唯一：**
-
-| 内容 | 唯一 writer |
-|---|---|
-| 原始会话 log | 系统 |
-| candidates | Closeout / Janitor |
-| Review decisions | Auto Review |
-| Episode canon | History writer |
-| Re-entry / Self-note 正文 | 主体 AI |
-| Desire 状态 | Desire runtime |
-
-Auto Review 是海关，不是编辑。它核对来源、冲突、重复、长度、安全与格式；不按“重要性”替主体筛选，也不改写 AI 的措辞。
-
-520 是可关闭的查看、调试、模式切换与评测前端。关闭 520 后，Telegram、上下文与后台任务仍应正常工作。
+**写入权唯一**：每份文件只有一个写入者，谁写什么见 [`docs/architecture/MEMORY.md`](./docs/architecture/MEMORY.md) 第 7 节。Auto Review 是海关不是编辑 —— 它核对来源、冲突、重复、长度、安全与格式，不按"重要性"替主体筛选，也不改写 AI 的措辞。
 
 记忆链全程 fail-open：宁可本轮失忆，不可本轮失联。
 
@@ -157,35 +156,46 @@ Auto Review 是海关，不是编辑。它核对来源、冲突、重复、长�
 - 回复中出现无来源的“我记得”；
 - “默认隐藏”被实现成“无法查询”；
 - 记忆注入块或工具结果被重新抽成新 Episode。
+
 ## 七、文档地图
 
 按这个顺序读，不需要先做全仓审计：
 
 | 顺序 | 文档 | 回答什么 |
-|---|---|---|
+| --- | --- | --- |
 | 1 | [`CLAUDE.md`](./CLAUDE.md) | AI 协作入口：硬约束、测试陷阱、改动收尾纪律 |
-| 2 | [`docs/CURRENT_STATUS.md`](./docs/CURRENT_STATUS.md) | **唯一的当前进度真相**：能力表、P0/P1、能不能切生产 |
+| 2 | [`docs/CURRENT_STATUS.md`](./docs/CURRENT_STATUS.md) | **唯一的当前进度真相**：能力表、Gate、能不能切生产 |
 | 3 | [`docs/architecture/SYSTEM_OVERVIEW.md`](./docs/architecture/SYSTEM_OVERVIEW.md) | 系统怎么走：消息路径、三种身份、上下文分档 |
-| 4 | [`docs/DECISIONS.md`](./docs/DECISIONS.md) | 当前有效的决定，以及被翻转过的决定 |
+| 4 | [`docs/DECISIONS.md`](./docs/DECISIONS.md) | 当前有效的决定，以及被取代的决定 |
 | 5 | 领域文档（见下） | 具体那一块的稳定结构 |
 | 6 | 真实源码与测试 | — |
 
-领域文档：
+### 领域文档：什么任务读哪一份
 
-| 想知道 | 去读 |
-|---|---|
-| 记忆：谁读、谁写、什么进上下文 | [`docs/architecture/MEMORY.md`](./docs/architecture/MEMORY.md) |
-| Windows 生产启动 / descriptor / watchdog / 回滚 | [`docs/architecture/WINDOWS_RUNTIME.md`](./docs/architecture/WINDOWS_RUNTIME.md) |
-| 520 的职责与边界 | [`docs/520_CONSOLE.md`](./docs/520_CONSOLE.md) |
-| 暂缓的自动召回与研究路线 | [`docs/SOFT_RETRIEVAL.md`](./docs/SOFT_RETRIEVAL.md) |
-| Telegram 媒体运行时契约 | [`docs/TELEGRAM_MEDIA_RUNTIME.md`](./docs/TELEGRAM_MEDIA_RUNTIME.md) |
-| Telegram route lanes v2 | [`docs/TELEGRAM_ROUTE_LANES_V2.md`](./docs/TELEGRAM_ROUTE_LANES_V2.md) |
-| Windows 静默自启、状态与取消 | [`docs/WINDOWS_SILENT_STARTUP.md`](./docs/WINDOWS_SILENT_STARTUP.md) |
-| 命令清单 | [`docs/commands.md`](./docs/commands.md) |
+不要按标题猜，按**你手上的活**对号入座。
 
-**历史材料**：`docs/audit/` 是审查报告（每份顶部标注它审的是哪个 SHA，结论只对那个 SHA 有效），`docs/archive/` 是已失效的过程记录。**Agent 默认不读 `docs/archive/`**，除非正在调查历史原因。
+| 你要做的事 | 去读 | 类型 |
+| --- | --- | --- |
+| 改 Re-entry / Current State / Episode 的读写；判断某条记忆该不该进上下文；新增一个 writer 前确认写入权 | [`docs/architecture/MEMORY.md`](./docs/architecture/MEMORY.md) | 稳定架构 |
+| 改生产机启动脚本、release descriptor、watchdog、计划任务；准备切换或回滚一个 release | [`docs/architecture/WINDOWS_RUNTIME.md`](./docs/architecture/WINDOWS_RUNTIME.md) | 稳定架构 |
+| 改 520 面板的任何写端点、上下文分层开关、提示词编辑、八维页；想解冻某个冻结端点 | [`docs/520_CONSOLE.md`](./docs/520_CONSOLE.md) | 稳定架构 |
+| 改 Telegram 收图片 / 语音 / 文件的处理，或 `<media>` 引用与 state media 落盘 | [`docs/TELEGRAM_MEDIA_RUNTIME.md`](./docs/TELEGRAM_MEDIA_RUNTIME.md) | 稳定架构 |
+| 动 lane 隔离、turn gate、profile 路由、同一 chat 多 topic 的会话归属 | [`docs/TELEGRAM_ROUTE_LANES_V2.md`](./docs/TELEGRAM_ROUTE_LANES_V2.md) | 稳定架构 |
+| 配置生产机开机自启、查看或取消 520 与 watchdog 的计划任务 | [`docs/WINDOWS_SILENT_STARTUP.md`](./docs/WINDOWS_SILENT_STARTUP.md) | 稳定架构 |
+| 新增 / 修改**聊天里的斜杠命令**（`/effort`、`/compact` 等）或**终端命令**（`cyberboss start`、`login`、`doctor` 等），或想知道模型能调的 project tools 有哪些 | [`docs/commands.md`](./docs/commands.md) | 稳定架构 |
+| 想搞清楚"自动召回为什么暂缓"、Phase 5B 的边界在哪、以后要开需要什么证据 | [`docs/SOFT_RETRIEVAL.md`](./docs/SOFT_RETRIEVAL.md) | **补充材料** |
 
-根目录只保留本文件与 `CLAUDE.md` / `AGENTS.md`，其余文档一律在 `docs/` 下。上游继承的两份叙事 README（`README.en.md` / `README.zh-CN.md`，描述的是微信桥接）已删除 —— 它们与本项目（Telegram）不符，需要时从历史提交 `c41f9bd` 取回。
+关于命令，三个面各有归属，不要找错地方：
+
+| 面 | 例子 | 在哪 |
+| --- | --- | --- |
+| 聊天斜杠命令 | `/effort`、`/compact`、`/help` | `docs/commands.md`；注册表在 `src/core/command-registry.js` |
+| 终端命令 | `cyberboss start` / `login` / `doctor` / `shared status` | `docs/commands.md` 的 Terminal Commands 一节 |
+| 520 的 HTTP 端点 | `/api/context-gates`、`/api/runtime-prompt/save` | **不在 `commands.md`**，在 [`docs/520_CONSOLE.md`](./docs/520_CONSOLE.md) |
+
+> ⚠️ **命名陷阱**：`docs/commands.md` 里聊天命令那一节叫 "WeChat Commands"，`command-registry.js` 里的键也叫 `weixin` —— 这是从上游继承的**历史名字**。实际生效的通道是 **Telegram**：`command-registry.js` 渲染聊天命令清单时读的就是 `action.weixin`。看到 `weixin` 不要以为那段代码与本项目无关。
+
+**「稳定架构」是当前结构说明，可以据此动手；「补充材料」只是研究与证据，不代表已实现、也不是已批准的决定。** 每份文档顶部都标了自己的类型，以文件顶部为准。
 
 ## 八、给执行模型
 
@@ -197,18 +207,9 @@ Auto Review 是海关，不是编辑。它核对来源、冲突、重复、长�
 
 ## 九、分支与隐私
 
-| 分支 | 用途 |
-|---|---|
-| `main` | 唯一主干。**合并进 main ≠ 批准切生产**，放行判据见 `docs/CURRENT_STATUS.md` |
-| `fix/*` | 单一问题的修复分支，从 main 切出，合并后即删 |
-| `audit/*` | 只读审查产出，只加报告文件、不改被审代码，作为留痕保留 |
+`main` 是唯一主干，`fix/*` 合并后即删，`audit/*` 作为留痕保留。**合并进 main ≠ 批准切生产。** 分支纪律与死分支判定见 [`CLAUDE.md`](./CLAUDE.md) 第八节，这里不复制。
 
-规矩：
-
-- 动手前先跑 `git rev-list --left-right --count origin/main...<分支>`。`ahead=0` 意味着该分支的每个提交都已在 main 里 —— 死分支，删掉即可，不要再往里做事。
-- 合并后立刻删分支。留着已合并的分支会让人（和 AI）误以为还有未交付的工作。
-
-真实 token、会话、日志、私人 Episodes、Self-notes、Portrait、Desire live state、PID、缓存与 lock 文件永不提交 Git。`runtime/`、`memory/`、`settings/secrets/*.local.json` 不在版本控制内，保持这样。`deployment/current.json` 与 `runtime/` 按机器不同，不要跨机同步。
+真实 token、会话、日志、私人 Episodes、Self-notes、Portrait、Desire live state、PID、缓存与 lock 文件永不提交 Git。`runtime/`、`memory/`、`settings/secrets/*.local.json` 不在版本控制内，`deployment/current.json` 与 `runtime/` 按机器不同、不跨机同步。
 
 **公开仓库的其他分支也不是私密空间。**
 
@@ -216,7 +217,7 @@ Auto Review 是海关，不是编辑。它核对来源、冲突、重复、长�
 
 运行时源自 [`AngeliaSama/cyberboss-deepseek`](https://github.com/AngeliaSama/cyberboss-deepseek)。同方向的 [`Yinglianchun/Haven-Ombre`](https://github.com/Yinglianchun/Haven-Ombre) 与 [`limen-threshold/anchor-memory`](https://github.com/limen-threshold/anchor-memory) 提供了召回纪律和记忆写作方面的参照。多个项目出现相似结构，说明它们面对了相似问题，但不替代本项目自己的运行验证。
 
----
+* * *
 
 *这套系统不替 AI 决定说什么；它只让过去有机会改变此刻说话的分寸。*
 

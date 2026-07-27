@@ -1,5 +1,18 @@
 # 记忆语义修复计划
 
+```text
+Status: supplemental
+Authority: none
+Scope: 记忆语义修复计划
+Last reviewed: 2026-07-27
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> This document may change independently. It is supporting material, not current project truth or an approved decision.
+>
+> 本文可以独立更新，只提供参考或证据；它不是当前状态，也不是已经批准的决定。
+
+
 > 状态：执行计划，不是新的架构真相。  
 > 权威结构仍以 `architecture/MEMORY.md` 为准；本计划完成后，应把最终规则吸收回权威文档，并将本文件标记为完成。  
 > 适用分支：`impl/codex-cheap-prework-20260711-170034`  

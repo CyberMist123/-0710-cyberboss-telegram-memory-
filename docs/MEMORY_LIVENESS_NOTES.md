@@ -1,5 +1,18 @@
 # Memory Liveness Notes — 无召回阶段的活性设计
 
+```text
+Status: supplemental
+Authority: none
+Scope: 无召回阶段的活性设计笔记
+Last reviewed: 2026-07-27
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> This document may change independently. It is supporting material, not current project truth or an approved decision.
+>
+> 本文可以独立更新，只提供参考或证据；它不是当前状态，也不是已经批准的决定。
+
+
 > 状态：设计笔记（外部评审脑暴成果，2026-07-11）
 > 位置：属于 design/living-memory-rfc 文档族，不是运行规范
 > 前提：Soft Retrieval 暂缓期间，Episode 及下游文件默认不进上下文

@@ -1,5 +1,11 @@
-> **Status: active（未开始）** — 设计交接文档，代码侧零实现。
-> `fable-chat` profile 的当前状态见 [`docs/CURRENT_STATUS.md`](../CURRENT_STATUS.md)。
+```text
+Status: active
+Date: 2026-07-26
+Base SHA: cfd5dda
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> 设计交接文档，任务尚未开始，代码侧零实现。`fable-chat` profile 的当前状态见 [`docs/CURRENT_STATUS.md`](../CURRENT_STATUS.md)。
 
 # P0: Fable review for TG Chat routing and context reduction
 

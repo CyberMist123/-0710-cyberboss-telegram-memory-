@@ -1,5 +1,18 @@
 # 架构复核 Prompt（每阶段完成后运行）
 
+```text
+Status: supplemental
+Authority: none
+Scope: 阶段架构复核 prompt
+Last reviewed: 2026-07-27
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> This document may change independently. It is supporting material, not current project truth or an approved decision.
+>
+> 本文可以独立更新，只提供参考或证据；它不是当前状态，也不是已经批准的决定。
+
+
 > 每个阶段结束后，把本 Prompt 交给一个**未参与实施、不同上下文**的模型实例，配合该阶段 diff、测试输出与 Context Trace。自己查自己不算数。
 
 ---

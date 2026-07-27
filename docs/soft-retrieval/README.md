@@ -1,5 +1,18 @@
 # Soft Retrieval — 对话中的"自然想起"
 
+```text
+Status: supplemental
+Authority: none
+Scope: Soft Retrieval 研究入口
+Last reviewed: 2026-07-27
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> This document may change independently. It is supporting material, not current project truth or an approved decision.
+>
+> 本文可以独立更新，只提供参考或证据；它不是当前状态，也不是已经批准的决定。
+
+
 > 这份文件给人读。它解释这个模块是什么、为什么这样设计、每条规则在防什么。
 > 它不是规范。执行以 [`SPEC.md`](./SPEC.md) 为唯一规范源，两者冲突时以 SPEC 为准。
 > 本文件为临时评审稿：内容审核通过并入 `docs/SOFT_RETRIEVAL.md` 后，本文件删除。不长期保留两个"给人读"的入口。

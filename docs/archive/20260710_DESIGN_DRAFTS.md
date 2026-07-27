@@ -1,5 +1,15 @@
 # 2026-07-10 Design Drafts Archive
 
+```text
+Status: historical
+Date: 2026-07-10
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> 本文提到的 `CONTINUITY_ARCHITECTURE.md` 与 `IMPLEMENTATION_STATUS.md` 已分别迁至 `docs/architecture/MEMORY.md` 与 `docs/archive/IMPLEMENTATION_LOG.md`；当前权威见 `docs/CURRENT_STATUS.md`。**正文保留原始措辞，不追改历史。**
+
+
+
 > 本页是归档索引，不是当前规范。  
 > 冻结来源 commit：`5c72b69089f70d33f6e0b5d0f3f60f4924bb8ec8`
 

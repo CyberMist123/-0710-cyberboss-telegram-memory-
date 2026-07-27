@@ -1,5 +1,12 @@
 # Windows Runtime
 
+```text
+Status: active
+Authority: stable architecture
+Scope: Windows 生产运行时 —— descriptor、安装锚定、watchdog、回滚
+Current status: docs/CURRENT_STATUS.md
+```
+
 > **这份文档只描述稳定结构** —— descriptor 的形状、安装链路的锚定关系、watchdog 的契约。
 > 它**不写**当前哪个 release 在跑、计划任务当前是 Ready 还是 Disabled、某次修复的日期。那些属于 `docs/CURRENT_STATUS.md` 与 `docs/archive/`。
 

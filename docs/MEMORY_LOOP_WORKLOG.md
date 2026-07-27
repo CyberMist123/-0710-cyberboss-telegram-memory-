@@ -1,5 +1,8 @@
-> **Status: historical** — 已并入全项目日志的工作记录。
-> 当前状态见 [`docs/CURRENT_STATUS.md`](./CURRENT_STATUS.md)。
+```text
+Status: historical
+Date: 2026-07-12
+Current authority: docs/CURRENT_STATUS.md
+```
 
 # 记忆流水线工作记录（已并入全项目日志）
 

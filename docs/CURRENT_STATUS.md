@@ -1,125 +1,117 @@
 # Current Status
 
-> **这是本仓库唯一的当前进度真相。** README、CLAUDE.md、架构文档一律不重复这里的结论，只链接过来。
-> 历史过程见 `docs/archive/`；能不能切生产的判据见本文件末尾，不看别处。
+```text
+Status: active
+Authority: current project status
+Last verified: 2026-07-27
+Verified against: 5aaeab876ccce5ddd14c9ee394ec85ef507fb86f (main)
+```
 
-| 字段 | 值 |
-| --- | --- |
-| 快照对应 main | `5aaeab8`（`fix(telegram): return the model-facing envelope to plaintext`） |
-| 快照日期 | 2026-07-27 |
-| 主 CI workflow | `.github/workflows/phase1-offline.yml`（windows-latest） |
-| **是否允许切生产** | **否** —— 见第五节 |
-| **G1（Telegram memory_context）** | **FAIL** —— 见 P0-1 |
+- `Status: active` —— 这份文件当前有效。
+- `Authority: current project status` —— 它是当前进度的**唯一**权威来源。README、`CLAUDE.md`、架构文档都不重复这里的结论，只链接过来。
+- `Last verified` —— 最后一次依据源码和运行证据核对的日期。
+- `Verified against` —— 这些结论对应哪个 main commit。
 
-* * *
-
-## 一、能力表
-
-口径说明，四列各自的含义是固定的，不许模糊：
-
-- **代码**：源文件存在**并且**被主链引用（`src/core/app.js` 或其调用链能到达）。存在但无人引用记 `孤儿`。
-- **测试**：有对应 `test/*.test.js` 或 `memory-kit/tests/test_*.py`。
-- **主 CI**：该测试文件在 `phase1-offline.yml` 实际跑的六个步骤（`test:phase1` / `phase2` / `phase3` / `phase4` / `phase5a` / `orchestration`）里。**不在 \= 无 CI 信号**，哪怕本地能跑绿。
-- **生产接线**：Windows 生产机上真的会执行。真机才能确认的一律写 `未核`，不写 ✅。
-
-| 能力 | 代码 | 测试 | 主 CI | 生产接线 | 当前结论 |
-| --- | --- | --- | --- | --- | --- |
-| Telegram 主链（poller / adapter / payload） | ✅ | ✅ | ✅ | 未核 | 可用 |
-| Telegram route lanes v2 / profile router | ✅ | ✅ 13 文件 | ❌ | 未核 | **有测试，无 CI 信号** |
-| Telegram 媒体入站（media inbox） | ✅ | ✅ 4 文件 | ❌ | 未核 | **有测试，无 CI 信号** |
-| Hard context · Re-entry | ✅ | ✅ | ✅ | 未核 | **CONNECTED** |
-| Hard context · Current State | ✅ | ✅ | ✅ | 未核 | **CONNECTED** |
-| Hard context · memory_context（Telegram） | ⚠️ 代码不可达 | ✅ 单测 | ✅ | ❌ | **DISCONNECTED · G1 FAIL** |
-| memory_context 按需检索（skip / state_only / targeted） | ✅ | ✅ | ✅ | ❌ Telegram 上不执行 | 逻辑正确，**通路断开** |
-| Context Trace 覆盖 memory_context | ❌ | ❌ | ❌ | ❌ | **trace 结构上不含该块** |
-| `memory_lookup`（Phase 5A，仅 user_pull） | ✅ | ✅ | ✅ | 未核 | 可用 |
-| 工具按需取用（timeline / weather / diary / sticker 等） | ✅ | 部分 | 部分 | 未核 | 可用 |
-| MCP 工具分组隐藏（省 schema token） | ❌ | ❌ | ❌ | ❌ | **未开始** |
-| Memory 目录化（只注入目录，正文靠翻） | ❌ | ❌ | ❌ | ❌ | **未开始** |
-| 子代理结果胶囊化（隔离 Work 输出） | ❌ | ❌ | ❌ | ❌ | **未开始**，当前子代理输出直接回流主上下文 |
-| 记忆服务层（validator / resolver / candidate-extractor 等） | ✅ | ✅ 11 文件 | ❌ | 未核 | **有测试，无 CI 信号** |
-| Closeout liveness / nightly closeout | ✅ | ✅ | ❌ | ❌ 默认关闭 | **未接通** |
-| Reflect / 低频重读（rereadings） | ⚠️ 孤儿 | ✅ | ❌ | ❌ | **0，无调度器也无 runtime.reflect 实现** |
-| `/effort` | ✅ | ✅ | ✅ | 未核 | 可用 |
-| Desire（八维状态 + hourly poller） | ✅ | ✅ | ✅ | 未核 | 可用 |
-| 520 · 只读视图与健康度 | ✅ | ✅ 6 个 py | ✅ | 未核 | 可用 |
-| 520 · 活跃写端点（提示词 / 分层 / 门控 / 调度） | ✅ | 部分 | 部分 | 未核 | 可用，测试覆盖不全 |
-| 520 · 按设计冻结的写端点（5 个） | ✅ | ✅ | ✅ | 冻结中 | 按设计冻结 |
-| 520 · 关怀页写路径（care config / cycle） | 后端 ✅ 前端 ❌ | 部分 | 部分 | ❌ 待补前端 | **未完成，非安全边界** |
-| 520 · 剧场页（theater scripts） | ✅ 纯只读 | ❌ | ❌ | — | 只读可用 |
-| Windows release / watchdog 控制平面 | ✅ | ✅ 12 文件 | ✅ | ⚠️ 真机留证缺失 | **挡生产** |
-| `fable-chat` profile 绑定 | ❌ 仅文档 | ❌ | ❌ | ❌ | **未开始** |
-| Codex 作为子代理运行时 | ❌ 仅主运行时 | 部分 | ❌ | ❌ | **未开始** |
-| 语音（voice-service） | ✅ 注册为工具 | 部分 | ❌ | 未核 | 能力表待补口径 |
-| 天气（weather-service） | ✅ 注册为工具 | 部分 | ❌ | 未核 | 能力表待补口径 |
-| embedding-service | ✅ 被 app.js 调用 | 部分 | 部分 | 未核 | 能力表待补口径 |
-| Phase 5B 自动 Soft Retrieval / BM25 / reranker | ❌ | ❌ | ❌ | ❌ | 未实现（暂缓） |
-| Apple Watch bridge | ❌ 仅 5 份 spec | ❌ | ❌ | ❌ | 未开始 |
-
-**表内所有 ❌ 与「未核」都是实测结果，不是猜测。** 证据锚点：
-
-- `npm run` 分组定义见 `package.json`；CI 实际执行的步骤见 `.github/workflows/phase1-offline.yml`。
-- **G1（memory_context 断链）**：`src/core/app.js` 的 `buildRuntimeTurn()` 在 `prepared.provider === "telegram"` 时提前 `return`（约 1040 行），`resolveMemoryContextForPrepared()`（953 行）位于该 return 之后，**Telegram turn 永远不执行它**。Telegram 的模型输入由 `formatTelegramRuntimeText()`（3390 行）构造，只含 `<channel>` 信封 + 正文 + `<media>` 引用。
-- **Re-entry / Current State 为什么仍然连通**：它们不走 `buildRuntimeTurn`，而是由运行时适配器调 `prepareOpeningContext()`（`claudecode/index.js:895`、`codex/index.js:245/276`）注入。这是两条独立通路 —— 所以「三门」不是一个整体，必须分行记。
-- **Context Trace 的结构性缺口**：`recordContextTrace()` 记录的是运行时适配器返回的 `continuity`，其 block type 只有 `reentry` 与 `current_state`（见 `src/core/hard-context.js`）。`memory_context` 在全仓只作为 gate 键存在，从未作为 trace block 出现 —— **这不是 Telegram 独有，任何 provider 的 trace 都不解释 memory_context**。
-- Reflect：`src/continuity/weekly-reflect.js` 除自身测试外无任何引用方，且其依赖的 `runtime.reflect()` 无实现。
-- `fable` 在 `src/` 里只出现在 `weekly-reflect.js` 与 `memory-note-service.js` 的 writer-lease 元数据字符串（`phase:"fable"`），不是 chat profile。
-- nightly：`CYBERBOSS_NIGHTLY_CLOSEOUT_ENABLED` / `CYBERBOSS_CANON_LIVENESS_ENABLED` / `CYBERBOSS_RECALL_LIVENESS_ENABLED` 在 `src/core/config.js` 默认全为 `false`。
-- 520 写端点分层见 `dashboard.py` 的 `FROZEN_WRITE_ENDPOINTS`；完整端点表与三档取用方式见 `docs/architecture/SYSTEM_OVERVIEW.md` 第四、七节。
-
-## 二、当前 P0
-
-### P0-1 · G1 FAIL：Telegram 上的 memory_context 通路断开
-
-**这是当前最高优先级的功能缺陷，不是文档问题。**
-
-`src/core/app.js` 的 `buildRuntimeTurn()` 对 `provider === "telegram"` 提前 return，`resolveMemoryContextForPrepared()` 在该 return 之后 —— Telegram 的每一轮都不执行记忆检索。Telegram 送进模型的文本由 `formatTelegramRuntimeText()` 构造，只有 `<channel>` 信封、用户原文和 `<media>` 引用。
-
-后果：
-
-- `memory-resolver` 的四种模式、六个槽位、七日记忆、pending promise、location 注入 —— 在 Telegram 上**全部不生效**；
-- `context-gates.json` 的 `memory_context` 开关在 Telegram 上是空开关；
-- Context Trace 看不到这一块，所以从 trace 也发现不了它没跑。
-
-**修复时的已知风险**：这个 early return 与 `<channel>` 明文信封是同一段代码（近期提交 `51a8a83` / `5aaeab8` 刚把模型可见信封改回明文）。直接删掉 return 会同时把 `resolveVisionContext` 拉回 Telegram 路径并改变信封形状。修法必须显式决定：memory_context 拼在信封的哪一侧、要不要同时恢复 vision context。**改这里必须配一条钉住信封格式的测试。**
-
-### P0-2 · Context Trace 结构上不覆盖 memory_context
-
-`recordContextTrace()` 只记录运行时适配器返回的 `continuity`，其 block type 仅 `reentry` / `current_state`。`memory_context` 在全仓只作为 gate 键存在，从未作为 trace block 出现。
-
-这不是 Telegram 独有的问题。README 那条「Context Trace 无法解释实际上下文 = 一级腐化信号」目前对所有 provider 都成立。修 P0-1 时必须一并把 memory_context 写进 trace，否则修完也无法验证。
-
-### P0-3 · CI 只覆盖 37/85 个测试文件
-
-48 个测试文件不在任何 CI 步骤里，改动它们覆盖的代码**不会有任何 CI 信号**。缺口按域：
-
-| 域 | 未进 CI 的测试文件数 | 对应分组 |
-|---|---|---|
-| Telegram / route lane | 9 | `test:route-lanes`、`test:telegram-media` 整组未接 |
-| 记忆链 / closeout | 12 | `test:p0-closeout-liveness` 整组未接 |
-| 运行时适配器（claudecode / codex） | 11 | 无分组 |
-| 其他（timeline / tool-host / sticker 等） | 16 | 无分组 |
-
-这是「合并进 main ≠ 有人验证过」的结构性来源。
-
-### P0-4 · 真 Windows 生产机 release/cutover 留证缺失
-
-R4 终审翻盘清单第 3 条。代码侧 1/2/4/5/6/7/8/9 已全部合入 main，windows-latest CI 的首轮证据已有，**真机留证未补**。
+历史过程见 `docs/archive/`；已定与已翻转的决定见 `docs/DECISIONS.md`。
 
 ---
 
-## 三、当前 P1
+## 一、Gate 总表
 
-- **P1-1 · Reflect 从未接通**：`weekly-reflect.js` 是孤儿代码，缺调度器、缺 `runtime.reflect()` 实现方。README 主张的 `episodes → 低频重读 → 理解变化 → Re-entry 姿态变化` 断在第二步。
-- **P1-2 · nightly closeout 未接生产**：代码与测试都在，`CYBERBOSS_NIGHTLY_CLOSEOUT_ENABLED` 等三个开关默认关闭，生产机上从未启用。后台 memory owner 与 nightly 的边界需与 P0-1 一并裁定。
-- **P1-3 · `fable-chat` 未绑定**：设计交接在 `docs/design/HANDOFF-P0-FABLE-CHAT-PROFILE.md`，代码侧零实现。
-- **P1-4 · 语音 / 天气 / embedding 的能力口径待补**：`voice-service.js`、`weather-service.js`（经 `create-project-tooling.js` 注册为工具）、`embedding-service.js`（由 `app.js` 调用）都已存在且被引用，需要逐项裁决是承认已实现还是撤掉代码，并把结论写进第一节能力表。**README 不再参与能力状态判定。**
-- **P1-5 · 520 活跃写端点缺测试与 CI**：冻结名单有 `test_dashboard_write_freeze.py` 守着，但提示词保存、分层快照 / 回滚、门控切换这些真正会改生产行为的端点覆盖不完整。
-- **P1-6 · 上下文预算的三处未做**：MCP 工具分组隐藏、Memory 目录化、子代理结果胶囊化。
+这张表只在本文件维护，其他文档一律链接过来，不复制。
 
-### 已澄清，不再是待办
+| Gate | 状态 | 中文含义 |
+|---|---|---|
+| G1 Telegram 核心读取路径 | `FAIL` | Telegram memory_context 未接通，Trace 也无法验收 |
+| G2 后台记忆写入边界 | `FAIL` | Closeout 后的 owner、Review、History 与 nightly 边界未闭环 |
+| G3 Chat 成本与 profile 隔离 | `PARTIAL` | 基础管道存在，真实 fable-chat 配置与隔离未完成 |
+| G4 Windows 生产验证 | `PARTIAL` | 代码控制面基本完成，真机 release/cutover 证据缺失 |
+| G5 备份与回滚验证 | `NOT_VERIFIED` | 缺少真实备份恢复演练证据 |
 
-**旧 launch-profile plumbing / selector 分支已被 main 的 lanes-v2 取代。** 不存在等待集成的补丁：仓库与工作区没有 `launch-profile` 相关的 patch 文件，origin 上没有对应分支，工作区的 472 个「已修改」文件经逐字节比对全部只是 CRLF 差异。**历史分支不得倒灌 main。**
+**是否允许切生产：否。** 判据见第五节。
+
+---
+
+## 二、状态词典
+
+能力表的每一列只允许使用下列状态词。**不要自造近义词**，也不要用 ✅ / ❌ / “可用” / “部分” 这类自由文本 —— 它们在多轮 PR 之后会各自漂移。
+
+| 维度 | 允许状态 | 中文解释 |
+|---|---|---|
+| 代码 | `WIRED` | 已进入目标主运行链，真实调用可达 |
+| 代码 | `PARTIAL` | 只有部分 provider、lane 或路径可达 |
+| 代码 | `ORPHAN` | 代码存在，但目标主路径不可达或无人调用 |
+| 代码 | `ABSENT` | 没有对应实现 |
+| 测试 | `COVERED` | 有针对真实目标通路的验收测试 |
+| 测试 | `UNIT_ONLY` | 只有函数或组件单测，没有真实主路径测试 |
+| 测试 | `PARTIAL` | 部分行为有测试，关键边界仍未覆盖 |
+| 测试 | `NONE` | 无对应测试 |
+| 主 CI | `BLOCKING` | 已进入阻塞合并的主 CI |
+| 主 CI | `NONBLOCKING` | 有自动化信号，但不阻塞合并 |
+| 主 CI | `NONE` | 无自动化 CI 信号 |
+| 生产接线 | `VERIFIED` | 已在真实生产 Windows 上验证 |
+| 生产接线 | `WIRED` | 已接生产入口，但尚无真机验证证据 |
+| 生产接线 | `DISABLED` | 已有生产接线，但默认或当前关闭 |
+| 生产接线 | `NOT_WIRED` | 没有生产接线 |
+| 生产接线 | `UNKNOWN` | 仓库无法判断真机实际状态 |
+| 总体结论 | `PASS` | 当前范围已满足 |
+| 总体结论 | `PARTIAL` | 部分满足，但仍有明确缺口 |
+| 总体结论 | `FAIL` | 当前关键目标未满足 |
+| 总体结论 | `DEFERRED` | 明确不在当前阶段施工 |
+| 总体结论 | `NOT_VERIFIED` | 可能已具备，但缺少所需证据 |
+
+两条使用纪律：
+
+1. **`BLOCKING` 是对"这条能力的目标通路"说的，不是对"某个相关单测"说的。** 一个 resolver 单测进了 CI 分组，不代表它覆盖的完整通路有 CI 信号。
+2. **仓库证明不了的一律 `UNKNOWN`**，不要写成 `NOT_WIRED` 或 `DISABLED`。生产机的环境变量与计划任务状态不在版本控制内。
+
+---
+
+## 三、能力表
+
+| 能力 | 代码 | 测试 | 主 CI | 生产接线 | 说明 / 当前结论 |
+|---|---|---|---|---|---|
+| Telegram 主链（poller / adapter / envelope） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 信封格式有 CI 测试钉住；真机运行状态未核 |
+| Telegram route lanes v2 / profile router | `WIRED` | `COVERED` | `NONE` | `WIRED` | `test:route-lanes` 整组未接进主 CI |
+| Telegram 媒体入站（media inbox） | `WIRED` | `COVERED` | `NONE` | `WIRED` | `test:telegram-media` 整组未接进主 CI |
+| Hard context · Re-entry | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 由运行时适配器的 opening context 注入，通路正常 |
+| Hard context · Current State | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 同上；与 memory_context 不是同一条通路 |
+| **Telegram memory_context** | `ORPHAN` | `UNIT_ONLY` | `NONE` | `NOT_WIRED` | **`FAIL`** —— 逻辑存在，但 `buildRuntimeTurn()` 对 Telegram 提前返回，目标通路不可达 |
+| Context Trace 覆盖 memory_context | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | **`FAIL`** —— trace 的 block type 只有 reentry / current_state，结构上无法验收 G1 |
+| `memory_lookup`（Phase 5A，仅 user_pull） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 受控翻档；真机使用情况未核 |
+| 工具按需取用（timeline / weather / diary / sticker） | `WIRED` | `PARTIAL` | `NONE` | `WIRED` | 工具存在且注册，边界测试不全 |
+| MCP 工具分组隐藏（省 schema token） | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | `DEFERRED` —— 降本方向，未开工 |
+| Memory 目录化（注入目录而非命中行） | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | `DEFERRED` —— 降本方向，未开工 |
+| 子代理结果胶囊化 | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | `DEFERRED` —— 当前子代理输出直接回流主上下文 |
+| 记忆服务层（validator / resolver / extractor） | `WIRED` | `COVERED` | `NONE` | `WIRED` | 11 个测试文件全部未接进主 CI |
+| Closeout liveness | `WIRED` | `COVERED` | `NONE` | `UNKNOWN` | 调度器已接入 `app.js`；生产机开关状态仓库无法判断 |
+| nightly closeout | `WIRED` | `PARTIAL` | `NONE` | `UNKNOWN` | **`FAIL`** —— 仓库默认关闭；生产机实际环境变量与计划任务状态未核 |
+| Reflect / 低频重读（rereadings） | `ORPHAN` | `UNIT_ONLY` | `NONE` | `NOT_WIRED` | **`FAIL`** —— 无调度器调它，`runtime.reflect()` 无实现方 |
+| `/effort` | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | — |
+| Desire（八维状态 + hourly poller） | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | 生产机开关由不入库的 secrets 决定 |
+| 520 · 只读视图与健康度 | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | 面板由独立计划任务拉起，真机状态未核 |
+| 520 · 活跃写端点（提示词 / 分层 / 门控 / 调度） | `WIRED` | `PARTIAL` | `NONBLOCKING` | `UNKNOWN` | 改生产行为的端点覆盖不全 |
+| 520 · 安全冻结写端点（5 个） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 按设计冻结，见 `DECISIONS.md` D5 |
+| 520 · 关怀页写路径（care config / cycle） | `PARTIAL` | `PARTIAL` | `NONE` | `NOT_WIRED` | 后端在、前端未接完；不是安全边界 |
+| 520 · 剧场页（theater scripts） | `WIRED` | `NONE` | `NONE` | `UNKNOWN` | 纯展示只读 |
+| Windows release / watchdog 控制平面 | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | **`PARTIAL`** —— 真机 release/cutover 留证缺失 |
+| 备份与回滚演练 | `WIRED` | `PARTIAL` | `NONBLOCKING` | `UNKNOWN` | **`NOT_VERIFIED`** —— 无真实恢复演练证据 |
+| `fable-chat` profile 绑定 | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | 仅设计交接文档，代码侧零实现 |
+| Codex 作为子代理运行时 | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | `DEFERRED` |
+| 语音（voice-service） | `PARTIAL` | `PARTIAL` | `NONE` | `UNKNOWN` | 已注册为工具；能力口径待裁决（P1-4） |
+| 天气（weather-service） | `PARTIAL` | `PARTIAL` | `NONE` | `UNKNOWN` | 同上 |
+| embedding-service | `PARTIAL` | `PARTIAL` | `NONBLOCKING` | `UNKNOWN` | 由 `app.js` 调用；与 D6 的边界待裁决 |
+| Phase 5B 自动 Soft Retrieval / BM25 / reranker | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | `DEFERRED` |
+| Apple Watch bridge | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | `DEFERRED` —— 仅 5 份规格 |
+
+### 证据锚点
+
+- **G1（Telegram memory_context）**：`src/core/app.js` 的 `buildRuntimeTurn()` 在 `prepared.provider === "telegram"` 时提前 `return`（约 1040 行），`resolveMemoryContextForPrepared()`（953 行）位于该 return 之后。Telegram 的模型输入由 `formatTelegramRuntimeText()`（3390 行）构造，只含 `<channel>` 信封 + 正文 + `<media>` 引用。
+- **为什么测试记 `UNIT_ONLY`**：`test/memory-resolver.test.js` 只测 resolver 函数本身，且不在任何 CI 分组内。CI 里确实有 `test/telegram-runtime-payload.test.js`，但它钉住的是**信封格式**，不验收 memory_context 是否在场 —— 它反而把当前的断链行为固化了。
+- **为什么 Re-entry / Current State 仍是 `WIRED`**：它们不走 `buildRuntimeTurn`，而是由运行时适配器调 `prepareOpeningContext()`（`claudecode/index.js:895`、`codex/index.js:245/276`）注入。两条独立通路，不能合记一行。
+- **Context Trace 的结构性缺口**：`recordContextTrace()` 记录运行时适配器返回的 `continuity`，block type 只有 `reentry` 与 `current_state`；`memory_context` 在全仓只作为 gate 键存在。这不是 Telegram 独有 —— 任何 provider 的 trace 都不解释 memory_context。
+- **为什么 nightly 的生产接线记 `UNKNOWN`**：仓库只能证明 `.env.example` 里 `CYBERBOSS_NIGHTLY_CLOSEOUT_ENABLED=false`，以及 `src/core/config.js` 的默认值为 `false`。生产机实际环境变量在 `settings/secrets/*.local.json`，不入库；计划任务状态也不在版本控制内。**因此仓库无法对生产机的历史启用情况作出任何结论 —— 这一格只能记 `UNKNOWN`。**
+- **CI 覆盖**：主 CI 只执行 `.github/workflows/phase1-offline.yml` 里列出的六个 `npm run test:*` 分组。`test:route-lanes`、`test:telegram-media`、`test:p0-closeout-liveness` 整组未接。
 
 ---
 
@@ -132,7 +124,7 @@ NOW
 NEXT
 - Telegram Memory Context 修复（G1）
 - Context Trace 覆盖 memory_context（G1 的验收前提）
-- 后台 memory owner / nightly 边界
+- 后台 memory owner / nightly 边界（G2）
 
 LATER
 - Chat Profile A/B
@@ -142,6 +134,7 @@ LATER
 PARALLEL GATE
 - R4 真 Windows 留证
 - CI 缺口接线（route-lanes / telegram-media / p0-closeout-liveness）
+- 备份恢复演练（G5）
 
 DEFERRED
 - Soft Retrieval
@@ -151,7 +144,11 @@ DEFERRED
 - CMX
 ```
 
-**PARALLEL GATE 里的两项可以与 NEXT 并行推进，但不能替代 G1/G2。** 文档合并后直接去做 CI 接线和 Windows 留证、跳过 Telegram Memory Context，是本文件明确要防止的走法。
+**PARALLEL GATE 可以与 NEXT 并行推进，但不能替代 G1 / G2。** 文档合并后直接去做 CI 接线和 Windows 留证、跳过 Telegram Memory Context，是本文件明确要防止的走法。
+
+### G1 修复的已知风险
+
+`buildRuntimeTurn()` 里那个 early return 与 `<channel>` 明文信封是同一段代码（`DECISIONS.md` D9）。直接删掉 return 会同时把 `resolveVisionContext` 拉回 Telegram 路径并改变信封形状。修法必须显式决定 memory_context 拼在信封的哪一侧、要不要同时恢复 vision context，**并配一条钉住新信封格式的测试**。
 
 ---
 
@@ -159,18 +156,21 @@ DEFERRED
 
 同时满足下列全部条件才允许切生产，缺一不可：
 
-0. **G1 通过**：Telegram 上 memory_context 实际执行，且 Context Trace 能证明它执行了。当前 FAIL；
-1. R4 翻盘清单第 3 条已补：真 Windows 生产机的 release/cutover 测试完整输出已归档进 `docs/audit/`；
-2. 生产机启动项已固化 `CYBERLINK_ROOT`（否则 `start-dashboard.ps1` / `start-telegram.ps1` fail-closed）；
-3. 启动 watchdog 的入口显式传 `--descriptor`（`watchdog.py` 已删除祖先探测与 cwd 兜底，该参数必填）；
-4. 上表中「生产接线」列没有任何 `未核` 的能力被计入放行范围。
+0. **G1 通过**：Telegram 上 memory_context 实际执行，且 Context Trace 能证明它执行了。当前 `FAIL`；
+1. **G2 通过**：Closeout 后的 owner、Review、History 与 nightly 边界闭环。当前 `FAIL`；
+2. R4 翻盘清单第 3 条已补：真 Windows 生产机的 release/cutover 测试完整输出已归档进 `docs/audit/`；
+3. 生产机启动项已固化 `CYBERLINK_ROOT`（否则 `start-dashboard.ps1` / `start-telegram.ps1` fail-closed）；
+4. 启动 watchdog 的入口显式传 `--descriptor`；
+5. 能力表中「生产接线」列没有任何 `UNKNOWN` 的能力被计入放行范围。
 
-**当前状态：条件 0 与条件 1 均未满足。不得切生产。**
+**当前状态：条件 0、1、2 均未满足。不得切生产。**
 
-* * *
+---
 
 ## 六、维护规则
 
-- 一个功能 PR 合并时，只改本文件对应的**那一行**。不要同时改 README、CLAUDE.md 或架构文档 —— 它们里没有状态结论可改。
-- 本文件只保留**当前**结论。旧结论移进 `docs/archive/`，不在这里留时间线。
-- 「代码存在」永远不等于「已接生产」。拿不准就写 `未核`，不要写 ✅。
+- 一个功能 PR 合并时，只改本文件对应的**那一行**。不要同时改 README、`CLAUDE.md` 或架构文档 —— 它们里没有状态结论可改。
+- 改动本文件时更新 `Last verified` 与 `Verified against`。**没有重新核对就不要动这两行。**
+- 状态词只能取第二节词典里的值。需要新状态时先改词典并说明理由，不要就地造词。
+- 本文件只保留**当前**结论，旧结论移进 `docs/archive/`。
+- 补充材料（调研、实验、外部资料）发生变化**不要求**修改本文件。只有当补充材料导致当前结论变化时，才更新这里。

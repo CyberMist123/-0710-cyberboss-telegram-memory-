@@ -1,5 +1,18 @@
 # 离线回放器（Replay Harness）工程规格
 
+```text
+Status: supplemental
+Authority: none
+Scope: 离线回放器工程规格
+Last reviewed: 2026-07-27
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> This document may change independently. It is supporting material, not current project truth or an approved decision.
+>
+> 本文可以独立更新，只提供参考或证据；它不是当前状态，也不是已经批准的决定。
+
+
 > Soft Retrieval 第一个允许实现的组件。实现时机：阶段 0–4 全部通过 + 用户确认。
 > 代码位置：`tools/soft-retrieval-replay/`（src/ 与 tests/）。文档目录里只放文档。
 > 它是一个测试台：用固定输入离线运行"检索 → 判定 → 载荷生成"链，比较不同配置的成绩。

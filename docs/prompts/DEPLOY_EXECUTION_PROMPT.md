@@ -1,5 +1,18 @@
 # 部署执行 Prompt（给 GPT/Codex 或任何执行模型）
 
+```text
+Status: supplemental
+Authority: none
+Scope: 部署执行 prompt
+Last reviewed: 2026-07-27
+Current authority: docs/CURRENT_STATUS.md
+```
+
+> This document may change independently. It is supporting material, not current project truth or an approved decision.
+>
+> 本文可以独立更新，只提供参考或证据；它不是当前状态，也不是已经批准的决定。
+
+
 > 使用方法：把下面整段作为任务指令交给执行模型，配合仓库和真实本地运行环境的访问权限。
 
 ---
