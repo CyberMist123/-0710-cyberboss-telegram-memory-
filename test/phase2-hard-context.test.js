@@ -358,3 +358,48 @@ test("codex opening path injects once and resume failure recreates with an expla
 function fixtureRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-phase2-"));
 }
+
+// G1 acceptance prerequisite: the per-turn trace row explains memory_context
+// the same way it explains reentry and current_state -- loaded with evidence,
+// or skipped with a reason. Without this the trace structurally cannot attest
+// that memory context ran on a Telegram turn.
+test("context trace explains memory_context as a loaded block or a reasoned skip", async () => {
+  const rows = [];
+  const appLike = {
+    contextTraceRunState: new Map(),
+    contextTraceRecorder: { record: (entry) => { rows.push(entry); return Promise.resolve(true); } },
+  };
+  const continuity = {
+    opening: false,
+    blocks: [],
+    skipped: [{ type: "reentry", reason: "existing_thread" }],
+    total_chars: 12,
+  };
+
+  CyberbossApp.prototype.recordContextTrace.call(
+    appLike, "thread-1", "turn-1", continuity,
+    { lines: ["她昨晚说今天要早起"], slots: [], mode: "targeted" },
+  );
+  const loadedBlock = rows[0].blocks.find((item) => item.type === "memory_context");
+  assert.equal(loadedBlock.loaded, true);
+  assert.equal(loadedBlock.reason, "targeted");
+  assert.ok(loadedBlock.chars > 0);
+
+  CyberbossApp.prototype.recordContextTrace.call(
+    appLike, "thread-1", "turn-2", continuity,
+    { lines: [], slots: [], mode: "gated_off" },
+  );
+  assert.ok(!rows[1].blocks.some((item) => item.type === "memory_context"));
+  assert.deepEqual(
+    rows[1].skipped.find((item) => item.type === "memory_context"),
+    { type: "memory_context", reason: "gated_off" },
+  );
+
+  // A caller with no turn outcome (opening refresh) leaves the row shape alone.
+  CyberbossApp.prototype.recordContextTrace.call(appLike, "thread-1", "turn-3", continuity);
+  assert.ok(!rows[2].blocks.some((item) => item.type === "memory_context"));
+  assert.ok(!rows[2].skipped.some((item) => item.type === "memory_context"));
+  // The shared continuity object was never mutated across the three calls.
+  assert.deepEqual(continuity.skipped, [{ type: "reentry", reason: "existing_thread" }]);
+  assert.deepEqual(continuity.blocks, []);
+});

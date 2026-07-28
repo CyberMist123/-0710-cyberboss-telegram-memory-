@@ -3,8 +3,8 @@
 ```text
 Status: active
 Authority: current project status
-Last verified: 2026-07-27
-Verified against: 5aaeab876ccce5ddd14c9ee394ec85ef507fb86f (main)
+Last verified: 2026-07-29
+Verified against: 9bb78a0f (main)
 ```
 
 - `Status: active` —— 这份文件当前有效。
@@ -22,7 +22,7 @@ Verified against: 5aaeab876ccce5ddd14c9ee394ec85ef507fb86f (main)
 
 | Gate | 状态 | 中文含义 |
 |---|---|---|
-| G1 Telegram 核心读取路径 | `FAIL` | Telegram memory_context 未接通，Trace 也无法验收 |
+| G1 Telegram 核心读取路径 | `PARTIAL` | 代码通路与 Trace 验收结构已接通，缺真机执行证据 |
 | G2 后台记忆写入边界 | `FAIL` | Closeout 后的 owner、Review、History 与 nightly 边界未闭环 |
 | G3 Chat 成本与 profile 隔离 | `PARTIAL` | 基础管道存在，真实 fable-chat 配置与隔离未完成 |
 | G4 Windows 生产验证 | `PARTIAL` | 代码控制面基本完成，真机 release/cutover 证据缺失 |
@@ -76,8 +76,8 @@ Verified against: 5aaeab876ccce5ddd14c9ee394ec85ef507fb86f (main)
 | Telegram 媒体入站（media inbox） | `WIRED` | `COVERED` | `NONE` | `WIRED` | `test:telegram-media` 整组未接进主 CI |
 | Hard context · Re-entry | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 由运行时适配器的 opening context 注入，通路正常 |
 | Hard context · Current State | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 同上；与 memory_context 不是同一条通路 |
-| **Telegram memory_context** | `ORPHAN` | `UNIT_ONLY` | `NONE` | `NOT_WIRED` | **`FAIL`** —— 逻辑存在，但 `buildRuntimeTurn()` 对 Telegram 提前返回，目标通路不可达 |
-| Context Trace 覆盖 memory_context | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | **`FAIL`** —— trace 的 block type 只有 reentry / current_state，结构上无法验收 G1 |
+| **Telegram memory_context** | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 逻辑经 `buildRuntimeTurn()` Telegram 分支可达，信封外 `<memory_context>` 块，fail-open；真机执行证据缺失 |
+| Context Trace 覆盖 memory_context | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | trace blocks / skipped 已解释 memory_context（所有 provider 的 turn 路径）；真机证据缺失 |
 | `memory_lookup`（Phase 5A，仅 user_pull） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 受控翻档；真机使用情况未核 |
 | 工具按需取用（timeline / weather / diary / sticker） | `WIRED` | `PARTIAL` | `NONE` | `WIRED` | 工具存在且注册，边界测试不全 |
 | MCP 工具分组隐藏（省 schema token） | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | `DEFERRED` —— 降本方向，未开工 |
@@ -106,10 +106,11 @@ Verified against: 5aaeab876ccce5ddd14c9ee394ec85ef507fb86f (main)
 
 ### 证据锚点
 
-- **G1（Telegram memory_context）**：`src/core/app.js` 的 `buildRuntimeTurn()` 在 `prepared.provider === "telegram"` 时提前 `return`（约 1040 行），`resolveMemoryContextForPrepared()`（953 行）位于该 return 之后。Telegram 的模型输入由 `formatTelegramRuntimeText()`（3390 行）构造，只含 `<channel>` 信封 + 正文 + `<media>` 引用。
-- **为什么测试记 `UNIT_ONLY`**：`test/memory-resolver.test.js` 只测 resolver 函数本身，且不在任何 CI 分组内。CI 里确实有 `test/telegram-runtime-payload.test.js`，但它钉住的是**信封格式**，不验收 memory_context 是否在场 —— 它反而把当前的断链行为固化了。
+- **G1（Telegram memory_context）**：`src/core/app.js` 的 `buildRuntimeTurn()` Telegram 分支调用 `resolveMemoryContextFailOpen()`（对 `resolveMemoryContextForPrepared()` 的 fail-open 包装，解析失败降级为空记忆），memory_context 作为独立 `<memory_context>` 块拼在 `formatTelegramRuntimeText()` 产出的 `<channel>` 信封外侧上方；无记忆时不出块，payload 与旧格式逐字节一致。格式裁定见 `DECISIONS.md` D15。
+- **为什么测试记 `COVERED`**：`test/telegram-runtime-payload.test.js` 新增 4 条钉住新 payload 格式（有记忆 / 无记忆 / 转义 / 信封不变），在 `test:phase1` 分组内，阻塞主 CI。
+- **仍缺什么**：真机 Telegram 上 memory_context 实际执行并被 trace 记录的留证，因此 G1 记 `PARTIAL` 而非 `PASS`。
 - **为什么 Re-entry / Current State 仍是 `WIRED`**：它们不走 `buildRuntimeTurn`，而是由运行时适配器调 `prepareOpeningContext()`（`claudecode/index.js:895`、`codex/index.js:245/276`）注入。两条独立通路，不能合记一行。
-- **Context Trace 的结构性缺口**：`recordContextTrace()` 记录运行时适配器返回的 `continuity`，block type 只有 `reentry` 与 `current_state`；`memory_context` 在全仓只作为 gate 键存在。这不是 Telegram 独有 —— 任何 provider 的 trace 都不解释 memory_context。
+- **Context Trace 覆盖 memory_context**：`recordContextTrace()` 新增 memoryContext 参数，有记忆行时在 `blocks` 记 `{type:"memory_context", loaded:true, reason:<mode>, chars}`，无记忆时在 `skipped` 记 `{type:"memory_context", reason:<mode|empty>}`；`dispatchPreparedTurn` 的调用点已接入，对所有 provider 的 turn 路径生效（opening refresh 调用点行结构不变）。由 `test/phase2-hard-context.test.js` 钉住，在 `test:phase2` 分组内，阻塞主 CI。
 - **为什么 nightly 的生产接线记 `UNKNOWN`**：仓库只能证明 `.env.example` 里 `CYBERBOSS_NIGHTLY_CLOSEOUT_ENABLED=false`，以及 `src/core/config.js` 的默认值为 `false`。生产机实际环境变量在 `settings/secrets/*.local.json`，不入库；计划任务状态也不在版本控制内。**因此仓库无法对生产机的历史启用情况作出任何结论 —— 这一格只能记 `UNKNOWN`。**
 - **CI 覆盖**：主 CI 只执行 `.github/workflows/phase1-offline.yml` 里列出的六个 `npm run test:*` 分组。`test:route-lanes`、`test:telegram-media`、`test:p0-closeout-liveness` 整组未接。
 
@@ -119,11 +120,9 @@ Verified against: 5aaeab876ccce5ddd14c9ee394ec85ef507fb86f (main)
 
 ```text
 NOW
-- 完成本次文档真相收口
+- Telegram Memory Context 修复（G1）—— 本 PR
 
 NEXT
-- Telegram Memory Context 修复（G1）
-- Context Trace 覆盖 memory_context（G1 的验收前提）
 - 后台 memory owner / nightly 边界（G2）
 
 LATER
@@ -148,7 +147,7 @@ DEFERRED
 
 ### G1 修复的已知风险
 
-`buildRuntimeTurn()` 里那个 early return 与 `<channel>` 明文信封是同一段代码（`DECISIONS.md` D9）。直接删掉 return 会同时把 `resolveVisionContext` 拉回 Telegram 路径并改变信封形状。修法必须显式决定 memory_context 拼在信封的哪一侧、要不要同时恢复 vision context，**并配一条钉住新信封格式的测试**。
+已消解：memory_context 的位置、vision context 不回流、fail-open 与钉格式测试均由 `DECISIONS.md` D15 裁定并落地。
 
 ---
 
@@ -156,7 +155,7 @@ DEFERRED
 
 同时满足下列全部条件才允许切生产，缺一不可：
 
-0. **G1 通过**：Telegram 上 memory_context 实际执行，且 Context Trace 能证明它执行了。当前 `FAIL`；
+0. **G1 通过**：Telegram 上 memory_context 实际执行，且 Context Trace 能证明它执行了。当前 `PARTIAL`（缺真机证据）；
 1. **G2 通过**：Closeout 后的 owner、Review、History 与 nightly 边界闭环。当前 `FAIL`；
 2. R4 翻盘清单第 3 条已补：真 Windows 生产机的 release/cutover 测试完整输出已归档进 `docs/audit/`；
 3. 生产机启动项已固化 `CYBERLINK_ROOT`（否则 `start-dashboard.ps1` / `start-telegram.ps1` fail-closed）；

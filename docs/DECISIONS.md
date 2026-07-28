@@ -206,6 +206,23 @@ Decision date: 2026-07-28
 
 **尚未批准**：把子代理接进主 Chat 的任何自动路径。本条只批准"胶囊契约 + 有界离线闭环 + 人工发起的 canary"。主 Chat 集成仍属 Candidate C5。
 
+## D15 · memory_context 拼在 Telegram 信封外侧上方
+
+```text
+Status: ACTIVE
+Decision date: 2026-07-29
+```
+
+修 G1 时对 D9 留下的三个问题作出裁定：
+
+- **位置**：memory_context 是独立的 `<memory_context>` 块，拼在 `<channel>` 信封**外侧、上方**，一条记忆一行（`- ` 前缀），只转义可能提前闭合该块的序列。信封本身不动。
+- **无记忆时不出块**：没有记忆行就完全不输出 `<memory_context>`，payload 与 D9 的旧格式逐字节一致 —— 本条与 D9 兼容，不取代它。
+- **vision context 明确不回 Telegram 路径**：Telegram 媒体继续走信封内的 `<media>` 引用通路，不因修 G1 顺手恢复 vision context。
+- **记忆解析 fail-open**：解析失败降级为空记忆继续发送，不阻断本轮（不变量 5，宁可失忆不可失联）。
+- **trace 必须解释 memory_context**：`recordContextTrace()` 有记忆时在 `blocks` 记 `memory_context`（含 reason 与字数），无记忆时在 `skipped` 记原因。这是 G1 的验收结构，对所有 provider 生效。
+
+格式由 `test/telegram-runtime-payload.test.js` 钉住，trace 由 `test/phase2-hard-context.test.js` 钉住，两者都在阻塞主 CI 的分组内。
+
 ---
 
 ## 待裁决 / Candidates
