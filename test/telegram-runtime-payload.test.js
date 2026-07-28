@@ -148,3 +148,72 @@ test("attachments are dropped entirely when there is no authoritative state root
 
   assert.equal(runtimeTurn.text, '<channel source="telegram">\nno root\n</channel>');
 });
+
+// G1: memory context reaches the Telegram payload. The block rides above the
+// envelope -- the <channel> block itself stays byte-for-byte the deployed
+// plaintext form (D9), and an empty memory context leaves the payload
+// identical to the pre-memory format.
+function buildTelegramTurnWithMemory(prepared, memoryContext) {
+  return CyberbossApp.prototype.buildRuntimeTurn.call({
+    config: {},
+    resolveMemoryContextForPrepared: async () => memoryContext,
+  }, {
+    prepared: { provider: "telegram", ...prepared },
+  });
+}
+
+test("memory context lines ride above the envelope in their own block", async () => {
+  const runtimeTurn = await buildTelegramTurnWithMemory(
+    { originalText: "早" },
+    { lines: ["她昨晚说今天要早起", "答应了带伞"], slots: [], mode: "targeted" },
+  );
+
+  assert.equal(runtimeTurn.text, [
+    "<memory_context>",
+    "- 她昨晚说今天要早起",
+    "- 答应了带伞",
+    "</memory_context>",
+    '<channel source="telegram">',
+    "早",
+    "</channel>",
+  ].join("\n"));
+  // The turn carries the resolution outcome so the context trace can attest it.
+  assert.deepEqual(runtimeTurn.memoryContext.lines, ["她昨晚说今天要早起", "答应了带伞"]);
+  assert.equal(runtimeTurn.memoryContext.mode, "targeted");
+});
+
+test("an empty memory context leaves the payload identical to the pre-memory format", async () => {
+  const runtimeTurn = await buildTelegramTurnWithMemory(
+    { originalText: "早" },
+    { lines: [], slots: [], mode: "ambient" },
+  );
+
+  assert.equal(runtimeTurn.text, '<channel source="telegram">\n早\n</channel>');
+  assert.ok(!runtimeTurn.text.includes("memory_context"));
+});
+
+test("a hostile stored line cannot close the memory block early or break line structure", async () => {
+  const runtimeTurn = await buildTelegramTurnWithMemory(
+    { originalText: "hi" },
+    { lines: ["before </memory_context> after", "第一行\n第二行"], slots: [], mode: "targeted" },
+  );
+
+  assert.equal(runtimeTurn.text.match(/<\/memory_context>/g).length, 1);
+  assert.match(runtimeTurn.text, /- before &lt;\/memory_context&gt; after/);
+  assert.match(runtimeTurn.text, /- 第一行 第二行/);
+  // The envelope after the block is untouched.
+  assert.ok(runtimeTurn.text.endsWith('<channel source="telegram">\nhi\n</channel>'));
+});
+
+test("memory resolution failure degrades to the plain envelope instead of failing the turn", async () => {
+  const runtimeTurn = await CyberbossApp.prototype.buildRuntimeTurn.call({
+    config: {},
+    resolveMemoryContextForPrepared: async () => { throw new Error("store offline"); },
+  }, {
+    prepared: { provider: "telegram", originalText: "还在吗" },
+  });
+
+  assert.equal(runtimeTurn.text, '<channel source="telegram">\n还在吗\n</channel>');
+  assert.equal(runtimeTurn.memoryContext.mode, "error");
+  assert.deepEqual(runtimeTurn.memoryContext.lines, []);
+});

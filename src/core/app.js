@@ -867,7 +867,7 @@ class CyberbossApp {
           channelSource: prepared.provider,
         },
       });
-      this.recordContextTrace?.(turn.threadId, turn.turnId, turn.continuity);
+      this.recordContextTrace?.(turn.threadId, turn.turnId, turn.continuity, runtimeTurn.memoryContext);
       this.runtimeContextStore?.setActiveContext?.({
         workspaceRoot,
         runtimeId: this.runtimeAdapter.describe().id,
@@ -1019,6 +1019,21 @@ class CyberbossApp {
     };
   }
 
+  // Losing this turn's memory is acceptable; losing the turn is not. Any
+  // failure inside memory resolution degrades to an empty context instead of
+  // taking the dispatch down with it.
+  async resolveMemoryContextFailOpen(prepared) {
+    const resolveMemoryContext = typeof this.resolveMemoryContextForPrepared === "function"
+      ? this.resolveMemoryContextForPrepared
+      : CyberbossApp.prototype.resolveMemoryContextForPrepared;
+    try {
+      return await resolveMemoryContext.call(this, prepared);
+    } catch (error) {
+      console.warn(`[cyberboss] memory context resolution failed: ${error?.message || String(error)}`);
+      return { lines: [], slots: [], mode: "error" };
+    }
+  }
+
   resolveRecentLocationStateMemoryLines() {
     if (!this.config.locationV2Enabled) {
       return [];
@@ -1038,9 +1053,20 @@ class CyberbossApp {
       };
     }
     if (prepared?.provider === "telegram") {
+      // Memory context only. Vision context stays off this path on purpose:
+      // Telegram media reaches the model as <media> references inside the
+      // envelope, not through resolveVisionContext (DECISIONS.md D15).
+      const resolveFailOpen = typeof this.resolveMemoryContextFailOpen === "function"
+        ? this.resolveMemoryContextFailOpen
+        : CyberbossApp.prototype.resolveMemoryContextFailOpen;
+      const memoryContext = await resolveFailOpen.call(this, prepared);
       return {
-        text: formatTelegramRuntimeText(prepared, { stateDir: this.config?.stateDir }),
+        text: formatTelegramRuntimeText(prepared, {
+          stateDir: this.config?.stateDir,
+          memoryContext,
+        }),
         attachments: [],
+        memoryContext,
       };
     }
     const visionContext = await resolveVisionContext({
@@ -2979,8 +3005,31 @@ class CyberbossApp {
     }
   }
 
-  recordContextTrace(threadId, turnId, continuity = {}) {
+  recordContextTrace(threadId, turnId, continuity = {}, memoryContext = undefined) {
     const context = continuity && typeof continuity === "object" ? continuity : {};
+    // Fold the turn's memory-context outcome into the trace row, so the trace
+    // explains memory_context the same way it explains reentry/current_state.
+    // Callers that carry no turn (opening refresh) pass nothing and their rows
+    // keep their existing shape.
+    let blocks = context.blocks;
+    let skipped = context.skipped;
+    if (memoryContext && typeof memoryContext === "object") {
+      blocks = Array.isArray(blocks) ? [...blocks] : [];
+      skipped = Array.isArray(skipped) ? [...skipped] : [];
+      const memoryLines = (Array.isArray(memoryContext.lines) ? memoryContext.lines : [])
+        .filter((line) => typeof line === "string" && line.trim());
+      const memoryMode = typeof memoryContext.mode === "string" ? memoryContext.mode.trim() : "";
+      if (memoryLines.length) {
+        blocks.push({
+          type: "memory_context",
+          loaded: true,
+          reason: memoryMode || "resolved",
+          chars: memoryLines.join("\n").length,
+        });
+      } else {
+        skipped.push({ type: "memory_context", reason: memoryMode || "empty" });
+      }
+    }
     const ts = new Date().toISOString();
     const runKey = buildRunKey(threadId, turnId);
     if (runKey) this.contextTraceRunState.set(runKey, { ts });
@@ -2989,8 +3038,8 @@ class CyberbossApp {
       threadId,
       turnId,
       opening: context.opening === true,
-      blocks: context.blocks,
-      skipped: context.skipped,
+      blocks,
+      skipped,
       fallback: context.fallback,
       total_chars: context.total_chars,
       recall_calls: [],
@@ -3387,7 +3436,7 @@ function detectSleepModeIntent(text) {
 // Attachments are a separate matter and stay hardened: only state-media
 // references that resolve under the authoritative media root are emitted, and an
 // absolute path never reaches the model.
-function formatTelegramRuntimeText(prepared, { stateDir = "" } = {}) {
+function formatTelegramRuntimeText(prepared, { stateDir = "", memoryContext = null } = {}) {
   const chatId = normalizeText(prepared?.chatId || prepared?.telegram?.chatId);
   const messageId = normalizeText(prepared?.messageId || prepared?.telegram?.messageId);
   const userId = normalizeText(prepared?.senderId || prepared?.telegram?.userId);
@@ -3403,7 +3452,39 @@ function formatTelegramRuntimeText(prepared, { stateDir = "" } = {}) {
     username ? `username="${escapeXmlAttribute(username)}"` : "",
     sentAt ? `sent_at="${escapeXmlAttribute(sentAt)}"` : "",
   ].filter(Boolean).join(" ") + ">";
-  return [openTag, body, ...mediaLines, "</channel>"].join("\n");
+  return [
+    ...buildTelegramMemoryContextLines(memoryContext),
+    openTag,
+    body,
+    ...mediaLines,
+    "</channel>",
+  ].join("\n");
+}
+
+// Memory context rides above the envelope, never inside it: the <channel>
+// block stays byte-for-byte what the deployed bridge speaks (DECISIONS.md D9),
+// and what the user typed is never interleaved with what the bridge
+// remembered. No memory means no block at all -- the payload is then identical
+// to the pre-memory format.
+function buildTelegramMemoryContextLines(memoryContext) {
+  const lines = (Array.isArray(memoryContext?.lines) ? memoryContext.lines : [])
+    .map((line) => normalizeText(line))
+    .filter(Boolean);
+  if (!lines.length) return [];
+  return [
+    "<memory_context>",
+    ...lines.map((line) => `- ${escapeMemoryContextLine(line)}`),
+    "</memory_context>",
+  ];
+}
+
+// One memory = one line, and a hostile stored line cannot close the block
+// early. Mirrors escapeTelegramChannelBody: only the sequence that would end
+// the block is touched.
+function escapeMemoryContextLine(value) {
+  return String(value || "")
+    .replace(/\s*\r?\n\s*/g, " ")
+    .replace(/<(\/memory_context\s*)>/gi, "&lt;$1&gt;");
 }
 
 function buildTelegramMediaBridgeLines(attachments, stateDir) {
