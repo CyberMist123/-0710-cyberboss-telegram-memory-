@@ -9,6 +9,7 @@ const {
   canPublishCandidate,
   normalizeCandidateMetadata,
 } = require("./candidate-authority");
+const { IMPERATIVE_STYLE_REASON, detectImperativeStyle } = require("./imperative-style");
 const {
   appendJsonlUnique,
   backupFile,
@@ -182,10 +183,21 @@ class ContinuityPipeline {
         combinedChecks.source_ref_located = localChecks.source_ref_located;
         combinedChecks.length_ok = localChecks.length_ok;
         combinedChecks.imperative_warning = localChecks.imperative_warning || result.checks?.imperative_warning === true;
+        // 祈使句式闸门是本地格式判断，不接受审查模型的覆盖：模型可以看错，
+        // 但「这条以什么词开头」是确定的，交给正则守住（D16：Review 只拦格式）。
+        combinedChecks.imperative_style = localChecks.imperative_style;
+        combinedChecks.imperative_pattern = localChecks.imperative_pattern;
+        combinedChecks.imperative_exempt = localChecks.imperative_exempt;
         combinedChecks.publication_allowed = localChecks.publication_allowed;
         let enforced = { ...result };
         if (!combinedChecks.source_ref_located) enforced = { ...enforced, result: "deferred", reason: "source_ref_missing" };
         if (!combinedChecks.length_ok) enforced = { ...enforced, result: "deferred", reason: "over_budget" };
+        // 格式打回：沿用既有 deferred 语义（可重试），原因码机器可读。
+        // 排在 publication_allowed 之前——权限缺失是更根本的拦截，让它最后覆盖。
+        // 本分支只改 result/reason，绝不触碰 candidate.body（宪法第五条第 4 款）。
+        if (combinedChecks.imperative_style === true) {
+          enforced = { ...enforced, result: "deferred", reason: IMPERATIVE_STYLE_REASON };
+        }
         if (combinedChecks.safety_ok === false && enforced.result === "accepted") {
           enforced = { ...enforced, result: "rejected", reason: "safety_failed" };
         }
@@ -387,17 +399,25 @@ function isReviewModelDisabled(env = {}) {
 function localReviewResult(checks) {
   if (!checks.source_ref_located) return { result: "deferred", reason: "source_ref_missing", checks: {} };
   if (!checks.length_ok) return { result: "deferred", reason: "over_budget", checks: {} };
+  // 审查模型关掉时也要拦：格式闸门不依赖模型可用性。
+  if (checks.imperative_style === true) return { result: "deferred", reason: IMPERATIVE_STYLE_REASON, checks: {} };
   if (!checks.publication_allowed) return { result: "deferred", reason: "publication_not_allowed", checks: {} };
   return { result: "accepted", reason: "model_review_disabled", checks: {} };
 }
 
 function buildLocalChecks(candidate, sourceLocated) {
   const normalized = normalizeCandidateMetadata(candidate);
+  const imperativeStyle = detectImperativeStyle(normalized);
   return {
     source_ref_located: sourceLocated === true,
     length_ok: normalized.type !== "reentry_draft" || countNonWhitespace(normalized.body) <= 300,
     safety_ok: true,
     imperative_warning: /(?:必须|务必|永远不要|记住要|\bshould\b|\bmust\b)/iu.test(normalized.body),
+    // 句中软警告（上一行）与开头硬闸门（下一行）是两件事：
+    // 前者只是标注，后者按 issue #36 打回。两者并存，互不覆盖。
+    imperative_style: imperativeStyle.blocked,
+    imperative_pattern: imperativeStyle.pattern_id,
+    imperative_exempt: imperativeStyle.exempt,
     duplicate_of: null,
     publication_allowed: canPublishCandidate(normalized),
   };

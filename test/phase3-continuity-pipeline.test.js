@@ -196,7 +196,9 @@ test("duplicate candidates merge without a second canon write", () => {
   assert.equal(readJsonl(pipeline.paths.episodes).length, 1);
 });
 
-test("imperatives warn without rejection and boundary conflicts are pushed", () => {
+// issue #36 起，开头的祈使句不再只是警告，而是打回（reason=imperative_style）。
+// 句中的祈使措辞仍然只标 checks.imperative_warning，不影响结果。
+test("leading imperatives are deferred, mid-sentence ones only warn, and boundary conflicts are pushed", () => {
   const fixture = createFixture();
   const pipeline = fixture.pipeline;
   pipeline.runCloseout({
@@ -204,8 +206,21 @@ test("imperatives warn without rejection and boundary conflicts are pushed", () 
     candidateMetadata: SUBJECT_AI_METADATA,
     author: () => ({ reentry_draft: "下次必须先确认这一点。" }),
   });
-  const warning = pipeline.runReview({ env: { ...process.env, AUTO_REVIEW_MOCK: "accept" } }).decisions[0];
+  const blocked = pipeline.runReview({ env: { ...process.env, AUTO_REVIEW_MOCK: "accept" } }).decisions[0];
+  assert.equal(blocked.result, "deferred");
+  assert.equal(blocked.reason, "imperative_style");
+  assert.equal(blocked.checks.imperative_style, true);
+  assert.equal(blocked.checks.imperative_warning, true);
+
+  const fixtureWarn = createFixture();
+  fixtureWarn.pipeline.runCloseout({
+    date: "2026-07-11",
+    candidateMetadata: SUBJECT_AI_METADATA,
+    author: () => ({ reentry_draft: "我当时觉得必须先确认，后来没确认成，这个钩子还悬着。" }),
+  });
+  const warning = fixtureWarn.pipeline.runReview({ env: { ...process.env, AUTO_REVIEW_MOCK: "accept" } }).decisions[0];
   assert.equal(warning.result, "accepted");
+  assert.equal(warning.checks.imperative_style, false);
   assert.equal(warning.checks.imperative_warning, true);
 
   const fixture2 = createFixture();
