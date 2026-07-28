@@ -223,6 +223,25 @@ Decision date: 2026-07-29
 
 格式由 `test/telegram-runtime-payload.test.js` 钉住，trace 由 `test/phase2-hard-context.test.js` 钉住，两者都在阻塞主 CI 的分组内。
 
+## D16 · Closeout 后写入权归当前窗口 AI；nightly 由 520 面板手控
+
+```text
+Status: ACTIVE
+Decision date: 2026-07-29
+```
+
+对 C4「后台 memory owner 与 nightly closeout 的边界」提出的三个问题作出裁定。
+
+- **写入权持有者：当前窗口 AI。** Closeout 之后，记忆的写入权由**产生那段对话的当前窗口 AI** 持有，**不移交给任何后台模型**。后台跑的 closeout 不因为它跑在后台就取得 writer 身份。这是不变量 4 与 D4「单 writer」在时间维度上的落法：换的是时机，不是写入者。
+- **deepseek 只搬运。** 后台廉价模型（当前指 deepseek）只承担**搬运 / 传输**角色：取走、递送、落盘管线上的搬运工作。它**不拥有任何记忆写入权，也不产出记忆内容** —— 不生成、不改写、不总结出新的记忆文本。让廉价模型代笔写记忆，等于给同一份文件加了第二个 writer（一级腐化信号）。
+- **Review 只拦格式。** Review 的职权边界是**只拦格式违规**：格式不合就打回，**不改写、不润色、不重写措辞**。这与 `CLAUDE.md` 列出的腐化信号「Review 开始改写措辞」是同一条线 —— Review 一旦动笔，它就成了第二个 writer。也与 D5「候选与正式分离」一致：Review 是关卡，不是产出方。
+- **nightly 不自动默认开启，由 520 面板手控。** nightly closeout **不采用"默认自动跑"**；开不开由她通过 520 面板手动控制。仓库内 `CYBERBOSS_NIGHTLY_CLOSEOUT_ENABLED` 等开关**保持默认 `false` 不变**，本条不批准把任何一个开关的仓库默认值改成 `true`，也不批准在生产机上自行打开。
+
+**本条未裁定的部分，仍留在后续：**
+
+- **Review 与 History writer 的具体交接点**（在哪一步、以什么产物、什么失败语义交接）本条**没有裁定**。上面只定了 Review 的职权边界（只拦格式），没有定交接协议。这部分继续保留为待裁决，不得当成已定方向施工。
+- **本条是决定登记，不是实现闭环。** G2 的状态不因本条改变（仍见 `docs/CURRENT_STATUS.md`）。本条也不改变生产机的实际开关状态 —— 仓库无法判断生产机状态这一事实没有变化。
+
 ---
 
 ## 待裁决 / Candidates
@@ -265,9 +284,10 @@ Status: OPEN
 Status: OPEN
 ```
 
+- **已收窄**：写入权持有者、后台模型的角色、Review 的职权边界、nightly 是否默认开启，已在 2026-07-29 由 **D16** 裁定，本条不再涵盖这几部分。
 - **Known facts**：调度器已接入 `app.js`；`CYBERBOSS_NIGHTLY_CLOSEOUT_ENABLED` 等三个开关在仓库内默认 `false`；生产机实际状态仓库无法判断。这是 G2 `FAIL` 的主体。
-- **Decision needed**：Closeout 之后由谁持有写入权、Review 与 History writer 的交接点、nightly 三个开关何时以及在什么证据下默认开启。
-- **Not authorised**：在边界裁定前把任一开关在生产机上打开。
+- **Decision needed**（剩余）：**Review 与 History writer 的具体交接点** —— 在哪一步交接、交接什么产物、失败时的语义。D16 只定了 Review「只拦格式」的职权边界，没有定这条交接协议。
+- **Not authorised**：在剩余交接点裁定前实现 Review → History writer 的自动交接；按 D16，仓库开关默认值保持 `false`，nightly 只由 520 面板手动控制，不得在生产机上自行打开。
 
 ### C5 · 子代理运行时与输出胶囊化
 
