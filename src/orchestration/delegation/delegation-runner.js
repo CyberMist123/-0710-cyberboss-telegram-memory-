@@ -43,9 +43,12 @@ function withTimeout(promise, timeoutMs, onTimeout) {
       }
       resolve({ timedOut: true });
     }, timeoutMs);
-    if (typeof timer.unref === "function") {
-      timer.unref();
-    }
+    // Deliberately NOT unref()'d. A hanging runtime promise holds no libuv
+    // handle, so an unref'd timer would let the event loop drain before the
+    // timeout ever fires: the race never settles, cancel() is never called,
+    // and the process exits mid-delegation. Keeping the timer ref'd holds the
+    // loop open for at most timeout_ms; the .finally() below always clears it
+    // as soon as the race settles, so it never outlives the bounded wait.
   });
 
   return Promise.race([
