@@ -149,7 +149,7 @@ fable-work:  现状 stock harness + 全量 cyberboss_tools + 工程 effort（沿
 - 实验全部走 deployment 的独立 release/config_dir/state_dir（`current.example.json` 结构已支持 rollback_release），live TG 零接触；回滚=环境变量与 release 指针还原。
 - `--strict-mcp-config` 会切掉 claude.ai connectors 与用户级 MCP——对 chat 是目的，对 work profile 不启用。
 - `--system-prompt` 整替有工具可靠性风险 → 必须经 Phase 1 对照后再定，不直接上。
-- `.claude/settings.local.json` 现有 `Read(//c/Users/18717/**)` 全盘读授权过宽，chat profile 的 settings 应显式收窄（顺带修复项，不在本轮改）。
+- `.claude/settings.local.json` 现有 `Read(//c/Users/<USER>/**)` 全盘读授权过宽，chat profile 的 settings 应显式收窄（顺带修复项，不在本轮改）。
 - 切 profile/换 style = 新 session：re-entry 成本已有机制（reentry/current_state 胶囊）承接，但应避免高频切换。
 - 版本漂移：CC 自动更新（7-24 刚跳 2.1.220）可能改 flag/行为；Phase 0 测量脚本应可重跑，作为升级后的回归探针。
 
