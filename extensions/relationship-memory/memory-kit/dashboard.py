@@ -3546,12 +3546,14 @@ function continuityReasonLabel(value) {
   return ({default_hidden:'默认不加载', existing_thread:'已是现有线程', already_injected:'本线程已经加载过',
     gated_off:'运行开关已关闭', missing:'来源不存在', reviewed:'证据与边界检查通过',
     subject_review_required:'需要主体 AI 复核', boundary_touch:'涉及边界内容，需要复核',
-    semantic_authority_missing:'来源没有语义执笔权', legacy_uncovered:'历史会话区间尚未覆盖'})[value] || value || '';
+    semantic_authority_missing:'来源没有语义执笔权', legacy_uncovered:'历史会话区间尚未覆盖',
+    imperative_style:'以祈使句开头，已打回重写'})[value] || value || '';
 }
 
 function continuityCheckLabel(value) {
   return ({source_ref_located:'来源可定位', length_ok:'长度合规', safety_ok:'安全检查通过',
-    imperative_warning:'含命令式措辞', duplicate_of:'重复于', publication_allowed:'允许发布'})[value] || value;
+    imperative_warning:'含命令式措辞', duplicate_of:'重复于', publication_allowed:'允许发布',
+    imperative_style:'开头是祈使句', imperative_pattern:'命中的祈使模式', imperative_exempt:'祈使检查豁免'})[value] || value;
 }
 
 function sourceRefText(ref) {
