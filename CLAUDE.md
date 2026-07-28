@@ -149,3 +149,5 @@ git rev-list --left-right --count origin/main...<分支>
 ```
 
 `ahead=0` = 死分支，删掉，不要再往里做事。
+
+反过来不成立：`ahead>0` 不能证明活——squash 合并会让已合并分支永远显示 ahead。判活死看内容，不看计数。
