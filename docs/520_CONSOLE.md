@@ -28,7 +28,7 @@ Current status: docs/CURRENT_STATUS.md
 
 Prompt 版本管理、撤回、评测实验室等仍是后续能力；本阶段不伪装为已实现。
 
-Phase 5A 落地后，`memory_lookup` 模块可显示为 `available`；出现真实 `recall_log` 后显示为 `on`。这只表示用户拉线查询可用，不表示自动 Soft Retrieval 已开启。
+`memory_lookup` 模块当前可显示为 `available`；出现真实 `recall_log` 后显示为 `on`。这只表示用户拉线查询可用，不表示自动 Soft Retrieval 已开启。
 
 八维数据契约：
 
@@ -228,9 +228,9 @@ Rereadings      [off]
 当前只显示：
 
 ```text
-状态：deferred / off
+状态：deferred / user_pull only
 自动召回：关闭
-用户拉线后的工具查询：规划中
+用户拉线后的工具查询：可用（`memory_lookup`，仅 `user_pull`）
 why_now 样本：N 条
 进展文档：SOFT_RETRIEVAL.md
 ```

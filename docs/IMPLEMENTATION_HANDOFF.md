@@ -5,6 +5,8 @@ Base SHA: 44b7c0a
 Current authority: docs/CURRENT_STATUS.md
 ```
 
+> ⚠️ 过期横幅：正文第 13 行的“权威文档只有四份”名单已过期（`SOFT_RETRIEVAL.md` 已降为 supplemental，`docs/DECISIONS.md` 未列入），第 4 节暂缓清单已被 `docs/DECISIONS.md` D12 记录为与代码五处冲突；本文任何断言不得作为依据，当前入口见 `CLAUDE.md`。
+
 > 部署期临时交接文档，已被当前状态页与架构文档取代。稳定结构见 [`docs/architecture/`](./architecture/)。
 
 # Implementation Handoff — 实施交接

@@ -14,6 +14,8 @@ Current authority: docs/CURRENT_STATUS.md
 
 ## 2026-07-20 实施状态
 
+> 警示：下表中的“已完成”是 2026-07-20 当时口径，与当前权威表冲突时一律以 [`docs/CURRENT_STATUS.md`](./CURRENT_STATUS.md) 为准；例如 Reflect 现为 `FAIL`/`ORPHAN`，主动翻档 `resonance` / `stakes` / `repair` 仍未开放，见 `docs/DECISIONS.md` D7。
+
 | Wishlist | 状态 | 当前边界 |
 | --- | --- | --- |
 | Re-entry 元信息 / until | 已完成 | 注入时统计 Episode；过期行不注入、不改 canon。 |

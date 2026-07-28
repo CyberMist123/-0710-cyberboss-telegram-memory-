@@ -193,7 +193,7 @@ System Prompt + Role Card + 首轮 Re-entry + 轻量 Current State + 当前对�
 | 终端命令 | `cyberboss start` / `login` / `doctor` / `shared status` | `docs/commands.md` 的 Terminal Commands 一节 |
 | 520 的 HTTP 端点 | `/api/context-gates`、`/api/runtime-prompt/save` | **不在 `commands.md`**，在 [`docs/520_CONSOLE.md`](./docs/520_CONSOLE.md) |
 
-> ⚠️ **命名陷阱**：`docs/commands.md` 里聊天命令那一节叫 "WeChat Commands"，`command-registry.js` 里的键也叫 `weixin` —— 这是从上游继承的**历史名字**。实际生效的通道是 **Telegram**：`command-registry.js` 渲染聊天命令清单时读的就是 `action.weixin`。看到 `weixin` 不要以为那段代码与本项目无关。
+> ⚠️ **命名陷阱**：聊天命令实际生效的通道是 **Telegram**。`command-registry.js` 里的键仍叫 `weixin` —— 这是从上游继承的**历史名字**；`docs/commands.md` 现在按用户通道写成 Telegram，但渲染聊天命令清单时读的仍是 `action.weixin`。看到 `weixin` 不要以为那段代码与本项目无关。
 
 **「稳定架构」是当前结构说明，可以据此动手；「补充材料」只是研究与证据，不代表已实现、也不是已批准的决定。** 每份文档顶部都标了自己的类型，以文件顶部为准。
 

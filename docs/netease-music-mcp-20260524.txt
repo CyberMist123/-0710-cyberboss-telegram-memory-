@@ -1,3 +1,7 @@
+Status: historical
+Date: 2026-05-24
+Current authority: docs/CURRENT_STATUS.md
+
 # 网易云音乐 MCP 接入记录
 
 日期：2026-05-24

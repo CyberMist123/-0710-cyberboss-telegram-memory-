@@ -1,9 +1,11 @@
 ```text
-Status: active
+Status: superseded
 Date: 2026-07-26
 Base SHA: cfd5dda
 Current authority: docs/CURRENT_STATUS.md
 ```
+
+正文关于“不许实现 `/effort`”的禁令已被现实取代（`/effort` 已实现并进主 CI，见 `docs/DECISIONS.md` D11 与 `docs/CURRENT_STATUS.md` 能力表）；其余正文按治理规则原样保留。
 
 > 设计交接文档，任务尚未开始，代码侧零实现。`fable-chat` profile 的当前状态见 [`docs/CURRENT_STATUS.md`](../CURRENT_STATUS.md)。
 

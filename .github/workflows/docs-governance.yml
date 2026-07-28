@@ -11,6 +11,12 @@ permissions:
   pull-requests: read
 
 jobs:
+  doc-status-blocks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node scripts/ci/check-doc-status-blocks.js
+
   check:
     runs-on: ubuntu-latest
     steps:
