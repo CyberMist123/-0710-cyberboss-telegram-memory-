@@ -79,7 +79,7 @@ const realGit = { changedPaths, headSha };
 // --- Phase A: protocol validation -----------------------------------------
 
 test("task spec is fail-closed: unknown approval policy and escaping paths are rejected", () => {
-  const base = makeSpec("C:/workspace", "a".repeat(40));
+  const base = makeSpec(path.join(os.tmpdir(), "workspace"), "a".repeat(40));
 
   assert.equal(validateTaskSpec(base).ok, true);
 
@@ -107,7 +107,7 @@ test("task spec is fail-closed: unknown approval policy and escaping paths are r
 });
 
 test("forbidden_paths beats allowed_paths and case tricks do not escape on Windows", () => {
-  const workspace = path.resolve("C:/ws");
+  const workspace = path.resolve(path.join(os.tmpdir(), "ws"));
   const evaluate = (changed) => evaluateChangedPaths({
     workspace,
     allowedPaths: ["docs", "src"],

@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const os = require("os");
+const path = require("path");
 
 const {
   CAPSULE_STATUSES,
@@ -29,7 +31,7 @@ function makeValidTaskSpec(overrides = {}) {
     objective: "Append one line to docs/notes.md",
     allowed_paths: ["docs"],
     forbidden_paths: ["src"],
-    workspace: "C:/workspace",
+    workspace: path.join(os.tmpdir(), "workspace"),
     base_sha: "a".repeat(40),
     acceptance_tests: [{ name: "notes-present", command: "node", args: ["--version"] }],
     timeout_ms: 5000,

@@ -82,7 +82,7 @@ Verified against: 5aaeab876ccce5ddd14c9ee394ec85ef507fb86f (main)
 | 工具按需取用（timeline / weather / diary / sticker） | `WIRED` | `PARTIAL` | `NONE` | `WIRED` | 工具存在且注册，边界测试不全 |
 | MCP 工具分组隐藏（省 schema token） | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | `DEFERRED` —— 降本方向，未开工 |
 | Memory 目录化（注入目录而非命中行） | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | `DEFERRED` —— 降本方向，未开工 |
-| 子代理结果胶囊化 | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | `DEFERRED` —— 当前子代理输出直接回流主上下文 |
+| 子代理结果胶囊化 | `ORPHAN` | `COVERED` | `BLOCKING` | `NOT_WIRED` | 胶囊契约与离线闭环已实现（`src/orchestration/delegation/`），验收测试在 `test:orchestration`，该分组已进主 CI。**但只有委派 runner 调用它**：主 Chat 仍直接回流子代理输出，目标通路未接。契约见 `DECISIONS.md` D14 |
 | 记忆服务层（validator / resolver / extractor） | `WIRED` | `COVERED` | `NONE` | `WIRED` | 11 个测试文件全部未接进主 CI |
 | Closeout liveness | `WIRED` | `COVERED` | `NONE` | `UNKNOWN` | 调度器已接入 `app.js`；生产机开关状态仓库无法判断 |
 | nightly closeout | `WIRED` | `PARTIAL` | `NONE` | `UNKNOWN` | **`FAIL`** —— 仓库默认关闭；生产机实际环境变量与计划任务状态未核 |
@@ -97,7 +97,7 @@ Verified against: 5aaeab876ccce5ddd14c9ee394ec85ef507fb86f (main)
 | Windows release / watchdog 控制平面 | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | **`PARTIAL`** —— 真机 release/cutover 留证缺失 |
 | 备份与回滚演练 | `WIRED` | `PARTIAL` | `NONBLOCKING` | `UNKNOWN` | **`NOT_VERIFIED`** —— 无真实恢复演练证据 |
 | `fable-chat` profile 绑定 | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | 仅设计交接文档，代码侧零实现 |
-| Codex 作为子代理运行时 | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | `DEFERRED` |
+| Codex 作为子代理运行时 | `PARTIAL` | `COVERED` | `BLOCKING` | `NOT_WIRED` | 有界委派协议与离线闭环已实现；2026-07-28 用真实 Codex 跑通一次 canary（只改 `test/`，边界成立，验收测试通过，判定 accept）。**仓库内没有把 Codex adapter 绑进委派 runner 的代码**，运行时由调用方注入，离线测试用 fake；主 Chat 未接 |
 | 语音（voice-service） | `PARTIAL` | `PARTIAL` | `NONE` | `UNKNOWN` | 已注册为工具；能力口径待裁决（P1-4） |
 | 天气（weather-service） | `PARTIAL` | `PARTIAL` | `NONE` | `UNKNOWN` | 同上 |
 | embedding-service | `PARTIAL` | `PARTIAL` | `NONBLOCKING` | `UNKNOWN` | 由 `app.js` 调用；与 D6 的边界待裁决 |
