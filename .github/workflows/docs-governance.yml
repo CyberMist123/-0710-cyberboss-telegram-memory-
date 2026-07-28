@@ -1,0 +1,89 @@
+name: docs-governance
+# 把 CLAUDE.md 第六节的收尾纪律从"自觉"变成机器检查：
+# PR 必须对文档影响做出显式判断，且判断要与 diff 自洽。
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const body = pr.body || "";
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              per_page: 100,
+            });
+            const changed = files.map((f) => f.filename);
+            const statusChanged = changed.includes("docs/CURRENT_STATUS.md");
+            const decisionsChanged = changed.includes("docs/DECISIONS.md");
+
+            const sectionMatch = body.match(/## Documentation impact([\s\S]*?)(\n## |$)/);
+            const section = sectionMatch ? sectionMatch[1] : "";
+            const checked = (label) =>
+              new RegExp("- \\[[xX]\\] " + label).test(section);
+            const anyChecked = /- \[[xX]\]/.test(section);
+
+            const errors = [];
+
+            if (!sectionMatch) {
+              errors.push(
+                "PR body 缺少「## Documentation impact」一节。必须使用 .github/pull_request_template.md。"
+              );
+            } else if (!anyChecked) {
+              errors.push(
+                "Documentation impact 一节没有勾选任何项。按模板约定，「不用改文档」也必须显式勾选 No documentation impact —— 显式判断，不是遗忘。"
+              );
+            }
+
+            if (checked("Current status changed") && !statusChanged) {
+              errors.push(
+                "勾选了 Current status changed，但 diff 里没有 docs/CURRENT_STATUS.md。改了结论就要更新对应那一行。"
+              );
+            }
+            if (checked("No documentation impact") && statusChanged) {
+              errors.push(
+                "勾选了 No documentation impact，但 diff 改了 docs/CURRENT_STATUS.md，自相矛盾。"
+              );
+            }
+            if (checked("An approved decision was added / changed / superseded") && !decisionsChanged) {
+              errors.push(
+                "勾选了决定变更，但 diff 里没有 docs/DECISIONS.md。"
+              );
+            }
+
+            // 防僵尸报警：CURRENT_STATUS 太久没核对只警告，不拦合并。
+            const fs = require("fs");
+            try {
+              const cs = fs.readFileSync("docs/CURRENT_STATUS.md", "utf8");
+              const m = cs.match(/Last verified:\s*(\d{4}-\d{2}-\d{2})/);
+              if (m) {
+                const ageDays = Math.floor((Date.now() - new Date(m[1] + "T00:00:00Z")) / 86400000);
+                if (ageDays > 14) {
+                  core.warning(
+                    `docs/CURRENT_STATUS.md 的 Last verified (${m[1]}) 已 ${ageDays} 天未重新核对，考虑做一次对照核验。`
+                  );
+                }
+              }
+            } catch (e) {
+              core.warning("无法读取 docs/CURRENT_STATUS.md：" + e.message);
+            }
+
+            if (errors.length) {
+              core.setFailed(errors.join("\n"));
+            } else {
+              core.notice("Documentation impact 判断与 diff 自洽。");
+            }
