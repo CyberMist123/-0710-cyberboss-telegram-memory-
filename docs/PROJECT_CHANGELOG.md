@@ -35,11 +35,11 @@ Current authority: docs/CURRENT_STATUS.md
 
 ## 当前项目位置
 
-- 正式默认分支：`main`
-- 当前实施分支：`impl/codex-cheap-prework-20260711-170034`
-- 长期设计分支：`design/living-memory-rfc`
-- `main` 当前仍不是最新实施代码，不能直接把实施分支删除。
-- 当前工作原则：GitHub 小步提交 → 本地同步 → 离线测试 → 明确验收 → 再部署。
+- 以下为 2026-07-23 当时状态，现已失效；当前以 `docs/CURRENT_STATUS.md` 与 `docs/DECISIONS.md` D10 为准。
+- 当时的正式默认分支：`main`
+- 当时的当前实施分支：`impl/codex-cheap-prework-20260711-170034`
+- 当时的长期设计分支：`design/living-memory-rfc`
+- 当时判断：`main` 仍不是最新实施代码，不能直接把实施分支删除。
 - 真实 119 条候选记忆暂不批量运行。
 - Nightly 模式门已经完成；开发与首次部署阶段默认 `evidence`，最终稳定目标为 `auto`。
 - Runtime 尚未部署这批记忆语义修复。

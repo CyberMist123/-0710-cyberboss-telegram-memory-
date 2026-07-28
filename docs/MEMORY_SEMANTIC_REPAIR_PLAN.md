@@ -1,16 +1,18 @@
 # 记忆语义修复计划
 
 ```text
-Status: supplemental
+Status: superseded
 Authority: none
-Scope: 记忆语义修复计划
-Last reviewed: 2026-07-27
-Current authority: docs/CURRENT_STATUS.md
+Scope: 已废弃的记忆语义修复执行计划
+Last reviewed: 2026-07-28
+Current authority: docs/CURRENT_STATUS.md; docs/architecture/MEMORY.md
 ```
 
 > This document may change independently. It is supporting material, not current project truth or an approved decision.
 >
 > 本文可以独立更新，只提供参考或证据；它不是当前状态，也不是已经批准的决定。
+>
+> 若重启此方向须开新计划文档。
 
 
 > 状态：执行计划，不是新的架构真相。  

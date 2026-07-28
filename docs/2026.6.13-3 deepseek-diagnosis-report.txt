@@ -1,3 +1,7 @@
+Status: historical
+Date: 2026-06-13
+Current authority: docs/CURRENT_STATUS.md
+
 cyberboss-deepseek 链路诊断报告
 =================================
 生成时间: 2026-06-13 05:40 UTC (13:40 Beijing)

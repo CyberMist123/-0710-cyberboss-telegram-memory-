@@ -55,7 +55,7 @@ Current authority: docs/CURRENT_STATUS.md
 ## 实现路线
 
 - 挂进现成心跳机制：`src/app/hourly-desire-poller.js` + `src/core/system-message-dispatcher.js`（55 分钟八维那套），新增 trigger 类型 `free_activity`。
-- 夜间 closeout tick（03:30）用同一机制顺路实现——见根目录 `HANDOVER.md` 问题 2，正史断更的长期修法。
+- 夜间 closeout tick（03:30）用同一机制顺路实现——见生产机 cyberlink 根目录 `HANDOVER.md`（仓库外本机文件，已标 historical）第 2 节问题 14。
 - 硬参数读 520 面板的设置文件（格式等面板 v2 定），面板未配置时用本文档默认值。
 - 分阶段：
   - **P1** 内务 + 找她（不需要新工具，现有 MCP 够用）
@@ -64,7 +64,7 @@ Current authority: docs/CURRENT_STATUS.md
 
 ## 与其他工程的关系
 
-- 依赖：面板 v2（设置入口）；`HANDOVER.md` 问题 2（closeout tick 同机制）。
+- 依赖：面板 v2（设置入口）；见生产机 cyberlink 根目录 `HANDOVER.md`（仓库外本机文件，已标 historical）第 2 节问题 14。
 - 相邻：desire runtime 的八维 tick 保持不变，自由活动是叠加不是替换。
 
 ## 她的原话存档（2026-07-22）

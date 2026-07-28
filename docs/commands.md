@@ -10,13 +10,13 @@ Current status: docs/CURRENT_STATUS.md
 
 ## Design Principles
 
-`Cyberboss` does not hard-code one shared string format across terminal commands, WeChat commands, and different agent runtimes.
+`Cyberboss` does not hard-code one shared string format across terminal commands, Telegram commands, and different agent runtimes.
 
 It defines stable internal actions first, then lets each channel expose its own entrypoints:
 
 - core action: stable internal meaning
 - terminal command: terminal entrypoint
-- weixin command: WeChat entrypoint
+- weixin command: Telegram entrypoint (historical key name)
 
 This keeps the core naming stable when new runtimes or channels are added later.
 
@@ -76,6 +76,8 @@ The intentionally small public set is:
 - `npm run doctor`
 - `npm run help`
 
+Historical naming note: `command-registry.js` 的键仍叫 `weixin`，属上游遗产；实际生效通道是 Telegram。
+
 ## Project Tools
 
 Models no longer use local capability CLI commands for diary, reminders, timeline, screenshots, or file sending.
@@ -102,7 +104,7 @@ Notes:
 - The public human terminal surface stays intentionally small: lifecycle commands plus shared bridge scripts.
 - Night sleep scheduling is only valid after 19:00 Asia/Shanghai, and it automatically restores the stored check-in range at 06:30 Asia/Shanghai.
 
-## Current WeChat Commands
+## Current Telegram Commands
 
 - `/bind`
 - `/status`
@@ -127,5 +129,5 @@ Notes:
 - `/status` covers thread, workspace, and context details
 - there is no separate `/context` command; use `/status` and read the `📦 context` line
 - `/effort` with no argument reports the level in force and where it came from: this chat's own choice, `CYBERBOSS_CLAUDE_EFFORT`, or the `medium` default. Setting a level relaunches the workspace's Claude child and resumes the same thread
-- `/compact` asks the current thread to compact its context and reports start / finish back to WeChat
-- file sending is still available, but no longer exposed as a WeChat command
+- `/compact` asks the current thread to compact its context and reports start / finish back to Telegram
+- file sending is still available, but no longer exposed as a Telegram command

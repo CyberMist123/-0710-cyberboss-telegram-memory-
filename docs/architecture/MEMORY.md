@@ -1,8 +1,11 @@
 # Continuity Architecture
 
-> **Status: stable domain architecture**
-> **Scope:** memory / continuity only —— 本文只说明这一域的稳定结构，不记录进度。
-> 系统级总览见 [`SYSTEM_OVERVIEW.md`](./SYSTEM_OVERVIEW.md)；当前实现状态见 [`../CURRENT_STATUS.md`](../CURRENT_STATUS.md)。
+```text
+Status: active
+Authority: stable architecture
+Scope: memory-continuity 域稳定结构
+Current status: docs/CURRENT_STATUS.md
+```
 
 ## 目标
 

@@ -1,3 +1,7 @@
+Status: historical
+Date: 2026-06-13
+Current authority: docs/CURRENT_STATUS.md
+
 cyberboss-deepseek P0 修复结果 + P1 分析报告
 =============================================
 生成时间: 2026-06-13

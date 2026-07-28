@@ -1,3 +1,7 @@
+Status: historical
+Date: 2026-06-13
+Current authority: docs/CURRENT_STATUS.md
+
 cyberboss 原项目断线诊断报告
 ==============================
 生成时间: 2026-06-13 05:45 UTC (13:45 Beijing)

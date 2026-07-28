@@ -1,7 +1,16 @@
 # runtime\startup 脚本备份(部署区收编)
 
+```text
+Status: active
+Authority: stable architecture
+Scope: 部署区启动脚本的 git 镜像说明
+Current status: docs/CURRENT_STATUS.md
+```
+
 真实部署位置:`<CYBERLINK_ROOT>\runtime\startup\`
 此目录是其在 git 内的镜像备份——**改了部署区脚本,请同步拷回这里提交**(后续由 GitHub 提交自动化接管)。
+> 下表是 2026-07-22 的历史快照；当前计划任务与机器开关属于机器状态，仓库不维护，按 [`docs/CURRENT_STATUS.md`](../../../docs/CURRENT_STATUS.md) 的 `UNKNOWN` 约定处理。
+
 
 ## 计划任务现状(2026-07-22)
 
