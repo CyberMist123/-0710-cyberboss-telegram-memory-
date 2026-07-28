@@ -184,6 +184,28 @@ Decision date: 2026-07-27
 
 Route 1 / Route 2 的实现仍为 `DEFERRED`。
 
+## D14 · 子代理输出必须经结果胶囊回主上下文；委派边界 fail-closed
+
+```text
+Status: ACTIVE
+Decision date: 2026-07-28
+```
+
+子代理（当前指 Codex）的**完整 transcript 永不进入主上下文、长期记忆或 `CURRENT_STATUS.md`**。它只能通过一个**结果胶囊**回传：状态、简短结论、修改文件、执行的测试及结果、commit SHA、风险、以及给编排者的建议动作。
+
+契约落在 `src/orchestration/delegation/`，是可执行、可测试的，不是文档约定：
+
+- **任务规格**必须显式写明 `task_id`、`objective`、`allowed_paths`、`forbidden_paths`、`workspace`、`base_sha`、`acceptance_tests`、`timeout_ms`、`approval_policy`；
+- **缺字段或 approval_policy 取值不认识 = 规格无效**，不套默认值。给审批策略兜底默认，正是有界委派变成无界委派的方式；
+- **带 transcript 形状字段的胶囊直接拒收**（任意嵌套层级），不是"悄悄剥掉"——剥掉等于告诉调用方传 transcript 没关系；自由文本字段同时限长，堵住"把 transcript 塞进 summary"这条路；
+- **越界检查先于验收测试**。已经越界写盘的运行不该再执行它产出的代码；
+- **编排者不信任胶囊**。胶囊是主张不是证据：边界要拿编排者自己观察到的 diff 重新验一遍，文件清单对不上就 `stop`；
+- 终局只有 `accept` / `rework` / `stop`，且**默认 fail-closed**：任何无法识别、对不上或缺失的情况一律 `stop`。
+
+这里的 fail-closed 与不变量 5「记忆链 fail-open」**不冲突**：那条讲的是记忆链宁可失忆不可失联；委派是授权边界，授权边界只能 fail-closed。
+
+**尚未批准**：把子代理接进主 Chat 的任何自动路径。本条只批准"胶囊契约 + 有界离线闭环 + 人工发起的 canary"。主 Chat 集成仍属 Candidate C5。
+
 ---
 
 ## 待裁决 / Candidates
@@ -236,9 +258,10 @@ Status: OPEN
 Status: OPEN
 ```
 
-- **Known facts**：子代理的输出会回到子进程 transcript，即进入主 Chat 上下文。`src/adapters/runtime/codex/` 有完整实现，但只用于主运行时切换。
-- **Decision needed**：是否把 Codex 作为子代理运行时；子代理输出以什么形式胶囊化后才回主 Chat。
-- **Not authorised**：在胶囊化契约确定前扩大子代理使用范围。
+- **已收窄**：胶囊化契约本身已在 2026-07-28 由 **D14** 裁定，本条不再涵盖那部分。
+- **Known facts**：`src/adapters/runtime/codex/` 有完整实现，但只用于主运行时切换。委派协议与离线闭环已落在 `src/orchestration/delegation/` 并进主 CI；真实 Codex canary 跑通一次。但**主 Chat 仍直接回流子代理输出**，仓库内也没有把 Codex adapter 绑进委派 runner 的代码。
+- **Decision needed**：是否、以及在什么触发条件下，让主 Chat 自动发起子代理任务；由谁持有发起权与预算；胶囊回到主 Chat 后以什么形式进入上下文分档。
+- **Not authorised**：在上述边界裁定前，把子代理接进主 Chat 的任何自动路径。人工发起、按 D14 有界执行的 canary 不受此限。
 
 ### C6 · 多 Bot、Route 1 / Route 2、Apple Watch、CMX
 
