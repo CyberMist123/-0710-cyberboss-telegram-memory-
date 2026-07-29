@@ -22,8 +22,13 @@ test("exceptional re-review targets one previously decided candidate", () => {
     branch: "phase4-fixture",
     baseSha: "a".repeat(40),
   });
+  // This test pins re-review targeting, not authority. Declare subject_ai
+  // explicitly so the accept path stays reachable now that legacy episode
+  // candidates default to semantic_authority "none" (issue #47).
   const candidates = ["first", "second"].map((body) => createCandidate({
     date: "2026-07-11", type: "episode", author: "closeout", body,
+    origin: "live_closeout", authorRole: "subject_ai", authorModel: "fixture-subject-ai",
+    contextScope: "active_session", semanticAuthority: "high", needsSubjectReview: false,
     sourceRef: { file: sourceFile, window: "1-1" },
   }));
   appendJsonlUnique(pipeline.paths.candidates, candidates, "candidate_id");
