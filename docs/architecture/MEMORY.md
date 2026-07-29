@@ -203,6 +203,8 @@ Auto Review 是海关，不是编辑：
 账本 / `details` 一类结构化条目豁免；引号内转述用户原话不计入。
 闸门只改 `result` / `reason`，一个字都不碰候选正文（D16「Review 只拦格式」）。
 
+同一 Candidate 的重复 Review 形成 decision revision 链：新记录带递增的 `review_revision` 与指向前一有效 head 的 `supersedes_decision_id`；旧记录在读取侧按 revision 1、无前驱解释，不重写历史。effective-decision selector 只承认同 Candidate、revision 单调、无缺失前驱、无环且唯一 head 的链；任何歧义都记录 `effective_decision_ambiguous`，History 对该 Candidate fail-closed、不写 canon。History 只消费 effective `accepted`，并用自己的 writer state 保证同一 Candidate 至多发布一次。
+
 520 只提供查看、撤回和异常重审入口，不把用户变成审批员。
 
 ### Reflect / Consolidation

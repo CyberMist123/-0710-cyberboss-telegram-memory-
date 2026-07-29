@@ -9,6 +9,7 @@ const {
   locateSourceRef,
 } = require("./continuity-pipeline");
 const { appendJsonlUnique, readJsonl } = require("./continuity-store");
+const { selectEffectiveDecisionForCandidate } = require("./effective-decision");
 
 function runReviewCheckpointed(pipeline, { retryCandidateId = "" } = {}) {
   if (!pipeline || typeof pipeline.runReview !== "function" || !pipeline.paths) {
@@ -31,7 +32,7 @@ function runReviewCheckpointed(pipeline, { retryCandidateId = "" } = {}) {
 
     let result;
     if (!canPublishCandidate(candidate)) {
-      result = persistAuthorityDeferred(pipeline, candidate);
+      result = persistAuthorityDeferred(pipeline, candidate, { allowRetry: Boolean(requested) });
       authorityDeferred += Array.isArray(result?.decisions) && result.decisions.length ? 1 : 0;
     } else {
       modelEligible += 1;
@@ -64,15 +65,22 @@ function runReviewCheckpointed(pipeline, { retryCandidateId = "" } = {}) {
   };
 }
 
-function persistAuthorityDeferred(pipeline, candidate) {
+function persistAuthorityDeferred(pipeline, candidate, { allowRetry = false } = {}) {
   if (typeof pipeline.withLease !== "function") {
     throw new Error("pipeline.withLease() is required for local authority decisions");
   }
 
   return pipeline.withLease("review-writer", () => {
     const existing = readJsonl(pipeline.paths.decisions);
-    if (existing.some((item) => normalizeText(item?.candidate_id) === candidate.candidate_id)) {
+    const existingForCandidate = existing.filter(
+      (item) => normalizeText(item?.candidate_id) === candidate.candidate_id,
+    );
+    if (existingForCandidate.length && !allowRetry) {
       return { status: "success", decisions: [] };
+    }
+    const selected = selectEffectiveDecisionForCandidate(existing, candidate.candidate_id);
+    if (existingForCandidate.length && !selected.decision) {
+      return { status: "success", decisions: [], diagnostics: [selected.event] };
     }
 
     const sourceLocated = locateSourceRef(candidate.source_ref);
@@ -81,6 +89,8 @@ function persistAuthorityDeferred(pipeline, candidate) {
       result: "deferred",
       reason: authorityFailureReason(candidate),
       checks,
+      review_revision: selected.decision ? selected.decision.review_revision + 1 : 1,
+      supersedes_decision_id: selected.decision?.decision_id || null,
     });
     const added = appendJsonlUnique(pipeline.paths.decisions, [decision], "decision_id");
     return { status: "success", decisions: added };

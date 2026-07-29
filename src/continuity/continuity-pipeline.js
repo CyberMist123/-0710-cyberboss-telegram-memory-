@@ -12,6 +12,11 @@ const {
 } = require("./candidate-authority");
 const { IMPERATIVE_STYLE_REASON, detectImperativeStyle } = require("./imperative-style");
 const {
+  EFFECTIVE_DECISION_AMBIGUOUS,
+  selectEffectiveDecisionForCandidate,
+  selectEffectiveDecisions,
+} = require("./effective-decision");
+const {
   appendJsonlUnique,
   backupFile,
   loadJson,
@@ -171,9 +176,18 @@ class ContinuityPipeline {
         if (!primaryByBody.has(bodyKey)) primaryByBody.set(bodyKey, candidate.candidate_id);
       }
       const decisions = [];
+      const diagnostics = [];
       for (const candidate of candidates) {
         if (retryCandidateId && candidate.candidate_id !== retryCandidateId) continue;
         if (!retryCandidateId && decided.has(candidate.candidate_id)) continue;
+        const existingForCandidate = existing.filter((item) => item.candidate_id === candidate.candidate_id);
+        const selected = selectEffectiveDecisionForCandidate(existing, candidate.candidate_id);
+        if (existingForCandidate.length && !selected.decision) {
+          diagnostics.push(selected.event);
+          continue;
+        }
+        const reviewRevision = selected.decision ? selected.decision.review_revision + 1 : 1;
+        const supersedesDecisionId = selected.decision?.decision_id || null;
         const bodyKey = sha256(`${candidate.type}\n${normalizeBody(candidate.body)}`);
         if (primaryByBody.get(bodyKey) !== candidate.candidate_id) {
           decisions.push(createDecision(candidate, {
@@ -181,6 +195,8 @@ class ContinuityPipeline {
             reason: "duplicate_candidate",
             checks: buildLocalChecks(candidate, true),
             merged_into: primaryByBody.get(bodyKey),
+            review_revision: reviewRevision,
+            supersedes_decision_id: supersedesDecisionId,
           }));
           continue;
         }
@@ -220,10 +236,15 @@ class ContinuityPipeline {
         if (!combinedChecks.publication_allowed) {
           enforced = { ...enforced, result: "deferred", reason: authorityFailureReason(candidate) };
         }
-        decisions.push(createDecision(candidate, { ...enforced, checks: combinedChecks }));
+        decisions.push(createDecision(candidate, {
+          ...enforced,
+          checks: combinedChecks,
+          review_revision: reviewRevision,
+          supersedes_decision_id: supersedesDecisionId,
+        }));
       }
       const added = appendJsonlUnique(this.paths.decisions, decisions, "decision_id");
-      return { status: "success", decisions: added };
+      return { status: "success", decisions: added, diagnostics };
     });
   }
 
@@ -256,32 +277,63 @@ class ContinuityPipeline {
           .map((item) => [item.candidate_id, item]),
       );
       const decisions = readJsonl(this.paths.decisions);
-      const state = loadJson(this.paths.writerState, { applied_decision_ids: [] });
+      const selected = selectEffectiveDecisions(decisions);
+      const state = loadJson(this.paths.writerState, {
+        applied_decision_ids: [],
+        published_candidate_ids: [],
+        diagnostic_events: [],
+      });
       const applied = new Set(state.applied_decision_ids || []);
+      const publishedCandidates = loadPublishedCandidateIds(this.paths, decisions, state);
+      const diagnosticEvents = new Map(
+        (state.diagnostic_events || []).map((event) => [event.event_id, event]),
+      );
       const written = [];
       const skipped = [];
-      for (const decision of decisions) {
-        if (applied.has(decision.decision_id) || !["accepted", "merged"].includes(decision.result)) continue;
-        if (decision.result === "merged") {
-          applied.add(decision.decision_id);
-          written.push(decision.decision_id);
-          writeJsonAtomic(this.paths.writerState, { applied_decision_ids: [...applied] });
-          continue;
+      const diagnostics = [];
+      let stateChanged = false;
+
+      for (const ambiguous of selected.ambiguous) {
+        const event = createDiagnosticEvent(ambiguous);
+        diagnostics.push(event);
+        skipped.push({
+          candidate_id: event.candidate_id,
+          reason: EFFECTIVE_DECISION_AMBIGUOUS,
+          event_id: event.event_id,
+        });
+        if (!diagnosticEvents.has(event.event_id)) {
+          diagnosticEvents.set(event.event_id, event);
+          stateChanged = true;
         }
+      }
+
+      for (const decision of selected.effectiveByCandidate.values()) {
+        if (decision.result !== "accepted" || applied.has(decision.decision_id)) continue;
         const candidate = candidates.get(decision.candidate_id);
         if (!candidate) continue;
         if (!canPublishCandidate(candidate)) {
           skipped.push({ decision_id: decision.decision_id, reason: authorityFailureReason(candidate) });
           continue;
         }
+        if (publishedCandidates.has(candidate.candidate_id)) {
+          applied.add(decision.decision_id);
+          skipped.push({ decision_id: decision.decision_id, reason: "candidate_already_published" });
+          stateChanged = true;
+          continue;
+        }
         if (candidate.type === "episode") this.publishEpisode(candidate, decision);
         if (candidate.type === "self_note") this.publishSelfNote(candidate, decision);
         if (candidate.type === "reentry_draft") this.publishReentry(candidate, decision);
         applied.add(decision.decision_id);
+        publishedCandidates.add(candidate.candidate_id);
         written.push(decision.decision_id);
-        writeJsonAtomic(this.paths.writerState, { applied_decision_ids: [...applied] });
+        stateChanged = true;
+        writeHistoryWriterState(this.paths.writerState, state, applied, publishedCandidates, diagnosticEvents);
       }
-      return { status: "success", written, skipped };
+      if (stateChanged) {
+        writeHistoryWriterState(this.paths.writerState, state, applied, publishedCandidates, diagnosticEvents);
+      }
+      return { status: "success", written, skipped, diagnostics };
     });
   }
 
@@ -405,18 +457,74 @@ function createCandidate({
 function createDecision(candidate, value = {}) {
   const result = ["accepted", "rejected", "deferred", "merged"].includes(value.result) ? value.result : "deferred";
   const mergedInto = result === "merged" ? normalizeBody(value.merged_into) : null;
-  const seed = `${candidate.candidate_id}\n${result}\nreview-writer\n${JSON.stringify(candidate.source_ref || {})}\n${mergedInto || ""}`;
+  const reviewRevision = Number.isInteger(value.review_revision) && value.review_revision > 0
+    ? value.review_revision
+    : 1;
+  const supersedesDecisionId = normalizeBody(value.supersedes_decision_id) || null;
+  const reason = normalizeBody(value.reason) || "review_unavailable";
+  const seed = [
+    candidate.candidate_id,
+    result,
+    reason,
+    reviewRevision,
+    supersedesDecisionId || "",
+    "review-writer",
+    JSON.stringify(candidate.source_ref || {}),
+    mergedInto || "",
+  ].join("\n");
   const pushedToUser = value.pushed_to_user === true
-    && ["reject_conflict", "boundary_touch"].includes(normalizeBody(value.reason));
+    && ["reject_conflict", "boundary_touch"].includes(reason);
   return {
     decision_id: `decision-${sha256(seed).slice(0, 20)}`,
     candidate_id: candidate.candidate_id,
+    review_revision: reviewRevision,
+    supersedes_decision_id: supersedesDecisionId,
     result,
-    reason: normalizeBody(value.reason) || "review_unavailable",
+    reason,
     checks: value.checks || buildLocalChecks(candidate, false),
     merged_into: mergedInto,
     pushed_to_user: pushedToUser,
   };
+}
+
+function loadPublishedCandidateIds(paths, decisions, state) {
+  const published = new Set(state.published_candidate_ids || []);
+  const byDecisionId = new Map(decisions.map((item) => [item.decision_id, item]));
+  for (const decisionId of state.applied_decision_ids || []) {
+    const decision = byDecisionId.get(decisionId);
+    if (decision?.result === "accepted" && decision.candidate_id) published.add(decision.candidate_id);
+  }
+  for (const episode of readJsonl(paths.episodes)) {
+    if (episode.candidate_id) published.add(episode.candidate_id);
+  }
+  const selfNotes = safeReadText(paths.selfNotes);
+  for (const match of selfNotes.matchAll(/<!-- decision:([^\s>]+) -->/g)) {
+    const decision = byDecisionId.get(match[1]);
+    if (decision?.candidate_id) published.add(decision.candidate_id);
+  }
+  return published;
+}
+
+function createDiagnosticEvent(ambiguous) {
+  const stable = {
+    event: EFFECTIVE_DECISION_AMBIGUOUS,
+    candidate_id: ambiguous.candidate_id,
+    reasons: ambiguous.reasons,
+    decision_ids: ambiguous.decision_ids,
+  };
+  return {
+    event_id: `event-${sha256(JSON.stringify(stable)).slice(0, 20)}`,
+    ...stable,
+  };
+}
+
+function writeHistoryWriterState(filePath, previous, applied, publishedCandidates, diagnosticEvents) {
+  writeJsonAtomic(filePath, {
+    ...previous,
+    applied_decision_ids: [...applied],
+    published_candidate_ids: [...publishedCandidates],
+    diagnostic_events: [...diagnosticEvents.values()],
+  });
 }
 
 function runPythonReview({ python, script, candidate, sourceLocated, env }) {
