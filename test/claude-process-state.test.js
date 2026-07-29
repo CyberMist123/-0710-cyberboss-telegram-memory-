@@ -159,8 +159,16 @@ test("a failed launch leaves no registry entry, no turn and no approval behind",
  * Polls until no turn slot or workspace lock is held, then returns the routing
  * snapshot. A fixed sleep would re-introduce exactly the kind of timing
  * assumption this suite is being hardened against.
+ *
+ * The ceiling is a liveness bound only -- it exists so a genuinely wedged lane
+ * fails instead of hanging forever, and it is deliberately far above any
+ * plausible machine's settle time so that it never decides the outcome. The
+ * assertions the callers make on the returned snapshot are the verdict; a slow
+ * runner simply polls a few more times before reaching them.
  */
-async function waitUntilSettled(adapter, timeoutMs = 2000) {
+const SETTLE_CEILING_MS = 30_000;
+
+async function waitUntilSettled(adapter, timeoutMs = SETTLE_CEILING_MS) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const routing = adapter.describeRouting();
@@ -170,8 +178,28 @@ async function waitUntilSettled(adapter, timeoutMs = 2000) {
     if (idle || Date.now() >= deadline) {
       return routing;
     }
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 10));
   }
+}
+
+/**
+ * How long a "nothing happens after this" claim is watched for.
+ *
+ * This is an observation window, not a settle-time guess. The invariant checked
+ * inside it ("still exactly one write, still at most one execution") is true at
+ * every instant of a healthy run, so widening the window can only catch more
+ * regressions -- it can never make a slow machine fail. That is precisely what
+ * the sampled-then-compared execution count could not say for itself.
+ */
+const REPLAY_WATCH_MS = 400;
+
+/** Re-asserts an always-true invariant across a window instead of at one instant. */
+async function stayingQuiet(assertInvariant, windowMs, stepMs = 20) {
+  const deadline = Date.now() + windowMs;
+  do {
+    await new Promise((resolve) => setTimeout(resolve, stepMs));
+    assertInvariant(`${windowMs}ms after the turn settled`);
+  } while (Date.now() < deadline);
 }
 
 /**
@@ -196,6 +224,54 @@ function countWritesFor(needle) {
   return state;
 }
 
+/**
+ * Parks every turn's write until `count` of them are in flight at the same time.
+ *
+ * This is what makes concurrency an observation rather than a stopwatch
+ * reading. The workspace lock is taken *before* the write, so `count` writes
+ * can only sit parked here together if `count` workspace locks are held
+ * together -- and the snapshot is taken at that exact moment, while every
+ * participant still holds its lock. A slow machine only takes longer to reach
+ * the rendezvous; a regression that serialized the lanes can never reach it at
+ * all, because the first holder would never release.
+ */
+function rendezvousOnWrite(count, snapshot) {
+  const original = ClaudeCodeProcessClient.prototype.sendUserMessage;
+  let arrived = 0;
+  let open = () => {};
+  const opened = new Promise((resolve) => { open = resolve; });
+  ClaudeCodeProcessClient.prototype.sendUserMessage = async function patched(payload) {
+    arrived += 1;
+    if (arrived >= count) {
+      open(snapshot());
+    }
+    await opened;
+    return original.call(this, payload);
+  };
+  return {
+    arrived: () => arrived,
+    /**
+     * The snapshot taken when the lanes met, or null if they never did.
+     * `timeoutMs` is a liveness ceiling, not a threshold being measured.
+     */
+    async wait(timeoutMs) {
+      let timer = null;
+      const expiry = new Promise((resolve) => {
+        timer = setTimeout(() => resolve(null), timeoutMs);
+      });
+      const met = await Promise.race([opened, expiry]);
+      clearTimeout(timer);
+      if (!met) {
+        // Release the parked writes so the turns settle and the adapter can be
+        // closed cleanly. The caller's assertion is the verdict.
+        open(null);
+      }
+      return met;
+    },
+    restore() { ClaudeCodeProcessClient.prototype.sendUserMessage = original; },
+  };
+}
+
 test("an indeterminate write is reported as a failure and never replayed", async () => {
   // The child exits after its first turn, so the second write races a dead
   // pipe. Which side wins is platform-dependent: posix reports EPIPE, win32 can
@@ -207,6 +283,16 @@ test("an indeterminate write is reported as a failure and never replayed", async
   const { adapter, workspaceRoot, readExec, readLaunches } = makeAdapter({ keepAlive: false });
   const lane = laneFor(500, 6);
   const spy = countWritesFor("second");
+  let closed = false;
+  // close() is the draining barrier below *and* the cleanup, so it must be
+  // callable twice.
+  const drainAndClose = async () => {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    await adapter.close();
+  };
   try {
     await turn(adapter, workspaceRoot, lane, null, "first");
 
@@ -221,26 +307,46 @@ test("an indeterminate write is reported as a failure and never replayed", async
       );
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 60));
     const countExecutions = () => readExec().filter((entry) => entry.line.includes("second")).length;
-    const executions = countExecutions();
-    assert.ok(executions <= 1, `"second" must not be executed twice (saw ${executions})`);
-    assert.equal(spy.writes, 1, "the turn was written exactly once, whatever the write reported");
-    assert.ok(readLaunches().length <= 2, "at most one relaunch, and only before the write");
+    // Every one of these holds at *every* instant, so it can be asserted at any
+    // moment without knowing when the single legitimate execution lands. That is
+    // the whole fix: the old version snapshotted the execution count 60ms in and
+    // demanded it still match 120ms later, which a relaunched child on a slow
+    // runner breaks by reading its one message in between -- no replay, just a
+    // late read.
+    const assertWrittenOnce = (when) => {
+      assert.equal(spy.writes, 1, `the turn was written exactly once, whatever the write reported (${when})`);
+      assert.ok(readLaunches().length <= 2, `at most one relaunch, and only before the write (${when})`);
+      const executions = countExecutions();
+      assert.ok(executions <= 1, `"second" must not be executed twice (saw ${executions}, ${when})`);
+    };
 
-    // Nothing arrives late either: a replay would show up as a second write, a
-    // further launch or another execution after the call already returned.
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    assert.equal(spy.writes, 1, "no replay after the turn settled");
-    assert.equal(countExecutions(), executions, "the execution count is stable once the turn settled");
-
+    // Wait for the runtime to be done with the turn by watching for the
+    // condition, never for a number of milliseconds: the guarantee is that the
+    // turn settles, not that it settles within 60ms.
     const routing = await waitUntilSettled(adapter);
     assert.equal(routing.activeTurns, 0, `the turn slot was released (failed=${secondFailed})`);
     assert.equal(routing.workspaceLocks.writers, 0);
     assert.equal(routing.workspaceLocks.waiting, 0);
+    assertWrittenOnce("once the turn settled");
+
+    // Nothing arrives late either. The adapter is deliberately still open here,
+    // so a replay -- immediate or on a retry timer -- would really be attempted,
+    // and the prototype-level spy counts it whether or not it reaches a child.
+    // Re-checking the same always-true bounds throughout the window replaces the
+    // old snapshot comparison: a longer window can only observe more, never turn
+    // a slow-but-correct run red.
+    await stayingQuiet(assertWrittenOnce, REPLAY_WATCH_MS);
+
+    // Finally, drain: close() ends every child's stdin and waits for the child
+    // to exit, so every byte the runtime ever wrote has by now been read, logged
+    // and acted upon. The exec log is final at this point in a way no sleep can
+    // establish, however long it is.
+    await drainAndClose();
+    assertWrittenOnce("after every child drained and exited");
   } finally {
     spy.restore();
-    await adapter.close();
+    await drainAndClose();
   }
 });
 
@@ -272,15 +378,26 @@ test("a write that fails after the attempt began is indeterminate, not retried",
       },
     );
 
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    assert.equal(spy.writes, 1, "exactly one write was attempted; the turn was not retried");
-    assert.equal(readLaunches().length, launchesBefore, "no process was launched after the write began");
-    assert.equal(readExec().filter((entry) => entry.line.includes("second")).length, 0, "nothing reached a child");
+    // Same shape as the race above: each of these is true at every instant of a
+    // correct run -- a retry could only ever push a count *up* -- so they are
+    // asserted on settle and then held to across a window, rather than sampled
+    // once after a sleep that a slower machine would outrun.
+    const assertNotRetried = (when) => {
+      assert.equal(spy.writes, 1, `exactly one write was attempted; the turn was not retried (${when})`);
+      assert.equal(readLaunches().length, launchesBefore, `no process was launched after the write began (${when})`);
+      assert.equal(
+        readExec().filter((entry) => entry.line.includes("second")).length,
+        0,
+        `nothing reached a child (${when})`,
+      );
+    };
 
     const routing = await waitUntilSettled(adapter);
     assert.equal(routing.activeTurns, 0, "the turn slot was released");
     assert.equal(routing.workspaceLocks.writers, 0);
     assert.equal(routing.workspaceLocks.waiting, 0);
+    assertNotRetried("once the turn settled");
+    await stayingQuiet(assertNotRetried, REPLAY_WATCH_MS);
   } finally {
     spy.restore();
     await adapter.close();
@@ -291,13 +408,17 @@ test("the workspace lock is released when a turn completes, so the next turn pro
   const { adapter, workspaceRoot } = makeAdapter({ keepAlive: true });
   try {
     await turn(adapter, workspaceRoot, laneFor(500, 7));
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    assert.equal(adapter.describeRouting().workspaceLocks.writers, 0, "no writer is still holding the lock");
+    // Waiting for the release, not for 40ms: the lock is released when the
+    // result lands, and how long that takes is the machine's business.
+    assert.equal(
+      (await waitUntilSettled(adapter)).workspaceLocks.writers,
+      0,
+      "no writer is still holding the lock",
+    );
 
     // A different lane in the same workspace can now take the write lock.
     await turn(adapter, workspaceRoot, laneFor(500, 8));
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    const routing = adapter.describeRouting();
+    const routing = await waitUntilSettled(adapter);
     assert.equal(routing.workspaceLocks.writers, 0);
     assert.equal(routing.workspaceLocks.waiting, 0);
     assert.equal(routing.activeTurns, 0, "every turn slot settled");
@@ -317,8 +438,7 @@ test("two write lanes in one workspace serialize but keep separate sessions", as
     assert.notEqual(a.processKey, b.processKey, "each lane kept its own process");
     assert.equal(a.workspaceAccess, "write");
 
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    assert.equal(adapter.describeRouting().workspaceLocks.writers, 0);
+    assert.equal((await waitUntilSettled(adapter)).workspaceLocks.writers, 0);
   } finally {
     await adapter.close();
   }
@@ -330,23 +450,36 @@ test("read-access lanes run concurrently in one workspace", async () => {
     { profileId: "reader", workspaceAccess: "read" },
     { baseDir: tempDir },
   );
+  // Concurrency is proven by the three lanes meeting, not by a stopwatch. The
+  // old wall-clock budget measured process spawn time as much as it measured
+  // serialization, so a slow runner failed it while the readers were in fact
+  // perfectly concurrent.
+  const gate = rendezvousOnWrite(3, () => adapter.describeRouting().workspaceLocks);
   try {
-    const started = Date.now();
-    const results = await Promise.all([
+    const turns = Promise.all([
       turn(adapter, workspaceRoot, laneFor(500, 31), reader),
       turn(adapter, workspaceRoot, laneFor(500, 32), reader),
       turn(adapter, workspaceRoot, laneFor(500, 33), reader),
     ]);
-    const elapsed = Date.now() - started;
+    // Asserted below; never left as an unhandled rejection if the gate fails.
+    turns.catch(() => {});
 
+    const locks = await gate.wait(SETTLE_CEILING_MS);
+    assert.ok(locks, `read lanes serialized: only ${gate.arrived()} of 3 reached their write together`);
+    // Taken while all three were parked mid-turn, so this is the state of the
+    // lock *during* the overlap, not after it.
+    assert.equal(locks.readers, 3, "three read lanes held the workspace read lock at the same time");
+    assert.equal(locks.writers, 0, "a read lane never takes the write lock");
+    assert.equal(locks.waiting, 0, "no read lane queued behind another");
+    assert.equal(locks.keys, 1, "all three were locking the one workspace");
+
+    const results = await turns;
     for (const result of results) {
       assert.equal(result.workspaceAccess, "read");
     }
     assert.equal(new Set(results.map((r) => r.threadId)).size, 3);
-    // Three 40ms turns run together; serialized they could not all have been
-    // written inside a single turn's delay budget.
-    assert.ok(elapsed < 1000, `readers did not serialize (took ${elapsed}ms)`);
   } finally {
+    gate.restore();
     await adapter.close();
   }
 });
