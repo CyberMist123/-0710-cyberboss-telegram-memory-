@@ -79,6 +79,10 @@ test("memory markdown themes generate MEMORY thoughts that can become fixations"
     "- 她提到工作、压力、开会和任务时容易疲惫。",
   ].join("\n"));
   const service = new DesireService(config);
+  // The memory scan runs inside save(), which the constructor no longer calls
+  // (PR #46 removed the construct-time write to keep a single writer). Trigger
+  // the scan explicitly instead of relying on that side effect.
+  service.syncMemoryThoughts({ now: new Date().toISOString() });
   let state = service.getState({ availableActions: ["vent", "none"] });
   const memoryThought = state.thoughts.find((thought) => thought.origin === "MEMORY");
   assert.ok(memoryThought);
