@@ -4,7 +4,10 @@ const { readConfig } = require("../../src/core/config");
 const { validateStartupPreflight } = require("../../src/core/startup-preflight");
 const { createRuntimeAdapter } = require("../../src/core/app");
 const { authorCloseout } = require("../../src/continuity/background-author");
-const { resolvePhase3Plan } = require("../../src/continuity/nightly-mode");
+const {
+  resolvePhase3Plan,
+  shouldRunHistory,
+} = require("../../src/continuity/nightly-mode");
 const { runReviewCheckpointed } = require("../../src/continuity/review-checkpoint");
 const { createContinuityPipeline } = require("../../src/continuity/closeout-job");
 
@@ -47,7 +50,11 @@ async function main() {
   if (plan.review) {
     output.review = runReviewCheckpointed(pipeline, { retryCandidateId: readFlag("--candidate-id") });
   }
-  if (plan.history) output.history = pipeline.runHistoryWriter();
+  if (plan.history) {
+    output.history = shouldRunHistory({ plan, reviewResult: output.review })
+      ? pipeline.runHistoryWriter()
+      : { status: "skipped", reason: "review_incomplete" };
+  }
 
   console.log(JSON.stringify(output, null, 2));
 }
