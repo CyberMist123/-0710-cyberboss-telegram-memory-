@@ -326,6 +326,22 @@ Decision date: 2026-07-29
 
 ---
 
+## D22 · Review→History 交接采用持久化 publication intent（outbox）
+
+```text
+Status: ACTIVE
+Decision date: 2026-07-29
+```
+
+裁定背景：C4 剩余的「Review 与 History writer 交接点」——在哪一步交接、交接什么产物、失败语义。G2 主路径设计稿（workdesk 2026-07-29）给出两个候选：方案一「Review 返回 success + History 全局扫描」（接近现状，交接物不可审计，全量扫描易重复消费旧 accepted）；方案二「持久化 publication intent/outbox」。Owner 2026-07-29 裁定采用**方案二**。
+
+- **交接产物**：Review writer 在 decision 及必要 artifact（envelope / 案例）全部物化完成后，追加 publication intent 记录（含 candidate、effective decision、lineage root、artifact digest 的稳定 ID）；落盘 `continuity/decisions/publication-intents.jsonl`，**Review writer 唯一写**。
+- **消费方**：History writer 只读 intent，验证 effective head 与 digest 后按 lineage publication key 幂等发布；写 canon 与自己的 writer state。单 writer 格局不变（Review 不写 canon，History 不写 decision/envelope/case/intent）。
+- **失败语义**：decision 已写而 intent 未写 → 不发布，Review writer 按稳定 ID 幂等补写；intent 已写而 History 崩溃 → 重试时重新验证后幂等发布；decision 被后续 supersede 使 intent 变陈旧 → History 记 `stale_intent` 不发布，新 effective accepted head 产生新 intent。
+- **实施顺序**：本条只裁协议，不改变 G2 分单依赖——G2-4 解锁，但仍依赖 G2-0（#73）与 G2-3（envelope/case 物化）先行。
+
+---
+
 ## 待裁决 / Candidates
 
 下列**尚未做出决定**，不占用 D 编号，也不得当成已定方向施工。
@@ -363,13 +379,12 @@ Status: OPEN
 ### C4 · 后台 memory owner 与 nightly closeout 的边界
 
 ```text
-Status: OPEN
+Status: CLOSED — 全部子问题已裁定
 ```
 
-- **已收窄**：写入权持有者、后台模型的角色、Review 的职权边界、nightly 是否默认开启，已在 2026-07-29 由 **D16** 裁定，本条不再涵盖这几部分。
-- **Known facts**：调度器已接入 `app.js`；`CYBERBOSS_NIGHTLY_CLOSEOUT_ENABLED` 等三个开关在仓库内默认 `false`；生产机实际状态仓库无法判断。这是 G2 `FAIL` 的主体。
-- **Decision needed**（剩余）：**Review 与 History writer 的具体交接点** —— 在哪一步交接、交接什么产物、失败时的语义。D16 只定了 Review「只拦格式」的职权边界，没有定这条交接协议。
-- **Not authorised**：在剩余交接点裁定前实现 Review → History writer 的自动交接；按 D16，仓库开关默认值保持 `false`，nightly 只由 520 面板手动控制，不得在生产机上自行打开。
+- 写入权持有者、后台模型的角色、Review 的职权边界、nightly 是否默认开启：2026-07-29 由 **D16** 裁定。
+- 剩余的 Review 与 History writer 交接点：2026-07-29 由 **D22** 裁定（publication intent/outbox）。本条不再有未决部分。
+- 仍然有效的约束：按 D16，仓库开关默认值保持 `false`，nightly 只由 520 面板手动控制，不得在生产机上自行打开。
 
 ### C5 · 子代理运行时与输出胶囊化
 
