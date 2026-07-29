@@ -8,6 +8,15 @@ const { ContinuityPipeline, createCandidate } = require("../src/continuity/conti
 const { runReviewCheckpointed } = require("../src/continuity/review-checkpoint");
 const { appendJsonlUnique, readJsonl } = require("../src/continuity/continuity-store");
 
+const SUBJECT_AI_METADATA = {
+  origin: "live_closeout",
+  authorRole: "subject_ai",
+  authorModel: "fixture-subject-ai",
+  contextScope: "active_session",
+  semanticAuthority: "high",
+  needsSubjectReview: false,
+};
+
 test("real pipeline persists the first decision, resumes after interruption, and stays idempotent", () => {
   const fixture = createFixture();
   const { pipeline, candidates } = fixture;
@@ -115,6 +124,7 @@ function createFixture() {
       date: "2026-07-11",
       type: "episode",
       author: "closeout",
+      ...SUBJECT_AI_METADATA,
       body: "first fixture candidate",
       sourceRef: { file: conversationFile, window: "1-2" },
     }),
@@ -122,6 +132,7 @@ function createFixture() {
       date: "2026-07-11",
       type: "episode",
       author: "closeout",
+      ...SUBJECT_AI_METADATA,
       body: "second fixture candidate",
       sourceRef: { file: conversationFile, window: "1-2" },
     }),
@@ -156,6 +167,7 @@ function createFullLoopFixture() {
       date: "2026-07-12",
       type: "episode",
       author: "closeout",
+      ...SUBJECT_AI_METADATA,
       body: "accepted fixture memory",
       sourceRef: { file: conversationFile, window: "1-1" },
     }),
@@ -170,6 +182,7 @@ function createFullLoopFixture() {
       date: "2026-07-12",
       type: "episode",
       author: "closeout",
+      ...SUBJECT_AI_METADATA,
       body: "defer fixture memory",
       sourceRef: { file: conversationFile, window: "3-3" },
     }),

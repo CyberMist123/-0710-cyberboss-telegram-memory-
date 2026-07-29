@@ -88,7 +88,7 @@ test("closeout, review, and history writer are byte-idempotent and preserve auth
   assert.equal(hashFile(fixture.stateLog), fixture.stateLogHash);
 });
 
-test("background proxy Episode can publish but Self-note and Re-entry require the subject", () => {
+test("background proxy closeout candidates remain deferred and never publish canon", () => {
   const fixture = createFixture();
   fixture.pipeline.runCloseout({
     date: "2026-07-11",
@@ -105,7 +105,7 @@ test("background proxy Episode can publish but Self-note and Re-entry require th
     assert.equal(candidate.origin, "nightly_closeout");
     assert.equal(candidate.author_role, "background_proxy");
     assert.equal(candidate.context_scope, "daily_materials");
-    assert.equal(candidate.semantic_authority, "medium");
+    assert.equal(candidate.semantic_authority, "none");
   }
   assert.equal(candidates.find((item) => item.type === "episode").needs_subject_review, false);
   assert.equal(candidates.find((item) => item.type === "self_note").needs_subject_review, true);
@@ -114,20 +114,44 @@ test("background proxy Episode can publish but Self-note and Re-entry require th
   const decisions = fixture.pipeline.runReview({
     env: { ...process.env, AUTO_REVIEW_MOCK: "accept" },
   }).decisions;
-  assert.equal(decisions.find((item) => item.candidate_id === candidates.find((c) => c.type === "episode").candidate_id).result, "accepted");
+  const episodeCandidate = candidates.find((item) => item.type === "episode");
+  const episodeDecision = decisions.find((item) => item.candidate_id === episodeCandidate.candidate_id);
+  assert.equal(episodeDecision.result, "deferred");
+  assert.equal(episodeDecision.reason, "semantic_authority_missing");
   for (const type of ["self_note", "reentry_draft"]) {
     const candidate = candidates.find((item) => item.type === type);
     const decision = decisions.find((item) => item.candidate_id === candidate.candidate_id);
     assert.equal(decision.result, "deferred");
-    assert.equal(decision.reason, "subject_review_required");
+    assert.equal(decision.reason, "semantic_authority_missing");
     assert.equal(Object.prototype.hasOwnProperty.call(decision, "body"), false);
   }
 
   const writer = fixture.pipeline.runHistoryWriter();
-  assert.equal(writer.written.length, 1);
-  assert.equal(readJsonl(fixture.pipeline.paths.episodes).length, 1);
+  assert.equal(writer.written.length, 0);
+  assert.equal(fs.existsSync(fixture.pipeline.paths.episodes), false);
   assert.equal(fs.existsSync(fixture.pipeline.paths.selfNotes), false);
   assert.equal(fs.existsSync(fixture.pipeline.paths.reentry), false);
+});
+
+test("episode candidates with an empty author have no publication authority", () => {
+  const fixture = createFixture();
+  const candidate = createCandidate({
+    date: "2026-07-11",
+    type: "episode",
+    author: "",
+    body: "没有作者的 Episode 候选不能进入正史。",
+    sourceRef: { file: fixture.conversationFile, window: "1-2" },
+  });
+  appendJsonlUnique(fixture.pipeline.paths.candidates, [candidate], "candidate_id");
+
+  const decision = fixture.pipeline.runReview({
+    env: { ...process.env, AUTO_REVIEW_MOCK: "accept" },
+  }).decisions[0];
+  assert.equal(decision.result, "deferred");
+  assert.equal(decision.reason, "semantic_authority_missing");
+  assert.equal(decision.checks.publication_allowed, false);
+  assert.equal(fixture.pipeline.runHistoryWriter().written.length, 0);
+  assert.equal(fs.existsSync(fixture.pipeline.paths.episodes), false);
 });
 
 test("legacy janitor candidates are mapped to extractor authority and cannot publish", () => {
@@ -177,6 +201,7 @@ test("duplicate candidates merge without a second canon write", () => {
   const pipeline = fixture.pipeline;
   pipeline.runCloseout({
     date: "2026-07-11",
+    candidateMetadata: SUBJECT_AI_METADATA,
     author: () => ({ episodes: [{ body: "同一段主体 AI 原稿。" }] }),
   });
   pipeline.runReview({ env: { ...process.env, AUTO_REVIEW_MOCK: "accept" } });
@@ -226,6 +251,7 @@ test("leading imperatives are deferred, mid-sentence ones only warn, and boundar
   const fixture2 = createFixture();
   fixture2.pipeline.runCloseout({
     date: "2026-07-11",
+    candidateMetadata: SUBJECT_AI_METADATA,
     author: () => ({ episodes: [{ body: "这条触及已确认边界。" }] }),
   });
   const conflict = fixture2.pipeline.runReview({ env: { ...process.env, AUTO_REVIEW_MOCK: "reject_conflict" } }).decisions[0];
@@ -237,7 +263,7 @@ test("leading imperatives are deferred, mid-sentence ones only warn, and boundar
 test("correction appends and never overwrites the superseded episode", () => {
   const fixture = createFixture();
   const pipeline = fixture.pipeline;
-  pipeline.runCloseout({ date: "2026-07-11", author: () => ({ episodes: [{ body: "原事件。" }] }) });
+  pipeline.runCloseout({ date: "2026-07-11", candidateMetadata: SUBJECT_AI_METADATA, author: () => ({ episodes: [{ body: "原事件。" }] }) });
   pipeline.runReview({ env: { ...process.env, AUTO_REVIEW_MOCK: "accept" } });
   pipeline.runHistoryWriter();
   const original = readJsonl(pipeline.paths.episodes)[0];
@@ -247,6 +273,7 @@ test("correction appends and never overwrites the superseded episode", () => {
     author: "closeout",
     body: "后来确认的修正。",
     sourceRef: { file: fixture.conversationFile, window: "1-2" },
+    ...SUBJECT_AI_METADATA,
   });
   correction.supersedes = original.ep_id;
   appendJsonlUnique(pipeline.paths.candidates, [correction], "candidate_id");
