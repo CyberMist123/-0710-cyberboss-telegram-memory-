@@ -136,9 +136,9 @@ test("codex MCP elicitation approvals map to runtime approval events", () => {
   assert.equal(event.type, "runtime.approval.requested");
   assert.equal(event.payload.kind, "mcp_tool_call");
   assert.equal(event.payload.threadId, "thread-1");
-  assert.deepEqual(event.payload.commandTokens, [ mcp_tool, cyberboss_tools, cyberboss_reminder_create]);
-  assert.equal(event.payload.command, cyberboss_reminder_create\ndelayMinutes: 5\ntext: hello);
-  assert.deepEqual(event.payload.responseTemplate.supportedCommands, [yes, always, no]);
+  assert.deepEqual(event.payload.commandTokens, ["mcp_tool", "cyberboss_tools", "cyberboss_reminder_create"]);
+  assert.equal(event.payload.command, "cyberboss_reminder_create\ndelayMinutes: 5\ntext: hello");
+  assert.deepEqual(event.payload.responseTemplate.supportedCommands, ["yes", "always", "no"]);
   assert.deepEqual(event.payload.responseTemplate.responseByCommand.yes, {
     action: "accept",
   });
