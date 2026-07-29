@@ -133,6 +133,13 @@ function createFixture(candidateIds) {
   return createFixtureFromRows(candidateIds.map((candidateId) => ({
     candidate_id: candidateId,
     type: "episode",
+    author: "subject_ai",
+    origin: "live_closeout",
+    author_role: "subject_ai",
+    author_model: "fixture-subject-ai",
+    context_scope: "active_session",
+    semantic_authority: "high",
+    needs_subject_review: false,
     body: `fixture ${candidateId}`,
   })));
 }

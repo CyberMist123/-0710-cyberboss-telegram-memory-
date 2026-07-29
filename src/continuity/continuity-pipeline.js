@@ -106,7 +106,7 @@ class ContinuityPipeline {
       authorRole: "background_proxy",
       authorModel: this.leaseDetails.model,
       contextScope: "daily_materials",
-      semanticAuthority: "medium",
+      semanticAuthority: "none",
       ...candidateMetadata,
     };
     const candidates = drafts.map((draft) => createCandidate({

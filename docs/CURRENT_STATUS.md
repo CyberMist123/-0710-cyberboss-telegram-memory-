@@ -23,7 +23,7 @@ Verified against: 9bb78a0f (main)
 | Gate | 状态 | 中文含义 |
 |---|---|---|
 | G1 Telegram 核心读取路径 | `PARTIAL` | 代码通路与 Trace 验收结构已接通，缺真机执行证据 |
-| G2 后台记忆写入边界 | `FAIL` | Closeout 后的 owner、Review、History 与 nightly 边界未闭环 |
+| G2 后台记忆写入边界 | `FAIL` | 候选权限闸门已收紧（#47：后台 episode 只认 `subject_ai + high`，进不了正史）；nightly 登记（#48）与 review 失败边界（#49）未闭环 |
 | G3 Chat 成本与 profile 隔离 | `PARTIAL` | 基础管道存在，真实 fable-chat 配置与隔离未完成 |
 | G4 Windows 生产验证 | `PARTIAL` | 代码控制面基本完成，真机 release/cutover 证据缺失 |
 | G5 备份与回滚验证 | `NOT_VERIFIED` | 缺少真实备份恢复演练证据 |

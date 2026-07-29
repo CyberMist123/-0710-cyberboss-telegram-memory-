@@ -42,13 +42,7 @@ function canPublishCandidate(candidate = {}) {
   if (normalized.needs_subject_review) return false;
 
   if (normalized.type === "episode") {
-    return (
-      normalized.author_role === "subject_ai"
-      && normalized.semantic_authority === "high"
-    ) || (
-      normalized.author_role === "background_proxy"
-      && ["medium", "high"].includes(normalized.semantic_authority)
-    );
+    return normalized.author_role === "subject_ai" && normalized.semantic_authority === "high";
   }
 
   if (["self_note", "reentry_draft"].includes(normalized.type)) {
@@ -103,7 +97,7 @@ function legacyDefaults({ type, author }) {
     author_role: "background_proxy",
     author_model: "legacy-unknown",
     context_scope: "isolated_chunk",
-    semantic_authority: type === "episode" ? "medium" : "none",
+    semantic_authority: "none",
   };
 }
 
