@@ -472,9 +472,11 @@ node "$env:CYBERLINK_ROOT\runtime\app\telegram\scripts\continuity\run-phase3.js"
 
 ## 8. 两件必须知道的背景
 
-### 8-1 有一份架构文档是过期的，别被它带跑
+### 8-1 有一份架构文档曾经是过期的（已修正）
 
-`docs/architecture/SYSTEM_OVERVIEW.md` 还停在 G1 修复**之前**的描述，至少四处：
+> **这一条已经处理掉了。** 下面四处漂移已由 `fix/system-overview-g1-drift` 按当前代码行为对齐，保留这段只为记录当初是怎么发现的。读 `SYSTEM_OVERVIEW.md` 时不必再绕开它。
+
+`docs/architecture/SYSTEM_OVERVIEW.md`（写这份手册时）还停在 G1 修复**之前**的描述，至少四处：
 
 - `:36-38` —— 说 Telegram 在 memory_context 之前「提前 return，故断开」；
 - `:52` —— 说「G1 `FAIL`」；
@@ -483,7 +485,7 @@ node "$env:CYBERLINK_ROOT\runtime\app\telegram\scripts\continuity\run-phase3.js"
 
 **这四处和当前 main 的代码矛盾。** 代码里 Telegram 分支明确走了记忆解析（`src/core/app.js:1055-1071`），trace 也明确记了 memory_context（`src/core/app.js:3016-3032`）。`docs/CURRENT_STATUS.md:79-80`、`:109`、`:113` 是对的。
 
-这属于「改了稳定结构但没同步文档」，按 `CLAUDE.md` 第六节第 3 条应该修。但**不要在这个留证 PR 里顺手改** —— 单独开一个。
+这属于「改了稳定结构但没同步文档」，按 `CLAUDE.md` 第六节第 3 条应该修 —— 已按当时说的那样，单独开 PR 修完。
 
 ### 8-2 「真机才知道」的清单（这份草案答不了的）
 
