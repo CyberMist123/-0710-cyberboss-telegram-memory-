@@ -284,7 +284,6 @@ this.topicsFile   = path.join(continuityDir, "topics.md");
 | 东西 | 位置 | 说明 |
 |---|---|---|
 | 幂等门（一周一次） | `src/continuity/weekly-reflect.js:6` | `weekKey` + `state.weeks[week]`，重跑返回 `already_ran` |
-| 周界按上海时区算 | `src/continuity/weekly-reflect.js:8` | `dateKey()` 用 `Asia/Shanghai`，`weekKey()` 归到周一 |
 | Writer lease | `src/continuity/weekly-reflect.js:6` | `acquireWriterLease` / `releaseWriterLease`，含 stale 回收 |
 | 只追加不覆盖 | `src/continuity/weekly-reflect.js:6` | 先 `backupFile` 到 `.backups`，再 `replaceTextAtomic` 追加，带 `<!-- weekly-reflect:hash -->` 幂等标记 |
 | 三个无变化出口 | `src/continuity/weekly-reflect.js:6` | `no_episodes` / `invalid_episode` / `runtime_empty` |
@@ -307,6 +306,7 @@ this.topicsFile   = path.join(continuityDir, "topics.md");
 | **没有老化索引** | `aging_index.jsonl` 不存在 | 四 |
 | **lookup 数据源写死三个文件** | `memory-lookup-service.js:15-26` 的 `episodesFile` / `timelineFile` / `topicsFile`；`searchMemorySources()`（102-110）只拼 episodes + timeline | 四 |
 | **`nothing_cold` 出口不存在** | 只有三个 `no_change` 分支 | 六 |
+| **周界时区写死成上海** | `weekly-reflect.js:8` 的 `dateKey()` 用 `Asia/Shanghai`。Owner 已点名这是错的：周界与老化天数都必须按**她所在的时区（生产机本地时区，当前 +10:00）**算，不是上海。仓库里同源的 `Asia/Shanghai` 还散在 `system-checkin-poller.js`（睡眠窗）与 `utils/beijing-time.js`（时间戳/报时），那两处不归本文，但复活 Reflect 时**这一处必须一并替掉**，建议统一走一个可配置的时区来源而不是再写死一个城市 | 复活第 1 步一并改 |
 | **lease 里有三个写死的假值** | `weekly-reflect.js:6`：`phase:"fable"`、`branch:"feat/fable-wishlist-20260713"`、`base_sha:"0".repeat(40)`。这是当年那个分支留下的死值，跟当前 main 没关系 | 复活时顺手改，别留 |
 | **`recentNotes()` 按行截断** | `weekly-reflect.js:8` 取最后 5 行。Self-note 是分段的 markdown，按行取可能只截到半段 | 复活时评估，不是阻塞项 |
 | **单测不在任何 CI 分组里** | `test/weekly-reflect.test.js` 在 `package.json` 里搜不到（零命中），因此不在任何 `test:*` 分组，也就不在 `.github/workflows/phase1-offline.yml` 里 | 见下 |
@@ -321,7 +321,7 @@ this.topicsFile   = path.join(continuityDir, "topics.md");
 
 按 `CLAUDE.md` 第五节第 4 条：本地跑绿 ≠ 有 CI 信号。Reflect 复活要同时做两件事——
 
-1. `test/weekly-reflect.test.js` 现有两条（幂等 + 排除最新条、空产出 + 上海周界）先进一个 `npm run test:*` 分组；
+1. `test/weekly-reflect.test.js` 现有两条（幂等 + 排除最新条、空产出 + 周界。周界那条现在断言的是上海时区，随时区修正一并改成她所在时区）先进一个 `npm run test:*` 分组；
 2. 那个分组要接进 `.github/workflows/phase1-offline.yml`，否则 `CURRENT_STATUS.md` 的「主 CI」列只能继续写 `NONE`。
 
 新增的测试至少要钉住三件事：选 Episode 是确定的（同样输入必选同一条）、`nothing_cold` 是 `no_change` 不是错误、降级只往 `aging_index.jsonl` 追加而 `episodes.jsonl` 字节不变。
