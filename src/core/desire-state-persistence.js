@@ -7,7 +7,7 @@ const DRIVE_KEYS = [
   "social", "fatigue", "libido", "stress",
 ];
 
-function persistReportedDesireState({ state, stateFile, historyFile = "", now = new Date().toISOString() }) {
+function persistReportedDesireState({ state, stateFile, historyFile = "", now = new Date().toISOString(), appendHistory = true }) {
   if (!stateFile || !state || !Array.isArray(state.drives)) return { saved: false, reason: "invalid_state" };
   const normalizedDrives = state.drives.filter((drive) => drive && DRIVE_KEYS.includes(String(drive.key || "")));
   if (normalizedDrives.length !== DRIVE_KEYS.length) return { saved: false, reason: "incomplete_drives" };
@@ -24,14 +24,20 @@ function persistReportedDesireState({ state, stateFile, historyFile = "", now = 
   const next = { ...state, drives: normalizedDrives, previous, updatedAt: now, sourceHash };
   atomicWriteJson(stateFile, next);
 
-  const targetHistory = historyFile || path.join(path.dirname(stateFile), "desire-history.jsonl");
-  const row = {
-    time: now,
-    most_want: String(state.most_want || state.intent?.want_action || "").trim(),
-    note: "claude-runtime-reported",
-  };
-  for (const drive of normalizedDrives) row[drive.key] = normalizeScore(drive.score);
-  fs.appendFileSync(targetHistory, `${JSON.stringify(row)}\n`, "utf8");
+  // History rows are the AI's own hourly reports and nothing else. Engine
+  // settlements update the state file but must not append here, or the ledger
+  // mixes two kinds of rows under one note and the next heartbeat quotes an
+  // echo instead of what the AI actually said last time.
+  if (appendHistory) {
+    const targetHistory = historyFile || path.join(path.dirname(stateFile), "desire-history.jsonl");
+    const row = {
+      time: now,
+      most_want: String(state.most_want || state.intent?.want_action || "").trim(),
+      note: "claude-runtime-reported",
+    };
+    for (const drive of normalizedDrives) row[drive.key] = normalizeScore(drive.score);
+    fs.appendFileSync(targetHistory, `${JSON.stringify(row)}\n`, "utf8");
+  }
   return { saved: true, reason: "reported_state", sourceHash };
 }
 

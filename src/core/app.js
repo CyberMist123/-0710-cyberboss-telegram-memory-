@@ -3160,10 +3160,12 @@ class CyberbossApp {
       }
     }
     const reportedState = buildReportedDesireStateFromSnapshot(result, pendingOperation.reportedState);
+    // Settlement is bookkeeping, not a report: it may rewrite the state file
+    // but never appends to desire-history.jsonl (Owner ruling 2026-07-29).
     const persistResult = persistReportedDesireState({
       state: reportedState,
       stateFile: this.config.desireStateFile,
-      historyFile: this.config.desireHistoryFile,
+      appendHistory: false,
     });
     if (persistResult?.saved !== true && persistResult?.reason !== "duplicate_report") {
       throw new Error(`persist_reported_state_failed:${persistResult?.reason || "unknown"}`);

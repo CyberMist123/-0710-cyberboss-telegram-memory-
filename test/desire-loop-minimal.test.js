@@ -548,10 +548,11 @@ test("minimal loop wires checkin queue to dispatch and closes through the single
 
   assert.equal(settleResult.driven_behavior_enabled, true);
   assert.deepEqual(markedActions, ["web_browse"]);
+  // The ledger keeps only the AI's own report; settlement must not add a row.
   const historyRows = fs.readFileSync(config.desireHistoryFile, "utf8").trim().split("\n").map(JSON.parse);
-  assert.equal(historyRows.length, 2);
+  assert.equal(historyRows.length, 1);
   assert.equal(historyRows.at(-1).note, "claude-runtime-reported");
-  assert.notEqual(historyRows.at(-1).most_want, "none");
+  assert.equal(historyRows.at(-1).most_want, "去看看外面");
   const persisted = readPersistedDesireState(config.desireStateFile);
   assert.equal(Array.isArray(persisted.drives), true);
   assert.equal(persisted.drives.length, 8);
