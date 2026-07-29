@@ -81,6 +81,35 @@ if (-not [string]::IsNullOrWhiteSpace($Date)) {
 }
 
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+$modeProbe = 'const path=require(\"path\"); const root=process.argv[1]; const {loadEnv}=require(path.join(root,\"src\",\"index\")); loadEnv(); const {readConfig}=require(path.join(root,\"src\",\"core\",\"config\")); process.stdout.write(readConfig().nightlyMode);'
+$modeProbeErrorActionPreference = $ErrorActionPreference
+try {
+  $ErrorActionPreference = "Continue"
+  $modeProbeOutput = @(& node -e $modeProbe $appRoot 2>&1)
+  $modeProbeExitCode = $LASTEXITCODE
+} finally {
+  $ErrorActionPreference = $modeProbeErrorActionPreference
+}
+if ($modeProbeExitCode -ne 0) {
+  $stamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+  Add-Content -LiteralPath $logFile -Value "[$stamp] continuity-nightly gate decision=block reason=invalid-nightly-config exit=$modeProbeExitCode"
+  $modeProbeOutput | ForEach-Object { $_.ToString() } | Add-Content -LiteralPath $logFile
+  exit $modeProbeExitCode
+}
+$nightlyMode = ($modeProbeOutput -join [Environment]::NewLine).Trim()
+if (@("shadow", "auto") -contains $nightlyMode) {
+  $confirmationFile = Join-Path $env:CYBERBOSS_CONFIG_DIR "nightly-mode.confirm"
+  if (-not (Test-Path -LiteralPath $confirmationFile -PathType Leaf)) {
+    $stamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    Add-Content -LiteralPath $logFile -Value "[$stamp] continuity-nightly gate mode=$nightlyMode decision=block reason=missing-confirmation marker=$confirmationFile"
+    exit 78
+  }
+  $stamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+  Add-Content -LiteralPath $logFile -Value "[$stamp] continuity-nightly gate mode=$nightlyMode decision=allow marker=$confirmationFile"
+} else {
+  $stamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+  Add-Content -LiteralPath $logFile -Value "[$stamp] continuity-nightly gate mode=$nightlyMode decision=allow reason=default-safe"
+}
 $stamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
 Add-Content -LiteralPath $logFile -Value "[$stamp] continuity-nightly start args=$($nodeArgs -join ' ')"
 & node @nodeArgs 2>&1 | ForEach-Object { $_.ToString() } | Add-Content -LiteralPath $logFile

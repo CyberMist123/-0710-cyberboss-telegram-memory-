@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { parseStrictBoolean } = require("./bounded-json");
+const { normalizeNightlyMode } = require("../continuity/nightly-mode");
 
 function readConfig() {
   const argv = process.argv.slice(2);
@@ -173,6 +174,7 @@ function readConfig() {
     desireTelemetry: resolveFeatureGate("CYBERBOSS_DESIRE_TELEMETRY"),
     desireTelemetryFile: resolveConfiguredPath(readTextEnv("CYBERBOSS_DESIRE_TELEMETRY_FILE")) || joinIfBase(stateDir, "desire-usage.jsonl"),
     nightlyCloseoutEnabled: readStrictBoolEnv("CYBERBOSS_NIGHTLY_CLOSEOUT_ENABLED", false),
+    nightlyMode: normalizeNightlyMode(readTextEnv("CYBERBOSS_NIGHTLY_MODE")),
     nightlyCloseoutHour: readBoundedIntEnv("CYBERBOSS_NIGHTLY_CLOSEOUT_HOUR", 4, 0, 23),
     nightlyCloseoutMinute: readBoundedIntEnv("CYBERBOSS_NIGHTLY_CLOSEOUT_MINUTE", 30, 0, 59),
     automationTimezone: readTimezoneEnv("CYBERBOSS_AUTOMATION_TIMEZONE", "Australia/Sydney"),
