@@ -32,7 +32,7 @@ src/core/app.js                       中枢：命令分流、投递
   ├── 通路 A：buildRuntimeTurn()        —— 本轮 turn 的拼装
   │     ├── provider = telegram
   │     │     ├── resolveMemoryContextFailOpen()
-  │     │     └── plaintext <channel> envelope，memory_context 拼在里面
+  │     │     └── plaintext <channel> envelope，<memory_context> 块排在信封上方（外侧）
   │     │           （formatTelegramRuntimeText()）
   │     │        注：这条分支不走 resolveVisionContext() —— Telegram 媒体
   │     │        以 <media> 引用进 envelope，是刻意设计（DECISIONS.md D15）
@@ -156,7 +156,7 @@ Claude Code 子进程自己可以再起**子代理**。这条链路目前不由�
 
 ### memory_context 的四种模式
 
-Telegram 与其他 provider 走的是同一段解析逻辑，区别只在包装：Telegram 经 `resolveMemoryContextFailOpen()` 调用它（解析抛错时退成空 context，不拖垮本轮投递），结果拼进 `<channel>` envelope 里的 `<memory_context>` 段。
+Telegram 与其他 provider 走的是同一段解析逻辑，区别只在包装：Telegram 经 `resolveMemoryContextFailOpen()` 调用它（解析抛错时退成空 context，不拖垮本轮投递），结果作为 `<memory_context>` 块排在 `<channel>` envelope **上方（外侧）**——信封本体保持与线上桥逐字节一致（D9），记忆行永不与她的原文交错（D15，`formatTelegramRuntimeText()` 上方注释）。
 
 `resolveMemoryContextForPrepared()`（`app.js`）先调 `src/core/memory-resolver.js` 的 `resolveMemoryRetrievalPlan(text)`，按**这一句话说了什么**决定这轮要不要检索：
 
