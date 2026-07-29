@@ -63,6 +63,11 @@ jobs:
         id: p5a
         run: ./scripts/ci/run-annotated.ps1 -Name phase5a -Command 'npm run test:phase5a'
 
+      # closeout-liveness 是具名 P0 主链分组，此前整组不在 CI（issue #78）。
+      - name: P0 closeout liveness tests
+        id: p0_liveness
+        run: ./scripts/ci/run-annotated.ps1 -Name p0-closeout-liveness -Command 'npm run test:p0-closeout-liveness'
+
       - name: Route lanes tests
         id: route_lanes
         run: ./scripts/ci/run-annotated.ps1 -Name route-lanes -Command 'npm run test:route-lanes'
@@ -126,6 +131,7 @@ jobs:
             "static=${{ steps.static.outcome }}", "p1=${{ steps.p1.outcome }}",
             "p2=${{ steps.p2.outcome }}", "p3=${{ steps.p3.outcome }}",
             "p4=${{ steps.p4.outcome }}", "p5a=${{ steps.p5a.outcome }}",
+            "p0_liveness=${{ steps.p0_liveness.outcome }}",
             "route_lanes=${{ steps.route_lanes.outcome }}", "telegram_media=${{ steps.telegram_media.outcome }}",
             "orch=${{ steps.orch.outcome }}", "py39=${{ steps.py39.outcome }}",
             "probe=${{ steps.probe.outcome }}", "diff=${{ steps.diff.outcome }}"

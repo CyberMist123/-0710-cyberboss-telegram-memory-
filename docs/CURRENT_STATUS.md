@@ -84,7 +84,7 @@ Verified against: 3c4d561 (main)
 | Memory 目录化（注入目录而非命中行） | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | `DEFERRED` —— 降本方向，未开工 |
 | 子代理结果胶囊化 | `ORPHAN` | `COVERED` | `BLOCKING` | `NOT_WIRED` | 胶囊契约与离线闭环已实现（`src/orchestration/delegation/`），验收测试在 `test:orchestration`，该分组已进主 CI。**但只有委派 runner 调用它**：主 Chat 仍直接回流子代理输出，目标通路未接。契约见 `DECISIONS.md` D14 |
 | 记忆服务层（validator / resolver / extractor） | `WIRED` | `COVERED` | `NONE` | `WIRED` | 11 个测试文件全部未接进主 CI |
-| Closeout liveness | `WIRED` | `COVERED` | `NONE` | `UNKNOWN` | 调度器已接入 `app.js`；生产机开关状态仓库无法判断 |
+| Closeout liveness | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | 调度器已接入 `app.js`；`test:p0-closeout-liveness` 已接进主 CI；生产机开关状态仓库无法判断 |
 | nightly closeout | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | **`PARTIAL`** —— D18 业务日、时区统一及空结果重试/封存语义已实现，五类边界测试进入 `test:phase3`；仓库默认关闭，生产机实际状态未核 |
 | Reflect / 低频重读（rereadings） | `ORPHAN` | `UNIT_ONLY` | `NONE` | `NOT_WIRED` | **`FAIL`** —— 无调度器调它，`runtime.reflect()` 无实现方 |
 | `/effort` | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | — |
@@ -112,7 +112,7 @@ Verified against: 3c4d561 (main)
 - **为什么 Re-entry / Current State 仍是 `WIRED`**：它们不走 `buildRuntimeTurn`，而是由运行时适配器调 `prepareOpeningContext()`（`claudecode/index.js:895`、`codex/index.js:245/276`）注入。两条独立通路，不能合记一行。
 - **Context Trace 覆盖 memory_context**：`recordContextTrace()` 新增 memoryContext 参数，有记忆行时在 `blocks` 记 `{type:"memory_context", loaded:true, reason:<mode>, chars}`，无记忆时在 `skipped` 记 `{type:"memory_context", reason:<mode|empty>}`；`dispatchPreparedTurn` 的调用点已接入，对所有 provider 的 turn 路径生效（opening refresh 调用点行结构不变）。由 `test/phase2-hard-context.test.js` 钉住，在 `test:phase2` 分组内，阻塞主 CI。
 - **为什么 nightly 的生产接线记 `UNKNOWN`**：仓库只能证明 `.env.example` 里 `CYBERBOSS_NIGHTLY_CLOSEOUT_ENABLED=false`、`CYBERBOSS_NIGHTLY_MODE=evidence`，以及 `src/core/config.js` 对应的默认值为 `false` 与 `evidence`；`scripts/windows/continuity-nightly.ps1` 的计划任务路径显式允许未设置 / `evidence`，而 `shadow` / `auto` 必须另有 `config_dir/nightly-mode.confirm` 标记。生产机实际环境变量在 `settings/secrets/*.local.json`，不入库；计划任务状态与确认标记状态也不在版本控制内。**因此仓库无法对生产机的历史启用情况作出任何结论 —— 这一格只能记 `UNKNOWN`。**
-- **CI 覆盖**：主 CI 只执行 `.github/workflows/phase1-offline.yml` 里列出的八个 `npm run test:*` 分组。`test:p0-closeout-liveness` 整组未接。
+- **CI 覆盖**：主 CI 只执行 `.github/workflows/phase1-offline.yml` 里列出的九个 `npm run test:*` 分组（含 `test:p0-closeout-liveness`）。其余孤儿测试的接线清单见 issue #78。
 
 ---
 
