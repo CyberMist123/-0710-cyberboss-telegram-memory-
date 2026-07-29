@@ -228,14 +228,24 @@ test("tool host exposes structured timeline read tools", async () => {
   assert.equal(proposalsResult.text, "Timeline proposals loaded: 1.");
 });
 
-test("tool host returns final Beijing time without UTC conversion hints", async () => {
-  const host = createHost();
-  const result = await host.invokeTool("cyberboss_time", {}, {});
+test("tool host returns final configured local time without UTC conversion hints", async () => {
+  const previousTimezone = process.env.CYBERBOSS_TIMEZONE;
+  process.env.CYBERBOSS_TIMEZONE = "Australia/Sydney";
+  try {
+    const host = createHost();
+    const result = await host.invokeTool("cyberboss_time", {}, {});
 
-  assert.match(result.text, /^北京时间 \d{2}:\d{2}:\d{2}$/);
-  assert.equal(result.data.timezone, "Asia/Shanghai");
-  assert.equal(result.data.format, "北京时间 HH:MM:SS");
-  assert.equal(result.data.value, result.text);
+    assert.match(result.text, /^本地时间 \d{2}:\d{2}:\d{2}$/);
+    assert.equal(result.data.timezone, "Australia/Sydney");
+    assert.equal(result.data.format, "本地时间 HH:MM:SS");
+    assert.equal(result.data.value, result.text);
+  } finally {
+    if (previousTimezone === undefined) {
+      delete process.env.CYBERBOSS_TIMEZONE;
+    } else {
+      process.env.CYBERBOSS_TIMEZONE = previousTimezone;
+    }
+  }
 });
 
 test("tool host validates structured reminder input types", async () => {

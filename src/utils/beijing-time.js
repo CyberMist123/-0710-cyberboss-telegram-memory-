@@ -1,14 +1,16 @@
+const { resolveAppTimezone } = require("./app-timezone");
+
 function pad(value) {
   return String(value).padStart(2, "0");
 }
 
-function resolveBeijingDate(input = new Date()) {
+function resolveAppDate(input = new Date(), timezoneOptions) {
   const date = input instanceof Date ? input : new Date(input);
   if (Number.isNaN(date.getTime())) {
     return null;
   }
   const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Shanghai",
+    timeZone: resolveAppTimezone(timezoneOptions),
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -29,23 +31,28 @@ function resolveBeijingDate(input = new Date()) {
   };
 }
 
-function formatBeijingTime(input = new Date()) {
-  const parts = resolveBeijingDate(input);
+function formatAppTime(input = new Date(), timezoneOptions) {
+  const parts = resolveAppDate(input, timezoneOptions);
   if (!parts) {
     return "";
   }
-  return `北京时间 ${pad(parts.hour)}:${pad(parts.minute)}:${pad(parts.second)}`;
+  return `本地时间 ${pad(parts.hour)}:${pad(parts.minute)}:${pad(parts.second)}`;
 }
 
-function formatBeijingDateTime(input = new Date()) {
-  const parts = resolveBeijingDate(input);
+function formatAppDateTime(input = new Date(), timezoneOptions) {
+  const parts = resolveAppDate(input, timezoneOptions);
   if (!parts) {
     return "";
   }
-  return `北京时间 ${parts.year}-${parts.month}-${parts.day} ${pad(parts.hour)}:${pad(parts.minute)}:${pad(parts.second)}`;
+  return `本地时间 ${parts.year}-${parts.month}-${parts.day} ${pad(parts.hour)}:${pad(parts.minute)}:${pad(parts.second)}`;
 }
+
+const formatBeijingDateTime = formatAppDateTime;
+const formatBeijingTime = formatAppTime;
 
 module.exports = {
+  formatAppDateTime,
+  formatAppTime,
   formatBeijingDateTime,
   formatBeijingTime,
 };

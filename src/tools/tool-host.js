@@ -4,7 +4,8 @@ const {
   STICKER_DESC_FIELD_DESCRIPTION,
   STICKER_TAG_GUIDANCE,
 } = require("../services/sticker-service");
-const { formatBeijingTime } = require("../utils/beijing-time");
+const { resolveAppTimezone } = require("../utils/app-timezone");
+const { formatAppTime } = require("../utils/beijing-time");
 
 class ProjectToolHost {
   constructor({ services, runtimeContextStore }) {
@@ -253,8 +254,8 @@ const PROJECT_TOOLS = [
   },
   {
     name: "cyberboss_time",
-    description: "Read the current Beijing time. The returned text is already final Beijing time and must not be converted again.",
-    shortHint: "Read the current Beijing time and use it as-is without UTC conversion.",
+    description: "Read the current local time in the configured application timezone. The returned text is final and must not be converted again.",
+    shortHint: "Read the configured local time and use it as-is without UTC conversion.",
     topics: ["time"],
     inputSchema: {
       type: "object",
@@ -262,13 +263,13 @@ const PROJECT_TOOLS = [
       additionalProperties: false,
     },
     async handler() {
-      const value = formatBeijingTime(new Date());
+      const value = formatAppTime(new Date());
       return {
         text: value,
         data: {
           value,
-          timezone: "Asia/Shanghai",
-          format: "北京时间 HH:MM:SS",
+          timezone: resolveAppTimezone(),
+          format: "本地时间 HH:MM:SS",
         },
       };
     },

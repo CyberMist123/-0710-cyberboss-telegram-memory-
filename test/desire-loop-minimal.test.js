@@ -222,12 +222,15 @@ test("claudecode settlement accepts a plain-text final reply", () => {
 });
 
 test("desire checkin prompt stays byte-identical when minimal loop gate is off", () => {
-  const text = buildSystemInboundText("测试 checkin", "2026-07-12T00:00:00.000Z", "desire_checkin", "failure", {
-    desireLoopMinimalEnabled: false,
-  });
+  const previousTimezone = process.env.CYBERBOSS_TIMEZONE;
+  process.env.CYBERBOSS_TIMEZONE = "Australia/Sydney";
+  try {
+    const text = buildSystemInboundText("测试 checkin", "2026-07-12T00:00:00.000Z", "desire_checkin", "failure", {
+      desireLoopMinimalEnabled: false,
+    });
 
-  assert.equal(text, [
-    "[北京时间 2026-07-12 08:00:00]",
+    assert.equal(text, [
+    "[本地时间 2026-07-12 10:00:00]",
     "",
     "SYSTEM ACTION MODE: internal trigger, not user chat.",
     "System trigger type: desire_checkin.",
@@ -243,7 +246,14 @@ test("desire checkin prompt stays byte-identical when minimal loop gate is off",
     "",
     "Trigger:",
     "测试 checkin",
-  ].join("\n"));
+    ].join("\n"));
+  } finally {
+    if (previousTimezone === undefined) {
+      delete process.env.CYBERBOSS_TIMEZONE;
+    } else {
+      process.env.CYBERBOSS_TIMEZONE = previousTimezone;
+    }
+  }
 });
 
 test("bad JSON stays silent when the minimal loop gate is off", () => {
