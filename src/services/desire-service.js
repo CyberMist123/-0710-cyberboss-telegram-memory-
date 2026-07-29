@@ -218,7 +218,7 @@ class DesireService {
     const experience = createExperience({
       type: "UserMessage",
       rawSource: text,
-      origin: ThoughtOrigin.SELF,
+      origin: ThoughtOrigin.USER,
       drive: inferOwnerPulseDrive(text),
       occurredAt: now,
     });
@@ -234,7 +234,7 @@ class DesireService {
     const experience = createExperience({
       type: "AssistantMessage",
       rawSource: text,
-      origin: ThoughtOrigin.USER,
+      origin: ThoughtOrigin.SELF,
       drive: snapshot.intent?.drive_key || "attachment",
       occurredAt: now,
     });
