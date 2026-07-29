@@ -88,7 +88,7 @@ Verified against: 9bb78a0f (main)
 | nightly closeout | `WIRED` | `PARTIAL` | `NONE` | `UNKNOWN` | **`FAIL`** —— 仓库默认关闭；生产机实际环境变量与计划任务状态未核 |
 | Reflect / 低频重读（rereadings） | `ORPHAN` | `UNIT_ONLY` | `NONE` | `NOT_WIRED` | **`FAIL`** —— 无调度器调它，`runtime.reflect()` 无实现方 |
 | `/effort` | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | — |
-| Desire（八维状态 + hourly poller） | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | 生产机开关由不入库的 secrets 决定 |
+| Desire（八维状态 + hourly poller） | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | 最小闭环代码与生产落盘形态集成测试已进仓库；挂 `CYBERBOSS_DESIRE_LOOP_MINIMAL_ENABLED`，默认关闭，生产机实际开关状态由不入库的 secrets 决定 |
 | 520 · 只读视图与健康度 | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | 面板由独立计划任务拉起，真机状态未核 |
 | 520 · 活跃写端点（提示词 / 分层 / 门控 / 调度） | `WIRED` | `PARTIAL` | `NONBLOCKING` | `UNKNOWN` | 改生产行为的端点覆盖不全 |
 | 520 · 安全冻结写端点（5 个） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 按设计冻结，见 `DECISIONS.md` D5 |

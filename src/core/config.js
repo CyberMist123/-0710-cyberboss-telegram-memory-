@@ -162,6 +162,7 @@ function readConfig() {
     visionModel: readTextEnv("CYBERBOSS_VISION_MODEL"),
     visionTimeoutMs: readIntEnv("CYBERBOSS_VISION_TIMEOUT_MS") || 30_000,
     desireDriven: resolveDesireDriven(),
+    desireLoopMinimalEnabled: readStrictBoolEnv("CYBERBOSS_DESIRE_LOOP_MINIMAL_ENABLED", false),
     desireCoupling: resolveFeatureGate("CYBERBOSS_DESIRE_COUPLING"),
     desireBaselineDrift: resolveFeatureGate("CYBERBOSS_DESIRE_BASELINE_DRIFT"),
     heartbeatAutonomy: resolveFeatureGate("CYBERBOSS_HEARTBEAT_AUTONOMY"),

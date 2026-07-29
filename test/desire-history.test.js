@@ -5,7 +5,7 @@ const os = require("os");
 const path = require("path");
 
 const { DesireService } = require("../src/services/desire-service");
-const { DRIVE_KEYS, persistReportedDesireState } = require("../src/core/desire-state-persistence");
+const { DRIVE_KEYS, persistReportedDesireState, readLatestDesireHistory } = require("../src/core/desire-state-persistence");
 
 test("Desire sole writer appends an eight-dimensional dashboard history row", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-desire-history-"));
@@ -18,10 +18,12 @@ test("Desire sole writer appends an eight-dimensional dashboard history row", ()
     desireThoughtMax: 80,
   };
   const service = new DesireService(config);
+  assert.equal(fs.existsSync(config.desireStateFile), false);
+  assert.equal(fs.existsSync(config.desireHistoryFile), false);
   service.save();
 
   const rows = fs.readFileSync(config.desireHistoryFile, "utf8").trim().split("\n").map(JSON.parse);
-  assert.ok(rows.length >= 2);
+  assert.equal(rows.length, 1);
   for (const key of ["attachment", "curiosity", "reflection", "duty", "social", "fatigue", "libido", "stress"]) {
     assert.equal(typeof rows.at(-1)[key], "number");
   }
@@ -48,4 +50,22 @@ test("Claude reported octants persist realtime and one deduplicated history row"
   assert.equal(rows[0].note, "claude-runtime-reported");
   assert.equal(rows[0].attachment, 0.1);
   assert.equal(rows[0].stress, 0.8);
+});
+
+
+test("latest desire history row can be read back for the next heartbeat", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-desire-history-read-"));
+  const historyFile = path.join(root, "desire-history.jsonl");
+  fs.writeFileSync(historyFile, [
+    JSON.stringify({ time: "2026-07-12T05:00:00.000Z", most_want: "继续读书", attachment: 0.2 }),
+    "not-json",
+    JSON.stringify({ time: "2026-07-12T06:00:00.000Z", most_want: "去看看外面", social: 0.6, stress: 0.4 }),
+  ].join("\n"), "utf8");
+
+  assert.deepEqual(readLatestDesireHistory(historyFile), {
+    time: "2026-07-12T06:00:00.000Z",
+    most_want: "去看看外面",
+    social: 0.6,
+    stress: 0.4,
+  });
 });

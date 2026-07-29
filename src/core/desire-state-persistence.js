@@ -35,6 +35,32 @@ function persistReportedDesireState({ state, stateFile, historyFile = "", now = 
   return { saved: true, reason: "reported_state", sourceHash };
 }
 
+function readLatestDesireHistory(historyFile = "") {
+  if (!historyFile) return null;
+  let content = "";
+  try {
+    content = fs.readFileSync(historyFile, "utf8");
+  } catch {
+    return null;
+  }
+  const lines = content.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    try {
+      const parsed = JSON.parse(lines[index]);
+      if (parsed && typeof parsed === "object") {
+        return parsed;
+      }
+    } catch {}
+  }
+  return null;
+}
+
+function readPersistedDesireState(stateFile = "") {
+  if (!stateFile) return null;
+  const parsed = readJson(stateFile);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+}
+
 function hashReportedState(state) {
   const stable = {
     most_want: String(state.most_want || "").trim(),
@@ -65,4 +91,4 @@ function atomicWriteJson(filePath, value) {
   fs.renameSync(temporary, filePath);
 }
 
-module.exports = { DRIVE_KEYS, persistReportedDesireState };
+module.exports = { DRIVE_KEYS, persistReportedDesireState, readLatestDesireHistory, readPersistedDesireState };
