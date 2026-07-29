@@ -85,7 +85,7 @@ Verified against: 3c4d561 (main)
 | 子代理结果胶囊化 | `ORPHAN` | `COVERED` | `BLOCKING` | `NOT_WIRED` | 胶囊契约与离线闭环已实现（`src/orchestration/delegation/`），验收测试在 `test:orchestration`，该分组已进主 CI。**但只有委派 runner 调用它**：主 Chat 仍直接回流子代理输出，目标通路未接。契约见 `DECISIONS.md` D14 |
 | 记忆服务层（validator / resolver / extractor） | `WIRED` | `COVERED` | `NONE` | `WIRED` | 11 个测试文件全部未接进主 CI |
 | Closeout liveness | `WIRED` | `COVERED` | `NONE` | `UNKNOWN` | 调度器已接入 `app.js`；生产机开关状态仓库无法判断 |
-| nightly closeout | `WIRED` | `PARTIAL` | `NONE` | `UNKNOWN` | **`FAIL`** —— 仓库默认关闭；生产机实际环境变量与计划任务状态未核 |
+| nightly closeout | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | **`PARTIAL`** —— D18 业务日、时区统一及空结果重试/封存语义已实现，五类边界测试进入 `test:phase3`；仓库默认关闭，生产机实际状态未核 |
 | Reflect / 低频重读（rereadings） | `ORPHAN` | `UNIT_ONLY` | `NONE` | `NOT_WIRED` | **`FAIL`** —— 无调度器调它，`runtime.reflect()` 无实现方 |
 | `/effort` | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | — |
 | Desire（八维状态 + hourly poller） | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | 最小闭环代码与生产落盘形态集成测试已进仓库；挂 `CYBERBOSS_DESIRE_LOOP_MINIMAL_ENABLED`，默认关闭，生产机实际开关状态由不入库的 secrets 决定 |

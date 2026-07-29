@@ -1,10 +1,12 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const { DEFAULT_AUTOMATION_TIMEZONE, localDateKey } = require("../utils/business-day");
 
 class ConversationRecorder {
-  constructor({ dirPath = "" } = {}) {
+  constructor({ dirPath = "", automationTimezone = DEFAULT_AUTOMATION_TIMEZONE } = {}) {
     this.dirPath = dirPath;
+    this.automationTimezone = automationTimezone;
   }
 
   record(entry = {}) {
@@ -12,7 +14,7 @@ class ConversationRecorder {
     const normalized = this.normalizeEntry(entry);
     if (!normalized) return;
     fs.mkdirSync(this.dirPath, { recursive: true });
-    const day = formatDateKey(normalized.timestamp);
+    const day = formatDateKey(normalized.timestamp, this.automationTimezone);
     const filePath = path.join(this.dirPath, `${day}.jsonl`);
     fs.appendFileSync(filePath, `${JSON.stringify(normalized)}\n`, "utf8");
   }
@@ -51,15 +53,8 @@ function buildId(type, timestamp) {
 
 module.exports = { ConversationRecorder };
 
-function formatDateKey(timestamp) {
+function formatDateKey(timestamp, automationTimezone = DEFAULT_AUTOMATION_TIMEZONE) {
   const parsed = Date.parse(String(timestamp || "").trim());
-  if (!Number.isFinite(parsed)) {
-    return new Date().toISOString().slice(0, 10);
-  }
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date(parsed));
+  const instant = Number.isFinite(parsed) ? parsed : Date.now();
+  return localDateKey(instant, automationTimezone) || new Date(instant).toISOString().slice(0, 10);
 }

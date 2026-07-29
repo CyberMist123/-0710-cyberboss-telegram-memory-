@@ -21,7 +21,10 @@ class VoiceService {
     this.kit = loadVoiceKit(this.config);
     this.localWhisper = new LocalWhisperTranscriber(this.config);
     this.recorder = this.config.conversationDir
-      ? new ConversationRecorder({ dirPath: this.config.conversationDir })
+      ? new ConversationRecorder({
+        dirPath: this.config.conversationDir,
+        automationTimezone: this.config.automationTimezone,
+      })
       : null;
   }
 

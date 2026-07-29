@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 
 const { resolveBodyInput } = require("./text-input");
+const { DEFAULT_AUTOMATION_TIMEZONE, localDateKey, zonedParts } = require("../utils/business-day");
 
 class DiaryService {
   constructor({ config }) {
@@ -15,8 +16,8 @@ class DiaryService {
     }
 
     const now = new Date();
-    const dateString = date || formatDate(now);
-    const timeString = time || formatTime(now);
+    const dateString = date || formatDate(now, this.config.automationTimezone);
+    const timeString = time || formatTime(now, this.config.automationTimezone);
     const filePath = path.join(this.config.diaryDir, `${dateString}.md`);
     const entry = buildDiaryEntry({
       timeString,
@@ -46,22 +47,14 @@ function buildDiaryEntry({ timeString, title, body, sourceLabel = "" }) {
   return `${heading}\n\n${body}`;
 }
 
-function formatDate(date) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
+function formatDate(date, automationTimezone = DEFAULT_AUTOMATION_TIMEZONE) {
+  return localDateKey(date, automationTimezone) || new Date(date).toISOString().slice(0, 10);
 }
 
-function formatTime(date) {
-  return new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Shanghai",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(date);
+function formatTime(date, automationTimezone = DEFAULT_AUTOMATION_TIMEZONE) {
+  const parts = zonedParts(date, automationTimezone);
+  if (!parts) return new Date(date).toISOString().slice(11, 16);
+  return `${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`;
 }
 
 module.exports = {

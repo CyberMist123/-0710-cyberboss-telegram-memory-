@@ -31,9 +31,9 @@ Boolean values must be explicit. Hours, minutes, thresholds, grace, and cooldown
 
 ## Closeout path
 
-At or after the Sydney target time, the owner computes a stable business-date key and directly calls `ContinuityPipeline.runCloseoutAsync()` through `src/continuity/closeout-job.js`. It does not enqueue a prompt asking the model whether to run closeout. The pipeline remains responsible for filtered materials, the existing writer lease, candidate idempotency, and the `.jobs/closeout-YYYY-MM-DD.json` ledger.
+At or after the configured target time, the owner uses `CYBERBOSS_AUTOMATION_TIMEZONE` to select the just-ended previous complete local day, then directly calls `ContinuityPipeline.runCloseoutAsync()` through `src/continuity/closeout-job.js`. The shared business-day utility also drives conversation file partitioning, ledger keys, and candidate timestamps. The owner does not enqueue a prompt asking the model whether to run closeout. The pipeline remains responsible for filtered materials, the existing writer lease, candidate idempotency, and the `.jobs/closeout-YYYY-MM-DD.json` ledger.
 
-The owner also uses a small durable claim lease and retry state. A successful or terminal `no_output` result is not run again for that Sydney date. Failures are recorded, retried after backoff, and capped; a failure never writes a success ledger.
+The owner also uses a small durable claim lease and retry state. Empty output while the processing window remains open is stored as `retryable_no_output` and retried after backoff; when the next business-day window opens, an older empty day may become terminal `sealed_no_output`. A successful or sealed result is not run again. Legacy `no_output` ledger and retry-state records are interpreted as retryable and are lazily replaced by one of the explicit states. Failures are recorded, retried after backoff, and capped; a failure never writes a success ledger.
 
 ## Liveness path
 

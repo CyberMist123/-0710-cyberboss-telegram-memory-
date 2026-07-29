@@ -79,7 +79,8 @@ test("closeout, review, and history writer are byte-idempotent and preserve auth
   });
   const secondReview = pipeline.runReview({ env: { ...process.env, AUTO_REVIEW_MOCK: "accept" } });
   const secondWriter = pipeline.runHistoryWriter();
-  assert.equal(secondCloseout.status, "no_output");
+  assert.equal(secondCloseout.status, "success");
+  assert.equal(secondCloseout.reason, "already_ran");
   assert.equal(secondCloseout.author_called, false);
   assert.equal(secondReview.decisions.length, 0);
   assert.equal(secondWriter.written.length, 0);
@@ -313,7 +314,7 @@ test("continuity pipeline recovers a dead writer lease before background work", 
     date: "2026-07-11",
     author: () => { called = true; return {}; },
   });
-  assert.equal(result.status, "no_output");
+  assert.equal(result.status, "retryable_no_output");
   assert.equal(called, true);
   assert.equal(fs.existsSync(fixture.writerLeaseFile), false);
   const archiveDir = path.join(fixture.continuityDir, ".backups", "writer-leases");

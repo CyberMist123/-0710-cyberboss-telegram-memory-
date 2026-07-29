@@ -151,7 +151,10 @@ class CyberbossApp {
     this.timelineScreenshotQueue = new TimelineScreenshotQueueStore({ filePath: config.timelineScreenshotQueueFile });
     this.reminderQueue = new ReminderQueueStore({ filePath: config.reminderQueueFile });
     this.turnGateStore = new TurnGateStore();
-    this.conversationRecorder = config.conversationDir ? new ConversationRecorder({ dirPath: config.conversationDir }) : null;
+    this.conversationRecorder = config.conversationDir ? new ConversationRecorder({
+      dirPath: config.conversationDir,
+      automationTimezone: config.automationTimezone,
+    }) : null;
     this.pendingInboundByScope = new Map();
     this.pendingImageInboundByScope = new Map();
     this.telegramPendingInboundByMessageId = new Set();

@@ -3,6 +3,7 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 const { acquireWriterLease, releaseWriterLease } = require("../orchestration/writer-lease");
 const { countNonWhitespace } = require("../core/reentry-loader");
+const { DEFAULT_AUTOMATION_TIMEZONE, businessDayForDate } = require("../utils/business-day");
 const { stripConversationArtifacts } = require("./conversation-purity");
 const {
   authorityFailureReason,
@@ -26,6 +27,7 @@ class ContinuityPipeline {
     this.conversationDir = path.resolve(requireText(options.conversationDir, "conversationDir"));
     this.writerLeaseFile = path.resolve(requireText(options.writerLeaseFile, "writerLeaseFile"));
     this.python = options.python || process.env.PYTHON || "python";
+    this.automationTimezone = options.automationTimezone || DEFAULT_AUTOMATION_TIMEZONE;
     this.reviewScript = path.resolve(requireText(options.reviewScript, "reviewScript"));
     this.janitorScript = options.janitorScript ? path.resolve(options.janitorScript) : "";
     this.transcriptDir = options.transcriptDir ? path.resolve(options.transcriptDir) : "";
@@ -53,43 +55,53 @@ class ContinuityPipeline {
     };
   }
 
-  runCloseout({ date, author, candidateMetadata = {} }) {
+  runCloseout({ date, author, candidateMetadata = {}, windowClosed = false }) {
     const day = normalizeDate(date);
-    const ledgerPath = path.join(this.paths.jobs, `closeout-${day}.json`);
-    if (fs.existsSync(ledgerPath)) return { status: "no_output", reason: "already_ran", author_called: false };
+    const businessDay = businessDayForDate(day, this.automationTimezone);
+    const ledgerPath = path.join(this.paths.jobs, `closeout-${businessDay?.dateKey || day}.json`);
+    const terminal = terminalCloseoutResult(ledgerPath);
+    if (terminal) return terminal;
     return this.withLease("closeout-writer", () => {
-      if (fs.existsSync(ledgerPath)) return { status: "no_output", reason: "already_ran", author_called: false };
+      const claimedTerminal = terminalCloseoutResult(ledgerPath);
+      if (claimedTerminal) return claimedTerminal;
       const materials = this.loadFilteredMaterials(day);
       if (!materials.entries.length) {
-        writeJsonAtomic(ledgerPath, { date: day, status: "no_output", candidate_ids: [] });
-        return { status: "no_output", reason: "no_materials", author_called: false };
+        return recordEmptyCloseout(ledgerPath, day, windowClosed, "no_materials", false);
       }
       if (typeof author !== "function") throw new Error("closeout author is required");
       const authored = author({ date: day, materials: materials.text, entries: materials.entries });
       if (authored && typeof authored.then === "function") {
         throw new Error("runCloseout author must be synchronous; use runCloseoutAsync for runtime authoring");
       }
-      return this.publishCloseout(day, materials, authored, ledgerPath, candidateMetadata);
+      return this.publishCloseout(day, materials, authored, ledgerPath, candidateMetadata, {
+        businessDay,
+        windowClosed,
+      });
     });
   }
 
-  async runCloseoutAsync({ date, author, candidateMetadata = {} }) {
+  async runCloseoutAsync({ date, author, candidateMetadata = {}, windowClosed = false }) {
     const day = normalizeDate(date);
-    const ledgerPath = path.join(this.paths.jobs, `closeout-${day}.json`);
-    if (fs.existsSync(ledgerPath)) return { status: "no_output", reason: "already_ran", author_called: false };
+    const businessDay = businessDayForDate(day, this.automationTimezone);
+    const ledgerPath = path.join(this.paths.jobs, `closeout-${businessDay?.dateKey || day}.json`);
+    const terminal = terminalCloseoutResult(ledgerPath);
+    if (terminal) return terminal;
     return this.withLeaseAsync("closeout-writer", async () => {
-      if (fs.existsSync(ledgerPath)) return { status: "no_output", reason: "already_ran", author_called: false };
+      const claimedTerminal = terminalCloseoutResult(ledgerPath);
+      if (claimedTerminal) return claimedTerminal;
       const materials = this.loadFilteredMaterials(day);
       if (!materials.entries.length) {
-        writeJsonAtomic(ledgerPath, { date: day, status: "no_output", candidate_ids: [] });
-        return { status: "no_output", reason: "no_materials", author_called: false };
+        return recordEmptyCloseout(ledgerPath, day, windowClosed, "no_materials", false);
       }
       const authored = await author({ date: day, materials: materials.text, entries: materials.entries });
-      return this.publishCloseout(day, materials, authored, ledgerPath, candidateMetadata);
+      return this.publishCloseout(day, materials, authored, ledgerPath, candidateMetadata, {
+        businessDay,
+        windowClosed,
+      });
     });
   }
 
-  publishCloseout(day, materials, authored = {}, ledgerPath, candidateMetadata = {}) {
+  publishCloseout(day, materials, authored = {}, ledgerPath, candidateMetadata = {}, options = {}) {
     const sourceRef = materials.source_ref;
     const drafts = [];
     for (const episode of (Array.isArray(authored?.episodes) ? authored.episodes : []).slice(0, 2)) {
@@ -111,6 +123,7 @@ class ContinuityPipeline {
     };
     const candidates = drafts.map((draft) => createCandidate({
       date: day,
+      candidateTimestamp: options.businessDay?.candidateTimestamp,
       type: draft.type,
       author: "closeout",
       body: draft.body,
@@ -121,12 +134,15 @@ class ContinuityPipeline {
         : (["self_note", "reentry_draft"].includes(draft.type) && defaults.authorRole !== "subject_ai"),
     }));
     const added = appendJsonlUnique(this.paths.candidates, candidates, "candidate_id");
+    if (!added.length) {
+      return recordEmptyCloseout(ledgerPath, day, options.windowClosed, "author_empty", true);
+    }
     writeJsonAtomic(ledgerPath, {
       date: day,
-      status: added.length ? "success" : "no_output",
+      status: "success",
       candidate_ids: added.map((item) => item.candidate_id),
     });
-    return { status: added.length ? "success" : "no_output", candidates: added, author_called: true };
+    return { status: "success", candidates: added, author_called: true };
   }
 
   loadFilteredMaterials(day) {
@@ -329,8 +345,32 @@ class ContinuityPipeline {
   }
 }
 
+function terminalCloseoutResult(ledgerPath) {
+  if (!fs.existsSync(ledgerPath)) return null;
+  const ledger = loadJson(ledgerPath, null);
+  if (!ledger || !["success", "sealed_no_output"].includes(ledger.status)) return null;
+  return {
+    status: ledger.status,
+    reason: "already_ran",
+    candidates: [],
+    author_called: false,
+  };
+}
+
+function recordEmptyCloseout(ledgerPath, day, windowClosed, reason, authorCalled) {
+  const status = windowClosed ? "sealed_no_output" : "retryable_no_output";
+  writeJsonAtomic(ledgerPath, {
+    date: day,
+    status,
+    reason,
+    candidate_ids: [],
+  });
+  return { status, reason, candidates: [], author_called: authorCalled };
+}
+
 function createCandidate({
   date,
+  candidateTimestamp,
   type,
   author,
   body,
@@ -346,7 +386,8 @@ function createCandidate({
   const idempotencyKey = sha256(`${date}\n${sourceRef.file}:${sourceRef.window}\n${normalizedBody.replace(/\s+/g, " ")}`);
   return normalizeCandidateMetadata({
     candidate_id: `cand-${idempotencyKey.slice(0, 20)}`,
-    ts: `${date}T23:59:59+08:00`,
+    ts: candidateTimestamp || businessDayForDate(date, DEFAULT_AUTOMATION_TIMEZONE)?.candidateTimestamp
+      || `${date}T23:59:59.000Z`,
     type,
     author,
     origin,
