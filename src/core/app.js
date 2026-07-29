@@ -193,6 +193,13 @@ class CyberbossApp {
     return this.embeddingService;
   }
 
+  createDesireService() {
+    if (!this.desireService) {
+      const { DesireService } = require("../services/desire-service");
+      this.desireService = new DesireService(this.config);
+    }
+    return this.desireService;
+  }
   createMemoryService({ ensureFiles = false } = {}) {
     if (!this.memoryService) {
       if (!this.config.memoryDir) {
@@ -1613,16 +1620,20 @@ class CyberbossApp {
       prepared,
       lane: buildSystemRouteLane("system-message"),
       gateLane: null,
-      pendingOperation: message?.sourceType === "desire_checkin" ? {
-        kind: "desire_checkin",
-        eventId: message.id,
-        markerOwner: message.markerOwner,
-        markerEventId: message.markerEventId,
-        startedAt: Date.now(),
-        reusedSession: Boolean(resolveRouteSessionFor(this, {
-          bindingKey, workspaceRoot, lane: buildSystemRouteLane("system-message"),
-        }).threadId),
-      } : null,
+      pendingOperation: message?.sourceType === "desire_checkin"
+        ? {
+            kind: "desire_checkin",
+            eventId: message.id,
+            markerOwner: message.markerOwner,
+            markerEventId: message.markerEventId,
+            startedAt: Date.now(),
+            reusedSession: Boolean(resolveRouteSessionFor(this, {
+              bindingKey, workspaceRoot, lane: buildSystemRouteLane("system-message"),
+            }).threadId),
+          }
+        : (this.config?.desireLoopMinimalEnabled === true && message?.desireState
+          ? buildPendingSystemDesireOperation(this, message, message.desireState)
+          : null),
     });
   }
 
@@ -2680,8 +2691,7 @@ class CyberbossApp {
         pendingOperations.delete(completedRunKey);
       }
       if (event.type === "runtime.turn.completed") {
-        this.maybeCloseDesireLoopForPendingOperation(pendingOperation, event?.payload);
-        this.maybeSaveDesireStateFromTurnText(event?.payload?.text || "");
+        this.handleCompletedRuntimeTurn(pendingOperation, event?.payload);
       }
       if (pendingOperation?.kind === "desire_checkin") {
         const { appendDesireTelemetry } = require("./desire-telemetry");
@@ -3100,7 +3110,67 @@ class CyberbossApp {
     } catch {}
   }
 
+  handleCompletedRuntimeTurn(pendingOperation, payload = {}) {
+    const saveResult = this.maybeSaveDesireStateFromTurnText(payload?.text || "");
+    if (this.config?.desireLoopMinimalEnabled === true && saveResult?.ok === false) {
+      console.error(`[desire] skip loop settlement after invalid desire report thread=${normalizeText(payload?.threadId) || threadIdOrUnknown(payload)} turn=${normalizeText(payload?.turnId) || ""} textLength=${String(payload?.text || "").length}`);
+      return;
+    }
+    try {
+      this.maybeCloseDesireLoopForPendingOperation(pendingOperation, payload);
+    } catch (error) {
+      console.error(`[desire] loop settlement failed thread=${normalizeText(payload?.threadId) || threadIdOrUnknown(payload)} turn=${normalizeText(payload?.turnId) || ""} error=${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   maybeCloseDesireLoopForPendingOperation(pendingOperation, payload = {}) {
+    if (!pendingOperation || pendingOperation.kind !== "system_desire") {
+      return null;
+    }
+    if (this.config?.desireLoopMinimalEnabled !== true) {
+      return null;
+    }
+    if (pendingOperation.drivenBehaviorEnabled !== true) {
+      return null;
+    }
+    const runtimeId = normalizeText(this.runtimeAdapter?.describe?.().id)
+      || normalizeText(this.streamDelivery?.systemReplyPolicy?.runtimeId);
+    const delivery = resolveSystemReplyDelivery(payload?.text || "", createSystemReplyPolicy(runtimeId));
+    if (delivery?.kind !== "send_message") {
+      return null;
+    }
+    const action = normalizeText(pendingOperation.wantAction);
+    if (!action || action === "none") {
+      return null;
+    }
+    const availableActions = resolveDesireAvailableActionsSafe(this);
+    if (!availableActions.includes(action)) {
+      return null;
+    }
+    const desireService = this.desireService || this.createDesireService?.() || null;
+    if (!desireService || typeof desireService.markSatisfied !== "function") {
+      return null;
+    }
+    hydrateDesireServiceFromReportedState(desireService, pendingOperation.reportedState);
+    let result = desireService.markSatisfied(action, { availableActions, persist: false });
+    if (shouldPulseSelfExperienceForAction(action) && typeof desireService.pulseSelfExperience === "function") {
+      const driveKey = normalizeText(pendingOperation.driveKey) || sourceDriveKeyForAction(action);
+      if (driveKey) {
+        result = desireService.pulseSelfExperience({ driveKey, availableActions, persist: false });
+      }
+    }
+    const reportedState = buildReportedDesireStateFromSnapshot(result, pendingOperation.reportedState);
+    // Settlement is bookkeeping, not a report: it may rewrite the state file
+    // but never appends to desire-history.jsonl (Owner ruling 2026-07-29).
+    const persistResult = persistReportedDesireState({
+      state: reportedState,
+      stateFile: this.config.desireStateFile,
+      appendHistory: false,
+    });
+    if (persistResult?.saved !== true && persistResult?.reason !== "duplicate_report") {
+      throw new Error(`persist_reported_state_failed:${persistResult?.reason || "unknown"}`);
+    }
+    return result;
   }
 
   releaseDesireMarker(pendingOperation) {
@@ -3115,27 +3185,43 @@ class CyberbossApp {
   }
 
   maybeSaveDesireStateFromTurnText(text) {
-    if (!text || !this.config.desireStateFile) return;
+    if (!text || !this.config.desireStateFile) return { ok: true, saved: false, reason: "empty_text" };
     try {
       const trimmed = extractJsonObjectText(text);
-      if (!trimmed) return;
+      if (!trimmed) return { ok: true, saved: false, reason: "no_json" };
       const parsed = JSON.parse(trimmed);
       const state = parsed?.desire_state;
-      if (!state || !Array.isArray(state?.drives)) return;
+      if (!state || !Array.isArray(state?.drives)) return { ok: true, saved: false, reason: "no_desire_state" };
       const drives = normalizeDesireDrives(state.drives);
       const intent = normalizeDesireIntent(state?.intent);
-      persistReportedDesireState({
+      const result = persistReportedDesireState({
         state: { ...state, drives, intent },
         stateFile: this.config.desireStateFile,
         historyFile: this.config.desireHistoryFile,
       });
-    } catch {}
+      return { ok: true, ...result };
+    } catch {
+      return {
+        ok: false,
+        reason: "invalid_desire_json",
+      };
+    }
   }
 }
 
 const DRIVE_KEY_ALIASES = {
   responsibility: "duty",
   sexuality: "libido",
+};
+const DRIVE_LABELS = {
+  attachment: "依恋",
+  curiosity: "好奇",
+  reflection: "沉思",
+  duty: "责任",
+  social: "社交",
+  fatigue: "疲惫",
+  libido: "性欲",
+  stress: "压力",
 };
 const VALID_DRIVE_KEYS = new Set([
   "attachment", "curiosity", "reflection", "duty",
@@ -3206,15 +3292,86 @@ function formatCompactNumber(value) {
   return String(Math.round(normalized));
 }
 
-function buildPendingSystemDesireOperation(message, desireState) {
-  const intent = desireState?.intent && typeof desireState.intent === "object" ? desireState.intent : {};
+function buildPendingSystemDesireOperation(app, message, desireState) {
+  const availableActions = resolveDesireAvailableActionsSafe(app);
+  let intent = {};
+  const desireService = app?.desireService || app?.createDesireService?.() || null;
+  if (desireService && typeof desireService.getState === "function") {
+    hydrateDesireServiceFromReportedState(desireService, desireState);
+    const snapshot = desireService.getState({ availableActions });
+    intent = snapshot?.intent && typeof snapshot.intent === "object" ? snapshot.intent : {};
+  } else if (desireState?.intent && typeof desireState.intent === "object") {
+    intent = desireState.intent;
+  }
   return {
     kind: "system_desire",
     sourceType: normalizeText(message?.sourceType) || "system",
-    drivenBehaviorEnabled: desireState?.driven_behavior_enabled === true,
+    drivenBehaviorEnabled: app?.config?.desireDriven === true,
     driveKey: normalizeText(intent.drive_key) || "attachment",
     wantAction: normalizeText(intent.want_action) || "none",
+    reportedState: desireState && typeof desireState === "object" ? desireState : null,
   };
+}
+
+function hydrateDesireServiceFromReportedState(desireService, reportedState) {
+  if (!desireService || !reportedState || typeof reportedState !== "object") {
+    return;
+  }
+  const drives = Array.isArray(reportedState.drives) ? reportedState.drives : [];
+  for (const drive of drives) {
+    const key = normalizeText(drive?.key);
+    if (!VALID_DRIVE_KEYS.has(key)) {
+      continue;
+    }
+    desireService.state.drive[key] = clampDriveScore(drive?.score);
+  }
+}
+
+function buildReportedDesireStateFromSnapshot(snapshot, previousState) {
+  const previousByKey = new Map(
+    (Array.isArray(previousState?.drives) ? previousState.drives : [])
+      .map((drive) => [normalizeText(drive?.key), drive]),
+  );
+  const drives = Object.keys(DRIVE_LABELS).map((key) => {
+    const score = clampDriveScore(snapshot?.drive?.[key]);
+    const previous = previousByKey.get(key);
+    return {
+      ...(previous || {
+        label: DRIVE_LABELS[key],
+        change: "steady",
+        cause: "",
+      }),
+      key,
+      score,
+    };
+  });
+  return {
+    most_want: normalizeText(previousState?.most_want),
+    drives,
+    intent: snapshot?.intent && typeof snapshot.intent === "object"
+      ? {
+          drive_key: normalizeText(snapshot.intent.drive_key),
+          want_action: normalizeText(snapshot.intent.want_action),
+          reason: normalizeText(snapshot.intent.reason),
+        }
+      : null,
+    heartbeat: snapshot?.heartbeat && typeof snapshot.heartbeat === "object"
+      ? { tension: Number(snapshot.heartbeat.tension) || 0 }
+      : null,
+    refractory: snapshot?.refractory && typeof snapshot.refractory === "object"
+      ? snapshot.refractory
+      : null,
+    driven_behavior_enabled: snapshot?.driven_behavior_enabled === true,
+  };
+}
+
+function clampDriveScore(value) {
+  const score = Number(value);
+  return Number.isFinite(score) ? Math.max(0, Math.min(1, score)) : 0;
+}
+
+function threadIdOrUnknown(payload) {
+  return normalizeText(payload?.threadId) || "(unknown)";
 }
 
 function shouldPulseSelfExperienceForAction(action) {

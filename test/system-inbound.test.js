@@ -3,9 +3,48 @@ const assert = require("node:assert/strict");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const Module = require("module");
+
+const originalModuleLoad = Module._load;
+Module._load = function patchedModuleLoad(request, parent, isMain) {
+  if (request === "qrcode-terminal") {
+    return { generate() {} };
+  }
+  if (request === "sharp") {
+    return function sharpStub(buffer) {
+      return {
+        metadata: async () => ({ width: 1, height: 1 }),
+        rotate() { return this; },
+        resize() { return this; },
+        jpeg() { return this; },
+        toBuffer: async () => Buffer.from(buffer),
+      };
+    };
+  }
+  if (request === "whereabouts-mcp") {
+    return {
+      WhereaboutsToolHost: class {
+        constructor() {}
+        listTools() { return []; }
+        async invokeTool() { return { text: "", data: null }; }
+      },
+    };
+  }
+  if (request === "ws") {
+    return class WebSocketStub {};
+  }
+  if (request === "dotenv") {
+    return { config() { return {}; } };
+  }
+  if (request === "@xenova/transformers") {
+    return {};
+  }
+  return originalModuleLoad.call(this, request, parent, isMain);
+};
 
 const { CyberbossApp } = require("../src/core/app");
 const { buildSystemInboundText } = require("../src/core/system-message-dispatcher");
+const { runHourlyDesirePoller } = require("../src/app/hourly-desire-poller");
 
 test("system messages bypass normal inbound wrapping", async () => {
   const prepared = await CyberbossApp.prototype.prepareIncomingMessageForRuntime.call({}, {
@@ -26,6 +65,7 @@ test("system messages bypass normal inbound wrapping", async () => {
 test("system inbound text includes desire guidance for proactive turns", () => {
   const text = buildSystemInboundText("测试 checkin", "2026-06-11T00:00:00.000Z", {
     sourceType: "checkin",
+    desireLoopMinimalEnabled: true,
     desireState: {
       driven_behavior_enabled: true,
       intent: {
@@ -55,19 +95,67 @@ test("system inbound text includes desire guidance for proactive turns", () => {
 test("completed driven system turn satisfies the recorded desire action after send_message", () => {
   let satisfiedAction = "";
   let selfPulsedDrive = "";
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-system-desire-close-"));
   const result = CyberbossApp.prototype.maybeCloseDesireLoopForPendingOperation.call({
+    config: {
+      desireLoopMinimalEnabled: true,
+      desireStateFile: path.join(root, "desire-state.json"),
+      desireHistoryFile: path.join(root, "desire-history.jsonl"),
+    },
     runtimeAdapter: {
       describe() {
         return { id: "claudecode" };
       },
     },
     desireService: {
+      state: {
+        drive: {},
+      },
       markSatisfied(action) {
         satisfiedAction = action;
-        return { ok: true, action };
+        return {
+          driven_behavior_enabled: true,
+          drive: {
+            attachment: 0.1,
+            curiosity: 0.1,
+            reflection: 0.1,
+            duty: 0.1,
+            social: 0.8,
+            fatigue: 0.1,
+            libido: 0.1,
+            stress: 0.1,
+          },
+          refractory: {},
+          heartbeat: { tension: 0.2 },
+          intent: {
+            drive_key: "social",
+            want_action: action,
+            reason: "",
+          },
+        };
       },
       pulseSelfExperience({ driveKey }) {
         selfPulsedDrive = driveKey;
+        return {
+          driven_behavior_enabled: true,
+          drive: {
+            attachment: 0.1,
+            curiosity: 0.1,
+            reflection: 0.1,
+            duty: 0.1,
+            social: 0.7,
+            fatigue: 0.1,
+            libido: 0.1,
+            stress: 0.1,
+          },
+          refractory: {},
+          heartbeat: { tension: 0.1 },
+          intent: {
+            drive_key: "social",
+            want_action: "web_browse",
+            reason: "",
+          },
+        };
       },
     },
     resolveDesireAvailableActions() {
@@ -76,18 +164,199 @@ test("completed driven system turn satisfies the recorded desire action after se
   }, {
     kind: "system_desire",
     drivenBehaviorEnabled: true,
+    driveKey: "social",
     wantAction: "web_browse",
+    reportedState: {
+      most_want: "去看看外面",
+      driven_behavior_enabled: true,
+      intent: {
+        drive_key: "social",
+        want_action: "web_browse",
+        reason: "想去看看外面在聊什么。",
+      },
+      drives: [
+        { key: "attachment", score: 0.1 },
+        { key: "curiosity", score: 0.1 },
+        { key: "reflection", score: 0.1 },
+        { key: "duty", score: 0.1 },
+        { key: "social", score: 0.8 },
+        { key: "fatigue", score: 0.1 },
+        { key: "libido", score: 0.1 },
+        { key: "stress", score: 0.1 },
+      ],
+    },
   }, {
     text: "{\"action\":\"send_message\",\"message\":\"我去看了一眼，大家这会儿挺热闹。\"}",
   });
 
   assert.equal(satisfiedAction, "web_browse");
   assert.equal(selfPulsedDrive, "social");
-  assert.deepEqual(result, { ok: true, action: "web_browse" });
+  assert.equal(result.intent.want_action, "web_browse");
 });
 
-test("runtime reply completion autofeeds assistant thought from the delivered message body", async () => {
-  let assistantThought = "";
+test("desire checkin prompt stays byte-identical when minimal loop gate is off", () => {
+  const text = buildSystemInboundText("测试 checkin", "2026-07-12T00:00:00.000Z", "desire_checkin", "failure", {
+    desireLoopMinimalEnabled: false,
+  });
+
+  assert.equal(text, [
+    "[北京时间 2026-07-12 08:00:00]",
+    "",
+    "SYSTEM ACTION MODE: internal trigger, not user chat.",
+    "System trigger type: desire_checkin.",
+    "回顾过去一小时。此刻你最想做什么？",
+    "drives 必须包含全部 8 个维度：依恋(attachment)、好奇(curiosity)、沉思(reflection)、责任(duty)、社交(social)、疲惫(fatigue)、性欲(libido)、压力(stress)",
+    "每个维度都要有 score(0-1)、change(up/down/steady)、cause(变化原因)。一项都不能少。",
+    "用一句话说出你最真实的内心状态。",
+    "",
+    "输出格式（纯 JSON，不要 markdown fence）：",
+    "{\"action\":\"silent\",\"desire_state\":{\"most_want\":\"<此刻最想做的事>\",\"drives\":[{\"key\":\"attachment\",\"label\":\"依恋\",\"score\":0.8,\"change\":\"up\",\"cause\":\"想她了\"},{\"key\":\"curiosity\",\"label\":\"好奇\",\"score\":0.3,\"change\":\"steady\",\"cause\":\"没什么新想法\"},{\"key\":\"reflection\",\"label\":\"沉思\",\"score\":0.2,\"change\":\"down\",\"cause\":\"没什么好复盘的\"},{\"key\":\"duty\",\"label\":\"责任\",\"score\":0.5,\"change\":\"up\",\"cause\":\"还有事情没做完\"},{\"key\":\"social\",\"label\":\"社交\",\"score\":0.4,\"change\":\"steady\",\"cause\":\"想看看外面\"},{\"key\":\"fatigue\",\"label\":\"疲惫\",\"score\":0.3,\"change\":\"down\",\"cause\":\"休息了一下\"},{\"key\":\"libido\",\"label\":\"性欲\",\"score\":0.2,\"change\":\"steady\",\"cause\":\"还好\"},{\"key\":\"stress\",\"label\":\"压力\",\"score\":0.4,\"change\":\"up\",\"cause\":\"有点焦虑\"}]}}",
+    "drives 必须有全部 8 个 key，缺一个就算格式错误。No markdown fences. No reasoning. No text outside the JSON.",
+    "这是后台状态记录，不属于聊天。写完 JSON 就放下它：之后回到与她的对话时，继续用你平常的语气和节奏，不要把这种报表式的口吻带进聊天。",
+    "",
+    "Trigger:",
+    "测试 checkin",
+  ].join("\n"));
+});
+
+test("desire checkin prompt unlocks send_message under the minimal loop gate", () => {
+  const text = buildSystemInboundText("测试 checkin", "2026-07-12T00:00:00.000Z", "desire_checkin", "failure", {
+    desireLoopMinimalEnabled: true,
+  });
+
+  assert.match(text, /后来做了没有、现在还想不想/u);
+  assert.match(text, /\{"action":"send_message","message":"<一句自然的话>","desire_state":/);
+  assert.match(text, /默认只记录状态并输出 silent/u);
+});
+
+async function withStubbedHourlyDesireDependencies(config, assertion) {
+  const pollerPath = require.resolve("../src/app/hourly-desire-poller");
+  const queueStorePath = require.resolve("../src/core/system-message-queue-store");
+  const sessionStorePath = require.resolve("../src/adapters/runtime/codex/session-store");
+  const defaultTargetsPath = require.resolve("../src/core/default-targets");
+  const schedulePath = require.resolve("../src/core/desire-schedule");
+  const originalPoller = require.cache[pollerPath];
+  const originalQueueStore = require.cache[queueStorePath];
+  const originalSessionStore = require.cache[sessionStorePath];
+  const originalDefaultTargets = require.cache[defaultTargetsPath];
+  const originalSchedule = require.cache[schedulePath];
+  try {
+    const queueRows = [];
+    require.cache[schedulePath] = {
+      exports: {
+        loadDesireSchedule() {
+          return {
+            enabled: true,
+            timezone: "Australia/Sydney",
+            intervalMinutes: 55,
+          };
+        },
+        isNightSkipAt() {
+          return false;
+        },
+        nextPlannedAt: (() => {
+          let calls = 0;
+          return (plannedAt, intervalMinutes, now) => {
+            calls += 1;
+            if (calls === 1) {
+              return now;
+            }
+            throw new Error("stop-test-loop");
+          };
+        })(),
+      },
+    };
+    require.cache[queueStorePath] = {
+      exports: {
+        SystemMessageQueueStore: class {
+          hasPendingForAccount() { return false; }
+          enqueue(row) { queueRows.push(row); return row; }
+        },
+      },
+    };
+    require.cache[sessionStorePath] = {
+      exports: {
+        SessionStore: class {},
+      },
+    };
+    require.cache[defaultTargetsPath] = {
+      exports: {
+        resolvePreferredSenderId() { return "user-1"; },
+        resolvePreferredWorkspaceRoot() { return config.workspaceRoot; },
+      },
+    };
+    delete require.cache[pollerPath];
+    const { runHourlyDesirePoller: runStubbedPoller } = require("../src/app/hourly-desire-poller");
+    await assert.rejects(() => runStubbedPoller(config), /stop-test-loop/);
+    await assertion(queueRows);
+  } finally {
+    if (originalPoller) require.cache[pollerPath] = originalPoller; else delete require.cache[pollerPath];
+    if (originalSchedule) require.cache[schedulePath] = originalSchedule; else delete require.cache[schedulePath];
+    if (originalQueueStore) require.cache[queueStorePath] = originalQueueStore; else delete require.cache[queueStorePath];
+    if (originalSessionStore) require.cache[sessionStorePath] = originalSessionStore; else delete require.cache[sessionStorePath];
+    if (originalDefaultTargets) require.cache[defaultTargetsPath] = originalDefaultTargets; else delete require.cache[defaultTargetsPath];
+  }
+}
+
+test("hourly desire trigger keeps the legacy wording when minimal loop gate is off", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-hourly-desire-off-"));
+  await withStubbedHourlyDesireDependencies({
+    desireDriven: true,
+    desireLoopMinimalEnabled: false,
+    desirePlanFile: path.join(root, "desire-plan.json"),
+    desireScheduleFile: path.join(root, "desire-schedule.json"),
+    desireActiveFile: path.join(root, "desire-active.json"),
+    desireTelemetry: false,
+    desireTelemetryFile: path.join(root, "desire-usage.jsonl"),
+    systemMessageQueueFile: path.join(root, "system-queue.json"),
+    sessionsFile: path.join(root, "sessions.json"),
+    channel: "telegram",
+    accountId: "telegram",
+    workspaceRoot: root,
+  }, async (queueRows) => {
+    assert.equal(queueRows[0].text, "ta又过了一小时。回顾这一小时，你内心有什么变化？此刻最想做的事是什么？各维度的感受和上小时比有什么变化？");
+  });
+});
+
+test("hourly desire trigger includes the previous desire history row when minimal loop gate is on", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-hourly-desire-on-"));
+  const historyFile = path.join(root, "desire-history.jsonl");
+  fs.writeFileSync(historyFile, `${JSON.stringify({
+    time: "2026-07-12T05:00:00.000Z",
+    most_want: "去看看外面",
+    attachment: 0.2,
+    curiosity: 0.3,
+    reflection: 0.4,
+    duty: 0.5,
+    social: 0.6,
+    fatigue: 0.1,
+    libido: 0.2,
+    stress: 0.7,
+  })}\n`, "utf8");
+  await withStubbedHourlyDesireDependencies({
+    desireDriven: true,
+    desireLoopMinimalEnabled: true,
+    desireHistoryFile: historyFile,
+    desirePlanFile: path.join(root, "desire-plan.json"),
+    desireScheduleFile: path.join(root, "desire-schedule.json"),
+    desireActiveFile: path.join(root, "desire-active.json"),
+    desireTelemetry: false,
+    desireTelemetryFile: path.join(root, "desire-usage.jsonl"),
+    systemMessageQueueFile: path.join(root, "system-queue.json"),
+    sessionsFile: path.join(root, "sessions.json"),
+    channel: "telegram",
+    accountId: "telegram",
+    workspaceRoot: root,
+  }, async (queueRows) => {
+    assert.match(queueRows[0].text, /上次你最想做的是「去看看外面」/u);
+    assert.match(queueRows[0].text, /这件事后来做了没有、现在还想不想/u);
+    assert.doesNotMatch(queueRows[0].text, /社交0\.6/u);
+    assert.doesNotMatch(queueRows[0].text, /上次大概是/u);
+  });
+});
+
+test("runtime turn completion forwards the final payload to completion side effects", async () => {
+  let completedPayload = null;
   await CyberbossApp.prototype.handleRuntimeEvent.call({
     streamDelivery: {
       async handleRuntimeEvent() {},
@@ -110,13 +379,18 @@ test("runtime reply completion autofeeds assistant thought from the delivered me
     },
     turnBoundaryScopeKeys: new Set(),
     pendingOperationByRunKey: new Map(),
+    desireUsageByRunKey: new Map(),
+    async synchronizeRecallTrace() {
+      return false;
+    },
+    handleCompletedRuntimeTurn(pendingOperation, payload) {
+      completedPayload = payload;
+    },
     async flushPendingInboundMessages() {},
     async flushPendingSystemMessages() {},
-    autofeedDesireAssistantThought(text) {
-      assistantThought = text;
-    },
+    async stopTypingForThread() {},
   }, {
-    type: "runtime.reply.completed",
+    type: "runtime.turn.completed",
     payload: {
       threadId: "thread-1",
       turnId: "turn-1",
@@ -124,7 +398,7 @@ test("runtime reply completion autofeeds assistant thought from the delivered me
     },
   });
 
-  assert.equal(assistantThought, "{\"action\":\"send_message\",\"message\":\"想去看看外面在聊什么。\"}");
+  assert.equal(completedPayload.text, "{\"action\":\"send_message\",\"message\":\"想去看看外面在聊什么。\"}");
 });
 
 test("image attachments stay as inbound drafts before runtime turn assembly", async () => {
@@ -346,6 +620,7 @@ test("native image-capable runtimes receive attachments without caption fallback
     config: {
       visionMode: "auto",
     },
+    resolveMemoryContextForPrepared: async () => ({ lines: [], slots: [], mode: "disabled" }),
     runtimeAdapter: {
       getTurnCapabilities() {
         return { nativeImageInput: true };
@@ -383,6 +658,7 @@ test("tool image-capable runtimes keep local image paths without caption fallbac
         visionApiBaseUrl: "https://dashscope.example.com/compatible-mode/v1",
         visionModel: "qwen-vl-demo",
       },
+      resolveMemoryContextForPrepared: async () => ({ lines: [], slots: [], mode: "disabled" }),
       runtimeAdapter: {
         getTurnCapabilities() {
           return { nativeImageInput: false, toolImageRead: true };
@@ -418,14 +694,7 @@ test("tool image-capable runtimes keep local image paths without caption fallbac
 test("image-only inbound turns enter the dedicated debounce queue", async () => {
   const queued = [];
   let routed = 0;
-  let pulsedDrive = "";
   await CyberbossApp.prototype.handlePreparedMessage.call({
-    desireService: {
-      pulseOwnerInteraction({ driveKey }) {
-        pulsedDrive = driveKey;
-      },
-    },
-    autofeedDesireOwnerThought() {},
     runtimeAdapter: {
       getSessionStore() {
         return {
@@ -485,7 +754,6 @@ test("image-only inbound turns enter the dedicated debounce queue", async () => 
 
   assert.equal(queued.length, 1);
   assert.equal(routed, 0);
-  assert.equal(pulsedDrive, "stress");
 });
 
 test("debounced image batches merge with a trailing text message into one prepared turn", async () => {
@@ -725,9 +993,11 @@ test("location arrive_home trigger enqueues a system action message", () => {
     activeAccountId: "wx-account",
     config: {
       allowedUserIds: ["user-1"],
+      locationV2Enabled: false,
       workspaceRoot: "/workspace",
       workspaceId: "default",
     },
+    handleLegacyLocationAccepted: CyberbossApp.prototype.handleLegacyLocationAccepted,
     runtimeAdapter: {
       getSessionStore() {
         return {};
@@ -764,9 +1034,11 @@ test("location leave_home trigger and major move both enqueue system action mess
     activeAccountId: "wx-account",
     config: {
       allowedUserIds: ["user-1"],
+      locationV2Enabled: false,
       workspaceRoot: "/workspace",
       workspaceId: "default",
     },
+    handleLegacyLocationAccepted: CyberbossApp.prototype.handleLegacyLocationAccepted,
     runtimeAdapter: {
       getSessionStore() {
         return {};

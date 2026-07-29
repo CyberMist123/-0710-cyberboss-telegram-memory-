@@ -4,9 +4,9 @@ const path = require("path");
 const { loadDesireSchedule, isNightSkipAt, nextPlannedAt } = require("../core/desire-schedule");
 const { appendDesireTelemetry } = require("../core/desire-telemetry");
 const { acquireWriterLease, releaseWriterLease } = require("../orchestration/writer-lease");
+const { readLatestDesireHistory } = require("../core/desire-state-persistence");
 
 const ACTIVE_MARKER_STALE_MS = 2 * 60 * 60 * 1000;
-
 async function runHourlyDesirePoller(config = {}) {
   if (!config.desireDriven) {
     console.log("[desire] hourly poller disabled");
@@ -194,7 +194,27 @@ function normalizeText(value) {
 
 function buildDesireTriggerText(config) {
   const userName = (process.env.CYBERBOSS_USER_NAME || "").trim() || "ta";
-  return `${userName}又过了一小时。回顾这一小时，你内心有什么变化？此刻最想做的事是什么？各维度的感受和上小时比有什么变化？`;
+  if (!config?.desireLoopMinimalEnabled) {
+    return `${userName}又过了一小时。回顾这一小时，你内心有什么变化？此刻最想做的事是什么？各维度的感受和上小时比有什么变化？`;
+  }
+  const last = readLatestDesireHistory(config?.desireHistoryFile || "");
+  const fallback = `${userName}又过了一小时。回顾这一小时，你内心有什么变化？上次你想做的那件事，后来做了没有、现在还想不想？此刻最想做的事是什么？各维度和上次比有什么变化？`;
+  if (!last) {
+    return fallback;
+  }
+  const previousWant = normalizeText(last.most_want);
+  if (!isNaturalPreviousWant(previousWant)) {
+    return fallback;
+  }
+  return `${userName}又过了一小时。上次你最想做的是「${previousWant}」。这件事后来做了没有、现在还想不想？回顾这一小时，你内心有什么变化？此刻最想做的事是什么？各维度和上次比有什么变化？`;
+}
+
+function isNaturalPreviousWant(value) {
+  const normalized = normalizeText(value);
+  if (!normalized || normalized.toLowerCase() === "none") {
+    return false;
+  }
+  return !/^[a-z][a-z0-9_-]*$/i.test(normalized);
 }
 
 function sleep(ms) {
@@ -208,4 +228,5 @@ module.exports = {
   isActiveMarkerFresh,
   tryAcquireActiveMarker,
   releaseActiveMarker,
+  buildDesireTriggerText,
 };

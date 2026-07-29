@@ -109,6 +109,7 @@ function normalizeSystemMessage(message) {
     ...(normalizeText(message.alertKind) ? { alertKind: normalizeText(message.alertKind) } : {}),
     ...(normalizeText(message.alertKey) ? { alertKey: normalizeText(message.alertKey) } : {}),
     ...(normalizeText(message.fingerprint) ? { fingerprint: normalizeText(message.fingerprint) } : {}),
+    ...(message.desireState && typeof message.desireState === "object" ? { desireState: message.desireState } : {}),
   };
 }
 

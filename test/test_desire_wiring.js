@@ -58,7 +58,8 @@ test("owner thought autofeed stores a user experience monologue, not the raw sen
   assert.equal(state.thoughts[0].drive, "stress");
   assert.equal(state.thoughts[0].raw_source, raw);
   assert.notEqual(state.thoughts[0].internal_monologue, raw);
-  assert.match(state.thoughts[0].internal_monologue, /挂念|压力/u);
+  // Random draw among the four stress variants; match each one's stable clause.
+  assert.match(state.thoughts[0].internal_monologue, /紧了一下|挂着|绷着一根线|接不住/u);
 });
 
 test("assistant thought autofeed ignores structured action payloads", () => {
@@ -82,7 +83,9 @@ test("memory markdown themes generate MEMORY thoughts that can become fixations"
   const memoryThought = state.thoughts.find((thought) => thought.origin === "MEMORY");
   assert.ok(memoryThought);
   assert.equal(memoryThought.drive, "stress");
-  assert.match(memoryThought.internal_monologue, /我记得.*反复出现/u);
+  // The monologue is drawn at random from the four MemoryItem variants; match
+  // the stable clause of each so this stays green for any draw.
+  assert.match(memoryThought.internal_monologue, /反复出现|自己来的|反复碰到|占的分量越来越重/u);
   assert.ok(state.thought_origin_stats.MEMORY > 0);
 
   state = service.feedThought({

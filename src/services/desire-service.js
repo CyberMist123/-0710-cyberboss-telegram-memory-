@@ -75,7 +75,6 @@ class DesireService {
     this.thoughts = [];
     this.ensureParentDirectories();
     this.load();
-    this.save();
   }
 
   ensureParentDirectories() {
@@ -218,7 +217,7 @@ class DesireService {
     const experience = createExperience({
       type: "UserMessage",
       rawSource: text,
-      origin: ThoughtOrigin.SELF,
+      origin: ThoughtOrigin.USER,
       drive: inferOwnerPulseDrive(text),
       occurredAt: now,
     });
@@ -234,7 +233,7 @@ class DesireService {
     const experience = createExperience({
       type: "AssistantMessage",
       rawSource: text,
-      origin: ThoughtOrigin.USER,
+      origin: ThoughtOrigin.SELF,
       drive: snapshot.intent?.drive_key || "attachment",
       occurredAt: now,
     });
@@ -330,7 +329,7 @@ class DesireService {
     }
   }
 
-  markSatisfied(action, { availableActions = [] } = {}) {
+  markSatisfied(action, { availableActions = [], persist = true } = {}) {
     const settled = settleAfterAction({
       drive: this.state.drive,
       baselines: this.state.baselines,
@@ -347,11 +346,13 @@ class DesireService {
       baselines: this.state.baselines,
       gates: this.state.gates,
     }));
-    this.save();
+    if (persist) {
+      this.save();
+    }
     return this.getState({ availableActions });
   }
 
-  pulseOwnerInteraction({ driveKey = "attachment", amount = OWNER_ATTACHMENT_PULSE, availableActions = [], now = new Date().toISOString() } = {}) {
+  pulseOwnerInteraction({ driveKey = "attachment", amount = OWNER_ATTACHMENT_PULSE, availableActions = [], now = new Date().toISOString(), persist = true } = {}) {
     const pulsed = applyDrivePulse({
       drive: this.state.drive,
       baselines: this.state.baselines,
@@ -365,11 +366,13 @@ class DesireService {
     this.state.drive = pulsed.drive;
     this.state.baselines = pulsed.baselines;
     this.state.selfDrive = pulsed.selfDrive;
-    this.save();
+    if (persist) {
+      this.save();
+    }
     return this.getState({ availableActions });
   }
 
-  pulseSelfExperience({ driveKey = "curiosity", amount = SELF_DRIVE_PULSE, availableActions = [], now = new Date().toISOString() } = {}) {
+  pulseSelfExperience({ driveKey = "curiosity", amount = SELF_DRIVE_PULSE, availableActions = [], now = new Date().toISOString(), persist = true } = {}) {
     const pulsed = applyDrivePulse({
       drive: this.state.drive,
       baselines: this.state.baselines,
@@ -383,7 +386,9 @@ class DesireService {
     this.state.drive = pulsed.drive;
     this.state.baselines = pulsed.baselines;
     this.state.selfDrive = pulsed.selfDrive;
-    this.save();
+    if (persist) {
+      this.save();
+    }
     return this.getState({ availableActions });
   }
 
