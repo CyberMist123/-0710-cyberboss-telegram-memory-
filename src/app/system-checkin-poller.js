@@ -3,6 +3,7 @@ const crypto = require("crypto");
 const { SessionStore } = require("../adapters/runtime/codex/session-store");
 const { CheckinConfigStore, SleepScheduleStore, resolveDefaultCheckinRange } = require("../core/checkin-config-store");
 const { resolvePreferredSenderId, resolvePreferredWorkspaceRoot } = require("../core/default-targets");
+const { readPersistedDesireState } = require("../core/desire-state-persistence");
 const { SystemMessageQueueStore } = require("../core/system-message-queue-store");
 
 const INTERNAL_CHECKIN_TRIGGER_TEMPLATE = "%USER% comes to mind again.";
@@ -41,6 +42,9 @@ async function runSystemCheckinPoller(config) {
       continue;
     }
 
+    const desireState = config.desireLoopMinimalEnabled === true
+      ? readPersistedDesireState(config.desireStateFile)
+      : null;
     const queued = queue.enqueue({
       id: crypto.randomUUID(),
       accountId: account.accountId,
@@ -49,6 +53,7 @@ async function runSystemCheckinPoller(config) {
       text: buildCheckinTrigger(config),
       sourceType: "checkin",
       createdAt: new Date().toISOString(),
+      ...(desireState ? { desireState } : {}),
     });
     console.log(`[cyberboss] checkin queued id=${queued.id}`);
   }
