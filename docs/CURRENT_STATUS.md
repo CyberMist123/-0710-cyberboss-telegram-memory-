@@ -72,8 +72,8 @@ Verified against: 9bb78a0f (main)
 | 能力 | 代码 | 测试 | 主 CI | 生产接线 | 说明 / 当前结论 |
 |---|---|---|---|---|---|
 | Telegram 主链（poller / adapter / envelope） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 信封格式有 CI 测试钉住；真机运行状态未核 |
-| Telegram route lanes v2 / profile router | `WIRED` | `COVERED` | `NONE` | `WIRED` | `test:route-lanes` 整组未接进主 CI |
-| Telegram 媒体入站（media inbox） | `WIRED` | `COVERED` | `NONE` | `WIRED` | `test:telegram-media` 整组未接进主 CI |
+| Telegram route lanes v2 / profile router | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | `test:route-lanes` 已接进主 CI |
+| Telegram 媒体入站（media inbox） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | `test:telegram-media` 已接进主 CI |
 | Hard context · Re-entry | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 由运行时适配器的 opening context 注入，通路正常 |
 | Hard context · Current State | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 同上；与 memory_context 不是同一条通路 |
 | **Telegram memory_context** | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 逻辑经 `buildRuntimeTurn()` Telegram 分支可达，信封外 `<memory_context>` 块，fail-open；真机执行证据缺失 |
@@ -112,7 +112,7 @@ Verified against: 9bb78a0f (main)
 - **为什么 Re-entry / Current State 仍是 `WIRED`**：它们不走 `buildRuntimeTurn`，而是由运行时适配器调 `prepareOpeningContext()`（`claudecode/index.js:895`、`codex/index.js:245/276`）注入。两条独立通路，不能合记一行。
 - **Context Trace 覆盖 memory_context**：`recordContextTrace()` 新增 memoryContext 参数，有记忆行时在 `blocks` 记 `{type:"memory_context", loaded:true, reason:<mode>, chars}`，无记忆时在 `skipped` 记 `{type:"memory_context", reason:<mode|empty>}`；`dispatchPreparedTurn` 的调用点已接入，对所有 provider 的 turn 路径生效（opening refresh 调用点行结构不变）。由 `test/phase2-hard-context.test.js` 钉住，在 `test:phase2` 分组内，阻塞主 CI。
 - **为什么 nightly 的生产接线记 `UNKNOWN`**：仓库只能证明 `.env.example` 里 `CYBERBOSS_NIGHTLY_CLOSEOUT_ENABLED=false`，以及 `src/core/config.js` 的默认值为 `false`。生产机实际环境变量在 `settings/secrets/*.local.json`，不入库；计划任务状态也不在版本控制内。**因此仓库无法对生产机的历史启用情况作出任何结论 —— 这一格只能记 `UNKNOWN`。**
-- **CI 覆盖**：主 CI 只执行 `.github/workflows/phase1-offline.yml` 里列出的六个 `npm run test:*` 分组。`test:route-lanes`、`test:telegram-media`、`test:p0-closeout-liveness` 整组未接。
+- **CI 覆盖**：主 CI 只执行 `.github/workflows/phase1-offline.yml` 里列出的八个 `npm run test:*` 分组。`test:p0-closeout-liveness` 整组未接。
 
 ---
 
