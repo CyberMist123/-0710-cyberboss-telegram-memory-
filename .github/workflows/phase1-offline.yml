@@ -63,6 +63,14 @@ jobs:
         id: p5a
         run: ./scripts/ci/run-annotated.ps1 -Name phase5a -Command 'npm run test:phase5a'
 
+      - name: Route lanes tests
+        id: route_lanes
+        run: ./scripts/ci/run-annotated.ps1 -Name route-lanes -Command 'npm run test:route-lanes'
+
+      - name: Telegram media tests
+        id: telegram_media
+        run: ./scripts/ci/run-annotated.ps1 -Name telegram-media -Command 'npm run test:telegram-media'
+
       # R4 翻盘清单第 1 条（F1.4）：release/cutover 测试门。
       # windows-latest 提供真实 powershell.exe，Python 3.12 满足 watchdog 版本前提，
       # 这里产生的是真实信号，不是 ENOENT 假绿。
@@ -118,6 +126,7 @@ jobs:
             "static=${{ steps.static.outcome }}", "p1=${{ steps.p1.outcome }}",
             "p2=${{ steps.p2.outcome }}", "p3=${{ steps.p3.outcome }}",
             "p4=${{ steps.p4.outcome }}", "p5a=${{ steps.p5a.outcome }}",
+            "route_lanes=${{ steps.route_lanes.outcome }}", "telegram_media=${{ steps.telegram_media.outcome }}",
             "orch=${{ steps.orch.outcome }}", "py39=${{ steps.py39.outcome }}",
             "probe=${{ steps.probe.outcome }}", "diff=${{ steps.diff.outcome }}"
           ) -join ' | '
