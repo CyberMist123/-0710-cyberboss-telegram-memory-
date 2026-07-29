@@ -65,6 +65,11 @@ function resolvePhase3Plan({ command, nightlyMode } = {}) {
   };
 }
 
+function shouldRunHistory({ plan, reviewResult } = {}) {
+  if (!plan?.history) return false;
+  return !plan.review || reviewResult?.status === "success";
+}
+
 function directPlan(step) {
   return {
     command: step === "history" ? "write" : step,
@@ -86,4 +91,5 @@ function normalizeText(value) {
 module.exports = {
   normalizeNightlyMode,
   resolvePhase3Plan,
+  shouldRunHistory,
 };

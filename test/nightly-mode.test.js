@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const {
   normalizeNightlyMode,
   resolvePhase3Plan,
+  shouldRunHistory,
 } = require("../src/continuity/nightly-mode");
 const { readConfig } = require("../src/core/config");
 
@@ -95,6 +96,21 @@ test("auto is the steady-state fully automatic nightly pipeline", () => {
   assert.equal(plan.history, true);
   assert.equal(plan.model_calls_allowed, true);
   assert.equal(plan.canon_writes_allowed, true);
+});
+
+test("history does not run when a planned review is deferred", () => {
+  const plan = resolvePhase3Plan({ command: "nightly", nightlyMode: "auto" });
+  assert.equal(shouldRunHistory({ plan, reviewResult: { status: "deferred" } }), false);
+});
+
+test("history runs when a planned review succeeds", () => {
+  const plan = resolvePhase3Plan({ command: "nightly", nightlyMode: "auto" });
+  assert.equal(shouldRunHistory({ plan, reviewResult: { status: "success" } }), true);
+});
+
+test("the write command runs history without requiring a review result", () => {
+  const plan = resolvePhase3Plan({ command: "write" });
+  assert.equal(shouldRunHistory({ plan }), true);
 });
 
 test("invalid nightly mode fails closed instead of silently enabling automation", () => {
