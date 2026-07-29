@@ -265,6 +265,67 @@ Decision date: 2026-07-29
 
 ---
 
+## D18 · Closeout 业务日 = 刚结束的前一个完整本地日；空结果不得封死业务日
+
+```text
+Status: ACTIVE
+Decision date: 2026-07-29
+```
+
+裁定背景：2026-07-29 外部架构审查发现 closeout 调度存在日界线错位（04:30 取「当天」本地日期处理当天文件，而 conversation recorder 按 `Asia/Shanghai` 分日；材料为空时写 `no_output` 并被当作终态永久跳过）。该调度器生产未启用，属启用前必修。Owner 授权按工程窗建议定案。
+
+- **业务日定义**：nightly closeout 在计划时刻（默认 04:30，`automationTimezone`）运行时，处理**刚结束的前一个完整本地日**的材料，不处理当天。
+- **全链同一时区**：recorder 分日、closeout 取日、ledger 键、candidate 时间戳必须使用同一 `automationTimezone` 与同一业务日函数；`Asia/Shanghai` / 硬编码 `+08:00` 残留随实施清除（`conversation-recorder.js`、`continuity-pipeline.js` 的 `T23:59:59+08:00`、`weekly-reflect.js`、`diary-service.js`）。
+- **`no_output` 语义拆分**：处理窗口尚未关闭时的空结果是**可重试状态**，不得作为终态封死该业务日；只有窗口确实关闭后才允许记为 sealed 终态。
+- 实施与测试（DST、跨午夜、晚到材料、重启补跑、同日幂等）归实施 issue；是 #65 / #68 实施的前置。
+
+---
+
+## D19 · Review 硬闸门只做机器可判定检查；语义疑虑走 D17 打回，不得代行终局否决
+
+```text
+Status: ACTIVE
+Decision date: 2026-07-29
+```
+
+裁定背景：D16 定了 Review「只拦格式」，但 `auto_review.py` 当前还在判断事实不确定、用户边界冲突、是否需要确认，拥有超出格式闸门的语义否决权——决策表述与实现冲突。Owner 授权按工程窗建议定案：**收窄实现，D16 表述不变**。
+
+- **硬闸门（可机器判定，允许直接拦）**：格式、长度预算、source_ref 可定位、权限（authority gate）、安全红线。
+- **语义疑虑（事实存疑、边界冲突、需用户确认）不得由后台模型终局否决**：只能记为 deferred 并按 D17 打回给产生该候选的主体 AI，由在场的它决定改写重交还是放弃。后台模型的语义意见随打回原因一并带回，作为参考，不作为判决。
+- Review 依旧**永不改写正文**（D16 不变）。
+
+---
+
+## D20 · G3 与 G5 是切生产硬门
+
+```text
+Status: ACTIVE
+Decision date: 2026-07-29
+```
+
+裁定背景：`CURRENT_STATUS.md` 把 G3 / G5 列为 Gate，但第五节放行判据未显式要求它们通过，存在靠缩小「放行范围」绕开隔离与恢复演练的解释空间。Owner 授权按工程窗建议定案，并另有明确要求：**Telegram 陪伴线与工程线彼此独立**。
+
+- **G3（profile 隔离）是硬门**：切生产前必须有真实的 `fable-chat` profile 绑定与隔离证据——工程 `CLAUDE.md`、CC 工程记忆不得穿进聊天人格；Telegram 与工程工作区互相独立。
+- **G5（备份恢复）是硬门**：切生产前必须完成一次真实备份恢复演练并留证，不接受「脚本存在」替代演练。对一个记忆系统，不能证明记忆可恢复就不算能上线。
+- `CURRENT_STATUS.md` 第五节判据随本条补全。
+
+---
+
+## D21 · G1 检索数据源接 Episodes 正史的受控 adapter；不启用 legacy MemoryService 文件组
+
+```text
+Status: ACTIVE
+Decision date: 2026-07-29
+```
+
+裁定背景：`memory_context` 打开检索后调用的旧 `MemoryService` 读取 `facts.md` / `preferences.md` / `7-day-memory.md` 等 legacy 文件组，而当前 memory 目录中这些文件不存在——直接打开开关只会创建一套空文件，接不到 `episodes.jsonl` 正史。Owner 授权按工程窗建议定案。
+
+- **G1 的数据契约是 Episodes 正史**：为 memory_context 建立对正式 canon（episodes 等）的**只读受控 adapter**，遵守 D6（纯规则槽位，不用 embedding）、D7（翻档边界）与 Context Trace 规则。
+- **不启用 legacy MemoryService 文件组**：不得以「打开旧开关 + 自动创建空文件」的方式让 G1 通过；G1 真机验收必须证明 Trace 中的来源 ID 指向正式数据源，不接受 manual override 或刚创建的空文件。
+- adapter 的具体设计（触发条件、槽位、预算）归实施设计，与 #42 的读者线合并推进。
+
+---
+
 ## 待裁决 / Candidates
 
 下列**尚未做出决定**，不占用 D 编号，也不得当成已定方向施工。

@@ -4,7 +4,7 @@
 Status: active
 Authority: current project status
 Last verified: 2026-07-29
-Verified against: 9bb78a0f (main)
+Verified against: 3c4d561 (main)
 ```
 
 - `Status: active` —— 这份文件当前有效。
@@ -120,20 +120,22 @@ Verified against: 9bb78a0f (main)
 
 ```text
 NOW
-- Telegram Memory Context 修复（G1）—— 本 PR
+- G2 主体写权主路径设计（D17 落地 + C4 交接点）
+- Closeout 业务日与 no_output 终态修复（D18，#65/#68 的前置）
 
 NEXT
-- 后台 memory owner / nightly 边界（G2）
+- #68 睡眠窗口面板化 → #65 兜底整理实施
+- 520 重构阶段 2 设计稿（与 NOW 并行，不互相阻塞）
 
 LATER
 - Chat Profile A/B
 - 最小 Chat Profile
-- Windows 最终 canary
+- Windows 最终 canary（含 runtime 单一 descriptor 真相重建）
 
 PARALLEL GATE
 - R4 真 Windows 留证
-- CI 缺口接线（route-lanes / telegram-media / p0-closeout-liveness）
-- 备份恢复演练（G5）
+- CI 缺口接线（p0-closeout-liveness / memory-note-service / weekly-reflect 等孤儿测试）
+- 备份恢复演练（G5，硬门，见 D20）
 
 DEFERRED
 - Soft Retrieval
@@ -143,7 +145,7 @@ DEFERRED
 - CMX
 ```
 
-**PARALLEL GATE 可以与 NEXT 并行推进，但不能替代 G1 / G2。** 文档合并后直接去做 CI 接线和 Windows 留证、跳过 Telegram Memory Context，是本文件明确要防止的走法。
+**PARALLEL GATE 可以与 NEXT 并行推进，但不能替代 G1 / G2。** 直接去做 CI 接线和 Windows 留证、跳过 G1 真机留证与 G2 主体写权本体，是本文件明确要防止的走法。
 
 ### G1 修复的已知风险
 
@@ -160,9 +162,11 @@ DEFERRED
 2. R4 翻盘清单第 3 条已补：真 Windows 生产机的 release/cutover 测试完整输出已归档进 `docs/audit/`；
 3. 生产机启动项已固化 `CYBERLINK_ROOT`（否则 `start-dashboard.ps1` / `start-telegram.ps1` fail-closed）；
 4. 启动 watchdog 的入口显式传 `--descriptor`；
-5. 能力表中「生产接线」列没有任何 `UNKNOWN` 的能力被计入放行范围。
+5. 能力表中「生产接线」列没有任何 `UNKNOWN` 的能力被计入放行范围；
+6. **G3 通过**（硬门，`DECISIONS.md` D20）：真实 `fable-chat` profile 绑定与隔离证据，Telegram 陪伴线与工程线互相独立。当前 `PARTIAL`；
+7. **G5 通过**（硬门，`DECISIONS.md` D20）：一次真实备份恢复演练留证。当前 `NOT_VERIFIED`。
 
-**当前状态：条件 0、1、2 均未满足。不得切生产。**
+**当前状态：条件 0、1、2、6、7 均未满足。不得切生产。**
 
 ---
 
