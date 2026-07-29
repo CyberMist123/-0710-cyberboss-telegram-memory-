@@ -111,7 +111,7 @@ Verified against: 9bb78a0f (main)
 - **仍缺什么**：真机 Telegram 上 memory_context 实际执行并被 trace 记录的留证，因此 G1 记 `PARTIAL` 而非 `PASS`。
 - **为什么 Re-entry / Current State 仍是 `WIRED`**：它们不走 `buildRuntimeTurn`，而是由运行时适配器调 `prepareOpeningContext()`（`claudecode/index.js:895`、`codex/index.js:245/276`）注入。两条独立通路，不能合记一行。
 - **Context Trace 覆盖 memory_context**：`recordContextTrace()` 新增 memoryContext 参数，有记忆行时在 `blocks` 记 `{type:"memory_context", loaded:true, reason:<mode>, chars}`，无记忆时在 `skipped` 记 `{type:"memory_context", reason:<mode|empty>}`；`dispatchPreparedTurn` 的调用点已接入，对所有 provider 的 turn 路径生效（opening refresh 调用点行结构不变）。由 `test/phase2-hard-context.test.js` 钉住，在 `test:phase2` 分组内，阻塞主 CI。
-- **为什么 nightly 的生产接线记 `UNKNOWN`**：仓库只能证明 `.env.example` 里 `CYBERBOSS_NIGHTLY_CLOSEOUT_ENABLED=false`，以及 `src/core/config.js` 的默认值为 `false`。生产机实际环境变量在 `settings/secrets/*.local.json`，不入库；计划任务状态也不在版本控制内。**因此仓库无法对生产机的历史启用情况作出任何结论 —— 这一格只能记 `UNKNOWN`。**
+- **为什么 nightly 的生产接线记 `UNKNOWN`**：仓库只能证明 `.env.example` 里 `CYBERBOSS_NIGHTLY_CLOSEOUT_ENABLED=false`、`CYBERBOSS_NIGHTLY_MODE=evidence`，以及 `src/core/config.js` 对应的默认值为 `false` 与 `evidence`；`scripts/windows/continuity-nightly.ps1` 的计划任务路径显式允许未设置 / `evidence`，而 `shadow` / `auto` 必须另有 `config_dir/nightly-mode.confirm` 标记。生产机实际环境变量在 `settings/secrets/*.local.json`，不入库；计划任务状态与确认标记状态也不在版本控制内。**因此仓库无法对生产机的历史启用情况作出任何结论 —— 这一格只能记 `UNKNOWN`。**
 - **CI 覆盖**：主 CI 只执行 `.github/workflows/phase1-offline.yml` 里列出的八个 `npm run test:*` 分组。`test:p0-closeout-liveness` 整组未接。
 
 ---

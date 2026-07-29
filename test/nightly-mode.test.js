@@ -5,6 +5,62 @@ const {
   normalizeNightlyMode,
   resolvePhase3Plan,
 } = require("../src/continuity/nightly-mode");
+const { readConfig } = require("../src/core/config");
+
+test("config defaults CYBERBOSS_NIGHTLY_MODE to evidence", () => {
+  withNightlyMode(undefined, () => {
+    assert.equal(readConfig().nightlyMode, "evidence");
+  });
+});
+
+test("config rejects an invalid CYBERBOSS_NIGHTLY_MODE", () => {
+  withNightlyMode("automatic", () => {
+    assert.throws(
+      () => readConfig(),
+      /invalid CYBERBOSS_NIGHTLY_MODE: automatic/,
+    );
+  });
+});
+
+test("config preserves every legal nightly mode and its existing plan", () => {
+  const expectedPlans = {
+    evidence: {
+      closeout: false,
+      janitor: true,
+      review: false,
+      history: false,
+      model_calls_allowed: false,
+      canon_writes_allowed: false,
+    },
+    shadow: {
+      closeout: true,
+      janitor: true,
+      review: true,
+      history: false,
+      model_calls_allowed: true,
+      canon_writes_allowed: false,
+    },
+    auto: {
+      closeout: true,
+      janitor: true,
+      review: true,
+      history: true,
+      model_calls_allowed: true,
+      canon_writes_allowed: true,
+    },
+  };
+
+  for (const [mode, expected] of Object.entries(expectedPlans)) {
+    withNightlyMode(mode, () => {
+      const configuredMode = readConfig().nightlyMode;
+      assert.equal(configuredMode, mode);
+      assert.deepEqual(
+        pickPlan(resolvePhase3Plan({ command: "nightly", nightlyMode: configuredMode })),
+        expected,
+      );
+    });
+  }
+});
 
 test("nightly defaults to evidence-only and performs no model or canon work", () => {
   for (const command of ["nightly", "all"]) {
@@ -66,6 +122,35 @@ test("explicit maintenance commands remain individually callable", () => {
     { closeout: false, janitor: false, review: false, history: true },
   );
 });
+
+function pickPlan(plan) {
+  return {
+    closeout: plan.closeout,
+    janitor: plan.janitor,
+    review: plan.review,
+    history: plan.history,
+    model_calls_allowed: plan.model_calls_allowed,
+    canon_writes_allowed: plan.canon_writes_allowed,
+  };
+}
+
+function withNightlyMode(value, callback) {
+  const original = process.env.CYBERBOSS_NIGHTLY_MODE;
+  try {
+    if (typeof value === "undefined") {
+      delete process.env.CYBERBOSS_NIGHTLY_MODE;
+    } else {
+      process.env.CYBERBOSS_NIGHTLY_MODE = value;
+    }
+    return callback();
+  } finally {
+    if (typeof original === "undefined") {
+      delete process.env.CYBERBOSS_NIGHTLY_MODE;
+    } else {
+      process.env.CYBERBOSS_NIGHTLY_MODE = original;
+    }
+  }
+}
 
 function pick(plan) {
   return {
