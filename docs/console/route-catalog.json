@@ -1,0 +1,386 @@
+[
+  {
+    "method": "GET",
+    "path": "/",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "html_render",
+    "test_id": "existing:dashboard-startup-root"
+  },
+  {
+    "method": "GET",
+    "path": "/api/context-overview",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "git_subprocess_read",
+    "test_id": "existing:context-manager-overview"
+  },
+  {
+    "method": "GET",
+    "path": "/api/context-layout",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "existing:context-manager-layout"
+  },
+  {
+    "method": "GET",
+    "path": "/api/todo",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "existing:context-manager-todo"
+  },
+  {
+    "method": "GET",
+    "path": "/api/list",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "blackbox-uncovered:list"
+  },
+  {
+    "method": "GET",
+    "path": "/api/file",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "blackbox-uncovered:file"
+  },
+  {
+    "method": "GET",
+    "path": "/api/health",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "bounded_log_scan",
+    "test_id": "blackbox-uncovered:health"
+  },
+  {
+    "method": "GET",
+    "path": "/api/injection",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "blackbox-uncovered:injection"
+  },
+  {
+    "method": "GET",
+    "path": "/api/runtime-prompt",
+    "status": "compat",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "existing:runtime-prompt-function-contract"
+  },
+  {
+    "method": "GET",
+    "path": "/api/context-sources",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "existing:context-manager-sources"
+  },
+  {
+    "method": "GET",
+    "path": "/api/memory_overview",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "blackbox-uncovered:memory-overview"
+  },
+  {
+    "method": "GET",
+    "path": "/api/module-state",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "existing:phase4-module-state"
+  },
+  {
+    "method": "GET",
+    "path": "/api/context-trace",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "existing:phase4-context-trace"
+  },
+  {
+    "method": "GET",
+    "path": "/api/continuity/candidates",
+    "status": "compat",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "existing:continuity-candidates"
+  },
+  {
+    "method": "GET",
+    "path": "/api/continuity/decisions",
+    "status": "compat",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "existing:continuity-decisions"
+  },
+  {
+    "method": "GET",
+    "path": "/api/continuity/layers",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "existing:continuity-layers"
+  },
+  {
+    "method": "GET",
+    "path": "/api/episodes_index",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "blackbox-uncovered:episodes-index"
+  },
+  {
+    "method": "GET",
+    "path": "/api/rereadings_index",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "blackbox-uncovered:rereadings-index"
+  },
+  {
+    "method": "GET",
+    "path": "/api/state_rows",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "existing:phase4-state-rows"
+  },
+  {
+    "method": "GET",
+    "path": "/api/context-gates",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "blackbox-uncovered:context-gates"
+  },
+  {
+    "method": "GET",
+    "path": "/api/reentry",
+    "status": "compat",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "blackbox-uncovered:reentry"
+  },
+  {
+    "method": "GET",
+    "path": "/api/timeline",
+    "status": "compat",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "blackbox-uncovered:timeline"
+  },
+  {
+    "method": "GET",
+    "path": "/api/rereadings",
+    "status": "compat",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "blackbox-uncovered:rereadings"
+  },
+  {
+    "method": "GET",
+    "path": "/api/episodes",
+    "status": "compat",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "blackbox-uncovered:episodes"
+  },
+  {
+    "method": "GET",
+    "path": "/api/state_log",
+    "status": "compat",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "blackbox-uncovered:state-log"
+  },
+  {
+    "method": "GET",
+    "path": "/api/desire-schedule",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "existing:desire-schedule-read"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config",
+    "status": "retired",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "blackbox-uncovered:config-read"
+  },
+  {
+    "method": "GET",
+    "path": "/config",
+    "status": "retired",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "existing:phase4-config-retired"
+  },
+  {
+    "method": "GET",
+    "path": "/api/care/config",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "blackbox-uncovered:care-config"
+  },
+  {
+    "method": "GET",
+    "path": "/api/care/cycle",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "blackbox-uncovered:care-cycle-known-defect"
+  },
+  {
+    "method": "GET",
+    "path": "/api/theater/scripts",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "blackbox-uncovered:theater-scripts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/runtime-prompt/save",
+    "status": "active",
+    "auth": "x-api-token",
+    "side_effect": "backup_atomic_write_audit",
+    "test_id": "blackbox-auth:runtime-prompt-save"
+  },
+  {
+    "method": "POST",
+    "path": "/api/runtime-prompt/restore",
+    "status": "active",
+    "auth": "x-api-token",
+    "side_effect": "backup_atomic_write_audit",
+    "test_id": "blackbox-auth:runtime-prompt-restore"
+  },
+  {
+    "method": "POST",
+    "path": "/api/context-source/save",
+    "status": "active",
+    "auth": "x-api-token",
+    "side_effect": "backup_atomic_write",
+    "test_id": "blackbox-auth:context-source-save"
+  },
+  {
+    "method": "POST",
+    "path": "/api/desire-schedule",
+    "status": "active",
+    "auth": "x-api-token",
+    "side_effect": "backup_atomic_write_audit",
+    "test_id": "blackbox-auth:desire-schedule"
+  },
+  {
+    "method": "POST",
+    "path": "/api/context-layout/save",
+    "status": "active",
+    "auth": "x-api-token",
+    "side_effect": "atomic_write",
+    "test_id": "blackbox-auth:context-layout-save"
+  },
+  {
+    "method": "POST",
+    "path": "/api/context-layout/snapshot",
+    "status": "active",
+    "auth": "x-api-token",
+    "side_effect": "snapshot_write",
+    "test_id": "blackbox-auth:context-layout-snapshot"
+  },
+  {
+    "method": "POST",
+    "path": "/api/context-layout/restore",
+    "status": "active",
+    "auth": "x-api-token",
+    "side_effect": "snapshot_restore_write",
+    "test_id": "blackbox-auth:context-layout-restore"
+  },
+  {
+    "method": "POST",
+    "path": "/api/todo/save",
+    "status": "active",
+    "auth": "x-api-token",
+    "side_effect": "backup_atomic_write",
+    "test_id": "blackbox-auth:todo-save"
+  },
+  {
+    "method": "POST",
+    "path": "/api/context-gates",
+    "status": "active",
+    "auth": "x-api-token",
+    "side_effect": "atomic_write",
+    "test_id": "blackbox-auth:context-gates"
+  },
+  {
+    "method": "POST",
+    "path": "/api/review/retry",
+    "status": "active",
+    "auth": "x-api-token",
+    "side_effect": "review_subprocess",
+    "test_id": "blackbox-auth:review-retry"
+  },
+  {
+    "method": "POST",
+    "path": "/api/save",
+    "status": "frozen",
+    "auth": "frozen-before-auth",
+    "side_effect": "blocked",
+    "test_id": "blackbox-frozen:save"
+  },
+  {
+    "method": "POST",
+    "path": "/api/state_log",
+    "status": "frozen",
+    "auth": "frozen-before-auth",
+    "side_effect": "blocked",
+    "test_id": "blackbox-frozen:state-log"
+  },
+  {
+    "method": "POST",
+    "path": "/api/episode_candidate",
+    "status": "frozen",
+    "auth": "frozen-before-auth",
+    "side_effect": "blocked",
+    "test_id": "blackbox-frozen:episode-candidate"
+  },
+  {
+    "method": "POST",
+    "path": "/api/janitor/run",
+    "status": "frozen",
+    "auth": "frozen-before-auth",
+    "side_effect": "blocked",
+    "test_id": "blackbox-frozen:janitor-run"
+  },
+  {
+    "method": "POST",
+    "path": "/api/care/config",
+    "status": "frozen",
+    "auth": "frozen-before-auth",
+    "side_effect": "blocked",
+    "test_id": "blackbox-frozen:care-config"
+  },
+  {
+    "method": "POST",
+    "path": "/api/care/cycle",
+    "status": "frozen",
+    "auth": "frozen-before-auth",
+    "side_effect": "blocked",
+    "test_id": "blackbox-frozen:care-cycle"
+  },
+  {
+    "method": "POST",
+    "path": "/api/config",
+    "status": "frozen",
+    "auth": "frozen-before-auth",
+    "side_effect": "blocked",
+    "test_id": "blackbox-frozen:config"
+  }
+]
