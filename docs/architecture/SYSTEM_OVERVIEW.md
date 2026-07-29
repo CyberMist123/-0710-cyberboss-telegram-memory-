@@ -30,12 +30,15 @@ src/core/app.js                       中枢：命令分流、投递
   ├── 命令？ ──► src/core/command-registry.js ──► app.js 内的 handler
   │
   ├── 通路 A：buildRuntimeTurn()        —— 本轮 turn 的拼装
-  │     ├── Telegram plaintext <channel> envelope
-  │     │     （formatTelegramRuntimeText()）
-  │     └── memory_context
-  │           ⚠️ 当前 Telegram 在此之前提前 return，故断开
-  │              非 telegram 才会走到 resolveVisionContext()
-  │              与 resolveMemoryContextForPrepared()
+  │     ├── provider = telegram
+  │     │     ├── resolveMemoryContextFailOpen()
+  │     │     └── plaintext <channel> envelope，memory_context 拼在里面
+  │     │           （formatTelegramRuntimeText()）
+  │     │        注：这条分支不走 resolveVisionContext() —— Telegram 媒体
+  │     │        以 <media> 引用进 envelope，是刻意设计（DECISIONS.md D15）
+  │     └── 其他 provider
+  │           ├── resolveVisionContext()
+  │           └── resolveMemoryContextForPrepared()
   │
   └── 通路 B：runtime opening context   —— 运行时适配器注入
         （src/adapters/runtime/claudecode|codex 调 prepareOpeningContext()）
@@ -49,17 +52,19 @@ src/core/app.js                       中枢：命令分流、投递
 
 - Re-entry 与 Current State 属于 **opening context**（通路 B）；
 - memory_context 属于 **runtime turn 拼装**（通路 A）；
-- 所以 G1 `FAIL` 只意味着 **memory_context 失败**，不代表 Re-entry 和 Current State 失败。
+- 所以 memory_context 失败**不代表** Re-entry 和 Current State 失败，反之亦然。两者要分开判读、分开修。
 
-把三者画成同一条装配链是上一版文档的错误，也是这个缺陷长期没被发现的原因之一。当前各自的状态见 `docs/CURRENT_STATUS.md`。
+把三者画成同一条装配链是上一版文档的错误，也是通路 A 上的缺陷长期没被发现的原因之一。当前各自的状态见 `docs/CURRENT_STATUS.md`。
 
 默认模型输入由**稳定提示层、首轮 Re-entry、轻量 Current State、当前真实对话**组成。Episodes 及下游旧档**默认不进**普通对话上下文 —— 这是设计，不是缺陷。
 
 `src/core/context-trace.js` 记录每一轮装配了什么、跳过了什么、为什么。
 
-**当前它只覆盖 `reentry` 与 `current_state` 两种 block。** `memory_context` 在全仓只作为 gate 键存在，从未作为 trace block 出现 —— 因为 trace 记的是运行时适配器返回的 `continuity`，而 memory_context 产生在另一条通路上。
+trace 行的主体是运行时适配器返回的 `continuity`（通路 B 的 `reentry` / `current_state`）。**`memory_context` 来自通路 A，由 `app.js` 的 `recordContextTrace()` 折进同一行**：本轮解析出记忆行就记成一个 `loaded` 的 `memory_context` block，`reason` 取 memory_context 的 mode（`targeted` / `state_only` / `skip` / `gated_off` / `error` 等）；没有记忆行就记进 `skipped`，`reason` 同样是 mode，缺失时退成 `empty`。
 
-所以 README 那条「Context Trace 无法解释实际上下文 = 一级腐化信号」目前对所有 provider 都成立。补齐它是修 G1 的验收前提，见 `docs/CURRENT_STATUS.md` P0-2。
+只有**投递用户回合**那一处调用会把本轮的 memory_context 传进来。opening 刷新类调用不带 turn，不传，行的形状保持原样 —— 所以 opening 行里没有 `memory_context` 是正常的，不是缺失。
+
+这样 README 那条「Context Trace 无法解释实际上下文 = 一级腐化信号」才有落点：三个注入块现在都能在同一行里被解释。
 
 * * *
 
@@ -151,7 +156,7 @@ Claude Code 子进程自己可以再起**子代理**。这条链路目前不由�
 
 ### memory_context 的四种模式
 
-> ⚠️ 下面描述的是这段逻辑本身。**它在 Telegram 上不执行**（第一节的提前 return），当前只对非 Telegram provider 生效。
+Telegram 与其他 provider 走的是同一段解析逻辑，区别只在包装：Telegram 经 `resolveMemoryContextFailOpen()` 调用它（解析抛错时退成空 context，不拖垮本轮投递），结果拼进 `<channel>` envelope 里的 `<memory_context>` 段。
 
 `resolveMemoryContextForPrepared()`（`app.js`）先调 `src/core/memory-resolver.js` 的 `resolveMemoryRetrievalPlan(text)`，按**这一句话说了什么**决定这轮要不要检索：
 
