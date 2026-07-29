@@ -24,16 +24,18 @@ function createContinuityPipeline(config) {
     branch: config.continuityBranch || "runtime",
     worktree: config.continuityWorktree || config.workspaceRoot || continuityDir,
     baseSha: config.continuityBaseSha || "0".repeat(40),
+    automationTimezone: config.automationTimezone,
   });
 }
 
-async function runAuthoritativeCloseout({ config, runtimeAdapter, date, pipeline } = {}) {
+async function runAuthoritativeCloseout({ config, runtimeAdapter, date, businessDay, windowClosed = false, pipeline } = {}) {
   if (!runtimeAdapter || typeof runtimeAdapter.runBackgroundTurn !== "function") {
     throw new Error("authoritative closeout requires the configured runtime adapter");
   }
   const activePipeline = pipeline || createContinuityPipeline(config);
   return activePipeline.runCloseoutAsync({
-    date,
+    date: businessDay?.dateKey || date,
+    windowClosed,
     author: ({ materials }) => authorCloseout({ runtimeAdapter, config, materials }),
   });
 }

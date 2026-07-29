@@ -4,43 +4,46 @@ const path = require("path");
 const { acquireWriterLease, releaseWriterLease } = require("../orchestration/writer-lease");
 const { writeJsonAtomic } = require("../orchestration/atomic-json");
 const { createContinuityPipeline, runAuthoritativeCloseout } = require("../continuity/closeout-job");
-
-const DEFAULT_TIMEZONE = "Australia/Sydney";
+const {
+  DEFAULT_AUTOMATION_TIMEZONE: DEFAULT_TIMEZONE,
+  businessDayForDate,
+  isBusinessDayWindowClosed,
+  resolveBusinessDay,
+  zonedParts,
+} = require("../utils/business-day");
 const DEFAULT_POLL_INTERVAL_MS = 15 * 60 * 1000;
 const DEFAULT_CLOSEOUT_RETRY_DELAY_MS = 60 * 60 * 1000;
 const DEFAULT_CLOSEOUT_MAX_ATTEMPTS = 3;
 const MAX_ALERT_DELIVERY_ATTEMPTS = 3;
 
-function zonedParts(now, timeZone = DEFAULT_TIMEZONE) {
-  const date = new Date(now);
-  if (!Number.isFinite(date.getTime())) return null;
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).formatToParts(date).reduce((result, part) => {
-    if (part.type !== "literal") result[part.type] = part.value;
-    return result;
-  }, {});
-  return {
-    year: Number(parts.year),
-    month: Number(parts.month),
-    day: Number(parts.day),
-    hour: Number(parts.hour) === 24 ? 0 : Number(parts.hour),
-    minute: Number(parts.minute),
-    second: Number(parts.second),
-  };
+function businessDateKey(now, timeZone = DEFAULT_TIMEZONE) {
+  return resolveBusinessDay(timeZone, now)?.dateKey || "";
 }
 
-function businessDateKey(now, timeZone = DEFAULT_TIMEZONE) {
-  const parts = zonedParts(now, timeZone);
-  if (!parts || !Number.isInteger(parts.year)) return "";
-  return [parts.year, String(parts.month).padStart(2, "0"), String(parts.day).padStart(2, "0")].join("-");
+function nextCloseoutRetryAt(filePath, now) {
+  const state = readState(filePath);
+  const entries = state.closeout && typeof state.closeout === "object"
+    ? Object.values(state.closeout)
+    : [];
+  let next = Infinity;
+  for (const entry of entries) {
+    if (!entry || !["failed", "no_output", "retryable_no_output"].includes(entry.status)) continue;
+    const retryAt = Date.parse(entry.next_retry_at || "");
+    if (Number.isFinite(retryAt)) next = Math.min(next, Math.max(Number(now), retryAt));
+    else if (["no_output", "retryable_no_output"].includes(entry.status)) next = Math.min(next, Number(now));
+  }
+  return next;
+}
+
+function pendingCloseoutDates(state, currentBusinessDateKey, maxAttempts) {
+  const closeout = state.closeout && typeof state.closeout === "object" ? state.closeout : {};
+  return Object.entries(closeout)
+    .filter(([date, entry]) => /^\d{4}-\d{2}-\d{2}$/.test(date)
+      && date < currentBusinessDateKey
+      && (["no_output", "retryable_no_output"].includes(entry?.status)
+        || (entry?.status === "failed" && Number(entry.attempts || 0) < maxAttempts)))
+    .map(([date]) => date)
+    .sort();
 }
 
 function isScheduleDue(now, hour, minute, timeZone = DEFAULT_TIMEZONE) {
@@ -343,7 +346,10 @@ class CloseoutLivenessAutomation {
     }
     const now = this.clock.now();
     const nextCloseout = this.config.nightlyCloseoutEnabled
-      ? nextScheduleAt(now, this.config.nightlyCloseoutHour, this.config.nightlyCloseoutMinute, this.config.automationTimezone)
+      ? Math.min(
+        nextScheduleAt(now, this.config.nightlyCloseoutHour, this.config.nightlyCloseoutMinute, this.config.automationTimezone),
+        nextCloseoutRetryAt(this.config.closeoutRetryStateFile, now),
+      )
       : Infinity;
     const nextLiveness = (this.config.canonLivenessEnabled || this.config.recallLivenessEnabled)
       ? Number(now) + this.pollIntervalMs
@@ -392,20 +398,54 @@ class CloseoutLivenessAutomation {
   }
 
   async runCloseout(now) {
-    const date = businessDateKey(now, this.config.automationTimezone);
-    if (!date) return { status: "skipped", reason: "invalid_business_date" };
+    const currentBusinessDay = resolveBusinessDay(this.config.automationTimezone, now);
+    if (!currentBusinessDay) return { status: "skipped", reason: "invalid_business_date" };
+    const state = readState(this.config.closeoutRetryStateFile);
+    const dates = [
+      ...pendingCloseoutDates(state, currentBusinessDay.dateKey, this.maxCloseoutAttempts),
+      currentBusinessDay.dateKey,
+    ];
+    const results = [];
+    for (const date of [...new Set(dates)]) {
+      const businessDay = date === currentBusinessDay.dateKey
+        ? currentBusinessDay
+        : businessDayForDate(date, this.config.automationTimezone);
+      if (!businessDay) {
+        results.push({ status: "skipped", reason: "invalid_business_date", date });
+        continue;
+      }
+      results.push(await this.runCloseoutDate({
+        now,
+        date,
+        businessDay,
+        windowClosed: isBusinessDayWindowClosed(date, currentBusinessDay.dateKey),
+      }));
+    }
+    if (results.length === 1) return results[0];
+    return { status: "batch", date: currentBusinessDay.dateKey, results };
+  }
+
+  async runCloseoutDate({ now, date, businessDay, windowClosed }) {
     const state = readState(this.config.closeoutRetryStateFile);
     const previous = state.closeout?.[date] || {};
     const nowMs = Number(now);
-    if (previous.status === "success" || previous.status === "no_output") return { status: "skipped", reason: "already_completed", date };
-    if (previous.next_retry_at && Date.parse(previous.next_retry_at) > nowMs) return { status: "skipped", reason: "retry_backoff", date };
-    if (Number(previous.attempts || 0) >= this.maxCloseoutAttempts) return { status: "skipped", reason: "retry_limit", date };
+    if (previous.status === "success" || previous.status === "sealed_no_output") {
+      return { status: "skipped", reason: "already_completed", date };
+    }
+    if (!windowClosed && previous.next_retry_at && Date.parse(previous.next_retry_at) > nowMs) {
+      return { status: "skipped", reason: "retry_backoff", date };
+    }
+    if (previous.status === "failed" && Number(previous.attempts || 0) >= this.maxCloseoutAttempts) {
+      return { status: "skipped", reason: "retry_limit", date };
+    }
 
     let claim;
     try {
       claim = acquireLivenessLease(this.config.closeoutAutomationLeaseFile, this.config);
     } catch (error) {
-      if (/already held/.test(error?.message || "")) return { status: "skipped", reason: "claim_unavailable", date };
+      if (/already held/.test(error?.message || "")) {
+        return { status: "skipped", reason: "claim_unavailable", date };
+      }
       throw error;
     }
 
@@ -413,34 +453,48 @@ class CloseoutLivenessAutomation {
       config: this.config,
       runtimeAdapter: this.runtimeAdapter,
       date: payload.date,
+      businessDay: payload.businessDay,
+      windowClosed: payload.windowClosed,
       pipeline: createContinuityPipeline(this.config),
     }));
     try {
-      const output = await runner({ date, businessDate: date, now });
-      const status = output?.status === "success" ? "success" : output?.status === "no_output" ? "no_output" : "failed";
+      const output = await runner({ date, businessDate: date, businessDay, windowClosed, now });
+      const status = output?.status === "success"
+        ? "success"
+        : output?.status === "sealed_no_output"
+          ? "sealed_no_output"
+          : output?.status === "retryable_no_output"
+            ? "retryable_no_output"
+            : output?.status === "no_output"
+              ? (windowClosed ? "sealed_no_output" : "retryable_no_output")
+              : "failed";
       const attempts = Number(previous.attempts || 0) + (status === "failed" ? 1 : 0);
+      const shouldRetry = status === "retryable_no_output"
+        || (status === "failed" && attempts < this.maxCloseoutAttempts);
       this.writeCloseoutState(date, {
         status,
         attempts,
         last_attempt_at: new Date(nowMs).toISOString(),
-        next_retry_at: status === "failed" && attempts < this.maxCloseoutAttempts
-          ? new Date(nowMs + this.retryDelayMs).toISOString()
-          : null,
+        next_retry_at: shouldRetry ? new Date(nowMs + this.retryDelayMs).toISOString() : null,
         last_error: status === "failed" ? "authoritative_closeout_incomplete" : null,
       });
-      return { ...output, status, date };
+      return { ...output, status, date, window_closed: windowClosed };
     } catch (error) {
       const attempts = Number(previous.attempts || 0) + 1;
       this.writeCloseoutState(date, {
         status: "failed",
         attempts,
         last_attempt_at: new Date(nowMs).toISOString(),
-        next_retry_at: attempts < this.maxCloseoutAttempts ? new Date(nowMs + this.retryDelayMs).toISOString() : null,
+        next_retry_at: attempts < this.maxCloseoutAttempts
+          ? new Date(nowMs + this.retryDelayMs).toISOString()
+          : null,
         last_error: error?.message || String(error),
       });
       throw error;
     } finally {
-      try { releaseWriterLease(this.config.closeoutAutomationLeaseFile, claim.lease_id); } catch {}
+      try {
+        releaseWriterLease(this.config.closeoutAutomationLeaseFile, claim.lease_id);
+      } catch {}
     }
   }
 

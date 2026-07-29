@@ -101,10 +101,10 @@ test("configuration is off by default and rejects ambiguous values", () => {
 test("Sydney schedule survives DST boundaries", () => {
   const springTarget = Date.parse("2026-10-03T17:30:00Z");
   const autumnTarget = Date.parse("2026-04-04T18:30:00Z");
-  assert.equal(businessDateKey(springTarget, "Australia/Sydney"), "2026-10-04");
+  assert.equal(businessDateKey(springTarget, "Australia/Sydney"), "2026-10-03");
   assert.equal(isScheduleDue(springTarget, 4, 30, "Australia/Sydney"), true);
   assert.equal(nextScheduleAt(Date.parse("2026-10-03T16:00:00Z"), 4, 30, "Australia/Sydney"), springTarget);
-  assert.equal(businessDateKey(autumnTarget, "Australia/Sydney"), "2026-04-05");
+  assert.equal(businessDateKey(autumnTarget, "Australia/Sydney"), "2026-04-04");
   assert.equal(isScheduleDue(autumnTarget, 4, 30, "Australia/Sydney"), true);
 });
 
@@ -155,7 +155,7 @@ test("two closeout owners can claim only one Sydney business date", async () => 
     assert.equal(calls, 1);
     assert.deepEqual(results.map((item) => item.closeout.status).sort(), ["skipped", "success"]);
     const retryState = JSON.parse(fs.readFileSync(config.closeoutRetryStateFile, "utf8"));
-    assert.equal(retryState.closeout["2026-07-25"].status, "success");
+    assert.equal(retryState.closeout["2026-07-24"].status, "success");
   } finally {
     cleanup(root);
   }
@@ -201,8 +201,8 @@ test("closeout failure retries with durable backoff and never records false succ
     const skipped = await owner.runCloseout(now + 1_000);
     assert.equal(skipped.reason, "retry_backoff");
     const state = JSON.parse(fs.readFileSync(config.closeoutRetryStateFile, "utf8"));
-    assert.equal(state.closeout["2026-07-25"].status, "failed");
-    assert.equal(state.closeout["2026-07-25"].attempts, 1);
+    assert.equal(state.closeout["2026-07-24"].status, "failed");
+    assert.equal(state.closeout["2026-07-24"].attempts, 1);
   } finally {
     cleanup(root);
   }
