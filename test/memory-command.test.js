@@ -75,7 +75,10 @@ test("memory approve command promotes pending candidate into formal memory with 
     args: ["pending_1", "不喜欢奇怪比喻，偏好直接表达"],
   });
 
-  assert.match(result, /approved into formal memory/);
+  // The whole /memory command surface now names the candidate store it acts on
+  // (the "7-Day memory" file) instead of the generic "pending"/"approved"
+  // wording. See src/core/app.js:2570.
+  assert.match(result, /7-Day entry promoted into formal memory/);
   assert.match(result, /不喜欢奇怪比喻，偏好直接表达/);
 });
 
@@ -96,7 +99,8 @@ test("memory review command renders pending suggestions", async () => {
     options: { limit: "10" },
   });
 
-  assert.match(result, /Pending review/);
+  // See src/core/app.js:2493.
+  assert.match(result, /7-Day memory review/);
   assert.match(result, /suggest: 偏好直接、易理解的表达/);
 });
 
@@ -140,7 +144,8 @@ test("memory suggest command returns rewrite suggestion for pending item", async
     options: {},
   });
 
-  assert.match(result, /Pending suggestion: pending_1/);
+  // See src/core/app.js:2502.
+  assert.match(result, /7-Day suggestion: pending_1/);
   assert.match(result, /suggested: 偏好直接、易理解的表达/);
 });
 
@@ -171,6 +176,7 @@ test("memory apply-suggestion command approves pending item with suggestion", as
     options: {},
   });
 
-  assert.match(result, /approved with suggestion/);
+  // See src/core/app.js:2514.
+  assert.match(result, /7-Day entry promoted with suggestion/);
   assert.match(result, /偏好直接、易理解的表达/);
 });

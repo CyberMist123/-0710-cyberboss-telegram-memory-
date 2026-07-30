@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 
 const { CyberbossApp } = require("../src/core/app");
 const { TurnGateStore } = require("../src/core/turn-gate-store");
+const { buildLegacyRouteLane } = require("../src/core/route-lane");
 
 test("turn gate tracks pending scopes until the turn is released", () => {
   const gate = new TurnGateStore();
@@ -67,6 +68,7 @@ test("handlePreparedMessage queues a normal inbound message while the scope is b
     bufferPendingInboundMessage({ bindingKey, workspaceRoot, prepared }) {
       queued.push({ bindingKey, workspaceRoot, ...prepared });
     },
+    maybeRunLegacyMemoryBackgroundPipeline() {},
     isTurnDispatchBlocked: CyberbossApp.prototype.isTurnDispatchBlocked,
     routePreparedInbound: CyberbossApp.prototype.routePreparedInbound,
   };
@@ -91,6 +93,9 @@ test("handlePreparedMessage queues a normal inbound message while the scope is b
 test("dispatchSystemMessage yields when a local pending turn already owns the workspace thread", async () => {
   let handled = false;
   const appLike = {
+    // Non-Telegram channel: the system context token comes from the channel
+    // adapter's known-token map instead of a synthesized `telegram:<id>`.
+    config: { channel: "weixin" },
     systemMessageDispatcher: {
       buildPreparedMessage() {
         return {
@@ -151,6 +156,15 @@ test("dispatchSystemMessage yields when a local pending turn already owns the wo
 test("handlePreparedMessage queues while the scope is in a turn-boundary handoff", async () => {
   const queued = [];
   let dispatched = false;
+  // Since route-lane v2 the inbound scope key is lane-scoped: a non-Telegram
+  // message resolves to a legacy lane keyed by the continuity binding, so the
+  // boundary set must hold that key, not the pre-v2 `binding::workspace` form.
+  // See src/core/app.js:686 (buildRouteScopeKey) and src/core/app.js:4383.
+  const boundaryScopeKey = CyberbossApp.prototype.buildRouteScopeKey(
+    buildLegacyRouteLane({ provider: "weixin", bindingKey: "binding-1" }),
+    "binding-1",
+    "/workspace",
+  );
   const appLike = {
     runtimeAdapter: {
       getSessionStore() {
@@ -174,7 +188,7 @@ test("handlePreparedMessage queues while the scope is in a turn-boundary handoff
         return false;
       },
     },
-    turnBoundaryScopeKeys: new Set(["binding-1::/workspace"]),
+    turnBoundaryScopeKeys: new Set([boundaryScopeKey]),
     streamDelivery: {
       setReplyTarget() {},
     },
@@ -198,6 +212,7 @@ test("handlePreparedMessage queues while the scope is in a turn-boundary handoff
     bufferPendingInboundMessage({ bindingKey, workspaceRoot, prepared }) {
       queued.push({ bindingKey, workspaceRoot, ...prepared });
     },
+    maybeRunLegacyMemoryBackgroundPipeline() {},
     isTurnDispatchBlocked: CyberbossApp.prototype.isTurnDispatchBlocked,
     routePreparedInbound: CyberbossApp.prototype.routePreparedInbound,
   };
@@ -295,6 +310,9 @@ test("completed turns flush queued inbound work before system messages", async (
   const appLike = {
     streamDelivery: {
       async handleRuntimeEvent() {},
+      resolveReplyTargetForRun() {
+        return null;
+      },
     },
     runtimeAdapter: {
       getSessionStore() {
@@ -316,8 +334,16 @@ test("completed turns flush queued inbound work before system messages", async (
       isPending() {
         return false;
       },
+      isScopePending() {
+        return false;
+      },
     },
     turnBoundaryScopeKeys: new Set(),
+    desireUsageByRunKey: new Map(),
+    async synchronizeRecallTrace() {
+      return false;
+    },
+    handleCompletedRuntimeTurn() {},
     hasPendingInboundMessage() {
       return false;
     },
@@ -348,6 +374,9 @@ test("completed turns keep the boundary closed until queued inbound work has bee
   const appLike = {
     streamDelivery: {
       async handleRuntimeEvent() {},
+      resolveReplyTargetForRun() {
+        return null;
+      },
     },
     runtimeAdapter: {
       getSessionStore() {
@@ -369,8 +398,16 @@ test("completed turns keep the boundary closed until queued inbound work has bee
       isPending() {
         return false;
       },
+      isScopePending() {
+        return false;
+      },
     },
     turnBoundaryScopeKeys: new Set(),
+    desireUsageByRunKey: new Map(),
+    async synchronizeRecallTrace() {
+      return false;
+    },
+    handleCompletedRuntimeTurn() {},
     hasPendingInboundMessage() {
       return true;
     },
@@ -401,6 +438,9 @@ test("completed turns flush queued inbound work before system messages", async (
   const appLike = {
     streamDelivery: {
       async handleRuntimeEvent() {},
+      resolveReplyTargetForRun() {
+        return null;
+      },
     },
     runtimeAdapter: {
       getSessionStore() {
@@ -419,8 +459,16 @@ test("completed turns flush queued inbound work before system messages", async (
       isPending() {
         return false;
       },
+      isScopePending() {
+        return false;
+      },
     },
     turnBoundaryScopeKeys: new Set(),
+    desireUsageByRunKey: new Map(),
+    async synchronizeRecallTrace() {
+      return false;
+    },
+    handleCompletedRuntimeTurn() {},
     hasPendingInboundMessage() {
       return false;
     },
@@ -477,8 +525,15 @@ test("failed turns still send error back when thread binding lookup is missing",
       isPending() {
         return false;
       },
+      isScopePending() {
+        return false;
+      },
     },
     turnBoundaryScopeKeys: new Set(),
+    desireUsageByRunKey: new Map(),
+    async synchronizeRecallTrace() {
+      return false;
+    },
     hasPendingInboundMessage() {
       return false;
     },
@@ -561,7 +616,10 @@ test("flushPendingInboundMessages batches queued messages from the same scope in
 
   assert.equal(dispatched.length, 1);
   assert.equal(dispatched[0].prepared.contextToken, "ctx-1");
-  assert.match(dispatched[0].prepared.text, /Multiple newer WeChat messages arrived/);
+  // The merge prompt is channel-neutral on purpose: mergePendingInboundDraft has
+  // no channel context and the same batch text is injected for Telegram turns.
+  // See src/core/app.js:1403.
+  assert.match(dispatched[0].prepared.text, /Multiple newer user messages arrived/);
   assert.match(dispatched[0].prepared.text, /第一条[\s\S]*第二条/);
 });
 
