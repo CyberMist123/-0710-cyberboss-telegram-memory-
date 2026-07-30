@@ -25,7 +25,7 @@ Verified against: 3c4d561 (main)
 | G1 Telegram 核心读取路径 | `PARTIAL` | 代码通路与 Trace 验收结构已接通，缺真机执行证据 |
 | G2 后台记忆写入边界 | `FAIL` | 候选权限闸门、nightly 登记、Review 未完成时阻断 History 与 #73 effective decision 已闭环；Review→History 交接协议已裁定为 publication intent/outbox（D22），实现待 G2-4；主体改写链仍未闭环 |
 | G3 Chat 成本与 profile 隔离 | `PARTIAL` | 基础管道存在，真实 fable-chat 配置与隔离未完成 |
-| G4 Windows 生产验证 | `PARTIAL` | 代码控制面基本完成，真机 release/cutover 证据缺失 |
+| G4 Windows 生产验证 | `PARTIAL` | 2026-07-30 首次真机交付成功并已留证（`docs/audit/G4_PRODUCTION_DELIVERY_20260730.md`）；**但监督链失效** —— 描述文件带 UTF-8 BOM，加固版 watchdog fail-closed，bot 无人监督地在跑；正规发布包机制仍未启用 |
 | G5 备份与回滚验证 | `NOT_VERIFIED` | 缺少真实备份恢复演练证据 |
 
 **是否允许切生产：否。** 判据见第五节。
@@ -95,7 +95,7 @@ Verified against: 3c4d561 (main)
 | 520 · 安全冻结写端点（5 个） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 按设计冻结，见 `DECISIONS.md` D5 |
 | 520 · 关怀页写路径（care config / cycle） | `PARTIAL` | `PARTIAL` | `NONE` | `NOT_WIRED` | 后端在、前端未接完；不是安全边界 |
 | 520 · 剧场页（theater scripts） | `WIRED` | `NONE` | `NONE` | `UNKNOWN` | 纯展示只读 |
-| Windows release / watchdog 控制平面 | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | **`PARTIAL`** —— 真机 release/cutover 留证缺失 |
+| Windows release / watchdog 控制平面 | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | **`PARTIAL`** —— 2026-07-30 首次真机交付留证已归档（`docs/audit/G4_PRODUCTION_DELIVERY_20260730.md`：方案 A 只搬代码，bot 存活并真实应答 Telegram）。**监督链未通过**：`descriptor.startup.json` 带 UTF-8 BOM，加固版 `watchdog.py` 的 `load_descriptor()` 对此 fail-closed，watchdog 每 60 秒重试皆失败，bot 实际由 `start-telegram.ps1` 直接拉起且**无人监督**；备份描述文件同样带 BOM。修复须连同部署身份三套真相一并处理（issue #77）。正规发布包机制（`install-descriptor` + 候选启动器）在生产上从未启用 |
 | 备份与回滚演练 | `WIRED` | `PARTIAL` | `NONBLOCKING` | `UNKNOWN` | **`NOT_VERIFIED`** —— 无真实恢复演练证据 |
 | `fable-chat` profile 绑定 | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | 仅设计交接文档，代码侧零实现 |
 | Codex 作为子代理运行时 | `PARTIAL` | `COVERED` | `BLOCKING` | `NOT_WIRED` | 有界委派协议与离线闭环已实现；2026-07-28 用真实 Codex 跑通一次 canary（只改 `test/`，边界成立，验收测试通过，判定 accept）。**仓库内没有把 Codex adapter 绑进委派 runner 的代码**，运行时由调用方注入，离线测试用 fake；主 Chat 未接 |
