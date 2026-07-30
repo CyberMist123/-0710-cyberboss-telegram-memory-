@@ -6,7 +6,14 @@ const path = require("path");
 
 const { MemoryService } = require("../src/services/memory-service");
 
-test("cleanupSevenDayMemory physically removes expired and non-active entries", () => {
+test("cleanupSevenDayMemory physically removes expired and non-active entries", (t) => {
+  // The fixture pins absolute dates, and every read goes through ensureFiles(),
+  // which runs a second cleanup against the *real* clock
+  // (src/services/memory-service.js:347 -> :703, reached from :383). Without a
+  // frozen clock this test silently rots once wall-clock time passes
+  // `expires_at`, and `evt_keep` gets swept before the read at line 74.
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-06-05T00:00:00.000Z") });
+
   const memoryDir = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-memory-seven-day-"));
   const service = new MemoryService({ memoryDir });
   service.ensureFiles();

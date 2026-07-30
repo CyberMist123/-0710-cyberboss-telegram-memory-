@@ -23,6 +23,12 @@ test("reply delivery falls back when outgoing text conflicts with hard memory", 
     },
   };
   appLike.transformReplyDelivery = CyberbossApp.prototype.transformReplyDelivery;
+  // transformReplyDelivery now also feeds the reply back into the legacy memory
+  // background pipeline (src/core/app.js:2616/2621/2628 -> :2632 -> :2644).
+  // The recorder is borrowed for real; only the fire-and-forget pipeline is
+  // stubbed out, exactly as test/telegram-lane-isolation.test.js:76 does.
+  appLike.recordAssistantReplyForMemory = CyberbossApp.prototype.recordAssistantReplyForMemory;
+  appLike.maybeRunLegacyMemoryBackgroundPipeline = () => {};
 
   const streamDelivery = new StreamDelivery({
     channelAdapter: {
