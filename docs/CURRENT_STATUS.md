@@ -74,7 +74,8 @@ Verified against: 3c4d561 (main)
 | Telegram 主链（poller / adapter / envelope） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 信封格式有 CI 测试钉住；真机运行状态未核 |
 | Telegram route lanes v2 / profile router | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | `test:route-lanes` 已接进主 CI |
 | Telegram 媒体入站（media inbox） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | `test:telegram-media` 已接进主 CI |
-| Hard context · Re-entry | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 由运行时适配器的 opening context 注入，通路正常 |
+| Hard context · Re-entry | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | **`PARTIAL`** —— 由运行时适配器的 opening context 注入；2026-07-30 生产实测 `memory/reentry.md` 954 非空白字 > 300 预算，注入实际为零（err.log 连记 `reentry skipped reason=over_budget`）。#76 已加 last-known-good 降级、发布前预算硬闸门与 trace 的 configured/effective 分离；**正文压缩归聊天窗主体 AI，尚未做**，且生产机上没有可用副本，所以首次仍会是空注入 |
+| 账本（details）外置存储 | `PARTIAL` | `COVERED` | `BLOCKING` | `NOT_WIRED` | #76 目标 1：`details.jsonl` 存储、`type: details` 权限门、History writer 发布与 `memory_lookup` 读通路已闭环并有边界测试（第三档完全按需，永不注入）。**写侧没有 producer** —— 主体 AI 产出账本候选的入口未接，也不做自动提取；生产无数据 |
 | Hard context · Current State | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 同上；与 memory_context 不是同一条通路 |
 | **Telegram memory_context** | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 逻辑经 `buildRuntimeTurn()` Telegram 分支可达，信封外 `<memory_context>` 块，fail-open；真机执行证据缺失 |
 | Context Trace 覆盖 memory_context | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | trace blocks / skipped 已解释 memory_context（所有 provider 的 turn 路径）；真机证据缺失 |

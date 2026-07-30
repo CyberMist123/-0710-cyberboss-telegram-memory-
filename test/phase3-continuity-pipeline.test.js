@@ -8,8 +8,16 @@ const path = require("node:path");
 const { acquireWriterLease, releaseWriterLease } = require("../src/orchestration/writer-lease");
 const { authorCloseout } = require("../src/continuity/background-author");
 const { stripConversationArtifacts } = require("../src/continuity/conversation-purity");
-const { ContinuityPipeline, createCandidate } = require("../src/continuity/continuity-pipeline");
-const { appendJsonlUnique, readJsonl } = require("../src/continuity/continuity-store");
+const {
+  ContinuityPipeline,
+  PUBLISH_REFUSED_EVENT,
+  buildLocalChecks,
+  createCandidate,
+  createDecision,
+} = require("../src/continuity/continuity-pipeline");
+const { appendJsonlUnique, loadJson, readJsonl } = require("../src/continuity/continuity-store");
+const { detailsFileFor, readDetailsForLookup } = require("../src/continuity/detail-ledger");
+const { MemoryLookupService } = require("../src/services/memory-lookup-service");
 
 const SUBJECT_AI_METADATA = {
   origin: "live_closeout",
@@ -361,6 +369,158 @@ test("over-budget Re-entry is retained as evidence, deferred, and never publishe
   assert.equal(decision.reason, "over_budget");
   fixture.pipeline.runHistoryWriter();
   assert.equal(fs.existsSync(fixture.pipeline.paths.reentry), false);
+});
+
+// issue #76 目标 3：canon 的最后一个写入点必须自己证明预算成立。
+// 威胁模型是「decisions.jsonl 被手改 / Review 被绕过 / 预算常量漂移」——
+// 这三种情况下 Review 侧的 length_ok 都不在场，只有 History writer 能挡。
+test("history writer refuses an over-budget reentry draft even with an accepted decision", () => {
+  const fixture = createFixture();
+  const pipeline = fixture.pipeline;
+  pipeline.runCloseout({
+    date: "2026-07-11",
+    candidateMetadata: SUBJECT_AI_METADATA,
+    author: () => ({ reentry_draft: "她".repeat(954) }),
+  });
+  const candidate = readJsonl(pipeline.paths.candidates)[0];
+  // Review 绕过：直接伪造一条 accepted，模拟决策账被手改。
+  const forged = createDecision(candidate, {
+    result: "accepted",
+    reason: "model_review_disabled",
+    checks: { ...buildLocalChecks(candidate, true), length_ok: true },
+  });
+  appendJsonlUnique(pipeline.paths.decisions, [forged], "decision_id");
+
+  const first = pipeline.runHistoryWriter();
+  assert.equal(first.written.length, 0);
+  assert.equal(fs.existsSync(pipeline.paths.reentry), false);
+  const refusal = first.skipped.find((item) => item.decision_id === forged.decision_id);
+  assert.equal(refusal.reason, "over_budget");
+  assert.equal(refusal.candidate_id, candidate.candidate_id);
+
+  // 打回案例走既有存档通路：History writer 自己的 diagnostic_events，
+  // 正文不复制进机制状态，只留可 join 的 candidate_id 与摘要哈希（D17）。
+  const event = first.diagnostics.find((item) => item.event === PUBLISH_REFUSED_EVENT);
+  assert.equal(event.candidate_id, candidate.candidate_id);
+  assert.equal(event.chars, 954);
+  assert.equal(event.budget, 300);
+  assert.equal(event.body_sha256.length, 64);
+  assert.equal(Object.prototype.hasOwnProperty.call(event, "body"), false);
+  const state = loadJson(pipeline.paths.writerState, {});
+  assert.equal(state.diagnostic_events.filter((item) => item.event_id === event.event_id).length, 1);
+  // 不记 applied：改写重交后能再次走到发布点（D17 打回可重试）。
+  assert.equal((state.applied_decision_ids || []).includes(forged.decision_id), false);
+  // 正文原样留在候选层，后台一个字都不许截断或改写（D16 / D19）。
+  assert.equal(readJsonl(pipeline.paths.candidates)[0].body, "她".repeat(954));
+
+  const second = pipeline.runHistoryWriter();
+  assert.equal(second.written.length, 0);
+  assert.equal(fs.existsSync(pipeline.paths.reentry), false);
+  assert.equal(loadJson(pipeline.paths.writerState, {}).diagnostic_events.length, 1);
+
+  // 原作者改写重交：同一条链在预算内就能发布，打回不是死路。
+  const rewritten = createCandidate({
+    date: "2026-07-11",
+    type: "reentry_draft",
+    author: "subject_ai",
+    body: "我停在她那句「先不管了」上，明天先看她此刻怎么说。",
+    sourceRef: { file: fixture.conversationFile, window: "1-2" },
+    origin: "live_closeout",
+    authorRole: "subject_ai",
+    authorModel: "fixture-subject-ai",
+    contextScope: "active_session",
+    semanticAuthority: "high",
+    needsSubjectReview: false,
+  });
+  appendJsonlUnique(pipeline.paths.candidates, [rewritten], "candidate_id");
+  const review = pipeline.runReview({ env: { ...process.env, CYBERBOSS_AUTO_REVIEW_MODEL: "off" } });
+  assert.equal(review.decisions.find((item) => item.candidate_id === rewritten.candidate_id).result, "accepted");
+  const third = pipeline.runHistoryWriter();
+  assert.equal(third.written.length, 1);
+  assert.equal(fs.readFileSync(pipeline.paths.reentry, "utf8"), rewritten.body);
+});
+
+// issue #76 目标 1：账本（details）走与 Re-entry 同一条发布链，
+// 落 details.jsonl，只能经 memory_lookup 被翻到，永不进注入通路。
+test("details ledger publishes through the same chain and is only reachable by lookup", () => {
+  const fixture = createFixture();
+  const pipeline = fixture.pipeline;
+  assert.equal(pipeline.paths.details, detailsFileFor(fixture.continuityDir));
+  const body = "下次复查：2026-08-03，空腹；她只喝冰美式。";
+  const candidate = createCandidate({
+    date: "2026-07-11",
+    type: "details",
+    author: "subject_ai",
+    body,
+    sourceRef: { file: fixture.conversationFile, window: "1-2" },
+    origin: "live_closeout",
+    authorRole: "subject_ai",
+    authorModel: "fixture-subject-ai",
+    contextScope: "active_session",
+    semanticAuthority: "high",
+    needsSubjectReview: false,
+  });
+  appendJsonlUnique(pipeline.paths.candidates, [candidate], "candidate_id");
+
+  const review = pipeline.runReview({ env: { ...process.env, CYBERBOSS_AUTO_REVIEW_MODEL: "off" } });
+  const decision = review.decisions[0];
+  // 账本条目豁免祈使句式闸门（宪法第三条）：「下次复查」在账本里是一个字段，
+  // 不是写给明天的我的规则。若豁免失效这里会变成 deferred/imperative_style。
+  assert.equal(decision.result, "accepted");
+  assert.equal(decision.checks.imperative_exempt, "structured_ledger_type");
+
+  const writer = pipeline.runHistoryWriter();
+  assert.deepEqual(writer.written, [decision.decision_id]);
+  const rows = readJsonl(pipeline.paths.details);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].body, body);
+  assert.equal(rows[0].type, "details");
+  assert.equal(rows[0].candidate_id, candidate.candidate_id);
+  assert.equal(rows[0].decision_id, decision.decision_id);
+  assert.match(rows[0].detail_id, /^detail-[0-9a-f]{16}$/u);
+  // 账本不是 Episode / Self-note / Re-entry：一条都不许漏进那三个正史文件。
+  assert.equal(fs.existsSync(pipeline.paths.episodes), false);
+  assert.equal(fs.existsSync(pipeline.paths.selfNotes), false);
+  assert.equal(fs.existsSync(pipeline.paths.reentry), false);
+
+  // 读取只走既有受控工具通路（Phase 5A memory_lookup），且预算与截断沿用旧规则。
+  const lookup = new MemoryLookupService({ continuityDir: fixture.continuityDir });
+  const hit = lookup.lookup(
+    { query: "复查", trigger: "user_pull", reason: "她问上次说的复查是哪天" },
+    { provider: "telegram", accountId: "acct", threadId: "thread-details" },
+  );
+  assert.equal(hit.hits.length, 1);
+  assert.equal(hit.hits[0].ep_id, rows[0].detail_id);
+  assert.match(hit.hits[0].body, /2026-08-03/u);
+
+  // 幂等：重复运行不追加第二行，也不重复登记。
+  const before = fs.readFileSync(pipeline.paths.details, "utf8");
+  assert.equal(pipeline.runHistoryWriter().written.length, 0);
+  assert.equal(fs.readFileSync(pipeline.paths.details, "utf8"), before);
+  assert.equal(readDetailsForLookup(pipeline.paths.details).length, 1);
+});
+
+test("details candidates without subject authority never reach the ledger", () => {
+  const fixture = createFixture();
+  const pipeline = fixture.pipeline;
+  const candidate = createCandidate({
+    date: "2026-07-11",
+    type: "details",
+    author: "janitor",
+    body: "提取器搬来的待办，不许自己进抽屉。",
+    sourceRef: { file: fixture.conversationFile, window: "1-2" },
+    origin: "janitor_legacy",
+    authorRole: "extractor",
+    authorModel: "legacy-extractor",
+    contextScope: "isolated_chunk",
+    semanticAuthority: "none",
+  });
+  appendJsonlUnique(pipeline.paths.candidates, [candidate], "candidate_id");
+  const review = pipeline.runReview({ env: { ...process.env, CYBERBOSS_AUTO_REVIEW_MODEL: "off" } });
+  assert.equal(review.decisions[0].result, "deferred");
+  assert.equal(review.decisions[0].reason, "semantic_authority_missing");
+  pipeline.runHistoryWriter();
+  assert.equal(fs.existsSync(pipeline.paths.details), false);
 });
 
 test("janitor runs through the leased wrapper and writes evidence only", () => {

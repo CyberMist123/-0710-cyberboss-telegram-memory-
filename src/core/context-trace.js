@@ -99,13 +99,32 @@ function sanitizeBlock(block = {}) {
     chars: Math.max(0, Number(block.chars) || 0),
     hash: normalizeText(block.hash),
     src_mtime: normalizeText(block.src_mtime),
+    ...sanitizeEffect(block),
   };
 }
 
 function sanitizeSkip(item = {}) {
   const type = normalizeText(item.type);
   if (!type) return null;
-  return { type, reason: normalizeText(item.reason) || "unknown" };
+  return { type, reason: normalizeText(item.reason) || "unknown", ...sanitizeEffect(item) };
+}
+
+/**
+ * 「配置成什么」与「实际生效成什么」的分离字段（issue #76 目标 4）。
+ *
+ * 只在写入方明确给出时出现：reentry 的 opening 行需要它来区分
+ * `effective=current / fallback / none`，其余块（current_state / memory_context /
+ * default_hidden）的行形状保持逐字节不变，既有 trace 消费方不受影响。
+ */
+function sanitizeEffect(item = {}) {
+  const configured = normalizeText(item.configured);
+  const effective = normalizeText(item.effective);
+  const degradedReason = normalizeText(item.degraded_reason);
+  return {
+    ...(configured ? { configured } : {}),
+    ...(effective ? { effective } : {}),
+    ...(degradedReason ? { degraded_reason: degradedReason } : {}),
+  };
 }
 
 function sanitizeRecallCall(item = {}) {

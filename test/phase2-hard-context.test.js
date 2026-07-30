@@ -15,7 +15,7 @@ const {
   prepareOrdinaryContext,
   prepareRefreshContext,
 } = require("../src/core/hard-context");
-const { countNonWhitespace, loadReentry } = require("../src/core/reentry-loader");
+const { countNonWhitespace, loadReentry, reentrySnapshotFileFor } = require("../src/core/reentry-loader");
 const { validateStartupPreflight } = require("../src/core/startup-preflight");
 const { CyberbossApp } = require("../src/core/app");
 
@@ -53,6 +53,8 @@ test("reentry is injected once per persisted thread without template rewriting",
   assert.deepEqual(second.skipped.find((item) => item.type === "reentry"), {
     type: "reentry",
     reason: "already_injected",
+    configured: "on",
+    effective: "none",
   });
 });
 
@@ -69,6 +71,174 @@ test("missing empty and over-budget reentry fail open without truncation", () =>
   assert.equal(result.chars, 301);
   assert.equal(result.text, undefined);
   assert.equal(fs.readFileSync(filePath, "utf8"), body);
+});
+
+// issue #76 目标 2 的验收：超预算不再等于开场交接为零。
+// 生产事实（2026-07-30）：memory/reentry.md 954 非空白字 / 预算 300，
+// err.log 连续记 `reentry skipped reason=over_budget`，开场人格交接信实际是空的。
+test("over-budget reentry degrades to the last known good copy and never rewrites canon", () => {
+  const root = fixtureRoot();
+  const continuityDir = path.join(root, "continuity");
+  const filePath = path.join(continuityDir, "reentry.md");
+  const snapshotFile = reentrySnapshotFileFor(continuityDir);
+  fs.mkdirSync(continuityDir, { recursive: true });
+
+  const good = "我昨晚停在她那句「先不管了」上。";
+  fs.writeFileSync(filePath, good, "utf8");
+  const current = loadReentry({ filePath, snapshotFile });
+  assert.equal(current.text, good);
+  assert.equal(current.effective, "current");
+  assert.equal(current.degraded_reason, undefined);
+  assert.equal(fs.existsSync(snapshotFile), true);
+
+  // 超预算：换用上一份预算内正文，当前文件一个字节都不许被动。
+  const overBudget = "她".repeat(954);
+  fs.writeFileSync(filePath, overBudget, "utf8");
+  const degraded = loadReentry({ filePath, snapshotFile });
+  assert.equal(degraded.text, good);
+  assert.equal(degraded.effective, "fallback");
+  assert.equal(degraded.degraded_reason, "over_budget");
+  assert.equal(degraded.current_chars, 954);
+  assert.equal(degraded.chars, countNonWhitespace(good));
+  assert.equal(fs.readFileSync(filePath, "utf8"), overBudget);
+  // 降级不得把副本更新成超预算正文，否则下一轮就没有可用副本了。
+  assert.equal(JSON.parse(fs.readFileSync(snapshotFile, "utf8")).body, good);
+
+  // 完全没有可用正文时仍 fail-open 返回空（不变量 5），而不是抛错或截断。
+  fs.rmSync(snapshotFile);
+  const none = loadReentry({ filePath, snapshotFile });
+  assert.equal(none.text, undefined);
+  assert.equal(none.skipped, "over_budget");
+  assert.equal(none.effective, "none");
+  assert.equal(none.chars, 954);
+  assert.equal(fs.readFileSync(filePath, "utf8"), overBudget);
+});
+
+test("last known good copy is re-validated and never resurrects a deliberate reset", () => {
+  const root = fixtureRoot();
+  const continuityDir = path.join(root, "continuity");
+  const filePath = path.join(continuityDir, "reentry.md");
+  const snapshotFile = reentrySnapshotFileFor(continuityDir);
+  fs.mkdirSync(continuityDir, { recursive: true });
+  fs.writeFileSync(filePath, "还在预算内的一句。", "utf8");
+  loadReentry({ filePath, snapshotFile });
+  assert.equal(fs.existsSync(snapshotFile), true);
+
+  // 主体 AI 清空 reentry.md 是一个有权限的决定：missing / expired 不许用副本盖回去。
+  fs.writeFileSync(filePath, "   \n", "utf8");
+  assert.equal(loadReentry({ filePath, snapshotFile }).skipped, "missing");
+  assert.equal(loadReentry({ filePath, snapshotFile }).text, undefined);
+
+  // 副本自己也要过预算与期限钩子：落盘值不被当成可信输入。
+  fs.writeFileSync(filePath, "她".repeat(400), "utf8");
+  fs.writeFileSync(snapshotFile, JSON.stringify({ version: 1, hash: "x", body: "她".repeat(400) }), "utf8");
+  assert.equal(loadReentry({ filePath, snapshotFile }).skipped, "over_budget");
+  fs.writeFileSync(snapshotFile, JSON.stringify({
+    version: 1, hash: "x", body: "只剩过期钩子 <!-- until: 2026-07-19 -->",
+  }), "utf8");
+  assert.equal(
+    loadReentry({ filePath, snapshotFile, now: new Date("2026-07-30T10:00:00+08:00") }).skipped,
+    "over_budget",
+  );
+  fs.writeFileSync(snapshotFile, "{ not json", "utf8");
+  assert.equal(loadReentry({ filePath, snapshotFile }).skipped, "over_budget");
+});
+
+// issue #76 目标 4：门开着但内容进不去，trace 不得再显示成正常 loaded。
+test("context trace separates the reentry gate from what actually got injected", async () => {
+  const root = fixtureRoot();
+  const continuityDir = path.join(root, "continuity");
+  const filePath = path.join(continuityDir, "reentry.md");
+  const snapshotFile = reentrySnapshotFileFor(continuityDir);
+  const stateDir = path.join(root, "state");
+  fs.mkdirSync(continuityDir, { recursive: true });
+  fs.mkdirSync(stateDir, { recursive: true });
+  const config = {
+    reentryFile: filePath,
+    continuityDir,
+    stateDir,
+    desireStateFile: path.join(root, "missing-desire.json"),
+  };
+  const sessionStore = { getReentryInjection: () => null };
+
+  fs.writeFileSync(filePath, "预算内的交接。", "utf8");
+  const healthy = prepareOpeningContext({ config, sessionStore, threadId: "t1" });
+  const healthyBlock = healthy.blocks.find((item) => item.type === "reentry");
+  assert.equal(healthyBlock.configured, "on");
+  assert.equal(healthyBlock.effective, "current");
+  assert.equal(Object.prototype.hasOwnProperty.call(healthyBlock, "degraded_reason"), false);
+
+  fs.writeFileSync(filePath, "她".repeat(954), "utf8");
+  const degraded = prepareOpeningContext({ config, sessionStore, threadId: "t2" });
+  const degradedBlock = degraded.blocks.find((item) => item.type === "reentry");
+  assert.equal(degradedBlock.loaded, true);
+  assert.equal(degradedBlock.configured, "on");
+  assert.equal(degradedBlock.effective, "fallback");
+  assert.equal(degradedBlock.degraded_reason, "over_budget");
+
+  fs.rmSync(snapshotFile);
+  const empty = prepareOpeningContext({ config, sessionStore, threadId: "t3" });
+  assert.equal(empty.blocks.some((item) => item.type === "reentry"), false);
+  assert.deepEqual(empty.skipped.find((item) => item.type === "reentry"), {
+    type: "reentry",
+    reason: "over_budget",
+    configured: "on",
+    effective: "none",
+  });
+
+  // 落盘的 trace 行必须保留这三个字段，否则可见性只存在于内存里。
+  const tracePath = path.join(root, "trace", "context_trace.jsonl");
+  const recorder = new ContextTraceRecorder({ filePath: tracePath });
+  await recorder.record({ threadId: "t2", turnId: "turn-1", opening: true, ...degraded, total_chars: 20 });
+  await recorder.record({ threadId: "t3", turnId: "turn-2", opening: true, ...empty, total_chars: 0 });
+  await recorder.flush();
+  const rows = fs.readFileSync(tracePath, "utf8").trim().split(/\r?\n/u).map((line) => JSON.parse(line));
+  assert.deepEqual(
+    rows[0].blocks.find((item) => item.type === "reentry").effective,
+    "fallback",
+  );
+  assert.equal(rows[0].blocks.find((item) => item.type === "reentry").degraded_reason, "over_budget");
+  assert.equal(rows[1].skipped.find((item) => item.type === "reentry").effective, "none");
+  assert.equal(rows[1].skipped.find((item) => item.type === "reentry").configured, "on");
+  // 其他块的行形状不变：新字段只出现在写入方明确给出的地方。
+  assert.deepEqual(
+    rows[0].skipped.find((item) => item.type === "episodes"),
+    { type: "episodes", reason: "default_hidden" },
+  );
+});
+
+// issue #76 目标 1 的边界：账本是第三档抽屉，永远不许穿在身上。
+test("the details ledger is never read by any injected hard-context builder", () => {
+  const root = fixtureRoot();
+  const continuityDir = path.join(root, "continuity");
+  const filePath = path.join(continuityDir, "reentry.md");
+  fs.mkdirSync(continuityDir, { recursive: true });
+  fs.writeFileSync(filePath, "只有交接进上下文。", "utf8");
+  fs.writeFileSync(path.join(continuityDir, "details.jsonl"), `${JSON.stringify({
+    detail_id: "detail-abc", ts: "2026-07-30T00:00:00.000Z", type: "details",
+    body: "下周一体检要空腹", candidate_id: "cand-x", decision_id: "decision-x",
+  })}\n`, "utf8");
+
+  const context = prepareOpeningContext({
+    config: {
+      reentryFile: filePath,
+      continuityDir,
+      desireStateFile: path.join(root, "missing-desire.json"),
+    },
+    sessionStore: { getReentryInjection: () => null },
+    threadId: "thread-details",
+  });
+  const rendered = buildOpeningTurnText({ channel: "telegram" }, "现在说什么？", context);
+  assert.doesNotMatch(rendered, /下周一体检要空腹/u);
+  assert.equal(context.blocks.some((item) => item.type === "details"), false);
+
+  const sources = [
+    "../src/adapters/runtime/shared-instructions.js",
+    "../src/core/hard-context.js",
+    "../src/core/reentry-loader.js",
+  ].map((relative) => fs.readFileSync(path.resolve(__dirname, relative), "utf8")).join("\n");
+  assert.doesNotMatch(sources, /details\.jsonl/u);
+  assert.doesNotMatch(sources, /detail-ledger/u);
 });
 
 test("reentry hash matches the original injected file bytes", () => {
@@ -119,7 +289,12 @@ test("reentry metadata is a fresh injection view and expiry hooks respect the in
     sessionStore: { getReentryInjection: () => null }, threadId: "thread-off",
   });
   assert.equal(off.reentry, null);
-  assert.deepEqual(off.skipped.find((item) => item.type === "reentry"), { type: "reentry", reason: "gated_off" });
+  assert.deepEqual(off.skipped.find((item) => item.type === "reentry"), {
+    type: "reentry",
+    reason: "gated_off",
+    configured: "off",
+    effective: "none",
+  });
 });
 
 test("current state is read-only, bounded, and appears only in opening or refresh", () => {

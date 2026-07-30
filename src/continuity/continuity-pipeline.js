@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const { acquireWriterLease, releaseWriterLease } = require("../orchestration/writer-lease");
-const { countNonWhitespace } = require("../core/reentry-loader");
+const { REENTRY_CHAR_BUDGET, countNonWhitespace } = require("../core/reentry-loader");
 const { DEFAULT_AUTOMATION_TIMEZONE, businessDayForDate } = require("../utils/business-day");
 const { stripConversationArtifacts } = require("./conversation-purity");
 const {
@@ -10,6 +10,7 @@ const {
   canPublishCandidate,
   normalizeCandidateMetadata,
 } = require("./candidate-authority");
+const { createDetailEntry, detailsFileFor } = require("./detail-ledger");
 const { IMPERATIVE_STYLE_REASON, detectImperativeStyle } = require("./imperative-style");
 const {
   EFFECTIVE_DECISION_AMBIGUOUS,
@@ -52,6 +53,7 @@ class ContinuityPipeline {
       candidates: path.join(this.continuityDir, "candidates", "episodes.candidates.jsonl"),
       decisions: path.join(this.continuityDir, "decisions", "decisions.jsonl"),
       episodes: path.join(this.continuityDir, "episodes.jsonl"),
+      details: detailsFileFor(this.continuityDir),
       reentry: path.join(this.continuityDir, "reentry.md"),
       selfNotes: path.join(this.continuityDir, "ai_self_notes.md"),
       jobs: path.join(this.continuityDir, ".jobs"),
@@ -321,9 +323,34 @@ class ContinuityPipeline {
           stateChanged = true;
           continue;
         }
+        // 发布前预算硬闸门（issue #76 目标 3）。Review 已经在 checks.length_ok 上
+        // 拦过一次；这里再拦一次不是冗余 —— canon 的最后一个写入点必须自己证明
+        // 它没有把超预算正文写进 reentry.md。decisions.jsonl 被手改、Review 被绕过、
+        // 预算常量漂移，都只有这一道能挡住。
+        //
+        // 语义按 D17：**同步打回**（当场拒绝、原因机器可读），按 D19 只做机器可判定
+        // 检查，按 D16 绝不截断也绝不改写正文 —— 正文原样留在候选层等原作者重写。
+        // 刻意**不**把 decision 记进 applied：改写后重交能再次走到这里，打回可重试。
+        const refusal = publicationRefusal(candidate);
+        if (refusal) {
+          const event = createPublishRefusalEvent(candidate, decision, refusal);
+          diagnostics.push(event);
+          skipped.push({
+            decision_id: decision.decision_id,
+            candidate_id: candidate.candidate_id,
+            reason: refusal.reason,
+            event_id: event.event_id,
+          });
+          if (!diagnosticEvents.has(event.event_id)) {
+            diagnosticEvents.set(event.event_id, event);
+            stateChanged = true;
+          }
+          continue;
+        }
         if (candidate.type === "episode") this.publishEpisode(candidate, decision);
         if (candidate.type === "self_note") this.publishSelfNote(candidate, decision);
         if (candidate.type === "reentry_draft") this.publishReentry(candidate, decision);
+        if (candidate.type === "details") this.publishDetails(candidate, decision);
         applied.add(decision.decision_id);
         publishedCandidates.add(candidate.candidate_id);
         written.push(decision.decision_id);
@@ -358,6 +385,18 @@ class ContinuityPipeline {
     }], "decision_id");
   }
 
+  /**
+   * 账本条目发布（issue #76 目标 1）。账本是第三档「完全按需」：
+   * 只落 `details.jsonl`，不进任何注入通路，读取只走 `memory_lookup`。
+   * 与 Episode 同一套幂等键（decision_id）与同一个 writer（History writer）。
+   */
+  publishDetails(candidate, decision) {
+    const existing = readJsonl(this.paths.details);
+    if (existing.some((item) => item.decision_id === decision.decision_id)) return;
+    backupFile(this.paths.details, this.paths.backups);
+    appendJsonlUnique(this.paths.details, [createDetailEntry(candidate, decision, { sha256 })], "decision_id");
+  }
+
   publishSelfNote(candidate, decision) {
     const marker = `<!-- decision:${decision.decision_id} -->`;
     const current = safeReadText(this.paths.selfNotes);
@@ -367,6 +406,8 @@ class ContinuityPipeline {
     fs.appendFileSync(this.paths.selfNotes, `${current ? "\n" : ""}${marker}\n${candidate.body}\n`, "utf8");
   }
 
+  // 预算已在 runHistoryWriter 的 publicationRefusal() 里拦过；走到这里的正文一定
+  // 在预算内。这里不做第二次判断也不截断 —— 只有一个判断点，才不会出现两套预算。
   publishReentry(candidate) {
     const current = safeReadText(this.paths.reentry);
     if (current === candidate.body) return;
@@ -487,6 +528,43 @@ function createDecision(candidate, value = {}) {
   };
 }
 
+/** History writer 侧的发布前拒绝原因。空 = 允许发布。 */
+const PUBLISH_REFUSED_EVENT = "history_publish_refused";
+
+function publicationRefusal(candidate = {}) {
+  if (candidate.type !== "reentry_draft") return null;
+  const chars = countNonWhitespace(candidate.body);
+  if (chars <= REENTRY_CHAR_BUDGET) return null;
+  return { reason: "over_budget", chars, budget: REENTRY_CHAR_BUDGET };
+}
+
+/**
+ * 打回案例（D17「打回案例要存档，候选原文 + 打回原因」）。
+ *
+ * 走既有存档通路，不新建案例库：原文本来就在 `candidates/episodes.candidates.jsonl`
+ * 里，由 candidate_id 可join；这里只记原因、字数、预算与正文摘要哈希，落在 History
+ * writer 自己的 `.jobs/history-writer-state.json` 的 `diagnostic_events`
+ * （既有的 `effective_decision_ambiguous` 用的同一个通路，同一个 writer）。
+ * 刻意**不**复制正文进机制状态 —— 复制一份正文就等于给正文加了第二个事实来源。
+ * event_id 由稳定字段哈希得出，同一次打回重复运行不会堆积重复案例。
+ */
+function createPublishRefusalEvent(candidate = {}, decision = {}, refusal = {}) {
+  const stable = {
+    event: PUBLISH_REFUSED_EVENT,
+    candidate_id: candidate.candidate_id,
+    decision_id: decision.decision_id,
+    type: candidate.type,
+    reason: refusal.reason,
+    chars: refusal.chars,
+    budget: refusal.budget,
+    body_sha256: sha256(candidate.body || ""),
+  };
+  return {
+    event_id: `event-${sha256(JSON.stringify(stable)).slice(0, 20)}`,
+    ...stable,
+  };
+}
+
 function loadPublishedCandidateIds(paths, decisions, state) {
   const published = new Set(state.published_candidate_ids || []);
   const byDecisionId = new Map(decisions.map((item) => [item.decision_id, item]));
@@ -496,6 +574,11 @@ function loadPublishedCandidateIds(paths, decisions, state) {
   }
   for (const episode of readJsonl(paths.episodes)) {
     if (episode.candidate_id) published.add(episode.candidate_id);
+  }
+  // 账本与 Episode 一样是可 join 的 canon 行：writer state 丢了也能从落盘行重建
+  // 「这条候选已经发过」，避免同一条账本被发布两次。
+  for (const detail of (paths.details ? readJsonl(paths.details) : [])) {
+    if (detail.candidate_id) published.add(detail.candidate_id);
   }
   const selfNotes = safeReadText(paths.selfNotes);
   for (const match of selfNotes.matchAll(/<!-- decision:([^\s>]+) -->/g)) {
@@ -559,7 +642,9 @@ function buildLocalChecks(candidate, sourceLocated) {
   const imperativeStyle = detectImperativeStyle(normalized);
   return {
     source_ref_located: sourceLocated === true,
-    length_ok: normalized.type !== "reentry_draft" || countNonWhitespace(normalized.body) <= 300,
+    // 预算常量与 loader 共用同一个来源（issue #76）：注入侧和发布侧一旦各写一个
+    // 300，改了一边就会出现「发得进去但注不进去」的静默失忆。
+    length_ok: normalized.type !== "reentry_draft" || countNonWhitespace(normalized.body) <= REENTRY_CHAR_BUDGET,
     safety_ok: true,
     imperative_warning: /(?:必须|务必|永远不要|记住要|\bshould\b|\bmust\b)/iu.test(normalized.body),
     // 句中软警告（上一行）与开头硬闸门（下一行）是两件事：
@@ -605,10 +690,12 @@ function requireText(value, label) {
 
 module.exports = {
   ContinuityPipeline,
+  PUBLISH_REFUSED_EVENT,
   buildLocalChecks,
   createCandidate,
   createDecision,
   isReviewModelDisabled,
   localReviewResult,
   locateSourceRef,
+  publicationRefusal,
 };
