@@ -39,6 +39,9 @@
     "test:tg-profile-lanes": "npm run test:route-lanes && npm run test:telegram-media",
     "check:p0-closeout-liveness": "node --check ./src/app/closeout-liveness.js && node --check ./src/continuity/closeout-job.js",
     "test:p0-closeout-liveness": "node --test test/closeout-liveness.test.js",
+    "test:memory-services": "node --test test/memory-note-service.test.js test/memory-resolver.test.js test/memory-service-cleanup.test.js test/memory-service-formal.test.js test/memory-validator.test.js test/memory-command-router.test.js",
+    "test:reflect": "node --test test/weekly-reflect.test.js",
+    "test:520-endpoints": "python extensions/relationship-memory/memory-kit/tests/test_dashboard_blackbox_uncovered.py && python extensions/relationship-memory/memory-kit/tests/test_dashboard_route_catalog.py && python extensions/relationship-memory/memory-kit/tests/test_dashboard_runtime_prompt.py && python extensions/relationship-memory/memory-kit/tests/test_deepseek_env_key.py",
     "continuity:phase3": "node ./scripts/continuity/run-phase3.js"
   },
   "dependencies": {
