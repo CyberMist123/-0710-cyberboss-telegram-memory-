@@ -68,6 +68,26 @@ jobs:
         id: p0_liveness
         run: ./scripts/ci/run-annotated.ps1 -Name p0-closeout-liveness -Command 'npm run test:p0-closeout-liveness'
 
+      # issue #78 第 2 批接线。普查（workdesk 2026-07-29）发现 33 个孤儿测试，22 绿
+      # 11 红；这里只接**在当前 main 上重新验证过为绿**的那些，红的按 #78「不许把红
+      # 测试直接接进 CI」留在 issue 里先修后接。
+      #
+      # 按目标通路分组而不是塞进既有 phase 分组 —— 否则「某个 phase 绿了」就不再能
+      # 说明是哪条能力有信号（CLAUDE.md 第五节陷阱 5）。
+      - name: Memory service layer tests
+        id: memory_services
+        run: ./scripts/ci/run-annotated.ps1 -Name memory-services -Command 'npm run test:memory-services'
+
+      - name: Weekly reflect tests
+        id: reflect
+        run: ./scripts/ci/run-annotated.ps1 -Name reflect -Command 'npm run test:reflect'
+
+      # #80 的两个 520 安全网测试此前在 package.json / workflow / scripts 里一处引用
+      # 都没有 —— 零 CI 信号。连同另两个 520 面板 python 孤儿一起接。
+      - name: 520 endpoint safety-net tests
+        id: dash520
+        run: ./scripts/ci/run-annotated.ps1 -Name 520-endpoints -Command 'npm run test:520-endpoints'
+
       - name: Route lanes tests
         id: route_lanes
         run: ./scripts/ci/run-annotated.ps1 -Name route-lanes -Command 'npm run test:route-lanes'
@@ -132,6 +152,8 @@ jobs:
             "p2=${{ steps.p2.outcome }}", "p3=${{ steps.p3.outcome }}",
             "p4=${{ steps.p4.outcome }}", "p5a=${{ steps.p5a.outcome }}",
             "p0_liveness=${{ steps.p0_liveness.outcome }}",
+            "memory_services=${{ steps.memory_services.outcome }}", "reflect=${{ steps.reflect.outcome }}",
+            "dash520=${{ steps.dash520.outcome }}",
             "route_lanes=${{ steps.route_lanes.outcome }}", "telegram_media=${{ steps.telegram_media.outcome }}",
             "orch=${{ steps.orch.outcome }}", "py39=${{ steps.py39.outcome }}",
             "probe=${{ steps.probe.outcome }}", "diff=${{ steps.diff.outcome }}"
