@@ -32,9 +32,20 @@ function backupFile(filePath, backupsDir) {
   if (!fs.existsSync(filePath)) return "";
   fs.mkdirSync(backupsDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const destination = path.join(backupsDir, `${path.basename(filePath)}.${stamp}.bak`);
-  fs.copyFileSync(filePath, destination, fs.constants.COPYFILE_EXCL);
-  return destination;
+  const prefix = path.join(backupsDir, `${path.basename(filePath)}.${stamp}`);
+  // 同一毫秒内的第二次备份不许抛（issue #74）：canon 收敛到一把锁之后，两个 writer
+  // 会紧挨着落盘，`COPYFILE_EXCL` 撞名会把一次本该成功的写入变成异常 —— fail-open
+  // 的反面。撞名只换文件名，绝不覆盖已有备份，第一次仍然用历史文件名。
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const destination = attempt === 0 ? `${prefix}.bak` : `${prefix}.${attempt}.bak`;
+    try {
+      fs.copyFileSync(filePath, destination, fs.constants.COPYFILE_EXCL);
+      return destination;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+    }
+  }
+  throw new Error(`Backup name collision persisted: ${prefix}.bak`);
 }
 
 function replaceTextAtomic(filePath, text) {
