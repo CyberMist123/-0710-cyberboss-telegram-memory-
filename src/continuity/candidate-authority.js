@@ -8,6 +8,16 @@ const VALID_AUTHOR_ROLES = new Set(["subject_ai", "background_proxy", "extractor
 const VALID_CONTEXT_SCOPES = new Set(["active_session", "daily_materials", "isolated_chunk"]);
 const VALID_AUTHORITIES = new Set(["high", "medium", "none"]);
 
+/**
+ * 只有主体 AI 能发布的类型。
+ *
+ * `details`（账本，issue #76 目标 1）与 `self_note` / `reentry_draft` 同一条门槛：
+ * 账本内容虽然是客观细节，但「哪条细节值得记」仍是语义判断，按 D16「后台不产出记忆
+ * 内容、写入权归当前窗口 AI」，后台代理与提取器只能提候选、必须过主体复核。
+ * 门槛没有放宽，只是把一个原先无处可落的类型接进同一套闸门。
+ */
+const SUBJECT_AUTHORED_TYPES = Object.freeze(["self_note", "reentry_draft", "details"]);
+
 function normalizeCandidateMetadata(candidate = {}) {
   const type = normalizeText(candidate.type);
   const author = normalizeText(candidate.author);
@@ -45,7 +55,7 @@ function canPublishCandidate(candidate = {}) {
     return normalized.author_role === "subject_ai" && normalized.semantic_authority === "high";
   }
 
-  if (["self_note", "reentry_draft"].includes(normalized.type)) {
+  if (SUBJECT_AUTHORED_TYPES.includes(normalized.type)) {
     return normalized.author_role === "subject_ai" && normalized.semantic_authority === "high";
   }
 
@@ -103,7 +113,7 @@ function legacyDefaults({ type, author }) {
 
 function inferNeedsSubjectReview({ type, authorRole, semanticAuthority }) {
   if (authorRole === "extractor" || semanticAuthority === "none") return true;
-  if (["self_note", "reentry_draft"].includes(type) && authorRole !== "subject_ai") return true;
+  if (SUBJECT_AUTHORED_TYPES.includes(type) && authorRole !== "subject_ai") return true;
   return false;
 }
 
@@ -117,6 +127,7 @@ function normalizeText(value) {
 }
 
 module.exports = {
+  SUBJECT_AUTHORED_TYPES,
   authorityFailureReason,
   canPublishCandidate,
   normalizeCandidateMetadata,

@@ -138,7 +138,7 @@ Claude Code 子进程自己可以再起**子代理**。这条链路目前不由�
 | --- | --- | --- |
 | **常驻注入** | 每轮都拼进 prompt | System Prompt、Role Card、首轮 Re-entry、轻量 Current State |
 | **目录式** | 只把**索引 / 摘要 / 标签表**放进上下文，正文不放 | Memory 目录、Timeline 摘要、贴纸标签表（`cyberboss_sticker_tags` 明确写着"只在决定要用贴纸时才加载目录"） |
-| **完全按需** | 上下文里连目录都没有，模型靠工具自己翻 | Episodes 正文、Timeline 正文、旧对话、天气、健康、Todo 原文、日记 |
+| **完全按需** | 上下文里连目录都没有，模型靠工具自己翻 | Episodes 正文、Timeline 正文、旧对话、天气、健康、Todo 原文、日记、账本（`details.jsonl`，见 [`MEMORY.md`](./MEMORY.md) 2.5） |
 
 第三档靠 `src/tools/tool-host.js` 注册的工具实现，经 `src/tools/mcp-stdio-server.js` 以 MCP 暴露给子进程。相关工具：`memory_lookup`、`cyberboss_timeline_read` / `_categories` / `_proposals`、`weather`、`cyberboss_diary_append`、`cyberboss_reminder`、`cyberboss_sticker_*`、`location_*`。
 

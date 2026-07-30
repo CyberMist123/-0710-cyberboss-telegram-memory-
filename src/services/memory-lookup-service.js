@@ -4,6 +4,7 @@ const path = require("path");
 const { writeJsonAtomic } = require("../orchestration/atomic-json");
 const { hashThreadId } = require("../core/context-trace");
 const { formatReadableTime } = require("../core/readable-time");
+const { detailsFileFor, readDetailsForLookup } = require("../continuity/detail-ledger");
 
 const MAX_CALLS_PER_SESSION = 5; // Fault-loop guard, not a relational or posture budget.
 const MAX_HITS = 3;
@@ -15,14 +16,19 @@ class MemoryLookupService {
     this.episodesFile = this.continuityDir ? path.join(this.continuityDir, "episodes.jsonl") : "";
     this.timelineFile = this.continuityDir ? path.join(this.continuityDir, "relationship_timeline.md") : "";
     this.topicsFile = this.continuityDir ? path.join(this.continuityDir, "topics.md") : "";
+    this.detailsFile = detailsFileFor(this.continuityDir);
     this.recallLogFile = this.continuityDir ? path.join(this.continuityDir, "recall_log.jsonl") : "";
     this.budgetFile = this.continuityDir ? path.join(this.continuityDir, ".jobs", "memory-lookup-budget.json") : "";
     this.lockFile = this.continuityDir ? path.join(this.continuityDir, ".jobs", "memory-lookup.lock") : "";
     this.readEpisodes = typeof readEpisodes === "function" ? readEpisodes : () => readJsonl(this.episodesFile);
+    // 账本（details）是第三档「完全按需」的抽屉（宪法第三条）：它不注入、没有目录，
+    // 只有她明确拉线时才会经这个既有的受控工具被翻到。刻意复用 memory_lookup 而不新增
+    // 工具注册，也不新增开关 —— 新增一个默认关的工具只会让抽屉存在却打不开。
     this.readSources = typeof readSources === "function" ? readSources : () => ({
       episodes: this.readEpisodes(),
       timeline: readTimeline(this.timelineFile),
       topics: readText(this.topicsFile),
+      details: readDetailsForLookup(this.detailsFile),
     });
   }
 
@@ -102,9 +108,12 @@ const ALLOWED_TRIGGERS = new Set(["user_pull", "resonance", "stakes", "repair"])
 function searchMemorySources(sources, query) {
   const normalizedSources = sources && typeof sources === "object" ? sources : {};
   const expandedQuery = expandQueryAliases(query, normalizedSources.topics);
+  // 账本排在经历之后：`searchEpisodes` 的排序在同分时保持插入序，所以同样命中时
+  // 「我记得的那一次」排在「查得到的那条细节」前面（宪法第三条的先后关系）。
   const rows = [
     ...(Array.isArray(normalizedSources.episodes) ? normalizedSources.episodes : []),
     ...(Array.isArray(normalizedSources.timeline) ? normalizedSources.timeline : []),
+    ...(Array.isArray(normalizedSources.details) ? normalizedSources.details : []),
   ];
   return searchEpisodes(rows, expandedQuery);
 }

@@ -247,7 +247,16 @@ CYBERBOSS_HOME_TEXT = os.environ.get("CYBERBOSS_HOME", "").strip()
 CYBERBOSS_HOME = Path(CYBERBOSS_HOME_TEXT) if CYBERBOSS_HOME_TEXT else None
 NODE_COMMAND = os.environ.get("CYBERBOSS_NODE_COMMAND", "node")
 
-REENTRY_BUDGET = int(os.environ.get("CYBERBOSS_REENTRY_BUDGET", "300"))
+# 注入侧真正生效的预算，也是本文件里**唯一**的 reentry 预算来源。
+# 必须与 `src/core/reentry-loader.js` 的 REENTRY_CHAR_BUDGET 一致，所以这里**不**
+# 接受环境变量覆盖：面板上调一个数字改不了 loader 的判断，只会造出「面板说过了、
+# 注入侧说没过」的假放行（issue #76 目标 4）。
+#
+# 原先此处另有一个 `REENTRY_BUDGET = int(os.environ.get("CYBERBOSS_REENTRY_BUDGET", "300"))`
+# 专供健康页告警。该环境变量在全仓没有第二处引用，node 侧也没有对应物 —— 一旦被设成
+# 500，健康页要到 501 才报红，而 loader 在 301 就已经降级，正是上面要防的那种假放行。
+# 已删除，健康页与 effective 判定共用本常量。
+REENTRY_INJECTION_BUDGET = 300
 
 PID_FILE = KIT_DIR / ".panel.pid"
 
@@ -1596,10 +1605,13 @@ def compute_health():
             "text": f"Telegram/runtime 最近一次长断联约 {round(latest_gap['minutes'] / 60.0, 1)} 小时（{latest_gap['from']} → {latest_gap['to']}）",
         })
 
-    if reentry_chars > REENTRY_BUDGET:
+    if reentry_chars > REENTRY_INJECTION_BUDGET:
+        # 文案原先硬写「800 字预算」，而实际判据是注入侧的 300。
+        # 面板上唯一最重要的那个数字不许和判据不一致（issue #76 目标 4）。
         alerts.append({
             "level": "red",
-            "text": f"reentry.md 字数 {reentry_chars} 超过 800 字预算",
+            "text": f"reentry.md 字数 {reentry_chars} 超过 {REENTRY_INJECTION_BUDGET} 字预算，"
+                    f"注入侧会降级为上一份预算内正文或整块跳过",
         })
 
     if JANITOR_STATE.get("consecutive_failures", 0) >= 2:
@@ -1613,7 +1625,7 @@ def compute_health():
         "now": now.strftime("%Y-%m-%d %H:%M:%S"),
         "alerts": alerts,
         "reentry_chars": reentry_chars,
-        "reentry_budget": REENTRY_BUDGET,
+        "reentry_budget": REENTRY_INJECTION_BUDGET,
         "episodes_total": len(episodes),
         "importance_dist": importance_dist,
         "octant_history_source": octant_history["source"],
@@ -1910,6 +1922,23 @@ def _summarize_current_state_for_context():
     return "；".join(item for item in (f"此刻:{most_want}" if most_want else "", drive_text) if item)[:100]
 
 
+def _read_reentry_last_known_good():
+    """只读 loader 落的 last-known-good 副本（issue #76 目标 2）。
+
+    唯一 writer 是 TG 运行时的 `src/core/reentry-loader.js`；面板只读，绝不写它。
+    这里只做展示口径对齐，权威判断仍在 node 侧 —— 副本正文的期限钩子过滤不在这里
+    重做，所以极端情况下面板显示的降级正文可能比实际注入的多一两行钩子。
+    """
+    try:
+        payload = json.loads((ROOT / ".jobs" / "reentry-last-known-good.json").read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    body = payload.get("body")
+    return body if isinstance(body, str) else ""
+
+
 def get_context_sources_payload():
     gates = load_context_gates()
     prompt = get_runtime_prompt_payload(include_content=True)
@@ -1917,6 +1946,21 @@ def get_context_sources_payload():
     reentry_text = read_text(paths["reentry"])
     current_override = read_text(paths["current_state"])
     memory_override = read_text(paths["memory_context"])
+    # 门开着不等于正文进得去：超预算时 loader 降级用 last-known-good，没有副本就整块
+    # 跳过。面板必须照实分开显示 configured 与 effective（issue #76 目标 4），
+    # 否则 954 字那种「门开着、注入为零」会继续被显示成正常。
+    reentry_gate = bool(gates.get("reentry", True))
+    reentry_chars = len(re.sub(r"\s+", "", reentry_text))
+    reentry_over_budget = reentry_chars > REENTRY_INJECTION_BUDGET
+    reentry_fallback = _read_reentry_last_known_good() if (reentry_gate and reentry_over_budget) else ""
+    if not reentry_gate:
+        reentry_effective, reentry_effective_content, reentry_degraded = "none", "", "gated_off"
+    elif not reentry_over_budget:
+        reentry_effective, reentry_effective_content, reentry_degraded = "current", reentry_text, ""
+    elif reentry_fallback.strip():
+        reentry_effective, reentry_effective_content, reentry_degraded = "fallback", reentry_fallback, "over_budget"
+    else:
+        reentry_effective, reentry_effective_content, reentry_degraded = "none", "", "over_budget"
     sources = [
         {
             "key": "prompt", "label": "System / Persona", "gate": None,
@@ -1926,9 +1970,12 @@ def get_context_sources_payload():
             "description": "稳定身份、关系边界与回答方式。保存后，下一条消息会自动换干净线程载入。",
         },
         {
-            "key": "reentry", "label": "Re-entry", "gate": gates.get("reentry", True),
-            "content": reentry_text, "effective_content": reentry_text if gates.get("reentry", True) else "",
-            "mode": "手写交接", "budget": 300, "sha256": sha256_text(reentry_text),
+            "key": "reentry", "label": "Re-entry", "gate": reentry_gate,
+            "content": reentry_text, "effective_content": reentry_effective_content,
+            "configured": "on" if reentry_gate else "off",
+            "effective": reentry_effective, "degraded_reason": reentry_degraded,
+            "chars": reentry_chars,
+            "mode": "手写交接", "budget": REENTRY_INJECTION_BUDGET, "sha256": sha256_text(reentry_text),
             "updated_at": iso_mtime(paths["reentry"]),
             "description": "新线程的醒来第一包。关闭或保存后，下一条消息会自动换干净线程。",
         },
@@ -1961,7 +2008,7 @@ def save_context_source(key, content, expected_sha256="", source="520"):
     paths = _context_source_paths()
     if key not in paths:
         raise ValueError("不支持的上下文来源。")
-    limits = {"reentry": 300, "current_state": 100, "memory_context": 4000}
+    limits = {"reentry": REENTRY_INJECTION_BUDGET, "current_state": 100, "memory_context": 4000}
     chars = len(re.sub(r"\s+", "", text))
     if chars > limits[key]:
         raise ValueError(f"内容超过 {limits[key]} 个非空白字符预算。")

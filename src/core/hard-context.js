@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { loadCurrentState } = require("./current-state");
-const { countNonWhitespace, loadReentry } = require("./reentry-loader");
+const { countNonWhitespace, loadReentry, reentrySnapshotFileFor } = require("./reentry-loader");
 
 // Runtime-adjustable context gates. 520 console (or any tool) can write
 // CYBERBOSS_STATE_DIR/context-gates.json to toggle which hard-context blocks
@@ -31,20 +31,39 @@ function prepareOpeningContext({ config = {}, sessionStore, threadId, reason = "
   const skipped = [];
   let reentry = null;
   const existing = sessionStore?.getReentryInjection?.(threadId);
+  // issue #76 目标 4：reentry 的「门」和「实际吃进去的东西」必须分开可判读。
+  // `configured` 只回答 context gate 开没开；`effective` 回答这一轮真正注入了什么
+  // （current / fallback / none）。门开着但正文进不去，不得再显示成正常 loaded。
+  // 这两个字段只出现在 opening 路径 —— 只有这里真的尝试过装 reentry；
+  // refresh / ordinary 的 `existing_thread` 行按设计压根没试，行形状保持不变。
   if (!gates.reentry) {
-    skipped.push({ type: "reentry", reason: "gated_off" });
+    skipped.push({ type: "reentry", reason: "gated_off", configured: "off", effective: "none" });
   } else if (existing?.reentry_injected === true) {
-    skipped.push({ type: "reentry", reason: "already_injected" });
+    skipped.push({ type: "reentry", reason: "already_injected", configured: "on", effective: "none" });
   } else {
     const loaded = loadReentry({
       filePath: config.reentryFile,
       episodesFile: config.continuityDir ? path.join(config.continuityDir, "episodes.jsonl") : "",
+      snapshotFile: reentrySnapshotFileFor(config.continuityDir),
     });
     if (loaded?.text) {
       reentry = loaded;
-      blocks.push({ type: "reentry", loaded: true, reason, ...pickEvidence(loaded) });
+      blocks.push({
+        type: "reentry",
+        loaded: true,
+        reason,
+        configured: "on",
+        effective: loaded.effective === "fallback" ? "fallback" : "current",
+        ...(loaded.degraded_reason ? { degraded_reason: loaded.degraded_reason } : {}),
+        ...pickEvidence(loaded),
+      });
     } else {
-      skipped.push({ type: "reentry", reason: loaded?.skipped || "missing" });
+      skipped.push({
+        type: "reentry",
+        reason: loaded?.skipped || "missing",
+        configured: "on",
+        effective: "none",
+      });
     }
   }
 

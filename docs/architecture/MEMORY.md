@@ -115,7 +115,25 @@ Re-entry 只保留：
 - 近期仍相关的确认边界；
 - 一项明确的不确定。
 
-不新增独立 Living State 文件。系统提取的待办与事实可以作为生成材料，用完即弃或留在候选记录中。
+不新增独立 Living State 文件。系统提取的待办与事实可以作为生成材料，用完即弃、留在候选记录中，或经同一条发布链落进账本（见 2.5，账本不注入、不常驻，因此不是 Living State）。
+
+**超预算时降级，不静默归零**（issue #76）。注入侧预算是 300 非空白字，唯一来源是
+`src/core/reentry-loader.js` 的 `REENTRY_CHAR_BUDGET`；发布侧（Review 的 `length_ok`
+与 History writer 的发布前闸门）引用同一个常量，不允许各写一份数字。超预算时：
+
+- **不截断、不改写、不回写** `reentry.md`（D16 / D19：重写的人是原作者）；
+- 整块换用上一份预算内的有效正文（last-known-good 副本，落在
+  `<continuityDir>/.jobs/reentry-last-known-good.json`，属机制状态不属 canon，
+  唯一 writer 是 loader 自己，只在「当前正文预算内且真的被注入」那一刻写）；
+- 副本每次使用都重新过滤期限钩子、重新比预算，落盘值不当可信输入；
+- 连副本都没有时仍 fail-open 返回空（不变量 5）。
+
+`missing` / `expired` **不**降级：主体 AI 清空 Re-entry 是一个有权限的决定，
+用旧副本盖回去等于替她撤销那次决定。
+
+Trace 必须把「门」和「实际吃进去的东西」分开：opening 行带 `configured`（gate 开没开）
+与 `effective`（`current` / `fallback` / `none`），降级时另带 `degraded_reason`。
+门开着但正文进不去，不得再显示成正常 `loaded`。
 
 ### 2.3 Self-note
 
@@ -137,6 +155,33 @@ Self-note 可以记录“想起但没有说”的选择，但这类记录只供�
 ### 2.4 Boundary / Task
 
 边界、承诺和任务可以作为 Episode 类型、候选字段或 Re-entry 钩子表达，但不能在多个文件里复制同一句真相。
+
+### 2.5 账本（details）
+
+判据是 `MEMORY_CONSTITUTION.md` 第三条「账本另有人管，我才敢只写感情」：偏好、日程、
+纪念日、项目状态、待办这类**客观细节**属账本层，结构化、无人格色彩，
+**只进抽屉（默认隐藏 + lookup），永不穿身上**。
+
+落地形态（issue #76）：
+
+- 文件：`<continuityDir>/details.jsonl`，append-only，行键与 `episodes.jsonl` 对齐
+  （`detail_id` / `candidate_id` / `decision_id` / `source_ref` / 权限元数据）。
+- 分档：**第三档「完全按需」**（`SYSTEM_OVERVIEW.md` 第四节）。不常驻注入、上下文里
+  连目录都没有；`hard-context.js` / `reentry-loader.js` / `shared-instructions.js`
+  一个字都不读它，由 phase2 的源码边界测试钉住。
+- 读取：只走既有受控工具 `memory_lookup`（Phase 5A，`memory-lookup-service.js`），
+  沿用它的调用预算与正文截断，不新增工具注册、不新增开关。同分命中时账本排在
+  Episode 之后 —— 「我记得的那一次」优先于「查得到的那条细节」。
+- 写入：与 Re-entry 同一条发布链 —— candidate（`type: details`）→ Auto Review →
+  **History writer 唯一写入**。权限门槛与 `self_note` / `reentry_draft` 相同
+  （`author_role: subject_ai` + `semantic_authority: high`），后台代理与提取器只能提
+  候选、必须过主体复核（D16）。不新增第二 writer。
+- Review：账本条目**豁免祈使句式闸门**（`imperative-style.js` 的
+  `IMPERATIVE_EXEMPT_TYPES`）—— 「下次复查 2026-08-03」在账本里是一个字段，
+  不是写给明天的我的规则。
+
+账本存在的意义是让 Re-entry 敢只写感情：细节有人接住，遗言就不必清点财产。
+**账本里放什么由主体 AI 决定**，本仓库不做自动提取或搬运。
 
 ## 3. 阅读视图，不是第二套真相
 
@@ -257,7 +302,10 @@ Desire 属于 Cyberboss runtime，不属于关系正史。
 - 原始会话：系统自动写，唯一事实来源。
 - candidates：Closeout / Janitor 等自动流程写。
 - Episode canon：唯一 History writer 按 Auto Review 决策写。
+- 账本 `details.jsonl`：唯一 History writer 按 Auto Review 决策写（内容仍由主体 AI 执笔）。
 - Re-entry：主体 AI 唯一执笔，Auto Review 只校验。
+- Re-entry 的 last-known-good 副本（`.jobs/reentry-last-known-good.json`）：唯一 writer 是
+  注入侧 loader；属机制状态，不是 canon，不许被当成正史引用。
 - Self-note：主体 AI 唯一 writer。
 - Desire：唯一 Desire service 写。
 - Timeline / Rereadings / Portrait：受控 Reflect writer 更新。
