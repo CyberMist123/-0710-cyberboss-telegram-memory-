@@ -79,14 +79,16 @@ Current authority: docs/CURRENT_STATUS.md
 
 ## 四、交付结果：代码链成功
 
-启动日志（2026-07-30 15:03:40）：
+启动日志（2026-07-30 15:03:40，**真实用户路径已按公开仓库纪律脱敏**，形状与层级保持原样）：
 
 ```text
-[cyberboss] workspaceRoot=C:\Users\18717\Documents\cyberlink
-[cyberboss] runtimeEndpoint=C:\Users\18717\.local\bin\claude.exe
+[cyberboss] workspaceRoot=<CYBERLINK_ROOT>
+[cyberboss] runtimeEndpoint=<USER_HOME>\.local\bin\claude.exe
 [cyberboss] bridge loop started; waiting for Telegram messages.
 [desire] poller starts, next planned tick in 21m
 ```
+
+`workspaceRoot` 与修正后的描述文件 `workspace_dir` 一致（两者都指向 cyberlink 根），这正是本次要确认的那一条。
 
 **2026-07-31 复核实测**：
 
@@ -130,7 +132,7 @@ Current authority: docs/CURRENT_STATUS.md
 
 | 来源 | 它声称的身份 |
 |---|---|
-| `deployment\current.json` | release `phase25a-desire-claude-993d57f`，入口在 `releases\cyberboss-phase25a-993d57f\`，workspace 指向 `cyberboss-deepseek-workspace`，还留着 2026-07-12「Owner 本人豁免 Telegram canary」的记录 |
+| `deployment\current.json` | release `phase25a-desire-claude-993d57f`，入口在 `releases\cyberboss-phase25a-993d57f\`，`workspace_dir` 指向一个**早已废弃的 legacy 工作区目录**（名字按可移植性检查纪律不落库），还留着 2026-07-12「Owner 本人豁免 Telegram canary」的记录 |
 | `runtime\telegram\descriptor.startup.json` | `deployed_sha` = `221a2c59...`（2026-07-12 那次） |
 | 实际运行的树 | 从 `48660a9` 导出 |
 
