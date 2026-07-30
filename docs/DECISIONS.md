@@ -342,6 +342,25 @@ Decision date: 2026-07-29
 
 ---
 
+## D23 · 退役 legacy 自动抽取写入链；系统不替主体 AI 决定该记什么
+
+```text
+Status: ACTIVE
+Decision date: 2026-07-31
+```
+
+裁定背景：修红孤儿测试时发现 `open_loops` 抽取器函数体被掏空、不在分发循环里、全仓零调用点，而配套 helper 实现完整却无人引用，同时上游闸门仍把「提醒我 / 记得 / 待办」判为值得记 —— 判定与执行在同一个文件里打架（issue #90）。追查发现这不是孤例，而是**整条 legacy 自动抽取写入链**的状态。Owner 2026-07-31 裁定**整条退役**。
+
+**裁定理由（Owner 原话要点）**：AI 是写作主体；**在 AI 已经有独占写权时，系统不应该再替 AI 决定它想写什么**。并且「**如果模型有漏记的，那是系统出 bug，而不是写这种没必要的补丁；漏了就漏了**」。这与 D16（写入权归当前窗口 AI）一致，也与 `CLAUDE.md` 北极星「记忆失败 = 它替 AI 决定下一句话的内容」一致：一个正则分桶器正是那句话描述的失败模式。
+
+- **退役范围**：`src/core/memory-candidate-extractor.js`（正则分桶抽取器）、`src/core/memory-background-pipeline.js`（post-response 自动写入 pipeline）、`CyberbossApp` 的 `maybeRunLegacyMemoryBackgroundPipeline()` 与 `recordAssistantReplyForMemory()` 及其全部调用点，以及两者的测试。**不得重新引入**，由 `test/phase1-offline-config.test.js` 的守卫钉住。
+- **不在退役范围（明确保留）**：`src/services/memory-service.js` 本身。它仍是 memory_context 读取通路（`app.js` 的 `readSevenDayMemory` / `readPendingPromises` / `resolvePreResponseMemory`）与 `/memory` 命令的实现方。按 **D21**，该读取端最终要换成对 Episodes 正史的受控 adapter，那属 #42 的范围，**本条不动读取侧**。
+- **保留 `CYBERBOSS_MEMORY_BACKGROUND_WRITE` 开关与启动期守卫**：它是四个 legacy 记忆开关的共用 fail-closed 机制的一员，且 `continuityDir == memoryDir` 的现行生产布局正是靠「四个全关」才被放行。退役后该开关背后已无实现，**永远不得再有实现**。
+- **对既有决定的关系**：本条把 D21「不启用 legacy MemoryService 文件组」的隐含结论在**写入侧**显式化并执行；D21 本身不变，其读取侧结论仍待 #42 落地。
+- **已知代价（接受）**：主体 AI 若在对话里漏记某件事，不再有任何后台机制替它补记。这是**有意为之** —— 按上述理由，补记机制本身就是要消除的东西；漏记应作为系统缺陷去查，不用补丁掩盖。
+
+---
+
 ## 待裁决 / Candidates
 
 下列**尚未做出决定**，不占用 D 编号，也不得当成已定方向施工。

@@ -71,7 +71,6 @@ const { persistReportedDesireState } = require("./desire-state-persistence");
 const { loadContextGates } = require("./hard-context");
 const { createProjectTooling } = require("../tools/create-project-tooling");
 const { formatBeijingDateTime } = require("../utils/beijing-time");
-const { runMemoryPostResponsePipeline } = require("./memory-background-pipeline");
 const { resolveMemoryRetrievalPlan } = require("./memory-resolver");
 const { parseMemoryCommand } = require("./memory-command-router");
 const { validateDraftAgainstMemory, rewriteDraftToMatchMemory } = require("./memory-validator");
@@ -794,7 +793,6 @@ class CyberbossApp {
     }
 
     await this.routePreparedInbound({ bindingKey, workspaceRoot, prepared, lane });
-    this.maybeRunLegacyMemoryBackgroundPipeline(normalized, "post-response");
   }
 
   /**
@@ -2613,49 +2611,17 @@ class CyberbossApp {
           `[memory] rewrote reply to match memory thread=${state.threadId} conflicts=${(rewritten.originalConflicts || []).map((item) => item.key || item.type).join(",")}`
         );
       }
-      this.recordAssistantReplyForMemory(rewritten.text);
       return rewritten.text;
     }
     const validation = validateDraftAgainstMemory(candidate, resolved);
     if (validation.ok) {
-      this.recordAssistantReplyForMemory(candidate);
       return candidate;
     }
     console.warn(
       `[memory] blocked conflicting reply thread=${state.threadId} conflicts=${validation.conflicts.map((item) => item.key).join(",")}`
     );
     const fallback = "我先确认一下，免得我把前面的约定说反。";
-    this.recordAssistantReplyForMemory(fallback);
     return fallback;
-  }
-
-  recordAssistantReplyForMemory(text = "") {
-    const candidate = String(text || "").trim();
-    if (!candidate) {
-      return;
-    }
-    this.maybeRunLegacyMemoryBackgroundPipeline({
-      text: candidate,
-      role: "assistant",
-      receivedAt: new Date().toISOString(),
-    }, "assistant reply");
-  }
-
-  maybeRunLegacyMemoryBackgroundPipeline(normalized, label = "post-response") {
-    if (!this.config.legacyMemoryBackgroundWrite) {
-      return;
-    }
-    const memoryService = this.memoryService || this.createMemoryService({ ensureFiles: true });
-    const embeddingService = this.embeddingService || this.createEmbeddingService();
-    void runMemoryPostResponsePipeline({
-      memoryService,
-      embeddingService,
-      normalized,
-      bgState: this.memoryBgState,
-    }).catch((error) => {
-      const msg = error instanceof Error ? error.message : String(error || "unknown");
-      console.warn(`[memory] ${label} pipeline failed: ${msg}`);
-    });
   }
 
   resolveWorkspaceRoot(bindingKey) {

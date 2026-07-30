@@ -73,7 +73,6 @@ function makeAppLike({ blocked = false } = {}) {
     },
     resolveWorkspaceRoot: () => "/workspace",
     async prepareIncomingMessageForRuntime(normalized) { return { ...normalized }; },
-    maybeRunLegacyMemoryBackgroundPipeline() {},
     logTelegramDebug() {},
     recordInboundMessage() {},
     // Borrowed prototype methods under test.

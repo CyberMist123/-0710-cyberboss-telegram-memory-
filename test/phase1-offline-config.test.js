@@ -8,7 +8,6 @@ const { spawnSync } = require("child_process");
 const { readConfig } = require("../src/core/config");
 const { validateStartupPreflight } = require("../src/core/startup-preflight");
 const { loadWechatInstructions } = require("../src/adapters/runtime/shared-instructions");
-const { runMemoryPostResponsePipeline } = require("../src/core/memory-background-pipeline");
 
 const ENV_KEYS = [
   "CYBERBOSS_CONFIG_DIR",
@@ -120,25 +119,25 @@ test("prompt source defaults to one explicit file without operations or legacy m
   assert.match(expandedText, /PENDING PROMISES/);
 });
 
-test("legacy background memory pipeline is off unless explicitly enabled", async () => {
-  const previous = process.env.CYBERBOSS_MEMORY_BACKGROUND_WRITE;
-  delete process.env.CYBERBOSS_MEMORY_BACKGROUND_WRITE;
-  const pending = [];
-  await runMemoryPostResponsePipeline({
-    memoryService: {
-      appendPending(entry) {
-        pending.push(entry);
-      },
-    },
-    normalized: {
-      text: "记住: fixture only",
-      role: "user",
-      receivedAt: "2026-07-11T00:00:00.000Z",
-    },
-    bgState: {},
-  });
-  restoreEnvValue("CYBERBOSS_MEMORY_BACKGROUND_WRITE", previous);
-  assert.deepEqual(pending, []);
+// 这条原本是「未显式启用时不许写」的 fail-closed 守卫。自动抽取写入链退役后
+// 已经没有可被启用的实现，守卫改为钉住**它不会被重新引入**——退役如果没有 CI
+// 信号，下一次有人「顺手补回来」就没人发现。
+test("legacy auto-extraction write path stays retired", () => {
+  for (const relative of ["../src/core/memory-background-pipeline", "../src/core/memory-candidate-extractor"]) {
+    assert.throws(
+      () => require(relative),
+      (error) => error?.code === "MODULE_NOT_FOUND",
+      `${relative} 已退役，不得重新引入（见 DECISIONS.md D23）`,
+    );
+  }
+  const { CyberbossApp } = require("../src/core/app");
+  for (const method of ["maybeRunLegacyMemoryBackgroundPipeline", "recordAssistantReplyForMemory"]) {
+    assert.equal(
+      typeof CyberbossApp.prototype[method],
+      "undefined",
+      `CyberbossApp.${method} 属于已退役的自动抽取链，不得重新引入`,
+    );
+  }
 });
 
 test("portability static check passes for repo and newly added files", () => {

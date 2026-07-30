@@ -22,7 +22,6 @@ test("all legacy memory gates off keep ordinary start construction zero-touch", 
       includeLegacyMemoryRelays: false,
     }));
     await app.resolveMemoryContextForPrepared({ text: "fixture asks a normal question" });
-    app.recordAssistantReplyForMemory("fixture reply");
   });
 
   assert.equal(spies.memoryConstructs, 0);

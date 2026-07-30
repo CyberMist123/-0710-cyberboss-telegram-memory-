@@ -13,7 +13,6 @@ const nodeTests = [
   "test/phase1-runtime-safety.test.js",
   "test/phase1-switch.test.js",
   "test/phase1-python-args.test.js",
-  "test/memory-background-pipeline.test.js",
   // closeout 提示词的宪法要素（issue #35）；phase1 已接进 .github/workflows/phase1-offline.yml。
   "test/closeout-letter-prompt.test.js",
   "test/stream-delivery.test.js",
