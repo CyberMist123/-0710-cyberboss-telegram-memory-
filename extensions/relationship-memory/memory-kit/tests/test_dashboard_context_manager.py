@@ -186,10 +186,60 @@ def test_http_and_ui_contract():
         server.server_close()
 
 
+def test_early_return_drains_request_body():
+    """提前返回的错误响应必须先把请求体读掉。
+
+    否则关连接时 Windows 对接收缓冲里的未读数据回 RST，客户端拿到的是
+    `ConnectionAbortedError / ConnectionResetError [WinError 10053/10054]`
+    而**不是**那个状态码 —— 面板显示「连接被中止」，不是「token 校验失败」。
+
+    用 200KB 请求体让这个回归**确定性**复现：小请求体塞得进 socket 缓冲，
+    修复前也能碰巧通过（这正是本文件此前在 CI 上间歇把 main 弄红的原因 ——
+    `test_http_and_ui_contract` 的第一个 POST 就是预期 401 的未授权请求）；
+    200KB 在修复前实测三次三中失败。
+
+    连接被中止时 `request()` 不会返回状态码，而是抛出 OSError 子类，
+    测试直接以那个 traceback 失败 —— 与 CI 上看到的失败形状一致。
+    """
+    server = HTTPServer(("127.0.0.1", 0), dashboard.H)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        big = "x" * 200_000
+
+        # 401 路径：14 个 _check_token() 提前返回点的代表
+        code, _ = request(
+            server.server_port, "/api/context-source/save", "POST",
+            {"key": "reentry", "content": big},
+        )
+        assert code == 401, f"未授权 + 大请求体应干净返回 401，实际 {code}"
+
+        # 403 路径：7 个冻结写端点，同样的提前返回形状
+        frozen = sorted(dashboard.FROZEN_WRITE_ENDPOINTS)
+        assert frozen, "FROZEN_WRITE_ENDPOINTS 不应为空"
+        code, _ = request(
+            server.server_port, frozen[0], "POST",
+            {"payload": big}, dashboard.API_TOKEN,
+        )
+        assert code == 403, f"冻结端点 + 大请求体应干净返回 403，实际 {code}"
+
+        # 排空不许把正常写路径搞坏：请求体只被读一次，仍然读得到内容
+        code, payload = request(
+            server.server_port, "/api/todo/save", "POST",
+            {"content": "# drained\n", "source": "drain-test"}, dashboard.API_TOKEN,
+        )
+        assert code == 200 and payload["todo"]["last_saved_by"] == "drain-test"
+        assert TODO.read_text(encoding="utf-8") == "# drained\n"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def main():
     test_normalization_and_snapshots()
     test_todo_backup_and_atomic_save()
     test_http_and_ui_contract()
+    test_early_return_drains_request_body()
     print("520 context manager: fixed layers, persistent layout, snapshots, TODO backup, API and UI -> ok")
 
 

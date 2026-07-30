@@ -5233,7 +5233,51 @@ renderOctantRealtime = function(ds, historyLastTime, historySource) {
 
 
 class H(BaseHTTPRequestHandler):
+    # 请求体是否已经被读走。
+    #
+    # 提前返回的响应（401 token 校验失败、403 冻结端点、400 非法 body）如果不先把请求
+    # 体读掉就关连接，Windows 会对接收缓冲里的未读数据回 RST，客户端拿到的是
+    # `ConnectionAbortedError / ConnectionResetError [WinError 10053/10054]`，**而不是
+    # 那个状态码**。面板于是显示「连接被中止」而不是「token 校验失败」。
+    #
+    # 小请求体塞得进 socket 缓冲，所以平时看不出来；大请求体必然复现（实测 200KB 未授权
+    # POST 三次三中）。这也是 `tests/test_dashboard_context_manager.py` 在 CI 上间歇性
+    # 把 main 弄红的根因 —— 它第一个 POST 就是预期 401 的未授权请求。
+    #
+    # 注意顺序：本类的所有 POST 路径都是「先读体、再回响应」或「不读体直接回错误」，
+    # 没有「先回响应、后读体」的路径。若将来新增那种路径，`_read_json_body()` 会读到空。
+    _body_consumed = False
+
+    # 超过这个大小不再排空。面板是 localhost 单用户，真实请求远小于此；
+    # 上限只为挡住畸形或恶意的 Content-Length，避免无界读取。
+    _DRAIN_LIMIT = 16 * 1024 * 1024
+
+    def _drain_request_body(self):
+        """把尚未读取的请求体读掉再回响应，避免关连接时触发 RST。
+
+        只排空一次。排空本身失败就放弃 —— 它的目的是让错误响应能干净送达，
+        不该反过来把响应也搞没了（fail-open）。
+        """
+        if self._body_consumed:
+            return
+        self._body_consumed = True
+        try:
+            remaining = int(self.headers.get("Content-Length", 0) or 0)
+        except (TypeError, ValueError):
+            return
+        if remaining <= 0 or remaining > self._DRAIN_LIMIT:
+            return
+        try:
+            while remaining > 0:
+                chunk = self.rfile.read(min(remaining, 64 * 1024))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+        except OSError:
+            return
+
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
+        self._drain_request_body()
         data = body if isinstance(body, bytes) else body.encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", ctype)
@@ -5489,6 +5533,8 @@ class H(BaseHTTPRequestHandler):
             n = int(self.headers.get("Content-Length", 0))
         except Exception:
             n = 0
+        # 标记体已消费，`_send()` 的排空就会跳过 —— 请求体只读一次。
+        self._body_consumed = True
         raw = self.rfile.read(n).decode("utf-8", errors="replace") if n > 0 else ""
         if not raw.strip():
             return None, "请求体为空"
