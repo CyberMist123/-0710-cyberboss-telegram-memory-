@@ -185,8 +185,13 @@ Telegram 与其他 provider 走的是同一段解析逻辑，区别只在包装�
 | 系统消息队列 | `src/core/system-message-queue-store.js` | {} |
 | 系统消息投递 | `src/core/system-message-dispatcher.js` | 走 `system-message` 系统 lane |
 | 定时签到 | `src/app/system-checkin-poller.js` | {} |
+| 自主活动暂停态 | `src/core/activity-pause-state.js` | `CYBERBOSS_STATE_DIR/activity-pause.json` |
 
 Desire 状态由 Desire runtime 唯一写入；八维实时态落 `desire-state.json`，连续历史追加 `desire-history.jsonl`。
+
+`/pause activity` 与 `/continue activity` 只控制窗口聊天之外的自主心跳：Desire 小时 tick、定时签到、closeout/liveness 新调度，以及 `desire_checkin` / `checkin` / `liveness_alert` 三种已排队消息的投递。窗口聊天、用户 reminder、位置事件与其他显式 system message 不在暂停面内。正在运行的回合不取消，下一次 tick 才读取暂停态。
+
+`activity-pause.json` 的唯一 writer 是 `app.js` 的命令 handler；三个 poller 与 system-message dispatcher 都只读。文件缺失、损坏或 schema 不合法时按“未暂停”处理（fail-open）。队列中的受控消息不删除，continue 后按原有 `createdAt` 排序恢复投递。
 
 * * *
 

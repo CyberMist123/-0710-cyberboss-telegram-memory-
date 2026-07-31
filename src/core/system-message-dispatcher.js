@@ -1,4 +1,5 @@
 const { formatBeijingDateTime } = require("../utils/beijing-time");
+const { isActivityPaused, isPausedSystemMessageSource } = require("./activity-pause-state");
 
 class SystemMessageDispatcher {
   constructor({ queueStore, config, accountId }) {
@@ -8,11 +9,17 @@ class SystemMessageDispatcher {
   }
 
   hasPending() {
-    return this.queueStore.hasPendingForAccount(this.accountId);
+    const activityPaused = isActivityPaused(this.config?.activityPauseFile);
+    return this.queueStore.hasPendingForAccount(this.accountId, {
+      shouldInclude: (message) => !activityPaused || !isPausedSystemMessageSource(message?.sourceType),
+    });
   }
 
   drainPending() {
-    return this.queueStore.drainForAccount(this.accountId);
+    const activityPaused = isActivityPaused(this.config?.activityPauseFile);
+    return this.queueStore.drainForAccount(this.accountId, {
+      shouldDrain: (message) => !activityPaused || !isPausedSystemMessageSource(message?.sourceType),
+    });
   }
 
   requeue(message) {

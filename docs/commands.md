@@ -51,6 +51,8 @@ The runtime can be `codex` or `claudecode`, but the documented command surface s
 - `approval.accept_once`
 - `approval.accept_workspace`
 - `approval.reject_once`
+- `activity.pause`
+- `activity.continue`
 
 ### Capabilities
 
@@ -121,6 +123,8 @@ Notes:
 - `/model`
 - `/model <id>`
 - `/effort` / `/effort <low|medium|high|xhigh|max>`
+- `/pause activity`
+- `/continue activity`
 - `/star`
 - `/help`
 
@@ -130,4 +134,6 @@ Notes:
 - there is no separate `/context` command; use `/status` and read the `📦 context` line
 - `/effort` with no argument reports the level in force and where it came from: this chat's own choice, `CYBERBOSS_CLAUDE_EFFORT`, or the `medium` default. Setting a level relaunches the workspace's Claude child and resumes the same thread
 - `/compact` asks the current thread to compact its context and reports start / finish back to Telegram
+- `/pause activity` pauses Desire hourly ticks, scheduled check-ins, closeout/liveness scheduling, and delivery of proactive messages queued by those sources; window chat and user-set reminders stay active
+- `/continue activity` resumes those ticks and delivers retained proactive messages using the existing queue order
 - file sending is still available, but no longer exposed as a Telegram command

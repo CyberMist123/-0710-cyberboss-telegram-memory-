@@ -6,6 +6,7 @@ const { resolvePreferredSenderId, resolvePreferredWorkspaceRoot } = require("../
 const { readPersistedDesireState } = require("../core/desire-state-persistence");
 const { SystemMessageQueueStore } = require("../core/system-message-queue-store");
 const { resolveAppTimezone } = require("../utils/app-timezone");
+const { isActivityPaused } = require("../core/activity-pause-state");
 
 const INTERNAL_CHECKIN_TRIGGER_TEMPLATE = "%USER% comes to mind again.";
 
@@ -40,26 +41,36 @@ async function runSystemCheckinPoller(config) {
     console.log(`[cyberboss] next checkin in ${Math.round(delayMs / 60000)}m at ${wakeAt}`);
     await sleep(delayMs);
 
-    if (queue.hasPendingForAccount(account.accountId)) {
-      console.log("[cyberboss] checkin skipped: pending system message still in queue");
-      continue;
-    }
-
-    const desireState = config.desireLoopMinimalEnabled === true
-      ? readPersistedDesireState(config.desireStateFile)
-      : null;
-    const queued = queue.enqueue({
-      id: crypto.randomUUID(),
-      accountId: account.accountId,
-      senderId: target.senderId,
-      workspaceRoot: target.workspaceRoot,
-      text: buildCheckinTrigger(config),
-      sourceType: "checkin",
-      createdAt: new Date().toISOString(),
-      ...(desireState ? { desireState } : {}),
-    });
-    console.log(`[cyberboss] checkin queued id=${queued.id}`);
+    runSystemCheckinTick({ config, queue, account, target });
   }
+}
+
+function runSystemCheckinTick({ config = {}, queue, account, target } = {}) {
+  if (isActivityPaused(config.activityPauseFile)) {
+    console.log("[cyberboss] checkin tick skipped: paused");
+    return { status: "skipped", reason: "paused" };
+  }
+
+  if (queue.hasPendingForAccount(account.accountId)) {
+    console.log("[cyberboss] checkin skipped: pending system message still in queue");
+    return { status: "skipped", reason: "pending" };
+  }
+
+  const desireState = config.desireLoopMinimalEnabled === true
+    ? readPersistedDesireState(config.desireStateFile)
+    : null;
+  const queued = queue.enqueue({
+    id: crypto.randomUUID(),
+    accountId: account.accountId,
+    senderId: target.senderId,
+    workspaceRoot: target.workspaceRoot,
+    text: buildCheckinTrigger(config),
+    sourceType: "checkin",
+    createdAt: new Date().toISOString(),
+    ...(desireState ? { desireState } : {}),
+  });
+  console.log(`[cyberboss] checkin queued id=${queued.id}`);
+  return { status: "queued", id: queued.id };
 }
 
 function resolveEffectiveRange({
@@ -274,5 +285,6 @@ module.exports = {
   isSleepWindow,
   nextWakeTimestamp,
   resolveEffectiveRange,
+  runSystemCheckinTick,
   runSystemCheckinPoller,
 };

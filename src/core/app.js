@@ -51,6 +51,7 @@ const { ContextTraceRecorder, hashThreadId } = require("./context-trace");
 const { DeferredSystemReplyStore } = require("./deferred-system-reply-store");
 const { SystemMessageQueueStore } = require("./system-message-queue-store");
 const { SystemMessageDispatcher } = require("./system-message-dispatcher");
+const { writeActivityPauseState } = require("./activity-pause-state");
 const { TimelineScreenshotQueueStore } = require("./timeline-screenshot-queue-store");
 const { TurnGateStore } = require("./turn-gate-store");
 const { ReminderQueueStore } = require("../adapters/channel/weixin/reminder-queue-store");
@@ -1678,6 +1679,12 @@ class CyberbossApp {
       case "effort":
         await this.handleEffortCommand(normalized, command);
         return;
+      case "pause":
+        await this.handleActivityPauseCommand(normalized, command, true);
+        return;
+      case "continue":
+        await this.handleActivityPauseCommand(normalized, command, false);
+        return;
       case "star":
         await this.handleStarCommand(normalized);
         return;
@@ -2093,6 +2100,49 @@ class CyberbossApp {
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
       text: `✅ Check-in interval reset to ${parsedRange.minMinutes}-${parsedRange.maxMinutes} minutes and will apply on the next polling cycle.`,
+      contextToken: normalized.contextToken,
+      ...outboundThreadIdField(normalized),
+    });
+  }
+
+  async handleActivityPauseCommand(normalized, command, paused) {
+    const expectedCommand = paused ? "pause" : "continue";
+    if (normalizeCommandArgument(command.args).toLowerCase() !== "activity") {
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: `💡 Usage: /${expectedCommand} activity`,
+        contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
+      });
+      return;
+    }
+
+    try {
+      writeActivityPauseState(this.config.activityPauseFile, paused);
+    } catch (error) {
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: `❌ Autonomous activity was not changed because its state could not be saved.\n${error?.message || String(error)}`,
+        contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
+      });
+      return;
+    }
+
+    const text = paused
+      ? [
+          "⏸️ Autonomous activity paused.",
+          "Paused: Desire hourly ticks, scheduled check-ins, closeout/liveness scheduling, and delivery of their queued proactive messages.",
+          "Still active: window chat and user-set reminders.",
+        ].join("\n")
+      : [
+          "▶️ Autonomous activity resumed.",
+          "Resumed: Desire hourly ticks, scheduled check-ins, closeout/liveness scheduling, and delivery of their queued proactive messages.",
+          "Still active throughout: window chat and user-set reminders.",
+        ].join("\n");
+    await this.channelAdapter.sendText({
+      userId: normalized.senderId,
+      text,
       contextToken: normalized.contextToken,
       ...outboundThreadIdField(normalized),
     });

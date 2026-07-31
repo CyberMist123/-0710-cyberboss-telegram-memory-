@@ -169,6 +169,20 @@ const COMMAND_GROUPS = [
         weixin: ["/no"],
         status: "active",
       },
+      {
+        action: "activity.pause",
+        summary: "Pause autonomous heartbeats outside window chat and user reminders",
+        terminal: [],
+        weixin: ["/pause activity"],
+        status: "active",
+      },
+      {
+        action: "activity.continue",
+        summary: "Resume autonomous heartbeats and their queued proactive messages",
+        terminal: [],
+        weixin: ["/continue activity"],
+        status: "active",
+      },
     ],
   },
   {
@@ -346,6 +360,8 @@ function actionEmoji(action) {
     case "approval.accept_once": return "✅";
     case "approval.accept_workspace": return "💡";
     case "approval.reject_once": return "❌";
+    case "activity.pause": return "⏸️";
+    case "activity.continue": return "▶️";
     case "model.inspect":
     case "model.select": return "🤖";
     case "runtime.effort": return "🎚️";
