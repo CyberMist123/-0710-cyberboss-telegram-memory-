@@ -4,7 +4,7 @@
 Status: active
 Authority: current project status
 Last verified: 2026-07-31
-Verified against: ef8030d (G2-4 working tree)
+Verified against: b2355f9
 ```
 
 - `Status: active` —— 这份文件当前有效。
@@ -83,8 +83,8 @@ Verified against: ef8030d (G2-4 working tree)
 | Context Trace 覆盖 memory_context | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | trace blocks / skipped 已解释 memory_context（所有 provider 的 turn 路径）；真机证据缺失 |
 | `memory_lookup`（Phase 5A，仅 user_pull） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 受控翻档；真机使用情况未核 |
 | 工具按需取用（timeline / weather / diary / sticker） | `WIRED` | `PARTIAL` | `NONE` | `WIRED` | 工具存在且注册，边界测试不全；timeline / sticker 组件测试已接入主 CI 的 `test:phase1`，但按第二节纪律 1 不代表整条工具通路为 `BLOCKING`。Windows CI 中 sticker 仅执行 5 条平台无关用例，依赖 macOS `sips` 的 3 条 PNG → GIF 用例恒 skip，因此仍是部分覆盖 |
-| MCP 工具分组隐藏（省 schema token） | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | `DEFERRED` —— 降本方向，未开工 |
-| Memory 目录化（注入目录而非命中行） | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | `DEFERRED` —— 降本方向，未开工 |
+| MCP 工具分组隐藏（省 schema token） | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | D25-A 已解除 `DEFERRED` —— 工具面目录化获批（目录化是省 token 手段，不是授权边界，见 `DECISIONS.md` D25）；实施尚未开工 |
+| Memory 目录化（注入目录而非命中行） | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | D25-A 已解除 `DEFERRED` —— memory/tool/MCP/skill 统一走分类目录方向获批；实施尚未开工 |
 | 子代理结果胶囊化 | `ORPHAN` | `COVERED` | `BLOCKING` | `NOT_WIRED` | 胶囊契约与离线闭环已实现（`src/orchestration/delegation/`），验收测试在 `test:orchestration`，该分组已进主 CI。**但只有委派 runner 调用它**：主 Chat 仍直接回流子代理输出，目标通路未接。契约见 `DECISIONS.md` D14 |
 | 记忆服务层（validator / resolver） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | **9 个**测试文件已接 `test:memory-services`（note-service / resolver / service-cleanup / service-formal / validator / command-router / memory-command / seven-day-cleanup / validator-integration）。**extractor 一侧已按 `DECISIONS.md` D23 整条退役** —— 正则分桶抽取器与 post-response 自动写入 pipeline 已删除，系统不再替主体 AI 决定该记什么；退役由 `test/phase1-offline-config.test.js` 的守卫钉住。#91 修绿的 `memory-command` / `memory-seven-day-cleanup` / `memory-validator-integration` 三个已接进 `test:memory-services`，本行不再有无 CI 信号的测试。本行剩余的 validator / resolver 仍是 memory_context 读取通路与 `/memory` 命令的实现方，读取侧改造归 #42（见 D21。**另**：`memory_note` 的 Self-note 写入通路（#74）已与 History writer 收敛到同一把 writer lease、改为只追加，回归测试进 `test:phase3`（阻塞主 CI）|
 | Closeout liveness | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | 调度器已接入 `app.js`；`test:p0-closeout-liveness` 已接进主 CI；生产机开关状态仓库无法判断 |
@@ -125,7 +125,8 @@ Verified against: ef8030d (G2-4 working tree)
 
 ```text
 NOW
-- G2 主体写权主路径设计（D17 落地 + C4 交接点）
+- G2 主体写权主路径实施：G2-2 主体签署 + G2-5 dispatcher/注入/ack（D26 三条裁定为 G2-5 的规格输入）
+- 工具/记忆目录化与 G3 隔离实施起步（D25 实施单：计量基线与 CLI preflight 先行）
 - Closeout 业务日与 no_output 终态修复（D18，#65/#68 的前置）
 
 NEXT
@@ -135,6 +136,7 @@ NEXT
 LATER
 - Chat Profile A/B
 - 最小 Chat Profile
+- Route 1 / Route 2（D25 已收敛设计并切实施单，依赖目录化与 G3 前置链）
 - Windows 最终 canary（含 runtime 单一 descriptor 真相重建）
 
 PARALLEL GATE
@@ -144,7 +146,6 @@ PARALLEL GATE
 
 DEFERRED
 - Soft Retrieval
-- Route 1 / Route 2
 - 多 Bot
 - Apple Watch
 - CMX

@@ -494,6 +494,7 @@ Status: OPEN
 Status: OPEN
 ```
 
-- **Known facts**：四者当前一律 `DEFERRED`，未排期。Apple Watch 只有 5 份规格文档，代码侧零实现。
-- **Decision needed**：是否以及何时排期。
-- **Not authorised**：在排期前投入实现工作。
+- **已收窄**：Route 1 / Route 2 的设计收敛与实施拆单已于 2026-07-31 由 **D25** 批准（含派活软硬双上限与 Owner 强中断），不再属本条未决范围；其实施按 D25 实施单的依赖链推进（目录化与 G3 前置先行）。本条剩余范围是**多 Bot、Apple Watch、CMX**。
+- **Known facts**：多 Bot / Apple Watch / CMX 当前一律 `DEFERRED`，未排期。Apple Watch 只有 5 份规格文档，代码侧零实现。
+- **Decision needed**：剩余三者是否以及何时排期。
+- **Not authorised**：在排期前对剩余三者投入实现工作。
