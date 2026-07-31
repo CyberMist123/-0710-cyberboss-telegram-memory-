@@ -1085,6 +1085,13 @@ function validateSchema(schema, value, toolName, path) {
 }
 
 module.exports = {
+  // Read-only catalog exports for offline metering.  They do not alter host
+  // discovery or invocation semantics.
+  PROJECT_TOOLS,
+  STATIC_EXTRA_TOOL_NAMES,
+  TOOL_ALIASES,
+  DEPRECATED_HIDDEN_TOOL_NAMES,
+  createExtraToolHosts,
   ProjectToolHost,
   listProjectToolNames,
 };
