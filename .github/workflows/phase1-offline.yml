@@ -92,6 +92,10 @@ jobs:
         id: route_lanes
         run: ./scripts/ci/run-annotated.ps1 -Name route-lanes -Command 'npm run test:route-lanes'
 
+      - name: Catalog metering tests
+        id: catalog_metering
+        run: ./scripts/ci/run-annotated.ps1 -Name catalog-metering -Command 'npm run test:catalog-metering'
+
       - name: Telegram media tests
         id: telegram_media
         run: ./scripts/ci/run-annotated.ps1 -Name telegram-media -Command 'npm run test:telegram-media'
@@ -154,7 +158,7 @@ jobs:
             "p0_liveness=${{ steps.p0_liveness.outcome }}",
             "memory_services=${{ steps.memory_services.outcome }}", "reflect=${{ steps.reflect.outcome }}",
             "dash520=${{ steps.dash520.outcome }}",
-            "route_lanes=${{ steps.route_lanes.outcome }}", "telegram_media=${{ steps.telegram_media.outcome }}",
+            "route_lanes=${{ steps.route_lanes.outcome }}", "catalog_metering=${{ steps.catalog_metering.outcome }}", "telegram_media=${{ steps.telegram_media.outcome }}",
             "orch=${{ steps.orch.outcome }}", "py39=${{ steps.py39.outcome }}",
             "probe=${{ steps.probe.outcome }}", "diff=${{ steps.diff.outcome }}"
           ) -join ' | '

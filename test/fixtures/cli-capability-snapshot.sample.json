@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "generated_by": "scripts/audit/cli-capability-snapshot.js",
+  "cli_version": "0.0.0-fake",
+  "help_sha256": "8a46d9bb756f37bf815c9245bb5fb099dd40e29a0a7c4da70571167a5f5f40f6",
+  "binary_path_sha256": "e049420335f0440d8bb24d12f697d6a3afc096495b5c75f5ae320621055ab005",
+  "required_flags": {
+    "--bare": true,
+    "--disable-slash-commands": true,
+    "--setting-sources": true,
+    "--settings": true,
+    "--mcp-config": true,
+    "--strict-mcp-config": true,
+    "--tools": true,
+    "--effort": true
+  },
+  "missing_flags": [],
+  "observed_optional_flags": [
+    "--config-dir",
+    "--output-style"
+  ],
+  "captured_at": "1970-01-01T00:00:00.000Z"
+}
