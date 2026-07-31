@@ -48,7 +48,9 @@ test("codex rpc client sends image attachments as local images", async () => {
     { type: "text", text: "what is this image?" },
     {
       type: "localImage",
-      path: "/tmp/cyberboss image.jpg",
+      // The production payload preserves the attachment path verbatim
+      // (src/adapters/runtime/codex/rpc-client.js:371-379).
+      path: path.join("/tmp", "cyberboss image.jpg"),
     },
   ]);
 });

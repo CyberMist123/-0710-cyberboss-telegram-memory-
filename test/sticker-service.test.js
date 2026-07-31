@@ -15,6 +15,7 @@ const {
 } = require("../src/services/sticker-service");
 
 const REPO_ROOT = path.join(__dirname, "..");
+const IS_MACOS = process.platform === "darwin";
 
 function createConfig(overrides = {}) {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-sticker-test-"));
@@ -141,7 +142,9 @@ test("sticker service exposes the current tag catalog on demand", async () => {
   assert.match(result.guidance, /desc/i);
 });
 
-test("sticker service saves inbox images as GIF stickers, grows tags, dedupes, and notifies once", async () => {
+// Non-GIF normalization explicitly requires macOS `sips`
+// (scripts/normalize-sticker-gif.js:26-40). Keep the platform signal honest.
+test("sticker service saves inbox images as GIF stickers, grows tags, dedupes, and notifies once", { skip: !IS_MACOS }, async () => {
   const config = createConfig();
   const { service, sentTexts } = createService(config);
   const inboxPath = writeInboxPng(config, "cat.png");
@@ -187,7 +190,7 @@ test("sticker service saves inbox images as GIF stickers, grows tags, dedupes, a
   assert.equal(sentTexts.length, 1);
 });
 
-test("sticker service saves inbox images from an items array and keeps the tag catalog deduped", async () => {
+test("sticker service saves inbox images from an items array and keeps the tag catalog deduped", { skip: !IS_MACOS }, async () => {
   const config = createConfig();
   const { service, sentTexts } = createService(config);
   const inboxPathA = writeInboxPng(config, "batch-a.png");
@@ -228,7 +231,7 @@ test("sticker service rejects batch saves larger than 10 items", async () => {
   }, /Sticker save batch size must be 10 or less\./);
 });
 
-test("sticker service updates, picks, sends, and deletes saved stickers", async () => {
+test("sticker service updates, picks, sends, and deletes saved stickers", { skip: !IS_MACOS }, async () => {
   const config = createConfig();
   const { service, sentTexts, sentFiles } = createService(config);
   const inboxPath = writeInboxPng(config, "smile.png");

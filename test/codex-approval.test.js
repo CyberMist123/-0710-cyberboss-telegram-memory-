@@ -30,7 +30,9 @@ test("codex MCP config auto-approves cyberboss tools", () => {
     args.join("\n"),
     /mcp_servers\.cyberboss_tools\.tools\.cyberboss_timeline_screenshot\.approval_mode="auto"/
   );
-  assert.match(
+  // Deprecated whereabouts tools are deliberately hidden from the project
+  // catalog (src/tools/tool-host.js:86-90,102-108).
+  assert.doesNotMatch(
     args.join("\n"),
     /mcp_servers\.cyberboss_tools\.tools\.whereabouts_snapshot\.approval_mode="auto"/
   );
@@ -136,8 +138,11 @@ test("codex MCP elicitation approvals map to runtime approval events", () => {
   assert.equal(event.type, "runtime.approval.requested");
   assert.equal(event.payload.kind, "mcp_tool_call");
   assert.equal(event.payload.threadId, "thread-1");
-  assert.deepEqual(event.payload.commandTokens, ["mcp_tool", "cyberboss_tools", "cyberboss_reminder_create"]);
-  assert.equal(event.payload.command, "cyberboss_reminder_create\ndelayMinutes: 5\ntext: hello");
+  // The current catalog exposes one command-field tool
+  // (src/tools/tool-host.js:302-318); `_create` is only a legacy input alias
+  // (src/tools/tool-host.js:957-963), not the MCP tool name emitted by Codex.
+  assert.deepEqual(event.payload.commandTokens, ["mcp_tool", "cyberboss_tools", "cyberboss_reminder"]);
+  assert.equal(event.payload.command, "cyberboss_reminder\ndelayMinutes: 5\ntext: hello");
   assert.deepEqual(event.payload.responseTemplate.supportedCommands, ["yes", "always", "no"]);
   assert.deepEqual(event.payload.responseTemplate.responseByCommand.yes, {
     action: "accept",
@@ -161,6 +166,10 @@ test("handleRuntimeEvent auto-approves project-native Codex MCP elicitation appr
   const appLike = {
     config: { stateDir: "/tmp/cyberboss-test-state" },
     streamDelivery: {
+      // Required for every thread-bearing event (src/core/app.js:2642-2648).
+      resolveReplyTargetForRun() {
+        return null;
+      },
       async handleRuntimeEvent() {},
     },
     runtimeAdapter: {

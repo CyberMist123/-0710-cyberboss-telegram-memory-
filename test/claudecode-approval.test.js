@@ -10,6 +10,13 @@ const { createClaudeCodeRuntimeAdapter } = require("../src/adapters/runtime/clau
 const { ClaudeCodeProcessClient } = require("../src/adapters/runtime/claudecode/process-client");
 const { SessionStore } = require("../src/adapters/runtime/codex/session-store");
 
+// Thread-bearing runtime events resolve a reply target before delivery
+// (src/core/app.js:2642-2648), so appLike fixtures must provide the real
+// StreamDelivery surface even when the test has no reply target.
+function resolveNoReplyTargetForRuntimeEvent() {
+  return null;
+}
+
 test("claudecode approval events extract command tokens from exec_command input", () => {
   const event = mapClaudeCodeMessageToRuntimeEvent({
     type: "approval.requested",
@@ -237,7 +244,11 @@ test("claudecode adapter remembers model observed in stream messages", async () 
   const adapter = createClaudeCodeRuntimeAdapter({
     stateDir,
     sessionsFile: path.join(tempDir, "sessions.json"),
-    claudeCommand: commandFile,
+    // The production client supports an executable plus prefix arguments
+    // (src/adapters/runtime/claudecode/process-client.js:185-190). A .js file
+    // is not itself executable on Windows, so run the fake CLI through Node.
+    claudeCommand: process.execPath,
+    claudeCommandPrefixArgs: [commandFile],
     claudeDisableVerbose: true,
   });
 
@@ -305,7 +316,8 @@ test("claudecode adapter dispatches turns only after a real session id is availa
   const adapter = createClaudeCodeRuntimeAdapter({
     stateDir,
     sessionsFile: path.join(tempDir, "sessions.json"),
-    claudeCommand: commandFile,
+    claudeCommand: process.execPath,
+    claudeCommandPrefixArgs: [commandFile],
     claudePermissionMode: "default",
     claudeDisableVerbose: true,
     claudeExtraArgs: [],
@@ -439,7 +451,8 @@ test("claudecode adapter does not pass a codex-selected model to Claude Code", a
   const adapter = createClaudeCodeRuntimeAdapter({
     stateDir,
     sessionsFile,
-    claudeCommand: commandFile,
+    claudeCommand: process.execPath,
+    claudeCommandPrefixArgs: [commandFile],
     claudePermissionMode: "default",
     claudeDisableVerbose: true,
     claudeExtraArgs: [],
@@ -515,6 +528,7 @@ test("handleRuntimeEvent prompts for project shell commands instead of auto-appr
   const prompts = [];
   const appLike = {
     streamDelivery: {
+      resolveReplyTargetForRun: resolveNoReplyTargetForRuntimeEvent,
       async handleRuntimeEvent() {},
     },
     runtimeAdapter: {
@@ -801,8 +815,12 @@ test("handleRuntimeEvent reports compact completion back to WeChat", async () =>
       }],
     ]),
     streamDelivery: {
+      resolveReplyTargetForRun: resolveNoReplyTargetForRuntimeEvent,
       async handleRuntimeEvent() {},
     },
+    desireUsageByRunKey: new Map(),
+    async synchronizeRecallTrace() {},
+    handleCompletedRuntimeTurn() {},
     runtimeAdapter: {
       getSessionStore() {
         return {
@@ -847,6 +865,7 @@ test("handleRuntimeEvent auto-approves built-in view_image approvals without pro
   const responses = [];
   const appLike = {
     streamDelivery: {
+      resolveReplyTargetForRun: resolveNoReplyTargetForRuntimeEvent,
       async handleRuntimeEvent() {},
     },
     runtimeAdapter: {
@@ -890,6 +909,7 @@ test("handleRuntimeEvent auto-approves project-native MCP tool approvals without
   const appLike = {
     config: { stateDir: path.join(os.tmpdir(), "cyberboss-approval-test") },
     streamDelivery: {
+      resolveReplyTargetForRun: resolveNoReplyTargetForRuntimeEvent,
       async handleRuntimeEvent() {},
     },
     runtimeAdapter: {
@@ -934,6 +954,7 @@ test("handleRuntimeEvent auto-approves inbox image reads for claudecode without 
   const appLike = {
     config: { stateDir },
     streamDelivery: {
+      resolveReplyTargetForRun: resolveNoReplyTargetForRuntimeEvent,
       async handleRuntimeEvent() {},
     },
     runtimeAdapter: {
@@ -979,6 +1000,7 @@ test("handleRuntimeEvent auto-approves any state-dir file operation without prom
   const appLike = {
     config: { stateDir },
     streamDelivery: {
+      resolveReplyTargetForRun: resolveNoReplyTargetForRuntimeEvent,
       async handleRuntimeEvent() {},
     },
     runtimeAdapter: {
@@ -1028,6 +1050,7 @@ test("handleRuntimeEvent still prompts for non-inbox image reads", async () => {
   const appLike = {
     config: { stateDir },
     streamDelivery: {
+      resolveReplyTargetForRun: resolveNoReplyTargetForRuntimeEvent,
       async handleRuntimeEvent() {},
     },
     runtimeAdapter: {
@@ -1078,6 +1101,7 @@ test("handleRuntimeEvent auto-approves allowlisted prefixes for claudecode appro
   const responses = [];
   const appLike = {
     streamDelivery: {
+      resolveReplyTargetForRun: resolveNoReplyTargetForRuntimeEvent,
       async handleRuntimeEvent() {},
     },
     runtimeAdapter: {
@@ -1120,6 +1144,7 @@ test("handleRuntimeEvent auto-approves allowlisted MCP tool approvals", async ()
   const responses = [];
   const appLike = {
     streamDelivery: {
+      resolveReplyTargetForRun: resolveNoReplyTargetForRuntimeEvent,
       async handleRuntimeEvent() {},
     },
     runtimeAdapter: {
