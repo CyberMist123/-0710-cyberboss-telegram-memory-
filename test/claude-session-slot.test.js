@@ -6,7 +6,11 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const { createClaudeCodeRuntimeAdapter } = require("../src/adapters/runtime/claudecode");
+const {
+  IndeterminateTurnWriteError,
+  createClaudeCodeRuntimeAdapter,
+} = require("../src/adapters/runtime/claudecode");
+const { ClaudeCodeProcessClient } = require("../src/adapters/runtime/claudecode/process-client");
 const {
   SessionSlotStore,
   buildSessionSlotKey,
@@ -16,18 +20,21 @@ const { validateLaunchProfile } = require("../src/adapters/runtime/claudecode/la
 
 const FAKE_CLI = path.join(__dirname, "helpers", "fake-claude-cli.js");
 
-function makeAdapter({ keepAlive = false } = {}) {
+function makeAdapter({ keepAlive = false, recordExec = false } = {}) {
   const tempDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cb-slot-")));
   const workspaceRoot = path.join(tempDir, "workspace");
   const stateDir = path.join(tempDir, "state");
   fs.mkdirSync(workspaceRoot, { recursive: true });
   fs.mkdirSync(stateDir, { recursive: true });
   const launchLog = path.join(tempDir, "launches.jsonl");
+  const execLog = path.join(tempDir, "exec.jsonl");
   const counterFile = path.join(tempDir, "counter");
   fs.writeFileSync(launchLog, "");
+  fs.writeFileSync(execLog, "");
 
   process.env.CB_FAKE_LAUNCH_LOG = launchLog;
   process.env.CB_FAKE_COUNTER = counterFile;
+  process.env.CB_FAKE_EXEC_LOG = recordExec ? execLog : "";
   // Default: the fixture exits after one turn, which forces a relaunch and
   // makes `--resume` observable. keepAlive models a real long-lived CLI.
   process.env.CB_FAKE_KEEP_ALIVE = keepAlive ? "1" : "0";
@@ -48,8 +55,17 @@ function makeAdapter({ keepAlive = false } = {}) {
     tempDir,
     workspaceRoot,
     stateDir,
+    launchLog,
+    execLog,
+    recordExec,
     readLaunches() {
       return fs.readFileSync(launchLog, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+    },
+    readExec() {
+      return fs.readFileSync(execLog, "utf8")
         .split("\n")
         .filter(Boolean)
         .map((line) => JSON.parse(line));
@@ -79,11 +95,18 @@ function makeAdapter({ keepAlive = false } = {}) {
 // Build a second adapter over the same state directory, so a test can write
 // pre-v2 state with one instance and then exercise construction-time migration
 // with another.
-function makeAdapterAt(previous) {
-  const launchLog = path.join(previous.tempDir, "launches.jsonl");
-  fs.writeFileSync(launchLog, "");
+function makeAdapterAt(previous, { keepAlive = false, preserveLogs = false } = {}) {
+  const launchLog = previous.launchLog || path.join(previous.tempDir, "launches.jsonl");
+  const execLog = previous.execLog || path.join(previous.tempDir, "exec.jsonl");
+  if (!preserveLogs) {
+    fs.writeFileSync(launchLog, "");
+    fs.writeFileSync(execLog, "");
+  }
   process.env.CB_FAKE_LAUNCH_LOG = launchLog;
   process.env.CB_FAKE_COUNTER = path.join(previous.tempDir, "counter");
+  process.env.CB_FAKE_EXEC_LOG = previous.recordExec ? execLog : "";
+  process.env.CB_FAKE_KEEP_ALIVE = keepAlive ? "1" : "0";
+  process.env.CB_FAKE_TURN_DELAY_MS = "0";
   const adapter = createClaudeCodeRuntimeAdapter({
     stateDir: previous.stateDir,
     sessionsFile: path.join(previous.tempDir, "sessions.json"),
@@ -101,6 +124,7 @@ const laneFor = (chatId, messageThreadId) =>
 
 const BINDING_KEY = "default:telegram:500";
 const SENDER_ID = "500";
+const EVENT_HARD_TIMEOUT_MS = 30_000;
 
 async function turn(adapter, {
   workspaceRoot, lane, launchProfile = null, text = "hi",
@@ -114,6 +138,89 @@ async function turn(adapter, {
     launchProfile,
     text,
   });
+}
+
+// Runtime events, not elapsed time, decide when a turn or process lifecycle
+// boundary has landed. The timer is only a hard ceiling so a broken fixture
+// fails instead of hanging the test process forever.
+function observeRuntimeEvents(adapter) {
+  const events = [];
+  const waiters = new Set();
+  const unsubscribe = adapter.onEvent((event) => {
+    const index = events.push(event) - 1;
+    for (const waiter of [...waiters]) {
+      if (index >= waiter.after && waiter.predicate(event)) {
+        waiters.delete(waiter);
+        clearTimeout(waiter.timer);
+        waiter.resolve(event);
+      }
+    }
+  });
+
+  return {
+    mark() {
+      return events.length;
+    },
+    waitFor(predicate, description, { after = 0, timeoutMs = EVENT_HARD_TIMEOUT_MS } = {}) {
+      for (let index = after; index < events.length; index += 1) {
+        if (predicate(events[index])) {
+          return Promise.resolve(events[index]);
+        }
+      }
+      return new Promise((resolve, reject) => {
+        const waiter = {
+          after,
+          predicate,
+          resolve,
+          reject,
+          timer: null,
+        };
+        waiter.timer = setTimeout(() => {
+          waiters.delete(waiter);
+          const seen = events.slice(after).map((event) => event.type).join(", ") || "none";
+          reject(new Error(`timed out waiting for ${description}; observed: ${seen}`));
+        }, timeoutMs);
+        waiters.add(waiter);
+      });
+    },
+    close() {
+      unsubscribe();
+      for (const waiter of waiters) {
+        clearTimeout(waiter.timer);
+        waiter.reject(new Error("runtime event observer closed"));
+      }
+      waiters.clear();
+    },
+  };
+}
+
+async function completedTurn(adapter, runtimeEvents, options) {
+  const after = runtimeEvents.mark();
+  const result = await turn(adapter, options);
+  const event = await runtimeEvents.waitFor(
+    (candidate) => candidate.type === "runtime.turn.completed"
+      && candidate.payload?.processKey === result.processKey,
+    `runtime.turn.completed for process ${result.processKey.slice(0, 8)}`,
+    { after },
+  );
+  return { result, event };
+}
+
+function countWritesFor(needle) {
+  const original = ClaudeCodeProcessClient.prototype.sendUserMessage;
+  const state = {
+    writes: 0,
+    restore() {
+      ClaudeCodeProcessClient.prototype.sendUserMessage = original;
+    },
+  };
+  ClaudeCodeProcessClient.prototype.sendUserMessage = function patched(payload) {
+    if (String(payload?.text || "").includes(needle)) {
+      state.writes += 1;
+    }
+    return original.call(this, payload);
+  };
+  return state;
 }
 
 test("topic A / profile A and topic B / profile B get different Claude sessions, and A -> B -> A restores session A", async () => {
@@ -176,33 +283,227 @@ test("the same profile in two different topics still gets isolated sessions", as
   }
 });
 
-test("the same topic and the same profile keeps resuming one session", async () => {
-  const { adapter, tempDir, workspaceRoot, waitForLaunches } = makeAdapter();
+test("a long-lived child reuses one session, slot, and process for three completed turns", async () => {
+  const {
+    adapter, tempDir, workspaceRoot, readLaunches, readExec,
+  } = makeAdapter({ keepAlive: true, recordExec: true });
   const profile = validateLaunchProfile({ profileId: "safe", effort: "low" }, { baseDir: tempDir });
   const lane = laneFor(500, 3);
+  const runtimeEvents = observeRuntimeEvents(adapter);
 
   try {
-    const first = await turn(adapter, { workspaceRoot, lane, launchProfile: profile });
-    const second = await turn(adapter, { workspaceRoot, lane, launchProfile: profile });
-    const third = await turn(adapter, { workspaceRoot, lane, launchProfile: profile });
-
-    assert.equal(second.threadId, first.threadId);
-    assert.equal(third.threadId, first.threadId);
-    assert.equal(second.sessionSlotKey, first.sessionSlotKey);
-    assert.equal(third.sessionSlotKey, first.sessionSlotKey);
-
-    // The fixture exits after one turn, so a relaunch happens; a real CLI would
-    // simply keep serving the same session. Either way exactly one session id
-    // exists for this lane, and every relaunch resumes it rather than opening a
-    // second transcript.
-    const launches = await waitForLaunches(2);
-    assert.equal(new Set(launches.map((entry) => entry.sessionId)).size, 1);
-    assert.equal(launches[0].resumeSessionId, "");
-    for (const entry of launches.slice(1)) {
-      assert.equal(entry.resumeSessionId, first.threadId);
+    const completed = [];
+    for (const text of ["keep-alive-one", "keep-alive-two", "keep-alive-three"]) {
+      completed.push(await completedTurn(adapter, runtimeEvents, {
+        workspaceRoot, lane, launchProfile: profile, text,
+      }));
     }
+
+    const [first, ...rest] = completed.map(({ result }) => result);
+    for (const result of rest) {
+      assert.equal(result.threadId, first.threadId, "all completed turns used one session");
+      assert.equal(result.sessionSlotKey, first.sessionSlotKey, "all completed turns used one slot");
+      assert.equal(result.processKey, first.processKey, "all completed turns used one process key");
+    }
+    for (const { event } of completed) {
+      assert.equal(event.payload.threadId, first.threadId);
+      assert.equal(event.payload.sessionSlotKey, first.sessionSlotKey);
+      assert.equal(event.payload.processKey, first.processKey);
+    }
+
+    const launches = readLaunches();
+    assert.equal(launches.length, 1, "a long-lived child was launched exactly once");
+    assert.equal(launches[0].resumeSessionId, "");
+    assert.equal(launches[0].sessionId, first.threadId);
+
+    const executions = readExec();
+    assert.equal(executions.length, 3, "all three turns were actually executed exactly once");
+    assert.deepEqual(
+      ["keep-alive-one", "keep-alive-two", "keep-alive-three"].map(
+        (marker) => executions.filter((entry) => entry.line.includes(marker)).length,
+      ),
+      [1, 1, 1],
+    );
+    assert.deepEqual(
+      [...new Set(executions.map((entry) => entry.sessionId))],
+      [first.threadId],
+      "every execution belonged to the same session",
+    );
+
+    const route = adapter.resolveRouteSession({
+      bindingKey: BINDING_KEY,
+      senderId: SENDER_ID,
+      workspaceRoot,
+      lane,
+      launchProfile: profile,
+    });
+    assert.equal(route.threadId, first.threadId);
+    assert.equal(route.sessionSlotKey, first.sessionSlotKey);
+    assert.equal(route.processKey, first.processKey);
+    assert.equal(route.processAlive, true);
   } finally {
+    runtimeEvents.close();
     await adapter.close();
+  }
+});
+
+test("an explicitly stopped child relaunches with --resume for the original slot session", async () => {
+  const {
+    adapter, tempDir, workspaceRoot, readLaunches, readExec,
+  } = makeAdapter({ keepAlive: true, recordExec: true });
+  const profile = validateLaunchProfile({ profileId: "safe", effort: "low" }, { baseDir: tempDir });
+  const lane = laneFor(500, 4);
+  const runtimeEvents = observeRuntimeEvents(adapter);
+
+  try {
+    const { result: first } = await completedTurn(adapter, runtimeEvents, {
+      workspaceRoot, lane, launchProfile: profile, text: "before-explicit-restart",
+    });
+    assert.equal(readExec().length, 1, "the first turn completed and executed before restart");
+
+    const firstEntry = adapter.__internals.processRegistry.get(first.processKey);
+    assert.ok(firstEntry?.client?.usable, "the first child is live before the test stops it");
+    const firstClient = firstEntry.client;
+    const afterStopSignal = runtimeEvents.mark();
+    assert.equal(firstClient.child.kill(), true, "the test delivered the explicit stop signal");
+
+    // process.close is intentionally mapped to runtime.turn.failed for the app;
+    // waiting for that mapped lifecycle event proves close has landed.
+    await runtimeEvents.waitFor(
+      (event) => event.type === "runtime.turn.failed"
+        && event.payload?.processKey === first.processKey,
+      `process.close for process ${first.processKey.slice(0, 8)}`,
+      { after: afterStopSignal },
+    );
+    const closedRoute = adapter.resolveRouteSession({
+      bindingKey: BINDING_KEY,
+      senderId: SENDER_ID,
+      workspaceRoot,
+      lane,
+      launchProfile: profile,
+    });
+    assert.equal(closedRoute.processAlive, false, "process close was reflected in routing state");
+    assert.equal(closedRoute.threadId, first.threadId, "closing the process did not clear the slot");
+
+    const { result: resumed } = await completedTurn(adapter, runtimeEvents, {
+      workspaceRoot, lane, launchProfile: profile, text: "after-explicit-restart",
+    });
+    assert.equal(resumed.threadId, first.threadId);
+    assert.equal(resumed.sessionSlotKey, first.sessionSlotKey);
+    assert.equal(resumed.processKey, first.processKey);
+
+    const secondEntry = adapter.__internals.processRegistry.get(resumed.processKey);
+    assert.notEqual(secondEntry.client, firstClient, "a new child client replaced the stopped one");
+    const launches = readLaunches();
+    assert.equal(launches.length, 2, "the stopped child caused exactly one relaunch");
+    assert.equal(launches[0].resumeSessionId, "");
+    assert.equal(launches[1].resumeSessionId, first.threadId, "the relaunch resumed the original id");
+    assert.equal(launches[1].sessionId, first.threadId);
+
+    const executions = readExec();
+    assert.equal(executions.length, 2, "both turns executed exactly once");
+    assert.deepEqual(
+      ["before-explicit-restart", "after-explicit-restart"].map(
+        (marker) => executions.filter((entry) => entry.line.includes(marker)).length,
+      ),
+      [1, 1],
+    );
+  } finally {
+    runtimeEvents.close();
+    await adapter.close();
+  }
+});
+
+test("an indeterminate turn is not replayed, keeps its slot, and a retry resumes the original session", async () => {
+  const runtime = makeAdapter({ keepAlive: true, recordExec: true });
+  const {
+    adapter, tempDir, workspaceRoot, readLaunches, readExec,
+  } = runtime;
+  const profile = validateLaunchProfile({ profileId: "safe", effort: "low" }, { baseDir: tempDir });
+  const lane = laneFor(500, 5);
+  const runtimeEvents = observeRuntimeEvents(adapter);
+  const writeSpy = countWritesFor("indeterminate-attempt");
+  let initialAdapterClosed = false;
+  let retryRuntime = null;
+  let retryEvents = null;
+
+  try {
+    const { result: first } = await completedTurn(adapter, runtimeEvents, {
+      workspaceRoot, lane, launchProfile: profile, text: "before-indeterminate",
+    });
+    const firstClient = adapter.__internals.processRegistry.get(first.processKey).client;
+    firstClient.stdin.destroy();
+    Object.defineProperty(firstClient, "usable", { get: () => true, configurable: true });
+
+    await assert.rejects(
+      () => turn(adapter, {
+        workspaceRoot, lane, launchProfile: profile, text: "indeterminate-attempt",
+      }),
+      (error) => {
+        assert.ok(error instanceof IndeterminateTurnWriteError);
+        assert.equal(error.code, "indeterminate_turn_write");
+        assert.equal(error.indeterminate, true);
+        return true;
+      },
+    );
+    delete firstClient.usable;
+
+    const retained = adapter.resolveRouteSession({
+      bindingKey: BINDING_KEY,
+      senderId: SENDER_ID,
+      workspaceRoot,
+      lane,
+      launchProfile: profile,
+    });
+    assert.equal(retained.threadId, first.threadId, "the indeterminate write did not clear the slot");
+    assert.equal(retained.sessionSlotKey, first.sessionSlotKey);
+    assert.equal(writeSpy.writes, 1, "the failed turn was written once, never automatically replayed");
+    assert.equal(readLaunches().length, 1, "no automatic replay launched another child");
+    assert.equal(
+      readExec().filter((entry) => entry.line.includes("indeterminate-attempt")).length,
+      0,
+      "the broken pipe delivered no execution",
+    );
+
+    // close() is the concrete drain barrier: after every child has exited, the
+    // write and execution counts are final without sampling a quiet-time sleep.
+    runtimeEvents.close();
+    await adapter.close();
+    initialAdapterClosed = true;
+    assert.equal(writeSpy.writes, 1, "no replay occurred before the runtime fully drained");
+    assert.equal(readLaunches().length, 1);
+
+    retryRuntime = makeAdapterAt(runtime, { keepAlive: true, preserveLogs: true });
+    retryEvents = observeRuntimeEvents(retryRuntime.adapter);
+    const { result: retried } = await completedTurn(retryRuntime.adapter, retryEvents, {
+      workspaceRoot, lane, launchProfile: profile, text: "user-requested-retry",
+    });
+
+    assert.equal(retried.threadId, first.threadId);
+    assert.equal(retried.sessionSlotKey, first.sessionSlotKey);
+    assert.equal(retried.processKey, first.processKey);
+    assert.equal(writeSpy.writes, 1, "only the user retry followed the indeterminate write");
+
+    const launches = readLaunches();
+    assert.equal(launches.length, 2, "the user retry caused exactly one new launch");
+    assert.equal(launches[1].resumeSessionId, first.threadId, "the retry resumed the original session");
+    assert.equal(launches[1].sessionId, first.threadId);
+
+    const executions = readExec();
+    assert.equal(executions.length, 2, "only the seed turn and explicit retry executed");
+    assert.equal(executions.filter((entry) => entry.line.includes("before-indeterminate")).length, 1);
+    assert.equal(executions.filter((entry) => entry.line.includes("indeterminate-attempt")).length, 0);
+    assert.equal(executions.filter((entry) => entry.line.includes("user-requested-retry")).length, 1);
+  } finally {
+    retryEvents?.close();
+    if (retryRuntime) {
+      await retryRuntime.adapter.close();
+    }
+    if (!initialAdapterClosed) {
+      runtimeEvents.close();
+      await adapter.close();
+    }
+    writeSpy.restore();
   }
 });
 
