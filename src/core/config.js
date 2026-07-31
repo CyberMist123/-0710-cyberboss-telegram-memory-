@@ -98,6 +98,7 @@ function readConfig() {
     continuityBranch: readTextEnv("CYBERBOSS_CONTINUITY_BRANCH"),
     continuityWorktree: resolveConfiguredPath(readTextEnv("CYBERBOSS_CONTINUITY_WORKTREE")),
     continuityBaseSha: readTextEnv("CYBERBOSS_CONTINUITY_BASE_SHA"),
+    reviewArtifactsEnabled: readStrictBoolEnv("CYBERBOSS_REVIEW_ARTIFACTS_ENABLED", false),
     claudeTranscriptDir: resolveConfiguredPath(readTextEnv("CYBERBOSS_CLAUDE_TRANSCRIPT_DIR")),
     reentryAuthoringMode: readTextEnv("CYBERBOSS_REENTRY_AUTHORING_MODE") || "ai_direct",
     memoryStateFile: joinIfBase(memoryDir, "state.md"),

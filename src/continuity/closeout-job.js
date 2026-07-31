@@ -25,6 +25,7 @@ function createContinuityPipeline(config) {
     worktree: config.continuityWorktree || config.workspaceRoot || continuityDir,
     baseSha: config.continuityBaseSha || "0".repeat(40),
     automationTimezone: config.automationTimezone,
+    reviewArtifactsEnabled: config.reviewArtifactsEnabled,
   });
 }
 

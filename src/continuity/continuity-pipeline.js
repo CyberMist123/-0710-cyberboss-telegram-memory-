@@ -18,6 +18,11 @@ const {
   selectEffectiveDecisions,
 } = require("./effective-decision");
 const {
+  REVIEW_WRITER,
+  materializeReviewArtifacts,
+  reviewArtifactPaths,
+} = require("./review-artifacts");
+const {
   appendJsonlUnique,
   backupFile,
   loadJson,
@@ -37,6 +42,8 @@ class ContinuityPipeline {
     this.reviewScript = path.resolve(requireText(options.reviewScript, "reviewScript"));
     this.janitorScript = options.janitorScript ? path.resolve(options.janitorScript) : "";
     this.transcriptDir = options.transcriptDir ? path.resolve(options.transcriptDir) : "";
+    this.now = typeof options.now === "function" ? options.now : () => new Date();
+    this.reviewArtifactsEnabled = options.reviewArtifactsEnabled === true;
     this.leaseDetails = {
       model: options.model || "configured-runtime",
       phase: "phase3",
@@ -59,6 +66,7 @@ class ContinuityPipeline {
       jobs: path.join(this.continuityDir, ".jobs"),
       backups: path.join(this.continuityDir, ".backups"),
       writerState: path.join(this.continuityDir, ".jobs", "history-writer-state.json"),
+      ...reviewArtifactPaths(this.continuityDir),
     };
   }
 
@@ -246,7 +254,92 @@ class ContinuityPipeline {
         }));
       }
       const added = appendJsonlUnique(this.paths.decisions, decisions, "decision_id");
-      return { status: "success", decisions: added, diagnostics };
+      const artifacts = this.materializeEffectiveReviewArtifacts(candidates, [...existing, ...added]);
+      return {
+        status: "success",
+        decisions: added,
+        diagnostics,
+        artifact_complete: artifacts.artifact_complete,
+        artifact_errors: artifacts.errors,
+        handoff_ids: artifacts.handoff_ids,
+        rejection_case_ids: artifacts.case_ids,
+      };
+    });
+  }
+
+  /**
+   * Must be called while the caller holds the unified review-writer lease.
+   * Keeping the materializer lease-free lets runReview and the checkpointed
+   * authority gate persist decision + artifacts in one synchronous lease scope.
+   */
+  materializeEffectiveReviewArtifacts(candidates, decisions) {
+    const byCandidate = new Map(
+      (Array.isArray(candidates) ? candidates : [])
+        .map(normalizeCandidateMetadata)
+        .map((candidate) => [candidate.candidate_id, candidate]),
+    );
+    const selected = selectEffectiveDecisions(decisions);
+    const combined = {
+      artifact_complete: true,
+      errors: [],
+      handoff_ids: [],
+      case_ids: [],
+    };
+    const rejected = [...selected.effectiveByCandidate.values()]
+      .filter((decision) => ["deferred", "rejected"].includes(decision.result));
+
+    if (!this.reviewArtifactsEnabled) {
+      combined.artifact_complete = rejected.length === 0;
+      combined.errors = rejected.map((decision) => ({
+        artifact: "review_artifacts",
+        candidate_id: decision.candidate_id,
+        effective_decision_id: decision.decision_id,
+        code: "review_artifacts_disabled",
+        message: "review artifact materialization is disabled",
+      }));
+      return combined;
+    }
+
+    for (const decision of rejected) {
+      const candidate = byCandidate.get(decision.candidate_id);
+      if (!candidate) {
+        combined.artifact_complete = false;
+        combined.errors.push({
+          artifact: "review_artifacts",
+          candidate_id: decision.candidate_id,
+          effective_decision_id: decision.decision_id,
+          code: "candidate_missing",
+          message: "effective decision candidate is missing",
+        });
+        continue;
+      }
+      const outcome = materializeReviewArtifacts({
+        writer: REVIEW_WRITER,
+        paths: this.paths,
+        candidate,
+        effectiveDecision: decision,
+        createdAt: normalizeTimestamp(this.now()),
+      });
+      combined.artifact_complete = combined.artifact_complete && outcome.artifact_complete;
+      combined.errors.push(...outcome.errors);
+      combined.handoff_ids.push(...outcome.handoff_ids);
+      combined.case_ids.push(...outcome.case_ids);
+    }
+    return combined;
+  }
+
+  repairReviewArtifacts() {
+    return this.withLease(REVIEW_WRITER, () => {
+      const candidates = readJsonl(this.paths.candidates).map(normalizeCandidateMetadata);
+      const decisions = readJsonl(this.paths.decisions);
+      const artifacts = this.materializeEffectiveReviewArtifacts(candidates, decisions);
+      return {
+        status: "success",
+        artifact_complete: artifacts.artifact_complete,
+        artifact_errors: artifacts.errors,
+        handoff_ids: artifacts.handoff_ids,
+        rejection_case_ids: artifacts.case_ids,
+      };
     });
   }
 
@@ -539,14 +632,12 @@ function publicationRefusal(candidate = {}) {
 }
 
 /**
- * 打回案例（D17「打回案例要存档，候选原文 + 打回原因」）。
+ * History 发布闸门诊断，与 Review 打回案例库有意共存。
  *
- * 走既有存档通路，不新建案例库：原文本来就在 `candidates/episodes.candidates.jsonl`
- * 里，由 candidate_id 可join；这里只记原因、字数、预算与正文摘要哈希，落在 History
- * writer 自己的 `.jobs/history-writer-state.json` 的 `diagnostic_events`
- * （既有的 `effective_decision_ambiguous` 用的同一个通路，同一个 writer）。
- * 刻意**不**复制正文进机制状态 —— 复制一份正文就等于给正文加了第二个事实来源。
- * event_id 由稳定字段哈希得出，同一次打回重复运行不会堆积重复案例。
+ * 这是 History writer 在 canon 最后写入点发现超预算时留下的诊断，不是 Review
+ * writer 的 `review/rejection-cases.jsonl`。两者语义和 writer 都不同，不能合并：
+ * History 只在自己的 writer state 里记原因、预算和正文摘要哈希，不复制正文，
+ * 也不代 Review writer 写 envelope/case。event_id 由稳定字段哈希得出。
  */
 function createPublishRefusalEvent(candidate = {}, decision = {}, refusal = {}) {
   const stable = {
@@ -680,6 +771,12 @@ function normalizeDate(value) {
   const text = normalizeBody(value);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) throw new Error("date must be YYYY-MM-DD");
   return text;
+}
+
+function normalizeTimestamp(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) throw new Error("now() must return a valid date");
+  return date.toISOString();
 }
 
 function requireText(value, label) {

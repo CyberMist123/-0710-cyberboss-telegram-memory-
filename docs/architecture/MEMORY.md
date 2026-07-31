@@ -250,6 +250,18 @@ Auto Review 是海关，不是编辑：
 
 同一 Candidate 的重复 Review 形成 decision revision 链：新记录带递增的 `review_revision` 与指向前一有效 head 的 `supersedes_decision_id`；旧记录在读取侧按 revision 1、无前驱解释，不重写历史。effective-decision selector 只承认同 Candidate、revision 单调、无缺失前驱、无环且唯一 head 的链；任何歧义都记录 `effective_decision_ambiguous`，History 对该 Candidate fail-closed、不写 canon。History 只消费 effective `accepted`，并用自己的 writer state 保证同一 Candidate 至多发布一次。
 
+显式开启 `CYBERBOSS_REVIEW_ARTIFACTS_ENABLED` 后，effective `deferred` / `rejected`
+在同一个 `review-writer` lease 内同步物化两份 append-only artifact：先写第三档「完全按需」
+的 `review/rejection-cases.jsonl`，成功后才写可供未来投递的
+`handoffs/envelopes.jsonl`。任一缺口都使本次结果保持 `artifact_complete=false`；后续仍由
+同一 Review writer 幂等补齐，不能让 dispatcher 代写。`subject_route` 在 G2-1 落地前只作
+可选逐字快照：来源没有该字段时整字段缺席，不补空对象或默认值。
+
+投递与 ack 只在此阶段定义记录边界：`.jobs/handoff-delivery-events.jsonl` 唯一 writer
+是 handoff dispatcher，`.jobs/handoff-ack-events.jsonl` 唯一 writer 是 subject context
+injector。它们不属于 Review writer 写入面，也不能与 envelope 合成一个多 writer store。
+dispatcher、注入与 ack 回路不由 artifact 物化器实现。
+
 520 只提供查看、撤回和异常重审入口，不把用户变成审批员。
 
 ### Reflect / Consolidation
@@ -306,6 +318,9 @@ Desire 属于 Cyberboss runtime，不属于关系正史。
 - Re-entry：主体 AI 唯一执笔，Auto Review 只校验。
 - Re-entry 的 last-known-good 副本（`.jobs/reentry-last-known-good.json`）：唯一 writer 是
   注入侧 loader；属机制状态，不是 canon，不许被当成正史引用。
+- 打回 envelope 与 rejection case：唯一 Review writer 在同一 lease 内 append-only 写。
+- handoff delivery event：唯一 handoff dispatcher 写；handoff ack event：唯一 subject
+  context injector 写；二者都不属于 Review writer。
 - Self-note：主体 AI 唯一 writer。
 - Desire：唯一 Desire service 写。
 - Timeline / Rereadings / Portrait：受控 Reflect writer 更新。
