@@ -15,12 +15,19 @@ function assertFailedClosed(result, message) { assert.equal(result.error, undefi
 function assertNoPrivateText(value) { for (const pattern of [/[A-Za-z]:[\\/]/, /\/home\/[A-Za-z0-9_.-]+/, /\/Users\/[A-Za-z0-9_.-]+/, /(sk|ghp|xoxb)-[A-Za-z0-9_-]{8,}/]) assert.doesNotMatch(value, pattern); if (process.env.USERNAME) assert.equal(value.includes(process.env.USERNAME), false); }
 
 test("catalog has exactly four categories, stable metrics and no fictional result ceiling", () => {
-  const first = run([], { CB_AUDIT_SECRET: "sk-not-output-12345678" }); const second = run(); assert.equal(first.status, 0); assert.equal(first.stdout, second.stdout);
+  const first = run([], { CB_AUDIT_SECRET: "planted-nondisclosure-canary-0000" }); const second = run(); assert.equal(first.status, 0); assert.equal(first.stdout, second.stdout);
   const catalog = JSON.parse(first.stdout); assert.deepEqual(Object.keys(catalog.categories), ["memory", "tool", "mcp", "skill"]);
   for (const item of catalog.items) { assert.ok(Number.isInteger(item.schema_chars) && item.schema_chars >= 0); assert.ok(Number.isInteger(item.schema_bytes) && item.schema_bytes >= item.schema_chars); assert.equal(item.has_max_result_bytes, false); assert.equal(item.max_result_bytes, null); }
   for (const name of ["memory_lookup", "memory_note", "cyberboss_reminder", "cyberboss_diary_append", "cyberboss_system_send", "cyberboss_time"]) { const item = catalog.items.find((entry) => entry.name === name); assert.ok(item); assert.equal(item.hidden, false); assert.equal(item.deprecated, false); }
   assertNoPrivateText(first.stdout);
   assertNoPrivateText(fs.readFileSync(baseline, "utf8"));
+});
+
+test("resident catalog is deterministic, fixture-checked, private-text-free, and fails closed on drift", () => {
+  const args = ["--surface", "resident"]; const first = run(args, { CB_AUDIT_SECRET: "planted-nondisclosure-canary-0000" }); const second = run(args);
+  assert.equal(first.status, 0); assert.equal(first.stdout, second.stdout); assert.equal(run(["--check", ...args]).status, 0); assertNoPrivateText(first.stdout);
+  const original = fs.readFileSync(path.join(__dirname, "fixtures/catalog-metering-resident.json"), "utf8"); const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "catalog-resident-")); const altered = path.join(tempDir, "resident.json");
+  try { fs.writeFileSync(altered, `${original}x`, "utf8"); assertFailedClosed(run(["--check", ...args, "--baseline", altered]), "changed resident fixture must fail closed"); } finally { fs.rmSync(tempDir, { recursive: true, force: true }); }
 });
 
 test("baseline check is repeatable and fails closed when fixture changes", () => {

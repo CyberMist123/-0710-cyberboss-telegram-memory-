@@ -175,7 +175,11 @@ async function main() {
     // two lanes run at the same time.
     const routeToken = readFlagValue(argv.slice(1), "--route-token")
       || (typeof process.env.CYBERBOSS_ROUTE_TOKEN === "string" ? process.env.CYBERBOSS_ROUTE_TOKEN.trim() : "");
-    const { toolHost } = createProjectTooling(config);
+    const toolset = readFlagValue(argv.slice(1), "--toolset")
+      || (typeof process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET === "string" ? process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET.trim() : "");
+    if (toolset && process.env.CYBERBOSS_TOOL_CATALOG_ENABLED !== "true") throw new Error("catalog_disabled_toolset_not_accepted");
+    if (toolset) require("./tools/tool-catalog-manifest").resolveToolset(toolset);
+    const { toolHost } = createProjectTooling(config, { toolset });
     runToolMcpServer({ toolHost, runtimeId, workspaceRoot, routeToken });
     return;
   }

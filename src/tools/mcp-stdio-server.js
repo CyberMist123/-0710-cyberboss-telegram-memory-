@@ -1,8 +1,9 @@
 const fs = require("fs");
+const { catalogEnabled, RESIDENT_NAMES } = require("./tool-catalog-manifest");
 function runToolMcpServer({ toolHost, runtimeId = "", workspaceRoot = "", routeToken = "" }) {
   const reader = createMessageReader(process.stdin);
   const toolCatalog = toolHost.listTools();
-  const resources = buildToolResources(toolCatalog);
+  const resources = buildToolResources(toolCatalog, catalogEnabled() ? toolHost.catalogState().entries : null);
 
   reader.onMessage(async (message) => {
     if (!message || typeof message !== "object") {
@@ -138,7 +139,7 @@ function formatToolResult(result) {
   return JSON.stringify(result, null, 2);
 }
 
-function buildToolResources(toolCatalog) {
+function buildToolResources(toolCatalog, catalogEntries = null) {
   const tools = Array.isArray(toolCatalog) ? toolCatalog : [];
   const resources = [];
   resources.push({
@@ -146,7 +147,7 @@ function buildToolResources(toolCatalog) {
     name: "Cyberboss Tool Index",
     description: "Overview of Cyberboss project tools with schemas and usage notes.",
     mimeType: "text/markdown",
-    text: buildToolIndexMarkdown(tools),
+    text: catalogEntries ? buildCatalogIndexMarkdown(catalogEntries) : buildToolIndexMarkdown(tools),
   });
   resources.push({
     uri: "cyberboss://docs/sleep-mode",
@@ -184,6 +185,7 @@ function buildToolResources(toolCatalog) {
     text: buildWeatherMarkdown(),
   });
   for (const tool of tools) {
+    if (catalogEntries && !RESIDENT_NAMES.includes(tool.name)) continue;
     resources.push({
       uri: `cyberboss://tools/${tool.name}`,
       name: `${tool.name} schema`,
@@ -193,6 +195,12 @@ function buildToolResources(toolCatalog) {
     });
   }
   return resources;
+}
+
+function buildCatalogIndexMarkdown(entries) {
+  const lines = ["# Cyberboss Tool Catalog", "", "Schemas are loaded only through an authorized exact catalog handle.", ""];
+  for (const entry of entries) lines.push(`- ${entry.category}: ${entry.id} | ${entry.purpose} | risk=${entry.risk} | schema_chars=${entry.estimated_schema_chars} | handle=${entry.schema_handle}`);
+  return `${lines.join("\n")}\n`;
 }
 
 function buildToolIndexMarkdown(tools) {
