@@ -14,13 +14,14 @@ class ConversationRecorder {
   }
 
   record(entry = {}) {
-    if (!this.dirPath) return;
+    if (!this.dirPath) return null;
     const normalized = this.normalizeEntry(entry);
-    if (!normalized) return;
+    if (!normalized) return null;
     fs.mkdirSync(this.dirPath, { recursive: true });
     const day = formatDateKey(normalized.timestamp, this.automationTimezone);
     const filePath = path.join(this.dirPath, `${day}.jsonl`);
     fs.appendFileSync(filePath, `${JSON.stringify(normalized)}\n`, "utf8");
+    return normalized;
   }
 
   normalizeEntry(entry = {}) {

@@ -30,7 +30,11 @@ const {
   materializePublicationIntents,
   validatePublicationIntent,
 } = require("./publication-intent");
-const { resolveMaterialRoute } = require("./subject-route");
+const { canonicalSerialize, createSubjectRoute, resolveMaterialRoute } = require("./subject-route");
+const {
+  createCloseoutMaterialPack,
+  persistCloseoutMaterialPack,
+} = require("./closeout-material-pack");
 const {
   appendJsonlUnique,
   backupFile,
@@ -53,6 +57,7 @@ class ContinuityPipeline {
     this.transcriptDir = options.transcriptDir ? path.resolve(options.transcriptDir) : "";
     this.now = typeof options.now === "function" ? options.now : () => new Date();
     this.reviewArtifactsEnabled = options.reviewArtifactsEnabled === true;
+    this.subjectSigningEnabled = options.subjectSigningEnabled === true;
     this.leaseDetails = {
       model: options.model || "configured-runtime",
       phase: "phase3",
@@ -84,7 +89,7 @@ class ContinuityPipeline {
     };
   }
 
-  runCloseout({ date, author, candidateMetadata = {}, windowClosed = false }) {
+  runCloseout({ date, author, candidateMetadata = {}, windowClosed = false, subjectRoute = null }) {
     const day = normalizeDate(date);
     const businessDay = businessDayForDate(day, this.automationTimezone);
     const ledgerPath = path.join(this.paths.jobs, `closeout-${businessDay?.dateKey || day}.json`);
@@ -96,6 +101,9 @@ class ContinuityPipeline {
       const materials = this.loadFilteredMaterials(day);
       if (!materials.entries.length) {
         return recordEmptyCloseout(ledgerPath, day, windowClosed, "no_materials", false);
+      }
+      if (this.subjectSigningEnabled) {
+        return this.publishMaterialPack(day, materials, ledgerPath, { windowClosed, subjectRoute });
       }
       if (typeof author !== "function") throw new Error("closeout author is required");
       const authored = author({
@@ -116,7 +124,7 @@ class ContinuityPipeline {
     });
   }
 
-  async runCloseoutAsync({ date, author, candidateMetadata = {}, windowClosed = false }) {
+  async runCloseoutAsync({ date, author, candidateMetadata = {}, windowClosed = false, subjectRoute = null }) {
     const day = normalizeDate(date);
     const businessDay = businessDayForDate(day, this.automationTimezone);
     const ledgerPath = path.join(this.paths.jobs, `closeout-${businessDay?.dateKey || day}.json`);
@@ -128,6 +136,9 @@ class ContinuityPipeline {
       const materials = this.loadFilteredMaterials(day);
       if (!materials.entries.length) {
         return recordEmptyCloseout(ledgerPath, day, windowClosed, "no_materials", false);
+      }
+      if (this.subjectSigningEnabled) {
+        return this.publishMaterialPack(day, materials, ledgerPath, { windowClosed, subjectRoute });
       }
       const authored = await author({
         date: day,
@@ -186,6 +197,40 @@ class ContinuityPipeline {
       candidate_ids: added.map((item) => item.candidate_id),
     });
     return { status: "success", candidates: added, author_called: true };
+  }
+
+  publishMaterialPack(day, materials, ledgerPath, { windowClosed = false, subjectRoute = null } = {}) {
+    const exactRoute = subjectRoute || findMaterialSubjectRoute(
+      materials.entries,
+      materials.source_ref?.source_entry_ids,
+    );
+    if (!exactRoute) {
+      return recordEmptyCloseout(ledgerPath, day, windowClosed, "material_route_ambiguous", false);
+    }
+    const materialPack = createCloseoutMaterialPack({
+      businessDate: day,
+      materials,
+      subjectRoute: exactRoute,
+    });
+    if (!materialPack) {
+      return recordEmptyCloseout(ledgerPath, day, windowClosed, "no_materials", false);
+    }
+    const added = persistCloseoutMaterialPack({
+      continuityDir: this.continuityDir,
+      materialPack,
+    });
+    writeJsonAtomic(ledgerPath, {
+      date: day,
+      status: "success",
+      candidate_ids: [],
+      material_pack_id: materialPack.material_pack_id,
+    });
+    return {
+      status: "MATERIAL_READY",
+      material_pack: added[0] || materialPack,
+      candidates: [],
+      author_called: false,
+    };
   }
 
   loadFilteredMaterials(day) {
@@ -1055,6 +1100,19 @@ function readConversationRowsWithEvidence(filePath) {
       return [];
     }
   });
+}
+
+function findMaterialSubjectRoute(entries = [], sourceEntryIds = []) {
+  const routes = (Array.isArray(entries) ? entries : [])
+    .map((entry) => entry?.meta?.subject_route)
+    .filter(Boolean);
+  if (!routes.length) return null;
+  const first = canonicalSerialize(routes[0]);
+  if (!routes.every((route) => canonicalSerialize(route) === first)) return null;
+  const route = JSON.parse(JSON.stringify(routes[0]));
+  delete route.route_fingerprint;
+  route.source_entry_ids = sourceEntryIds;
+  try { return createSubjectRoute(route); } catch { return null; }
 }
 
 function isConversationType(type) {

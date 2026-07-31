@@ -56,7 +56,11 @@ const { TimelineScreenshotQueueStore } = require("./timeline-screenshot-queue-st
 const { TurnGateStore } = require("./turn-gate-store");
 const { ReminderQueueStore } = require("../adapters/channel/weixin/reminder-queue-store");
 const { ConversationRecorder } = require("../services/conversation-recorder");
-const { windowIdFromNativeSessionId } = require("../continuity/subject-route");
+const { createSubjectRoute, windowIdFromNativeSessionId } = require("../continuity/subject-route");
+const {
+  SubjectCapabilityRegistry,
+  SubjectCandidateService,
+} = require("../continuity/subject-signing");
 const { HandoffDispatcher } = require("../continuity/handoff-dispatcher");
 const { HandoffAckLedger } = require("../continuity/handoff-ack");
 const {
@@ -127,6 +131,15 @@ class CyberbossApp {
     this.projectServices = projectTooling.services;
     this.projectToolHost = projectTooling.toolHost;
     this.runtimeContextStore = projectTooling.runtimeContextStore;
+    this.subjectCapabilityRegistry = new SubjectCapabilityRegistry({
+      enabled: config.subjectSigningEnabled === true,
+    });
+    this.projectServices.subjectCandidate = new SubjectCandidateService({
+      continuityDir: config.continuityDir,
+      registry: this.subjectCapabilityRegistry,
+      enabled: config.subjectSigningEnabled === true,
+    });
+    this.subjectCapabilityByRunKey = new Map();
     this.runtimeAdapter = createRuntimeAdapter(config);
     // Fail-closed: a malformed profile mapping throws here and startup stops.
     // There is deliberately no fallback to a more permissive legacy profile.
@@ -633,7 +646,13 @@ class CyberbossApp {
       return;
     }
 
-    this.recordInboundMessage(normalized);
+    const recorded = this.recordInboundMessage(normalized);
+    if (this.config.subjectSigningEnabled === true && recorded?.id) {
+      Object.defineProperty(normalized, "subjectSourceEntryId", {
+        value: recorded.id,
+        enumerable: false,
+      });
+    }
     this.updateSleepModeFromInboundMessage(normalized);
     this.primeDeferredRepliesForSender(normalized);
     await this.handlePreparedMessage(normalized, { allowCommands: true });
@@ -922,6 +941,13 @@ class CyberbossApp {
           messageId: prepared.messageId || prepared.telegram?.messageId || "",
           channelSource: prepared.provider,
         },
+      });
+      this.issueSubjectCapabilityForTurnFailOpen?.({
+        bindingKey,
+        workspaceRoot,
+        prepared,
+        lane: effectiveLane,
+        turn,
       });
       let traceResult = false;
       try {
@@ -1231,6 +1257,51 @@ class CyberbossApp {
       }
     } catch (error) {
       console.warn(`[continuity] handoff dispatch skipped: ${error?.message || String(error)}`);
+      return null;
+    }
+  }
+
+  issueSubjectCapabilityForTurnFailOpen({ bindingKey, prepared, lane, turn } = {}) {
+    if (!this.subjectCapabilityRegistry?.enabled) return null;
+    if (prepared?.provider !== "telegram" || lane?.kind !== "tg") {
+      this.subjectCapabilityRegistry.recordDiagnostic?.("non_subject_lane");
+      return null;
+    }
+    try {
+      const subjectTurnId = normalizeText(turn?.turnId);
+      const sourceEntryId = normalizeText(prepared?.subjectSourceEntryId);
+      if (!subjectTurnId || !sourceEntryId) return null;
+      const currentIdentity = buildCurrentSubjectRouteIdentity({
+        app: this,
+        bindingKey,
+        prepared,
+        lane,
+        routeSession: {
+          laneKey: turn?.laneKey || lane?.laneKey,
+          sessionSlotKey: turn?.sessionSlotKey,
+          threadId: turn?.threadId,
+          profileId: turn?.profileId,
+          profileFingerprint: turn?.profileFingerprint,
+          messageThreadId: lane?.messageThreadId ?? null,
+        },
+      });
+      const subjectRoute = createSubjectRoute({
+        ...currentIdentity,
+        author_turn_id: subjectTurnId,
+        source_entry_ids: [sourceEntryId],
+      });
+      const capability = this.subjectCapabilityRegistry.issue({ subjectTurnId, subjectRoute });
+      if (capability) {
+        this.subjectCapabilityByRunKey.set(
+          buildRunKey(turn.threadId, subjectTurnId),
+          { capability, subject_route: subjectRoute },
+        );
+      }
+      return capability;
+    } catch (error) {
+      this.subjectCapabilityRegistry.recordDiagnostic?.(
+        error?.code || "capability_issue_failed",
+      );
       return null;
     }
   }
@@ -2866,6 +2937,8 @@ class CyberbossApp {
     if (event.type === "runtime.turn.completed" || event.type === "runtime.turn.failed") {
       await this.synchronizeRecallTrace(event.payload.threadId, event.payload.turnId);
       const completedRunKey = buildRunKey(event.payload.threadId, event.payload.turnId);
+      this.subjectCapabilityRegistry?.expireTurn?.(event.payload.turnId);
+      this.subjectCapabilityByRunKey?.delete?.(completedRunKey);
       const deliveredHandoff = this.handoffDeliveryByRunKey?.get?.(completedRunKey) || null;
       this.handoffDeliveryByRunKey?.delete?.(completedRunKey);
       const pendingOperations = this.pendingOperationByRunKey;
@@ -3028,7 +3101,7 @@ class CyberbossApp {
 
   recordInboundMessage(normalized) {
     if (!this.conversationRecorder || !normalized) {
-      return;
+      return null;
     }
     const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
       workspaceId: normalized.workspaceId,
@@ -3040,7 +3113,7 @@ class CyberbossApp {
     const routeSession = resolveRouteSessionFor(this, {
       bindingKey, workspaceRoot, lane, normalized,
     });
-    this.conversationRecorder.record({
+    return this.conversationRecorder.record({
       type: "user",
       timestamp: normalizeIsoTime(normalized.receivedAt) || new Date().toISOString(),
       threadId: routeSession.threadId,
@@ -3068,6 +3141,9 @@ class CyberbossApp {
     const eventRoute = resolveEventRoute(this, event);
     const workspaceRoot = normalizeText(payload.workspaceRoot)
       || normalizeText(eventRoute?.workspaceRoot);
+    const subjectSigning = this.subjectCapabilityByRunKey?.get?.(
+      buildRunKey(threadId, normalizeText(payload.turnId)),
+    );
     this.conversationRecorder.record({
       type: String(event.type || "").trim(),
       timestamp: normalizeIsoTime(payload.timestamp) || new Date().toISOString(),
@@ -3083,7 +3159,9 @@ class CyberbossApp {
         },
       }),
       text: typeof payload.text === "string" ? payload.text : "",
-      meta: payload,
+      meta: subjectSigning?.subject_route
+        ? { ...payload, subject_route: subjectSigning.subject_route }
+        : payload,
     });
     if (event.type === "runtime.turn.started") {
     }
