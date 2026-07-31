@@ -113,8 +113,8 @@ envelope 投递与 ack 是这份身份契约的下游消费者，不得各自复
 ```text
 原始会话（排除记忆注入块 / 工具结果 / 自动附件）
   → Closeout / Janitor      只产生 candidates 与 AI 原稿
-  → Auto Review             只产生 decision
-  → History writer          按 decision 唯一写入 canon
+  → Auto Review             产生 decision、必要 artifact 与 publication intent
+  → History writer          只按有效 intent 唯一写入 canon，并写自己的消费状态
   → Reflect                 低频更新 Timeline / Rereadings / Portrait
 ```
 
@@ -125,6 +125,14 @@ envelope 投递与 ack 是这份身份契约的下游消费者，不得各自复
 跨进程互斥靠 `src/orchestration/writer-lease.js`（租约，支持 stale 恢复）与 `src/core/workspace-lock.js`。
 
 **Auto Review 是海关，不是编辑。** 它核对来源、冲突、重复、长度、安全与格式；不按"重要性"替主体筛选，也不改写 AI 的措辞。
+
+Review→History 的耐久交接物是
+`decisions/publication-intents.jsonl`：Review writer 在 decision 与该 Candidate
+所需 artifact 全部物化后，以稳定 ID 只追加 intent；History writer 从不回写 intent，
+只在自己的 `.jobs/history-writer-state.json` 记录消费结果。History 每次消费都重新验证
+effective decision、candidate lineage 与 artifact digest，再以 lineage publication key
+幂等写 canon；state 丢失时从带 publication key 的 canon 行重建，不能退回全量扫描
+accepted decision 的旧路径。
 
 **读取侧只有一种翻档**：用户明确寻找旧事时，通过 `src/services/memory-lookup-service.js` 走受控工具（在 `src/tools/tool-host.js` 注册为 `memory_lookup`）。AI 因共鸣或修复需要主动翻档仍是设计候选，未开放。
 

@@ -25,6 +25,9 @@ function runReviewCheckpointed(pipeline, { retryCandidateId = "" } = {}) {
   let modelEligible = 0;
   let artifactComplete = true;
   const artifactErrors = [];
+  let publicationIntentComplete = true;
+  const publicationIntentErrors = [];
+  const publicationIntentIds = [];
 
   if (typeof pipeline.repairReviewArtifacts === "function") {
     const repair = pipeline.repairReviewArtifacts();
@@ -37,10 +40,16 @@ function runReviewCheckpointed(pipeline, { retryCandidateId = "" } = {}) {
         model_eligible: modelEligible,
         artifact_complete: false,
         artifact_errors: repair?.artifact_errors || [],
+        publication_intent_complete: false,
+        publication_intent_errors: repair?.publication_intent_errors || [],
+        publication_intent_ids: [],
       };
     }
     artifactComplete = repair.artifact_complete !== false;
     artifactErrors.push(...(repair.artifact_errors || []));
+    publicationIntentComplete = repair.publication_intent_complete !== false;
+    publicationIntentErrors.push(...(repair.publication_intent_errors || []));
+    publicationIntentIds.push(...(repair.publication_intent_ids || []));
   }
 
   for (const candidate of candidates) {
@@ -70,6 +79,9 @@ function runReviewCheckpointed(pipeline, { retryCandidateId = "" } = {}) {
         model_eligible: modelEligible,
         artifact_complete: false,
         artifact_errors: artifactErrors,
+        publication_intent_complete: false,
+        publication_intent_errors: publicationIntentErrors,
+        publication_intent_ids: publicationIntentIds,
       };
     }
 
@@ -78,6 +90,10 @@ function runReviewCheckpointed(pipeline, { retryCandidateId = "" } = {}) {
     decided.add(candidateId);
     artifactComplete = artifactComplete && result.artifact_complete !== false;
     artifactErrors.push(...(result.artifact_errors || []));
+    publicationIntentComplete = publicationIntentComplete
+      && result.publication_intent_complete !== false;
+    publicationIntentErrors.push(...(result.publication_intent_errors || []));
+    publicationIntentIds.push(...(result.publication_intent_ids || []));
   }
 
   return {
@@ -87,6 +103,9 @@ function runReviewCheckpointed(pipeline, { retryCandidateId = "" } = {}) {
     model_eligible: modelEligible,
     artifact_complete: artifactComplete,
     artifact_errors: artifactErrors,
+    publication_intent_complete: publicationIntentComplete,
+    publication_intent_errors: publicationIntentErrors,
+    publication_intent_ids: [...new Set(publicationIntentIds)],
   };
 }
 
@@ -124,6 +143,12 @@ function persistAuthorityDeferred(pipeline, candidate, { allowRetry = false } = 
         [...existing, ...added],
       )
       : { artifact_complete: true, errors: [], handoff_ids: [], case_ids: [] };
+    const intents = typeof pipeline.materializeEffectivePublicationIntents === "function"
+      ? pipeline.materializeEffectivePublicationIntents(
+        readJsonl(pipeline.paths.candidates),
+        [...existing, ...added],
+      )
+      : { publication_intent_complete: true, errors: [], publication_intent_ids: [] };
     return {
       status: "success",
       decisions: added,
@@ -131,6 +156,9 @@ function persistAuthorityDeferred(pipeline, candidate, { allowRetry = false } = 
       artifact_errors: artifacts.errors,
       handoff_ids: artifacts.handoff_ids,
       rejection_case_ids: artifacts.case_ids,
+      publication_intent_complete: intents.publication_intent_complete,
+      publication_intent_errors: intents.errors,
+      publication_intent_ids: intents.publication_intent_ids,
     };
   });
 }

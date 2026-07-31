@@ -111,6 +111,38 @@ const RECORD_DEFINITIONS = deepFreeze({
       },
     },
   },
+  publication_intent: {
+    relative_path: "decisions/publication-intents.jsonl",
+    writer: REVIEW_WRITER,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "schema_version",
+        "publication_intent_id",
+        "publication_key",
+        "candidate_id",
+        "candidate_lineage_root_id",
+        "effective_decision_id",
+        "result",
+        "review_run_id",
+        "created_at",
+        "artifact_digest",
+      ],
+      properties: {
+        schema_version: { const: 1 },
+        publication_intent_id: { type: "string", pattern: "^intent-[0-9a-f]{20}$" },
+        publication_key: { type: "string", pattern: "^publication-[0-9a-f]{20}$" },
+        candidate_id: { type: "string", minLength: 1 },
+        candidate_lineage_root_id: { type: "string", minLength: 1 },
+        effective_decision_id: { type: "string", minLength: 1 },
+        result: { const: "publish" },
+        review_run_id: { type: "string", pattern: "^review-[0-9a-f]{20}$" },
+        created_at: { type: "string", format: "date-time" },
+        artifact_digest: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      },
+    },
+  },
   handoff_delivery_event: {
     relative_path: ".jobs/handoff-delivery-events.jsonl",
     writer: HANDOFF_DISPATCHER_WRITER,
@@ -167,13 +199,18 @@ const RECORD_DEFINITIONS = deepFreeze({
   },
 });
 
-const REVIEW_WRITER_RECORDS = Object.freeze(["handoff_envelope", "rejection_case"]);
+const REVIEW_WRITER_RECORDS = Object.freeze([
+  "handoff_envelope",
+  "rejection_case",
+  "publication_intent",
+]);
 
 function reviewArtifactPaths(continuityDir) {
   const root = path.resolve(continuityDir);
   return {
     handoffEnvelopes: path.join(root, ...RECORD_DEFINITIONS.handoff_envelope.relative_path.split("/")),
     rejectionCases: path.join(root, ...RECORD_DEFINITIONS.rejection_case.relative_path.split("/")),
+    publicationIntents: path.join(root, ...RECORD_DEFINITIONS.publication_intent.relative_path.split("/")),
     handoffDeliveryEvents: path.join(root, ...RECORD_DEFINITIONS.handoff_delivery_event.relative_path.split("/")),
     handoffAckEvents: path.join(root, ...RECORD_DEFINITIONS.handoff_ack_event.relative_path.split("/")),
   };

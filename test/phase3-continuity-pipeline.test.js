@@ -205,12 +205,13 @@ test("legacy janitor candidates are mapped to extractor authority and cannot pub
     merged_into: null,
     pushed_to_user: false,
   }], "decision_id");
+  assert.equal(fixture2.pipeline.repairReviewArtifacts().publication_intent_complete, true);
   const defensive = fixture2.pipeline.runHistoryWriter();
   assert.equal(defensive.written.length, 0);
-  assert.deepEqual(defensive.skipped, [{
-    decision_id: "decision-malicious-accept",
-    reason: "semantic_authority_missing",
-  }]);
+  assert.equal(defensive.skipped.length, 1);
+  assert.equal(defensive.skipped[0].decision_id, "decision-malicious-accept");
+  assert.match(defensive.skipped[0].publication_intent_id, /^intent-[0-9a-f]{20}$/u);
+  assert.equal(defensive.skipped[0].reason, "semantic_authority_missing");
   assert.equal(fs.existsSync(fixture2.pipeline.paths.episodes), false);
 });
 
@@ -422,6 +423,7 @@ test("history writer refuses an over-budget reentry draft even with an accepted 
     checks: { ...buildLocalChecks(candidate, true), length_ok: true },
   });
   appendJsonlUnique(pipeline.paths.decisions, [forged], "decision_id");
+  assert.equal(pipeline.repairReviewArtifacts().publication_intent_complete, true);
 
   const first = pipeline.runHistoryWriter();
   assert.equal(first.written.length, 0);
@@ -699,6 +701,7 @@ function createFixture(options = {}) {
     worktree: root,
     baseSha: "a".repeat(40),
     isProcessAlive: options.isProcessAlive,
+    reviewArtifactsEnabled: true,
   });
   return { root, continuityDir, conversationDir, conversationFile, writerLeaseFile, stateLog, stateLogHash: hashFile(stateLog), pipeline };
 }

@@ -215,6 +215,7 @@ function createFixture() {
     branch: "fixture-branch",
     worktree: root,
     baseSha: "a".repeat(40),
+    reviewArtifactsEnabled: true,
   });
   return { root, pipeline };
 }

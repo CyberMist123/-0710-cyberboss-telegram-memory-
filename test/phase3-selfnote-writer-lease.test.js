@@ -97,12 +97,12 @@ test("one lock domain is observable in both directions and stays fail-open", () 
   assert.match(fs.readFileSync(fixture.paths.notes, "utf8"), /锁放开之后就能写。/u);
 
   // 反向：memory_note 持锁 → History writer 跳过（既有 fail-open 降级不变）。
+  seedSelfNoteDecision(fixture, "被 memory_note 挡住的一条 Self-note。", 0);
   const noteLease = acquireWriterLease(fixture.pipeline.writerLeaseFile, {
     writer: "memory-note",
     worktree: fixture.root,
     ...LEASE_DETAILS,
   });
-  seedSelfNoteDecision(fixture, "被 memory_note 挡住的一条 Self-note。", 0);
   const before = fs.readFileSync(fixture.paths.notes, "utf8");
   const skipped = fixture.pipeline.runHistoryWriter();
   assert.deepEqual(skipped, { status: "skipped", reason: "lease_unavailable" });
@@ -173,6 +173,12 @@ test("both writers survive a real two-process race on the shared lease", async (
   const reportFile = path.join(fixture.root, "child-report.json");
   const childScript = path.join(fixture.root, "race-child.js");
   fs.writeFileSync(childScript, CHILD_SOURCE, "utf8");
+  const published = [];
+  for (let index = 0; index < publications; index += 1) {
+    const body = `History writer 的第 ${index} 条 Self-note。`;
+    seedSelfNoteDecision(fixture, body, index);
+    published.push(body);
+  }
 
   // 1) 父进程先占住共享锁，再拉起子进程 —— 子进程的第一次写入必然撞锁，
   //    竞态窗口是**构造出来的**，不是碰运气碰出来的。
@@ -199,11 +205,7 @@ test("both writers survive a real two-process race on the shared lease", async (
   // 2) 父子两侧同时写：父进程一条一条发布 Self-note，子进程一条一条追加笔记，
   //    两边抢的是同一把锁，每一轮都会发生一次锁交接。
   let parentSkips = 0;
-  const published = [];
   for (let index = 0; index < publications; index += 1) {
-    const body = `History writer 的第 ${index} 条 Self-note。`;
-    seedSelfNoteDecision(fixture, body, index);
-    published.push(body);
     let done = false;
     for (let attempt = 0; attempt < 20_000 && !done; attempt += 1) {
       const result = fixture.pipeline.runHistoryWriter();
@@ -225,8 +227,8 @@ test("both writers survive a real two-process race on the shared lease", async (
   for (const body of published) assert.ok(text.includes(body), `丢了 History writer 的写入：${body}`);
   for (const line of report.lines) assert.ok(text.includes(line), `丢了 memory_note 的写入：${line}`);
   const nonEmptyLines = text.split(/\r?\n/).filter((line) => line.trim()).length;
-  // 每条发布 = marker 行 + 正文行；每条笔记 = 一行。
-  assert.equal(nonEmptyLines, publications * 2 + notes);
+  // 每条发布 = publication marker + decision marker + 正文；每条笔记 = 一行。
+  assert.equal(nonEmptyLines, publications * 3 + notes);
 
   // 锁与账都要干净：锁已释放、专属锁从未出现、预算与审计各记 notes 条。
   assert.equal(fs.existsSync(fixture.pipeline.writerLeaseFile), false);
@@ -304,6 +306,7 @@ function createPipeline(continuityDir, root, writerLeaseFile) {
     model: "fixture-model",
     branch: "fixture-branch",
     baseSha: "a".repeat(40),
+    reviewArtifactsEnabled: true,
   });
 }
 
@@ -320,6 +323,7 @@ function seedSelfNoteDecision(fixture, body, index) {
   appendJsonlUnique(fixture.pipeline.paths.candidates, [candidate], "candidate_id");
   const decision = createDecision(candidate, { result: "accepted", reason: "accepted" });
   appendJsonlUnique(fixture.pipeline.paths.decisions, [decision], "decision_id");
+  assert.equal(fixture.pipeline.repairReviewArtifacts().publication_intent_complete, true);
   return { candidate, decision };
 }
 
