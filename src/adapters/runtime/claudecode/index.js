@@ -1025,6 +1025,7 @@ function createClaudeCodeRuntimeAdapter(config) {
         processKey,
         processAlive: Boolean(entry?.client?.usable),
         profileId: route.profileId,
+        profileFingerprint: route.profileFingerprint,
       };
     },
     /**
