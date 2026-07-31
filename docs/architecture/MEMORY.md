@@ -321,7 +321,11 @@ Desire 属于 Cyberboss runtime，不属于关系正史。
 - 打回 envelope 与 rejection case：唯一 Review writer 在同一 lease 内 append-only 写。
 - handoff delivery event：唯一 handoff dispatcher 写；handoff ack event：唯一 subject
   context injector 写；二者都不属于 Review writer。
-- Self-note：主体 AI 唯一 writer。
+- Self-note：主体 AI 唯一 writer。它有两个写入点（Closeout→Review→History writer 的
+  `publishSelfNote`，和聊天中的 `memory_note` 工具），两者共用**同一把** writer lease
+  （`CYBERBOSS_WRITER_LEASE_FILE`，缺省 `<continuityDir>/.jobs/MEMORY_WRITER_LEASE.json`，
+  由 `src/orchestration/memory-writer-lease.js` 统一解析）。同一份文件出现第二把锁等于没有锁；
+  两侧写入都必须**只追加**，不许整读整写回 —— 整写回会把并发落下的那一行连同其余内容盖掉。
 - Desire：唯一 Desire service 写。
 - Timeline / Rereadings / Portrait：受控 Reflect writer 更新。
 - 520：只调用后端服务，不直接改正式文件。

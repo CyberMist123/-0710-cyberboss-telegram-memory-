@@ -1,4 +1,5 @@
 const path = require("path");
+const { resolveMemoryWriterLeaseFile } = require("../orchestration/memory-writer-lease");
 const { authorCloseout } = require("./background-author");
 const { ContinuityPipeline } = require("./continuity-pipeline");
 
@@ -8,8 +9,10 @@ function createContinuityPipeline(config) {
     config?.conversationDir || (config?.stateDir ? path.join(config.stateDir, "conversations") : ""),
     "CYBERBOSS_STATE_DIR/conversations",
   );
+  // issue #74：lease 路径只从一处算（`memory-writer-lease.js`），
+  // memory_note 工具走的是同一个解析函数 —— 两边不许各算各的。
   const writerLeaseFile = requireConfig(
-    config?.writerLeaseFile || path.join(continuityDir, ".jobs", "MEMORY_WRITER_LEASE.json"),
+    resolveMemoryWriterLeaseFile({ continuityDir, writerLeaseFile: config?.writerLeaseFile }),
     "CYBERBOSS_WRITER_LEASE_FILE",
   );
   return new ContinuityPipeline({

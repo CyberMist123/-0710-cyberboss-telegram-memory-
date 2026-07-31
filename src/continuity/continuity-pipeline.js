@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const { acquireWriterLease, releaseWriterLease } = require("../orchestration/writer-lease");
+const { memoryWriterLeaseArchiveDir } = require("../orchestration/memory-writer-lease");
 const { REENTRY_CHAR_BUDGET, countNonWhitespace } = require("../core/reentry-loader");
 const { DEFAULT_AUTOMATION_TIMEZONE, businessDayForDate } = require("../utils/business-day");
 const { stripConversationArtifacts } = require("./conversation-purity");
@@ -54,7 +55,12 @@ class ContinuityPipeline {
     this.leaseOptions = {
       recoverStale: options.recoverStaleWriterLease !== false,
       isProcessAlive: options.isProcessAlive,
-      staleArchiveDir: path.resolve(options.writerLeaseArchiveDir || path.join(this.continuityDir, ".backups", "writer-leases")),
+      // issue #74：失效 lease 的归档目录与 memory_note 共用一处解析，
+      // 同一把锁被不同 writer 回收时归档不会分叉。
+      staleArchiveDir: memoryWriterLeaseArchiveDir({
+        continuityDir: this.continuityDir,
+        writerLeaseArchiveDir: options.writerLeaseArchiveDir,
+      }),
     };
     this.paths = {
       candidates: path.join(this.continuityDir, "candidates", "episodes.candidates.jsonl"),
@@ -490,6 +496,12 @@ class ContinuityPipeline {
     appendJsonlUnique(this.paths.details, [createDetailEntry(candidate, decision, { sha256 })], "decision_id");
   }
 
+  /**
+   * Self-note 发布。`ai_self_notes.md` 还有第二个 writer（主体 AI 的 `memory_note`
+   * 工具，`src/services/memory-note-service.js`），issue #74 已把它收敛到**同一把**
+   * `writerLeaseFile` 上；两边都必须保持**只追加**：任何一侧改回整读整写回，
+   * 都会在锁交替的间隙把对方刚落的行盖掉。
+   */
   publishSelfNote(candidate, decision) {
     const marker = `<!-- decision:${decision.decision_id} -->`;
     const current = safeReadText(this.paths.selfNotes);

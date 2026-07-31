@@ -55,7 +55,13 @@ function createProjectTooling(config, options = {}) {
     timeline: new TimelineService({ config, timelineIntegration, sessionStore }),
     weather: createWeatherService({ config }),
     memoryLookup: new MemoryLookupService({ continuityDir: config.continuityDir }),
-    memoryNote: new MemoryNoteService({ continuityDir: config.continuityDir }),
+    // issue #74：Self-note 的第二个 writer。lease 文件必须和 History writer 用的
+    // 同一个（`CYBERBOSS_WRITER_LEASE_FILE`，缺省 `<continuityDir>/.jobs/…`），
+    // 否则两把锁互不排斥，等于没有锁。
+    memoryNote: new MemoryNoteService({
+      continuityDir: config.continuityDir,
+      writerLeaseFile: config.writerLeaseFile,
+    }),
     github: new GithubService({ ghPath: config.ghPath }),
     locationConfig: {
       v2Enabled: config.locationV2Enabled === true,
