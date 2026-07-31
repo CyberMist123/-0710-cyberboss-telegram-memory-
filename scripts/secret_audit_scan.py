@@ -33,6 +33,21 @@ GENERIC_ASSIGNMENT = re.compile(
     r"([A-Za-z0-9_./+=:@-]{16,})"
 )
 
+# Blob-level exemptions, keyed by FULL object sha. Each entry must be a blob
+# whose flagged content is a documented, intentionally fake value that was never
+# a real credential. This list only silences those exact historical bytes:
+# any new commit -- even re-adding the same fake -- produces a different blob
+# only if content changes, so keep current trees free of pattern-matching fakes
+# instead of growing this list.
+ALLOWED_FAKE_BLOBS = {
+    # test/claude-g3-preflight.test.js as merged by PR #109 (commit 6fce0c8).
+    # Contained `const secret = "sk-fake..."` -- a hardcoded non-disclosure
+    # canary in an offline test, never a real key. Defused in the current tree
+    # (renamed to plantedValue with a non-key-shaped value); the old blob stays
+    # reachable in history because main forbids history rewrites.
+    "ca55a87958b9a9307f3c8ab332d2dae48587d14a",
+}
+
 PLACEHOLDER_MARKERS = (
     "example",
     "changeme",
@@ -106,6 +121,8 @@ def scan_repository() -> int:
     for info in object_info:
         sha, object_type, size_text = info.split(" ", 2)
         if object_type != "blob" or int(size_text) > max_blob_size:
+            continue
+        if sha in ALLOWED_FAKE_BLOBS:
             continue
 
         paths = paths_by_sha.get(sha) or {"<historical-blob>"}
