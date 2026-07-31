@@ -80,7 +80,7 @@ Verified against: 3c4d561 (main)
 | **Telegram memory_context** | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 逻辑经 `buildRuntimeTurn()` Telegram 分支可达，信封外 `<memory_context>` 块，fail-open；真机执行证据缺失 |
 | Context Trace 覆盖 memory_context | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | trace blocks / skipped 已解释 memory_context（所有 provider 的 turn 路径）；真机证据缺失 |
 | `memory_lookup`（Phase 5A，仅 user_pull） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 受控翻档；真机使用情况未核 |
-| 工具按需取用（timeline / weather / diary / sticker） | `WIRED` | `PARTIAL` | `NONE` | `WIRED` | 工具存在且注册，边界测试不全 |
+| 工具按需取用（timeline / weather / diary / sticker） | `WIRED` | `PARTIAL` | `NONE` | `WIRED` | 工具存在且注册，边界测试不全；timeline / sticker 组件测试已接入主 CI 的 `test:phase1`，但按第二节纪律 1 不代表整条工具通路为 `BLOCKING`。Windows CI 中 sticker 仅执行 5 条平台无关用例，依赖 macOS `sips` 的 3 条 PNG → GIF 用例恒 skip，因此仍是部分覆盖 |
 | MCP 工具分组隐藏（省 schema token） | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | `DEFERRED` —— 降本方向，未开工 |
 | Memory 目录化（注入目录而非命中行） | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | `DEFERRED` —— 降本方向，未开工 |
 | 子代理结果胶囊化 | `ORPHAN` | `COVERED` | `BLOCKING` | `NOT_WIRED` | 胶囊契约与离线闭环已实现（`src/orchestration/delegation/`），验收测试在 `test:orchestration`，该分组已进主 CI。**但只有委派 runner 调用它**：主 Chat 仍直接回流子代理输出，目标通路未接。契约见 `DECISIONS.md` D14 |
@@ -115,7 +115,7 @@ Verified against: 3c4d561 (main)
 - **Context Trace 覆盖 memory_context**：`recordContextTrace()` 新增 memoryContext 参数，有记忆行时在 `blocks` 记 `{type:"memory_context", loaded:true, reason:<mode>, chars}`，无记忆时在 `skipped` 记 `{type:"memory_context", reason:<mode|empty>}`；`dispatchPreparedTurn` 的调用点已接入，对所有 provider 的 turn 路径生效（opening refresh 调用点行结构不变）。由 `test/phase2-hard-context.test.js` 钉住，在 `test:phase2` 分组内，阻塞主 CI。
 - **为什么 nightly 的生产接线记 `UNKNOWN`**：仓库只能证明 `.env.example` 里 `CYBERBOSS_NIGHTLY_CLOSEOUT_ENABLED=false`、`CYBERBOSS_NIGHTLY_MODE=evidence`，以及 `src/core/config.js` 对应的默认值为 `false` 与 `evidence`；`scripts/windows/continuity-nightly.ps1` 的计划任务路径显式允许未设置 / `evidence`，而 `shadow` / `auto` 必须另有 `config_dir/nightly-mode.confirm` 标记。生产机实际环境变量在 `settings/secrets/*.local.json`，不入库；计划任务状态与确认标记状态也不在版本控制内。**因此仓库无法对生产机的历史启用情况作出任何结论 —— 这一格只能记 `UNKNOWN`。**
 - **#74 Self-note 单锁域**：`ai_self_notes.md` 的两个 writer —— History writer（`src/continuity/continuity-pipeline.js:412` `publishSelfNote()`）与主体 AI 的 `memory_note` 工具（`src/services/memory-note-service.js`，生产接线 `src/tools/create-project-tooling.js:61` → `src/tools/tool-host.js:228`）—— 现在从 `src/orchestration/memory-writer-lease.js` 同一处解析 lease 路径，两边锁域合一；`memory_note` 的写入改为只追加（`memory-note-service.js:82` `appendNoteLine()`），不再整读整写回。回归测试 `test/phase3-selfnote-writer-lease.test.js` 在 `test:phase3` 分组内，含一条**双进程真并发**用例（父进程先占锁，保证子进程第一次写入必然撞锁，竞态窗口是构造出来的）。fail-open 不变：拿不到锁返回 `note_unavailable`，不阻断聊天。
-- **CI 覆盖**：主 CI 只执行 `.github/workflows/phase1-offline.yml` 里列出的**十二个** `npm run test:*` 分组 —— 原九组，加上 issue #78 第 2 批接线的 `test:memory-services` / `test:reflect` / `test:520-endpoints`。**仍未接线的孤儿**：11 个本机为红的测试文件（清单与失败原因见 issue #78 与 workdesk 普查报告），按「不许把红测试直接接进 CI」先修后接；以及若干与 P0/P1 目标通路无关的绿孤儿。
+- **CI 覆盖**：主 CI 只执行 `.github/workflows/phase1-offline.yml` 里列出的**十二个** `npm run test:*` 分组 —— 原九组，加上 issue #78 第 2 批接线的 `test:memory-services` / `test:reflect` / `test:520-endpoints`。红孤儿修理第 2 批的 5 个文件已接入既有分组：Claude/Codex approval 与 Codex RPC 进入 `test:route-lanes`，timeline / sticker 进入 `test:phase1`；其中 Windows CI 对 sticker 只有 5 条执行、3 条 macOS `sips` 用例恒 skip，不能记为完整覆盖。其余未接线孤儿仍按「不许把红测试直接接进 CI」先修后接；另有若干与 P0/P1 目标通路无关的绿孤儿。
 
 ---
 
