@@ -2876,7 +2876,7 @@ class CyberbossApp {
         pendingOperations.delete(completedRunKey);
       }
       if (event.type === "runtime.turn.completed") {
-        await this.handleCompletedRuntimeTurn(pendingOperation, event?.payload, deliveredHandoff);
+        this.handleCompletedRuntimeTurn(pendingOperation, event?.payload, deliveredHandoff);
       }
       if (pendingOperation?.kind === "desire_checkin") {
         const { appendDesireTelemetry } = require("./desire-telemetry");
@@ -3324,8 +3324,14 @@ class CyberbossApp {
     } catch {}
   }
 
-  async handleCompletedRuntimeTurn(pendingOperation, payload = {}, deliveredHandoff = null) {
-    await this.recordHandoffAckFromTurnFailOpen(payload, deliveredHandoff);
+  handleCompletedRuntimeTurn(pendingOperation, payload = {}, deliveredHandoff = null) {
+    // Ack recording is fail-open and order-independent from desire settlement,
+    // so it must not force this long-standing synchronous contract to async:
+    // callers (and their tests) settle desire state in the same tick.
+    try {
+      const ackRecording = this.recordHandoffAckFromTurnFailOpen?.(payload, deliveredHandoff);
+      if (typeof ackRecording?.catch === "function") ackRecording.catch(() => {});
+    } catch {}
     const saveResult = this.maybeSaveDesireStateFromTurnText(payload?.text || "");
     if (this.config?.desireLoopMinimalEnabled === true && saveResult?.ok === false) {
       console.error(`[desire] skip loop settlement after invalid desire report thread=${normalizeText(payload?.threadId) || threadIdOrUnknown(payload)} turn=${normalizeText(payload?.turnId) || ""} textLength=${String(payload?.text || "").length}`);
