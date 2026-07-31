@@ -57,6 +57,13 @@ const { TurnGateStore } = require("./turn-gate-store");
 const { ReminderQueueStore } = require("../adapters/channel/weixin/reminder-queue-store");
 const { ConversationRecorder } = require("../services/conversation-recorder");
 const { windowIdFromNativeSessionId } = require("../continuity/subject-route");
+const { HandoffDispatcher } = require("../continuity/handoff-dispatcher");
+const { HandoffAckLedger } = require("../continuity/handoff-ack");
+const {
+  formatSubjectMemoryHandoff,
+  injectSubjectMemoryHandoff,
+  parseSubjectMemoryHandoffAck,
+} = require("../continuity/handoff-context");
 const { resolveStateMediaReference } = require("../services/media-inbox-service");
 const {
   matchesCommandPrefix,
@@ -146,6 +153,21 @@ class CyberbossApp {
     this.threadStateStore = new ThreadStateStore();
     this.contextTraceRecorder = new ContextTraceRecorder({ filePath: config.contextTraceFile });
     this.contextTraceRunState = new Map();
+    this.handoffDeliveryByRunKey = new Map();
+    this.handoffDispatcher = config.handoffDispatchEnabled === true
+      ? new HandoffDispatcher({
+          continuityDir: config.continuityDir,
+          enabled: true,
+          leaseDetails: handoffLeaseDetails(config),
+        })
+      : null;
+    this.handoffAckLedger = config.handoffDispatchEnabled === true
+      ? new HandoffAckLedger({
+          continuityDir: config.continuityDir,
+          enabled: true,
+          leaseDetails: handoffLeaseDetails(config),
+        })
+      : null;
     this.systemMessageQueue = new SystemMessageQueueStore({ filePath: config.systemMessageQueueFile });
     this.deferredSystemReplyQueue = new DeferredSystemReplyStore({ filePath: config.deferredSystemReplyQueueFile });
     this.checkinConfigStore = new CheckinConfigStore({ filePath: config.checkinConfigFile });
@@ -850,10 +872,34 @@ class CyberbossApp {
       ...outboundThreadIdField(prepared),
     }).catch(() => {});
 
+    let handoffTurn = null;
     try {
       const turnParams = this.runtimeAdapter.getSessionStore().getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
       const model = turnParams.model;
       const runtimeTurn = await this.buildRuntimeTurn({ prepared, model });
+      try {
+        handoffTurn = this.prepareHandoffForSubjectTurnFailOpen?.({
+          bindingKey,
+          workspaceRoot,
+          prepared,
+          lane: effectiveLane,
+        }) || null;
+      } catch (error) {
+        console.warn(`[continuity] handoff injection preparation failed: ${error?.message || String(error)}`);
+        handoffTurn = null;
+      }
+      if (handoffTurn?.block) {
+        try {
+          runtimeTurn.text = injectSubjectMemoryHandoff(runtimeTurn.text, handoffTurn.block);
+        } catch (error) {
+          this.failHandoffDeliveryFailOpen?.(handoffTurn, {
+            reason: "handoff_injection_failed",
+            retryable: true,
+            error,
+          });
+          handoffTurn = null;
+        }
+      }
       const sendTurn = typeof this.runtimeAdapter.sendTurn === "function"
         ? this.runtimeAdapter.sendTurn.bind(this.runtimeAdapter)
         : this.runtimeAdapter.sendTextTurn.bind(this.runtimeAdapter);
@@ -877,7 +923,31 @@ class CyberbossApp {
           channelSource: prepared.provider,
         },
       });
-      this.recordContextTrace?.(turn.threadId, turn.turnId, turn.continuity, runtimeTurn.memoryContext);
+      let traceResult = false;
+      try {
+        traceResult = this.recordContextTrace?.(
+          turn.threadId,
+          turn.turnId,
+          turn.continuity,
+          runtimeTurn.memoryContext,
+          handoffTurn?.trace,
+        );
+      } catch (error) {
+        console.warn(`[continuity] context trace failed: ${error?.message || String(error)}`);
+        traceResult = false;
+      }
+      let deliveredHandoff = null;
+      if (handoffTurn) {
+        const traceRecorded = await Promise.resolve(traceResult).catch(() => false);
+        deliveredHandoff = this.completeHandoffDeliveryFailOpen?.(handoffTurn, { traceRecorded }) || null;
+        handoffTurn = null;
+        if (deliveredHandoff && turn.turnId) {
+          this.handoffDeliveryByRunKey?.set?.(
+            buildRunKey(turn.threadId, turn.turnId),
+            deliveredHandoff,
+          );
+        }
+      }
       this.runtimeContextStore?.setActiveContext?.({
         workspaceRoot,
         runtimeId: this.runtimeAdapter.describe().id,
@@ -931,6 +1001,14 @@ class CyberbossApp {
       }
       return true;
     } catch (error) {
+      if (handoffTurn) {
+        this.failHandoffDeliveryFailOpen?.(handoffTurn, {
+          reason: "runtime_turn_not_delivered",
+          retryable: true,
+          error,
+        });
+        handoffTurn = null;
+      }
       if (this.turnGateStore.releaseScopeKey) {
         this.turnGateStore.releaseScopeKey(scopeKey);
       } else {
@@ -1100,6 +1178,91 @@ class CyberbossApp {
       visionContext,
       memoryContext,
     };
+  }
+
+  prepareHandoffForSubjectTurnFailOpen({ bindingKey, workspaceRoot, prepared, lane } = {}) {
+    if (!this.handoffDispatcher || prepared?.provider === "system") return null;
+    try {
+      const routeSession = resolveRouteSessionFor(this, {
+        bindingKey,
+        workspaceRoot,
+        lane,
+        normalized: prepared,
+      });
+      const currentRoute = buildCurrentSubjectRouteIdentity({
+        app: this,
+        bindingKey,
+        prepared,
+        lane,
+        routeSession,
+      });
+      const begun = this.handoffDispatcher.beginSubjectTurn({ currentRoute });
+      if (begun.status !== "ready") return null;
+      if (!normalizeText(this.contextTraceRecorder?.filePath)) {
+        this.handoffDispatcher.markFailed(begun.token, {
+          reason: "context_trace_unavailable",
+          retryable: true,
+        });
+        return null;
+      }
+      try {
+        const block = formatSubjectMemoryHandoff({
+          envelope: begun.envelope,
+          deliveryId: begun.token.delivery_id,
+        });
+        return {
+          token: begun.token,
+          block,
+          trace: {
+            type: "subject_memory_handoff",
+            handoff_id: begun.token.handoff_id,
+            route_match: begun.token.route_match,
+            chars: block.length,
+            result: "injected",
+          },
+        };
+      } catch (error) {
+        this.handoffDispatcher.markFailed(begun.token, {
+          reason: "handoff_assembly_failed",
+          retryable: true,
+        });
+        console.warn(`[continuity] handoff assembly failed: ${error?.message || String(error)}`);
+        return null;
+      }
+    } catch (error) {
+      console.warn(`[continuity] handoff dispatch skipped: ${error?.message || String(error)}`);
+      return null;
+    }
+  }
+
+  completeHandoffDeliveryFailOpen(handoffTurn, { traceRecorded } = {}) {
+    if (!handoffTurn?.token || !this.handoffDispatcher) return null;
+    try {
+      if (traceRecorded !== true) {
+        this.handoffDispatcher.markFailed(handoffTurn.token, {
+          reason: "context_trace_write_failed_after_injection",
+          retryable: false,
+        });
+        return null;
+      }
+      return this.handoffDispatcher.markDelivered(handoffTurn.token);
+    } catch (error) {
+      console.warn(`[continuity] handoff delivery ledger failed: ${error?.message || String(error)}`);
+      return null;
+    }
+  }
+
+  failHandoffDeliveryFailOpen(handoffTurn, { reason, retryable, error } = {}) {
+    if (!handoffTurn?.token || !this.handoffDispatcher) return null;
+    try {
+      return this.handoffDispatcher.markFailed(handoffTurn.token, { reason, retryable });
+    } catch (ledgerError) {
+      console.warn(
+        `[continuity] handoff failure ledger failed: ${ledgerError?.message || String(ledgerError)}`
+        + (error ? `; original=${error?.message || String(error)}` : ""),
+      );
+      return null;
+    }
   }
 
   async routePreparedInbound({ bindingKey, workspaceRoot, prepared, lane = null }) {
@@ -2703,6 +2866,8 @@ class CyberbossApp {
     if (event.type === "runtime.turn.completed" || event.type === "runtime.turn.failed") {
       await this.synchronizeRecallTrace(event.payload.threadId, event.payload.turnId);
       const completedRunKey = buildRunKey(event.payload.threadId, event.payload.turnId);
+      const deliveredHandoff = this.handoffDeliveryByRunKey?.get?.(completedRunKey) || null;
+      this.handoffDeliveryByRunKey?.delete?.(completedRunKey);
       const pendingOperations = this.pendingOperationByRunKey;
       const pendingOperation = pendingOperations?.get?.(completedRunKey) || null;
       const usage = this.desireUsageByRunKey.get(completedRunKey) || {};
@@ -2711,7 +2876,7 @@ class CyberbossApp {
         pendingOperations.delete(completedRunKey);
       }
       if (event.type === "runtime.turn.completed") {
-        this.handleCompletedRuntimeTurn(pendingOperation, event?.payload);
+        this.handleCompletedRuntimeTurn(pendingOperation, event?.payload, deliveredHandoff);
       }
       if (pendingOperation?.kind === "desire_checkin") {
         const { appendDesireTelemetry } = require("./desire-telemetry");
@@ -3046,7 +3211,13 @@ class CyberbossApp {
     }
   }
 
-  recordContextTrace(threadId, turnId, continuity = {}, memoryContext = undefined) {
+  recordContextTrace(
+    threadId,
+    turnId,
+    continuity = {},
+    memoryContext = undefined,
+    handoffTrace = undefined,
+  ) {
     const context = continuity && typeof continuity === "object" ? continuity : {};
     // Fold the turn's memory-context outcome into the trace row, so the trace
     // explains memory_context the same way it explains reentry/current_state.
@@ -3071,10 +3242,22 @@ class CyberbossApp {
         skipped.push({ type: "memory_context", reason: memoryMode || "empty" });
       }
     }
+    if (handoffTrace && typeof handoffTrace === "object") {
+      blocks = Array.isArray(blocks) ? [...blocks] : [];
+      blocks.push({
+        type: "subject_memory_handoff",
+        loaded: true,
+        reason: "exact_route",
+        handoff_id: normalizeText(handoffTrace.handoff_id),
+        route_match: normalizeText(handoffTrace.route_match),
+        chars: Math.max(0, Number(handoffTrace.chars) || 0),
+        result: normalizeText(handoffTrace.result) || "injected",
+      });
+    }
     const ts = new Date().toISOString();
     const runKey = buildRunKey(threadId, turnId);
     if (runKey) this.contextTraceRunState.set(runKey, { ts });
-    void this.contextTraceRecorder.record({
+    return this.contextTraceRecorder.record({
       ts,
       threadId,
       turnId,
@@ -3141,7 +3324,14 @@ class CyberbossApp {
     } catch {}
   }
 
-  handleCompletedRuntimeTurn(pendingOperation, payload = {}) {
+  handleCompletedRuntimeTurn(pendingOperation, payload = {}, deliveredHandoff = null) {
+    // Ack recording is fail-open and order-independent from desire settlement,
+    // so it must not force this long-standing synchronous contract to async:
+    // callers (and their tests) settle desire state in the same tick.
+    try {
+      const ackRecording = this.recordHandoffAckFromTurnFailOpen?.(payload, deliveredHandoff);
+      if (typeof ackRecording?.catch === "function") ackRecording.catch(() => {});
+    } catch {}
     const saveResult = this.maybeSaveDesireStateFromTurnText(payload?.text || "");
     if (this.config?.desireLoopMinimalEnabled === true && saveResult?.ok === false) {
       console.error(`[desire] skip loop settlement after invalid desire report thread=${normalizeText(payload?.threadId) || threadIdOrUnknown(payload)} turn=${normalizeText(payload?.turnId) || ""} textLength=${String(payload?.text || "").length}`);
@@ -3151,6 +3341,22 @@ class CyberbossApp {
       this.maybeCloseDesireLoopForPendingOperation(pendingOperation, payload);
     } catch (error) {
       console.error(`[desire] loop settlement failed thread=${normalizeText(payload?.threadId) || threadIdOrUnknown(payload)} turn=${normalizeText(payload?.turnId) || ""} error=${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async recordHandoffAckFromTurnFailOpen(payload = {}, deliveredHandoff = null) {
+    if (!this.handoffAckLedger || !deliveredHandoff) return null;
+    const ack = parseSubjectMemoryHandoffAck(payload?.text || "");
+    if (!ack) return null;
+    try {
+      return this.handoffAckLedger.record({
+        ack,
+        expectedDelivery: deliveredHandoff,
+        subjectTurnId: payload?.turnId,
+      });
+    } catch (error) {
+      console.warn(`[continuity] handoff ack skipped: ${error?.message || String(error)}`);
+      return null;
     }
   }
 
@@ -4408,6 +4614,60 @@ function buildRecorderRouteSnapshot({ bindingKey = "", lane = null, routeSession
     route.messageThreadId = lane.messageThreadId;
   }
   return route;
+}
+
+function buildCurrentSubjectRouteIdentity({
+  app,
+  bindingKey = "",
+  prepared = null,
+  lane = null,
+  routeSession = null,
+} = {}) {
+  const session = routeSession && typeof routeSession === "object" ? routeSession : {};
+  const runtimeId = normalizeText(app?.runtimeAdapter?.describe?.().id);
+  const nativeThreadId = normalizeText(session.threadId);
+  const messageThreadId = Object.hasOwn(session, "messageThreadId")
+    ? session.messageThreadId
+    : (lane?.messageThreadId ?? prepared?.messageThreadId ?? prepared?.telegram?.messageThreadId ?? null);
+  return {
+    provider: normalizeText(prepared?.provider),
+    continuity_binding: {
+      workspace_id: normalizeText(prepared?.workspaceId),
+      account_id: normalizeText(prepared?.accountId),
+      sender_id: normalizeText(prepared?.senderId),
+      binding_key: normalizeText(bindingKey),
+    },
+    route_lane: {
+      lane_key: normalizeText(session.laneKey || lane?.laneKey),
+      chat_id: normalizeText(lane?.chatId || prepared?.chatId || prepared?.telegram?.chatId),
+      message_thread_id: messageThreadId === null || messageThreadId === undefined
+        ? null
+        : normalizeText(String(messageThreadId)),
+    },
+    session: {
+      runtime_id: runtimeId,
+      session_slot_key: normalizeText(session.sessionSlotKey),
+      runtime_thread_id: nativeThreadId,
+      profile_id: normalizeText(session.profileId),
+      profile_fingerprint: normalizeText(session.profileFingerprint),
+      window_id: windowIdFromNativeSessionId(nativeThreadId),
+    },
+  };
+}
+
+function handoffLeaseDetails(config = {}) {
+  return {
+    model: config.runtime === "claudecode"
+      ? normalizeText(config.claudeModel) || "configured-claude"
+      : normalizeText(config.codexModel) || "configured-codex",
+    phase: "g2-5",
+    branch: normalizeText(config.continuityBranch) || "runtime",
+    worktree: normalizeText(config.continuityWorktree)
+      || normalizeText(config.workspaceRoot)
+      || normalizeText(config.continuityDir)
+      || "runtime",
+    base_sha: normalizeText(config.continuityBaseSha) || "0".repeat(40),
+  };
 }
 
 // Module-level so the class methods can be borrowed onto lightweight objects

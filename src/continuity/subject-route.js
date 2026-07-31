@@ -8,6 +8,10 @@ const ROUTE_EXACT = "EXACT";
 const ROUTE_PARTIAL = "PARTIAL";
 const ROUTE_INVALID = "INVALID";
 
+const SUBJECT_ROUTE_MATCH_EXACT = "EXACT";
+const SUBJECT_ROUTE_MATCH_OTHER = "OTHER";
+const SUBJECT_ROUTE_MATCH_WINDOW_GONE = "WINDOW_GONE";
+
 const RECORDED_EXACT = "RECORDED_EXACT";
 const RECORDED_PARTIAL = "RECORDED_PARTIAL";
 const MATERIAL_ROUTE_EXACT = "MATERIAL_ROUTE_EXACT";
@@ -295,6 +299,103 @@ function assertExactSubjectRoute(value) {
   return deepFreeze(cloneJson(value));
 }
 
+/**
+ * Match a live subject window against an immutable subject_route without
+ * inventing a second route schema. The projected route reuses the target's
+ * author/source evidence and is fingerprinted by createSubjectRoute(); exact
+ * delivery therefore succeeds only when the canonical fingerprint is equal.
+ *
+ * A matching stable slot with a missing or different native transcript is the
+ * D26-1 terminal case: the original D24 window is gone. Any other route is
+ * unrelated and must neither receive nor retire this envelope.
+ */
+function matchSubjectRouteWindow(targetRoute, currentIdentity = {}) {
+  const target = assertExactSubjectRoute(targetRoute);
+  const projectedInput = {
+    version: target.version,
+    provider: currentIdentity.provider,
+    continuity_binding: currentIdentity.continuity_binding,
+    route_lane: currentIdentity.route_lane,
+    session: currentIdentity.session,
+    author_turn_id: target.author_turn_id,
+    source_entry_ids: target.source_entry_ids,
+  };
+  try {
+    const projected = createSubjectRoute(projectedInput);
+    if (projected.route_fingerprint === target.route_fingerprint) {
+      return deepFreeze({
+        status: SUBJECT_ROUTE_MATCH_EXACT,
+        route_match: true,
+        target_route_fingerprint: target.route_fingerprint,
+      });
+    }
+  } catch {
+    // A partial current identity can still prove window_gone when its stable
+    // slot identity is complete. It can never prove an exact route.
+  }
+
+  const targetSlot = stableWindowSlot(target);
+  const currentSlot = stableWindowSlot(currentIdentity);
+  if (targetSlot && currentSlot && canonicalSerialize(targetSlot) === canonicalSerialize(currentSlot)) {
+    const currentThreadId = normalizeText(currentIdentity?.session?.runtime_thread_id);
+    const currentWindowId = normalizeText(currentIdentity?.session?.window_id);
+    const targetThreadId = normalizeText(target.session.runtime_thread_id);
+    const targetWindowId = normalizeText(target.session.window_id);
+    if (!currentThreadId || !currentWindowId
+      || currentThreadId !== targetThreadId
+      || currentWindowId !== targetWindowId) {
+      return deepFreeze({
+        status: SUBJECT_ROUTE_MATCH_WINDOW_GONE,
+        route_match: false,
+        target_route_fingerprint: target.route_fingerprint,
+      });
+    }
+  }
+
+  return deepFreeze({
+    status: SUBJECT_ROUTE_MATCH_OTHER,
+    route_match: false,
+    target_route_fingerprint: target.route_fingerprint,
+  });
+}
+
+function stableWindowSlot(route = {}) {
+  const binding = route?.continuity_binding;
+  const lane = route?.route_lane;
+  const session = route?.session;
+  if (!isPlainObject(binding) || !isPlainObject(lane) || !isPlainObject(session)) return null;
+  const snapshot = {
+    provider: route.provider,
+    continuity_binding: {
+      workspace_id: binding.workspace_id,
+      account_id: binding.account_id,
+      sender_id: binding.sender_id,
+      binding_key: binding.binding_key,
+    },
+    route_lane: {
+      lane_key: lane.lane_key,
+      chat_id: lane.chat_id,
+      message_thread_id: lane.message_thread_id,
+    },
+    session: {
+      runtime_id: session.runtime_id,
+      session_slot_key: session.session_slot_key,
+      profile_id: session.profile_id,
+      profile_fingerprint: session.profile_fingerprint,
+    },
+  };
+  if (!isNonEmptyText(snapshot.provider)
+    || !Object.values(snapshot.continuity_binding).every(isNonEmptyText)
+    || !isNonEmptyText(snapshot.route_lane.lane_key)
+    || !isNonEmptyText(snapshot.route_lane.chat_id)
+    || (snapshot.route_lane.message_thread_id !== null
+      && !isNonEmptyText(snapshot.route_lane.message_thread_id))
+    || !Object.values(snapshot.session).every(isNonEmptyText)) {
+    return null;
+  }
+  return snapshot;
+}
+
 function canonicalSerialize(value) {
   return JSON.stringify(canonicalize(value));
 }
@@ -510,6 +611,9 @@ module.exports = {
   ROUTE_INVALID,
   ROUTE_PARTIAL,
   SUBJECT_ROUTE_SCHEMA,
+  SUBJECT_ROUTE_MATCH_EXACT,
+  SUBJECT_ROUTE_MATCH_OTHER,
+  SUBJECT_ROUTE_MATCH_WINDOW_GONE,
   SUBJECT_ROUTE_VERSION,
   assertExactSubjectRoute,
   canonicalSerialize,
@@ -517,6 +621,7 @@ module.exports = {
   computeRouteFingerprint,
   createSubjectRoute,
   evaluateSubjectRoute,
+  matchSubjectRouteWindow,
   normalizeRecorderRouteSnapshot,
   resolveMaterialRoute,
   validateSubjectRoute,

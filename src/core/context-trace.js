@@ -92,6 +92,13 @@ function sanitizeTraceEntry(entry = {}) {
 function sanitizeBlock(block = {}) {
   const type = normalizeText(block.type);
   if (!type) return null;
+  const handoffFields = type === "subject_memory_handoff"
+    ? {
+        handoff_id: normalizeText(block.handoff_id),
+        route_match: normalizeText(block.route_match),
+        result: normalizeText(block.result),
+      }
+    : {};
   return {
     type,
     loaded: block.loaded === true,
@@ -99,6 +106,7 @@ function sanitizeBlock(block = {}) {
     chars: Math.max(0, Number(block.chars) || 0),
     hash: normalizeText(block.hash),
     src_mtime: normalizeText(block.src_mtime),
+    ...handoffFields,
     ...sanitizeEffect(block),
   };
 }

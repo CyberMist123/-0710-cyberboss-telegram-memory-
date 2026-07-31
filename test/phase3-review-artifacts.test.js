@@ -209,7 +209,11 @@ test("handoff records declare separate writers and Review has no delivery or ack
   assert.equal(MACHINE_REASON_CODES.has("reject_conflict"), false);
   assert.deepEqual(
     RECORD_DEFINITIONS.handoff_delivery_event.schema.properties.result.enum,
-    ["delivered", "retryable_failed", "terminal_failed"],
+    ["delivered", "retryable_failed", "terminal_failed", "window_gone"],
+  );
+  assert.deepEqual(
+    RECORD_DEFINITIONS.handoff_delivery_event.schema.properties.trigger.enum,
+    ["synchronous", "next_subject_turn"],
   );
   assert.deepEqual(
     RECORD_DEFINITIONS.handoff_ack_event.schema.properties.disposition.enum,
