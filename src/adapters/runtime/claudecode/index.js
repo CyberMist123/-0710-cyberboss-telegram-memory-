@@ -459,6 +459,8 @@ function createClaudeCodeRuntimeAdapter(config) {
         mapped.payload.sessionSlotKey = route.sessionSlotKey;
         mapped.payload.processKey = processKey;
         mapped.payload.messageThreadId = route.lane.messageThreadId ?? null;
+        mapped.payload.profileId = route.profileId;
+        mapped.payload.profileFingerprint = route.profileFingerprint;
         if (!mapped.payload.sessionId) {
           mapped.payload.sessionId = normalizeThreadId(client.sessionId);
         }

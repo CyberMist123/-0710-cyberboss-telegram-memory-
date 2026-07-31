@@ -2,6 +2,10 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { DEFAULT_AUTOMATION_TIMEZONE, localDateKey } = require("../utils/business-day");
+const {
+  classifyRecorderRoute,
+  normalizeRecorderRouteSnapshot,
+} = require("../continuity/subject-route");
 
 class ConversationRecorder {
   constructor({ dirPath = "", automationTimezone = DEFAULT_AUTOMATION_TIMEZONE } = {}) {
@@ -24,6 +28,7 @@ class ConversationRecorder {
     if (!type) return null;
     const timestamp = normalizeTimestamp(entry.timestamp);
     const text = typeof entry.text === "string" ? entry.text : "";
+    const route = normalizeRecorderRouteSnapshot(entry.route);
     return {
       id: String(entry.id || buildId(type, timestamp)),
       type,
@@ -31,6 +36,8 @@ class ConversationRecorder {
       threadId: normalizeText(entry.threadId),
       turnId: normalizeText(entry.turnId),
       workspaceRoot: normalizeText(entry.workspaceRoot),
+      route,
+      routeStatus: classifyRecorderRoute(route),
       text,
       meta: entry.meta && typeof entry.meta === "object" ? entry.meta : {},
     };

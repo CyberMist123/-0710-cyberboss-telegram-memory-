@@ -73,6 +73,7 @@ Verified against: 3c4d561 (main)
 |---|---|---|---|---|---|
 | Telegram 主链（poller / adapter / envelope） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 信封格式有 CI 测试钉住；真机运行状态未核 |
 | Telegram route lanes v2 / profile router | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | `test:route-lanes` 已接进主 CI |
+| G2 recorder route snapshot / `subject_route` schema | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | **`PARTIAL`** —— recorder 真实写入路径冻结 canonical route/session/window 快照，closeout 按 source entry ID/hash 取证，envelope 只收权威 EXACT schema；缺身份保持 PARTIAL/ambiguous。主体 Candidate 签署、publication intent、dispatcher/注入/ack 仍分别待 G2-2/G2-4/G2-5，Review artifact 开关继续默认关闭 |
 | Telegram 媒体入站（media inbox） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | `test:telegram-media` 已接进主 CI |
 | Hard context · Re-entry | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | **`PARTIAL`** —— 由运行时适配器的 opening context 注入；2026-07-30 生产实测 `memory/reentry.md` 954 非空白字 > 300 预算，注入实际为零（err.log 连记 `reentry skipped reason=over_budget`）。#76 已加 last-known-good 降级、发布前预算硬闸门与 trace 的 configured/effective 分离；**正文压缩归聊天窗主体 AI，尚未做**，且生产机上没有可用副本，所以首次仍会是空注入 |
 | 账本（details）外置存储 | `PARTIAL` | `COVERED` | `BLOCKING` | `NOT_WIRED` | #76 目标 1：`details.jsonl` 存储、`type: details` 权限门、History writer 发布与 `memory_lookup` 读通路已闭环并有边界测试（第三档完全按需，永不注入）。**写侧没有 producer** —— 主体 AI 产出账本候选的入口未接，也不做自动提取；生产无数据 |

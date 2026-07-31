@@ -254,8 +254,11 @@ Auto Review 是海关，不是编辑：
 在同一个 `review-writer` lease 内同步物化两份 append-only artifact：先写第三档「完全按需」
 的 `review/rejection-cases.jsonl`，成功后才写可供未来投递的
 `handoffs/envelopes.jsonl`。任一缺口都使本次结果保持 `artifact_complete=false`；后续仍由
-同一 Review writer 幂等补齐，不能让 dispatcher 代写。`subject_route` 在 G2-1 落地前只作
-可选逐字快照：来源没有该字段时整字段缺席，不补空对象或默认值。
+同一 Review writer 幂等补齐，不能让 dispatcher 代写。新 envelope schema v2 的
+`subject_route` 必填且必须通过 `src/continuity/subject-route.js` 的 EXACT 校验；缺任一
+continuity binding / route lane / session 身份都不物化可投递 envelope，不补空对象或默认值。
+G2-3 期 schema v1 的缺 route 旧行只在读侧标记为 non-routeable legacy，保留审计可见性，
+不得成为 dispatcher 输入。
 
 投递与 ack 只在此阶段定义记录边界：`.jobs/handoff-delivery-events.jsonl` 唯一 writer
 是 handoff dispatcher，`.jobs/handoff-ack-events.jsonl` 唯一 writer 是 subject context

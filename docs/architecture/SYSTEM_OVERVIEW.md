@@ -92,6 +92,18 @@ Claude Code 子进程自己可以再起**子代理**。这条链路目前不由�
 
 `route-lane.js` **无依赖，必须保持无依赖** —— 通道适配器、core app、运行时适配器三边都加载它。
 
+Conversation recorder 在 entry 写入当下冻结
+`bindingKey / laneKey / sessionSlotKey / messageThreadId / profileId / windowId`
+快照；`windowId` 只取运行时原生 session 身份（resume 不变、重开变化），拿不到的字段保持缺席并记
+`RECORDED_PARTIAL`，不从进程 ID、时间戳、正文或文件名补猜。Closeout 的新来源引用保存
+`source_entry_ids` 与对应持久化行 SHA-256，取证时按两者精确核对；跨 route、缺字段或 hash
+不一致都归 `MATERIAL_ROUTE_AMBIGUOUS → NO_SUBJECT_CANDIDATE`。
+
+全仓 `subject_route` 的唯一 schema、canonical JSON fingerprint 与 EXACT/PARTIAL 状态判定在
+`src/continuity/subject-route.js`。Review handoff envelope 只接受 EXACT 快照；旧 schema v1
+缺 route 的行可审计读取但显式标为 legacy，永远不具备路由资格。主体 Candidate 的签署、
+envelope 投递与 ack 是这份身份契约的下游消费者，不得各自复制或放宽 schema。
+
 **系统 lane**：后台生产者各有自己的显式 lane（`closeout`、`liveness`、`system-message`、`background-author`、`automation-sender`），绝不继承交互式 Telegram 路由。这样一个 closeout 回合不可能落进用户的 topic transcript，一个用户回合也不可能被后台任务 resume。
 
 * * *

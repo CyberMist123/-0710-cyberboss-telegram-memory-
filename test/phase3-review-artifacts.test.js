@@ -10,6 +10,8 @@ const {
 } = require("../src/continuity/continuity-pipeline");
 const {
   HANDOFF_DISPATCHER_WRITER,
+  HANDOFF_ENVELOPE_SCHEMA_VERSION,
+  LEGACY_HANDOFF_ENVELOPE_SCHEMA_VERSION,
   MACHINE_REASON_CODES,
   MAX_CANDIDATE_BODY_BYTES,
   MAX_REASON_CHECKS_BYTES,
@@ -18,8 +20,10 @@ const {
   REVIEW_WRITER_RECORDS,
   SUBJECT_CONTEXT_INJECTOR_WRITER,
   materializeReviewArtifacts,
+  readHandoffEnvelopes,
   reviewArtifactPaths,
 } = require("../src/continuity/review-artifacts");
+const { createSubjectRoute } = require("../src/continuity/subject-route");
 const { runReviewCheckpointed } = require("../src/continuity/review-checkpoint");
 const { appendJsonlUnique, readJsonl } = require("../src/continuity/continuity-store");
 
@@ -53,16 +57,19 @@ test("deferred Review synchronously materializes verbatim envelope and immutable
   const rejectionCase = cases[0];
 
   assert.deepEqual(Object.keys(envelope), [
+    "schema_version",
     "handoff_id",
     "candidate_id",
     "effective_decision_id",
     "candidate_type",
     "candidate_body",
     "reason",
+    "subject_route",
     "created_at",
     "content_sha256",
   ]);
-  assert.equal(Object.prototype.hasOwnProperty.call(envelope, "subject_route"), false);
+  assert.equal(envelope.schema_version, HANDOFF_ENVELOPE_SCHEMA_VERSION);
+  assert.equal(envelope.subject_route.route_fingerprint, candidate.subject_route.route_fingerprint);
   assert.equal(envelope.candidate_body, candidate.body);
   assert.equal(envelope.reason.code, "semantic_authority_missing");
   assert.equal(envelope.reason.message, "候选缺少进入正史所需的语义写入权。");
@@ -81,8 +88,12 @@ test("deferred Review synchronously materializes verbatim envelope and immutable
     "source_ref_digest",
     "created_at",
     "schema_version",
+    "subject_route_fingerprint",
   ]);
-  assert.equal(Object.prototype.hasOwnProperty.call(rejectionCase, "subject_route_fingerprint"), false);
+  assert.equal(
+    rejectionCase.subject_route_fingerprint,
+    candidate.subject_route.route_fingerprint,
+  );
   assert.equal(Object.prototype.hasOwnProperty.call(rejectionCase, "rewrite_candidate_id"), false);
   assert.equal(Object.prototype.hasOwnProperty.call(rejectionCase, "improved"), false);
   assert.equal(rejectionCase.candidate_body, candidate.body);
@@ -104,12 +115,9 @@ test("deferred Review synchronously materializes verbatim envelope and immutable
   assert.equal(fs.existsSync(fixture.pipeline.paths.handoffAckEvents), false);
 });
 
-test("subject_route is optional and, when present, is stored without normalization", () => {
+test("subject_route is required, exact, and validated by the authoritative schema", () => {
   const fixture = createFixture();
-  const subjectRoute = {
-    " Window ID ": "  exact-value  ",
-    nested: { z: 1, a: ["keep", "order", "  spaces  "] },
-  };
+  const subjectRoute = exactSubjectRoute();
   const candidate = candidateRow(fixture, {
     candidate_id: "cand-route",
     body: "候选正文逐字保留。",
@@ -127,8 +135,53 @@ test("subject_route is optional and, when present, is stored without normalizati
   assert.equal(JSON.stringify(envelope.subject_route), JSON.stringify(subjectRoute));
   assert.equal(
     rejectionCase.subject_route_fingerprint,
-    sha256(JSON.stringify(subjectRoute)),
+    subjectRoute.route_fingerprint,
   );
+  assert.equal(
+    RECORD_DEFINITIONS.handoff_envelope.schema.properties.subject_route,
+    require("../src/continuity/subject-route").SUBJECT_ROUTE_SCHEMA,
+  );
+
+  const missingRoute = candidateRow(fixture, {
+    candidate_id: "cand-route-missing",
+    semantic_authority: "none",
+  });
+  delete missingRoute.subject_route;
+  const missingOutcome = materializeReviewArtifacts({
+    writer: REVIEW_WRITER,
+    paths: reviewArtifactPaths(fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-route-required-"))),
+    candidate: missingRoute,
+    effectiveDecision: {
+      decision_id: "decision-route-missing",
+      candidate_id: missingRoute.candidate_id,
+      result: "deferred",
+      reason: "publication_not_allowed",
+      checks: {},
+    },
+    createdAt: FIXED_REVIEW_TIME,
+  });
+  assert.equal(missingOutcome.artifact_complete, false);
+  assert.equal(
+    missingOutcome.errors.some((item) => item.code === "subject_route_partial"),
+    true,
+  );
+});
+
+test("schema v1 envelope without subject_route is readable only as non-routeable legacy", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-envelope-legacy-"));
+  const filePath = reviewArtifactPaths(root).handoffEnvelopes;
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify({
+    schema_version: LEGACY_HANDOFF_ENVELOPE_SCHEMA_VERSION,
+    handoff_id: "handoff-legacy",
+    candidate_id: "cand-legacy",
+  })}\n`, "utf8");
+
+  const [legacy] = readHandoffEnvelopes(filePath);
+  assert.equal(legacy.legacy, true);
+  assert.equal(legacy.route_status, "LEGACY_SUBJECT_ROUTE_MISSING");
+  assert.equal(legacy.dispatch_eligible, false);
+  assert.equal(Object.hasOwn(legacy.record, "subject_route"), false);
 });
 
 test("handoff records declare separate writers and Review has no delivery or ack write surface", () => {
@@ -389,9 +442,38 @@ function candidateRow(fixture, overrides = {}) {
     needs_subject_review: false,
     body: "fixture body",
     source_ref: { file: fixture.conversationFile, window: "1-2" },
+    subject_route: exactSubjectRoute(),
     idempotency_key: "fixture-key",
     ...overrides,
   };
+}
+
+function exactSubjectRoute() {
+  return createSubjectRoute({
+    version: 1,
+    provider: "telegram",
+    continuity_binding: {
+      workspace_id: "workspace-fixture",
+      account_id: "telegram",
+      sender_id: "42",
+      binding_key: "workspace-fixture:telegram:42",
+    },
+    route_lane: {
+      lane_key: "v2|tg|8:telegram|4:-100|1:7",
+      chat_id: "-100",
+      message_thread_id: "7",
+    },
+    session: {
+      runtime_id: "claudecode",
+      session_slot_key: "slot-fixture",
+      runtime_thread_id: "native-session-fixture",
+      profile_id: "profile-fixture",
+      profile_fingerprint: "profile-fingerprint-fixture",
+      window_id: "native-session-fixture",
+    },
+    author_turn_id: "turn-fixture",
+    source_entry_ids: ["entry-fixture-1", "entry-fixture-2"],
+  });
 }
 
 function captureArtifactLeaseWriters(fixture) {

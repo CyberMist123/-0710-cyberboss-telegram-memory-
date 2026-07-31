@@ -1,10 +1,18 @@
 const path = require("path");
 
 const { appendJsonlUnique, readJsonl, sha256 } = require("./continuity-store");
+const {
+  ROUTE_EXACT,
+  SUBJECT_ROUTE_SCHEMA,
+  assertExactSubjectRoute,
+  validateSubjectRoute,
+} = require("./subject-route");
 
 const REVIEW_WRITER = "review-writer";
 const HANDOFF_DISPATCHER_WRITER = "handoff-dispatcher";
 const SUBJECT_CONTEXT_INJECTOR_WRITER = "subject-context-injector";
+const HANDOFF_ENVELOPE_SCHEMA_VERSION = 2;
+const LEGACY_HANDOFF_ENVELOPE_SCHEMA_VERSION = 1;
 
 const MAX_CANDIDATE_BODY_BYTES = 64 * 1024;
 const MAX_REASON_CODE_BYTES = 128;
@@ -36,17 +44,19 @@ const RECORD_DEFINITIONS = deepFreeze({
       type: "object",
       additionalProperties: false,
       required: [
+        "schema_version",
         "handoff_id",
         "candidate_id",
         "effective_decision_id",
         "candidate_type",
         "candidate_body",
         "reason",
+        "subject_route",
         "created_at",
         "content_sha256",
       ],
-      optional: ["subject_route"],
       properties: {
+        schema_version: { const: HANDOFF_ENVELOPE_SCHEMA_VERSION },
         handoff_id: { type: "string", pattern: "^handoff-[0-9a-f]{20}$" },
         candidate_id: { type: "string", minLength: 1 },
         effective_decision_id: { type: "string", minLength: 1 },
@@ -57,7 +67,7 @@ const RECORD_DEFINITIONS = deepFreeze({
           required: ["code", "message", "checks"],
           additionalProperties: false,
         },
-        subject_route: { description: "Optional immutable G2-1 snapshot; schema intentionally deferred." },
+        subject_route: SUBJECT_ROUTE_SCHEMA,
         created_at: { type: "string", format: "date-time" },
         content_sha256: { type: "string", pattern: "^[0-9a-f]{64}$" },
       },
@@ -215,18 +225,19 @@ function materializeReviewArtifacts({
 
 function createHandoffEnvelope(candidate = {}, effectiveDecision = {}, createdAt) {
   const common = artifactCommon(candidate, effectiveDecision, createdAt);
+  const subjectRoute = requireSubjectRoute(candidate);
   const envelope = {
+    schema_version: HANDOFF_ENVELOPE_SCHEMA_VERSION,
     handoff_id: stableArtifactId("handoff", candidate, effectiveDecision),
     candidate_id: common.candidate_id,
     effective_decision_id: common.effective_decision_id,
     candidate_type: common.candidate_type,
     candidate_body: common.candidate_body,
     reason: common.reason,
+    subject_route: subjectRoute,
     created_at: common.created_at,
     content_sha256: sha256(common.candidate_body),
   };
-  const route = optionalJsonSnapshot(candidate, "subject_route");
-  if (route.present) envelope.subject_route = route.value;
   return envelope;
 }
 
@@ -244,8 +255,48 @@ function createRejectionCase(candidate = {}, effectiveDecision = {}, createdAt) 
     schema_version: 1,
   };
   const route = optionalJsonSnapshot(candidate, "subject_route");
-  if (route.present) rejectionCase.subject_route_fingerprint = sha256(JSON.stringify(route.value));
+  if (route.present) {
+    rejectionCase.subject_route_fingerprint = assertExactSubjectRoute(route.value).route_fingerprint;
+  }
   return rejectionCase;
+}
+
+function readHandoffEnvelopes(filePath) {
+  return readJsonl(filePath).map((record) => classifyHandoffEnvelopeForRead(record));
+}
+
+function classifyHandoffEnvelopeForRead(record = {}) {
+  const snapshot = JSON.parse(jsonSnapshot(record, "handoff_envelope"));
+  const schemaVersion = Number.isInteger(snapshot.schema_version)
+    ? snapshot.schema_version
+    : LEGACY_HANDOFF_ENVELOPE_SCHEMA_VERSION;
+
+  // G2-3 shipped while subject_route was optional and the feature flag was
+  // default-off. Keep those rows visible for audit/repair, but never let a
+  // future dispatcher treat them as routeable input.
+  if (schemaVersion === LEGACY_HANDOFF_ENVELOPE_SCHEMA_VERSION) {
+    return deepFreeze({
+      record: snapshot,
+      schema_version: schemaVersion,
+      legacy: true,
+      route_status: Object.hasOwn(snapshot, "subject_route")
+        ? "LEGACY_SUBJECT_ROUTE_UNVALIDATED"
+        : "LEGACY_SUBJECT_ROUTE_MISSING",
+      dispatch_eligible: false,
+    });
+  }
+
+  const validation = validateSubjectRoute(snapshot.subject_route);
+  const exact = schemaVersion === HANDOFF_ENVELOPE_SCHEMA_VERSION
+    && validation.status === ROUTE_EXACT;
+  return deepFreeze({
+    record: snapshot,
+    schema_version: schemaVersion,
+    legacy: false,
+    route_status: exact ? "SUBJECT_ROUTE_EXACT" : "SUBJECT_ROUTE_INVALID",
+    dispatch_eligible: exact,
+    route_validation: validation,
+  });
 }
 
 function artifactCommon(candidate, effectiveDecision, createdAt) {
@@ -343,6 +394,14 @@ function optionalJsonSnapshot(value, key) {
   return { present: true, value: JSON.parse(jsonSnapshot(value[key], key)) };
 }
 
+function requireSubjectRoute(candidate) {
+  if (!Object.hasOwn(candidate || {}, "subject_route") || candidate.subject_route === undefined) {
+    const error = artifactFailure("subject_route_partial", "subject_route is required");
+    throw error;
+  }
+  return assertExactSubjectRoute(candidate.subject_route);
+}
+
 function jsonSnapshot(value, label) {
   let encoded;
   try {
@@ -401,6 +460,8 @@ function deepFreeze(value) {
 
 module.exports = {
   HANDOFF_DISPATCHER_WRITER,
+  HANDOFF_ENVELOPE_SCHEMA_VERSION,
+  LEGACY_HANDOFF_ENVELOPE_SCHEMA_VERSION,
   MACHINE_REASON_CODES,
   MAX_CANDIDATE_BODY_BYTES,
   MAX_REASON_CHECKS_BYTES,
@@ -410,6 +471,7 @@ module.exports = {
   SUBJECT_CONTEXT_INJECTOR_WRITER,
   createHandoffEnvelope,
   createRejectionCase,
+  readHandoffEnvelopes,
   materializeReviewArtifacts,
   reviewArtifactPaths,
 };
