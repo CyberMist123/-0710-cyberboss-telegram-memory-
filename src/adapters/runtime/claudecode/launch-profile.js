@@ -10,7 +10,11 @@ const {
   createNullPrototypeObject,
   parseStrictBoolean,
 } = require("../../../core/bounded-json");
-const { DEFAULT_ACCESS, normalizeAccessMode } = require("../../../core/workspace-lock");
+const {
+  DEFAULT_ACCESS,
+  canonicalWorkspaceKey,
+  normalizeAccessMode,
+} = require("../../../core/workspace-lock");
 const {
   EFFORT_VALUES,
   assertLaunchArgsSupported,
@@ -44,6 +48,7 @@ const PROFILE_FIELDS = Object.freeze(new Set([
   "cwd",
   "env",
   "configDir",
+  "configRoot",
   "settings",
   "builtInTools",
   "agents",
@@ -494,6 +499,7 @@ function validateLaunchProfile(profile, {
   allowAuthBackendOverride = false,
   capabilities = null,
   fs = fsApi,
+  g3Enabled = resolveG3PreflightEnabled(),
 } = {}) {
   if (profile === undefined || profile === null) {
     return null;
@@ -505,6 +511,12 @@ function validateLaunchProfile(profile, {
     return profile;
   }
   assertPlainObject(profile, "launchProfile must be an object");
+  if (g3Enabled && profile.configRoot !== undefined && profile.configDir !== undefined) {
+    throw new LaunchProfileError(
+      "configRoot and configDir cannot both be set",
+      "config_root_conflict",
+    );
+  }
 
   const keys = Object.keys(profile);
   for (const key of keys) {
@@ -572,6 +584,13 @@ function validateLaunchProfile(profile, {
     normalized.cwd = resolved.path;
     if (resolved.isSymbolicLink) pathNotes.symlinks.push("cwd");
   }
+  if (g3Enabled && profile.configRoot !== undefined) {
+    const resolved = resolveExistingPath(profile.configRoot, {
+      field: "configRoot", baseDir, kind: "dir", fs,
+    });
+    normalized.configRoot = canonicalWorkspaceKey(resolved.path, { fs });
+    if (resolved.isSymbolicLink) pathNotes.symlinks.push("configRoot");
+  }
   if (profile.configDir !== undefined) {
     const resolved = resolveExistingPath(profile.configDir, {
       field: "configDir", baseDir, kind: "dir", fs,
@@ -604,6 +623,12 @@ function validateLaunchProfile(profile, {
     normalized.agents = normalizeAgents(profile.agents);
   }
   if (profile.env !== undefined) {
+    if (g3Enabled && Object.prototype.hasOwnProperty.call(profile.env, "CLAUDE_CONFIG_DIR")) {
+      throw new LaunchProfileError(
+        "CLAUDE_CONFIG_DIR is owned by configRoot and cannot be overridden",
+        "config_root_env_conflict",
+      );
+    }
     normalized.env = normalizeProfileEnv(profile.env, { allowAuthBackendOverride });
   }
   if (profile.workspaceAccess !== undefined) {
@@ -705,9 +730,10 @@ function buildProfileLaunch({
   capabilities = null,
   fs = fsApi,
 } = {}) {
+  const g3Enabled = resolveG3PreflightEnabled(baseEnv);
   const caps = capabilities || resolveCliCapabilities();
   const normalized = validateLaunchProfile(profile, {
-    baseDir, allowAuthBackendOverride, capabilities: caps, fs,
+    baseDir, allowAuthBackendOverride, capabilities: caps, fs, g3Enabled,
   });
 
   if (!normalized) {
@@ -765,8 +791,14 @@ function buildProfileLaunch({
     args.push("--strict-mcp-config");
   }
 
-  const env = buildProfileEnv(baseEnv, normalized.env, { allowCloudCredentialInheritance });
-  const cwd = normalized.cwd || baseCwd;
+  const env = buildProfileEnv(baseEnv, normalized.env, {
+    allowCloudCredentialInheritance,
+    g3Enabled,
+    configRoot: normalized.configRoot || "",
+  });
+  const cwd = g3Enabled
+    ? canonicalWorkspaceKey(normalized.cwd || baseCwd, { fs })
+    : (normalized.cwd || baseCwd);
 
   // Belt: nothing unsupported reaches the child even if a future field forgets
   // its capability check.
@@ -781,6 +813,7 @@ function buildProfileLaunch({
       envOverlay: normalized.env ? { ...normalized.env } : null,
       cloudCredentialInheritance: Boolean(allowCloudCredentialInheritance),
       authBackendOverride: Boolean(allowAuthBackendOverride),
+      ...(g3Enabled ? { configRoot: normalized.configRoot || "" } : {}),
     }), "utf8")
     .digest("hex");
 
@@ -793,11 +826,28 @@ function buildProfileLaunch({
     mcpConfigMode,
     workspaceAccess: normalized.workspaceAccess || DEFAULT_ACCESS,
     launchFingerprint,
-    telemetry: buildLaunchTelemetry(normalized, { mcpConfigPaths, mcpConfigMode }),
+    telemetry: buildLaunchTelemetry(normalized, { mcpConfigPaths, mcpConfigMode, g3Enabled }),
   });
 }
 
-function buildProfileEnv(baseEnv, overlay, { allowCloudCredentialInheritance = false } = {}) {
+const G3_HOST_ENV_ALLOWLIST = Object.freeze(new Set([
+  // Executable discovery for the Claude child and its helpers.
+  "PATH", "Path",
+  // Windows process creation and standard OS command discovery.
+  "SystemRoot", "SYSTEMROOT", "ComSpec", "COMSPEC", "PATHEXT", "WINDIR",
+  // Per-launch scratch storage; no credential-bearing home directories.
+  "TEMP", "TMP", "TMPDIR",
+  // Locale/encoding needed for stable stream-json transport.
+  "LANG", "LC_ALL", "PYTHONUTF8",
+  // Terminal capability only; contains no identity or credential.
+  "TERM", "NO_COLOR", "CI",
+]));
+
+function buildProfileEnv(baseEnv, overlay, {
+  allowCloudCredentialInheritance = false,
+  g3Enabled = false,
+  configRoot = "",
+} = {}) {
   const env = {};
   for (const [key, value] of Object.entries(baseEnv || {})) {
     if (!allowCloudCredentialInheritance && isCloudCredentialEnvKey(key)) {
@@ -805,10 +855,23 @@ function buildProfileEnv(baseEnv, overlay, { allowCloudCredentialInheritance = f
       // ambient AWS/GCP identity of the host process.
       continue;
     }
+    if (g3Enabled && !G3_HOST_ENV_ALLOWLIST.has(key)) continue;
     env[key] = value;
   }
   for (const [key, value] of Object.entries(overlay || {})) {
+    if (g3Enabled && key === "CLAUDE_CONFIG_DIR") {
+      throw new LaunchProfileError(
+        "CLAUDE_CONFIG_DIR is owned by configRoot and cannot be overridden",
+        "config_root_env_conflict",
+      );
+    }
     env[key] = value;
+  }
+  if (g3Enabled) {
+    if (!configRoot) {
+      throw new LaunchProfileError("configRoot is required when G3 preflight is enabled", "config_root_required");
+    }
+    env.CLAUDE_CONFIG_DIR = configRoot;
   }
   return env;
 }
@@ -821,7 +884,21 @@ function isCloudCredentialEnvKey(key) {
  * Launch telemetry: identity, shapes and counts only. Never a path, an
  * environment value, a model-facing prompt or a chat/topic id.
  */
-function buildLaunchTelemetry(profile, { mcpConfigPaths = [], mcpConfigMode = "inherit" } = {}) {
+function buildLaunchTelemetry(profile, { mcpConfigPaths = [], mcpConfigMode = "inherit", g3Enabled = false } = {}) {
+  if (g3Enabled) {
+    return Object.freeze({
+      profile_token: hashToken(profileLogicalIdentity(profile)),
+      profile_schema_version: 3,
+      config_root_token: hashToken(profile.configRoot || ""),
+      cwd_source: profile.cwd ? "profile" : "runtime",
+      env_policy: "allowlist",
+      strict_mcp: profile.strictMcpConfig === true,
+      cli_version: "",
+      cli_help_hash: "",
+      session_slot_token: "",
+      native_session_present: false,
+    });
+  }
   return Object.freeze({
     hasProfile: true,
     hasModel: Boolean(profile.model),
@@ -840,6 +917,14 @@ function buildLaunchTelemetry(profile, { mcpConfigPaths = [], mcpConfigMode = "i
       : (profile.outputStyle ? "output_style" : "none"),
     symlinkFieldCount: profile.symlinkFields?.length || 0,
   });
+}
+
+function hashToken(value) {
+  return crypto.createHash("sha256").update(String(value), "utf8").digest("hex").slice(0, 24);
+}
+
+function resolveG3PreflightEnabled(env = process.env) {
+  return /^(?:1|true|yes|on)$/i.test(String(env?.CYBERBOSS_CLAUDE_G3_PREFLIGHT_ENABLED || "").trim());
 }
 
 /**
@@ -881,11 +966,13 @@ module.exports = {
   MCP_CONFIG_MODES,
   PROFILE_ENV_ALLOWLIST,
   PROFILE_FIELDS,
+  G3_HOST_ENV_ALLOWLIST,
   buildLaunchTelemetry,
   buildProfileLaunch,
   canonicalProfileId,
   fingerprintLaunchProfile,
   profileLogicalIdentity,
+  resolveG3PreflightEnabled,
   resolveExistingPath,
   stableStringify,
   validateLaunchProfile,

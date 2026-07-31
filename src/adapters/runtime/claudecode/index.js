@@ -16,6 +16,7 @@ const {
 const { ProcessRegistry, buildProcessKey } = require("./process-registry");
 const { fingerprintLaunchProfile, profileLogicalIdentity } = require("./launch-profile");
 const { resolveCliCapabilities } = require("./cli-capabilities");
+const { runG3LaunchPreflight } = require("./g3-preflight");
 const {
   buildLegacyRouteLane,
   buildSystemRouteLane,
@@ -393,7 +394,7 @@ function createClaudeCodeRuntimeAdapter(config) {
     });
   }
 
-  function createProcessClient(route, processKey) {
+  function createProcessClient(route, processKey, g3Preflight = null) {
     const { workspaceRoot } = route;
     const cyberbossHome = process.env.CYBERBOSS_HOME || path.resolve(__dirname, "..", "..", "..", "..");
     // The shared project config is still maintained (other runtimes read it),
@@ -428,6 +429,7 @@ function createClaudeCodeRuntimeAdapter(config) {
       cliCapabilities,
       allowAuthBackendOverride,
       allowCloudCredentialInheritance,
+      g3Preflight,
       onLaunchTelemetry: config.onClaudeLaunchTelemetry,
       ipcServer,
       workspaceRoot,
@@ -508,6 +510,24 @@ function createClaudeCodeRuntimeAdapter(config) {
     return processRegistry.withLock(processKey, async () => {
       let entry = processRegistry.get(processKey);
       let client = entry?.client || null;
+      let g3Preflight = null;
+
+      // Check the target before retiring a current process or registering a
+      // replacement. A refused switch leaves the old slot/session untouched.
+      if (!client?.usable && route.launchProfile) {
+        g3Preflight = await runG3LaunchPreflight({
+          profile: route.launchProfile,
+          baseEnv: filterClaudeCodeEnv(process.env),
+          baseCwd: route.agentCwd,
+          extraArgs: config.claudeExtraArgs || [],
+          baseDir: launchProfileBaseDir,
+          capabilities: cliCapabilities,
+          command: config.claudeCommand || "claude",
+          commandPrefixArgs: config.claudeCommandPrefixArgs || [],
+          authProbe: config.claudeG3AuthProbe,
+          expectedLockPath: route.agentCwd,
+        });
+      }
 
       // Model and effort are launch flags, not turn parameters: changing either
       // means this slot's child is retired and relaunched. The stored session id
@@ -539,7 +559,7 @@ function createClaudeCodeRuntimeAdapter(config) {
         if (client) {
           await closeProcessKey(processKey);
         }
-        client = createProcessClient(route, processKey);
+        client = createProcessClient(route, processKey, g3Preflight);
         processRegistry.set(processKey, {
           client,
           sessionSlotKey: route.sessionSlotKey,

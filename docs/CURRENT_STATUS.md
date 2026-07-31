@@ -100,6 +100,7 @@ Verified against: b2355f9
 | 520 · 剧场页（theater scripts） | `WIRED` | `NONE` | `NONE` | `UNKNOWN` | 纯展示只读 |
 | Windows release / watchdog 控制平面 | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | **`PARTIAL`** —— 2026-07-30 首次真机交付留证已归档（`docs/audit/G4_PRODUCTION_DELIVERY_20260730.md`：方案 A 只搬代码，bot 存活并真实应答 Telegram）。**监督链已于 2026-07-31 修复**：描述文件去 BOM、`deployed_sha` 改为运行树真实来源（48660a9），watchdog 判活恢复 `healthy`，重启自愈链路闭合；修复前发生过一次真实停机（~2.5 小时，机器重启后无人拉起），事故与修复过程留证 `docs/audit/G4_WATCHDOG_RECOVERY_20260731.md`。**仍未处理**：`deployment/current.json` 旧真相、`start-telegram.ps1` 硬编码、正规发布包机制（`install-descriptor` + 候选启动器）从未启用 —— 归 issue #77 |
 | 备份与回滚演练 | `WIRED` | `PARTIAL` | `NONBLOCKING` | `UNKNOWN` | **`NOT_VERIFIED`** —— 无真实恢复演练证据 |
+| G3 CLI preflight / 独立 config root（T03） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 挂 `CYBERBOSS_CLAUDE_G3_PREFLIGHT_ENABLED`，仓库默认关闭（关闭时 launch 与基线逐字兼容）。开启时：`configRoot` 经 env `CLAUDE_CONFIG_DIR` 归一进 profile fingerprint / slot 身份；八个 required CLI flag、env allowlist、auth 探针、cwd 与 lock key 同源任一失败均在切换前 fail-closed，旧进程继续服务。测试进 `test:route-lanes`（阻塞主 CI）。**离线硬边界证据**，不证明 fable/work 真隔离——差分 canary 与真机验收属 T04/T11 |
 | `fable-chat` profile 绑定 | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | 仅设计交接文档，代码侧零实现 |
 | Codex 作为子代理运行时 | `PARTIAL` | `COVERED` | `BLOCKING` | `NOT_WIRED` | 有界委派协议与离线闭环已实现；2026-07-28 用真实 Codex 跑通一次 canary（只改 `test/`，边界成立，验收测试通过，判定 accept）。**仓库内没有把 Codex adapter 绑进委派 runner 的代码**，运行时由调用方注入，离线测试用 fake；主 Chat 未接 |
 | 语音（voice-service） | `PARTIAL` | `PARTIAL` | `NONE` | `UNKNOWN` | 已注册为工具；能力口径待裁决（P1-4） |

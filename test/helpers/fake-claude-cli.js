@@ -13,6 +13,18 @@
 const fs = require("node:fs");
 
 const argv = process.argv.slice(2);
+if (argv.includes("--version")) {
+  process.stdout.write("fake-claude 1.0.0\n");
+  process.exit(0);
+}
+if (argv.includes("--help")) {
+  process.stdout.write([
+    "--bare", "--disable-slash-commands", "--setting-sources", "--settings",
+    "--mcp-config", "--strict-mcp-config", "--tools", "--effort",
+    "--config-dir", "--output-style",
+  ].join("\n"));
+  process.exit(0);
+}
 const logFile = process.env.CB_FAKE_LAUNCH_LOG || "";
 const counterFile = process.env.CB_FAKE_COUNTER || "";
 
