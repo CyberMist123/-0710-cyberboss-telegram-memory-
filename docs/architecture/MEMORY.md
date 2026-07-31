@@ -248,7 +248,7 @@ Auto Review 是海关，不是编辑：
 账本 / `details` 一类结构化条目豁免；引号内转述用户原话不计入。
 闸门只改 `result` / `reason`，一个字都不碰候选正文（D16「Review 只拦格式」）。
 
-同一 Candidate 的重复 Review 形成 decision revision 链：新记录带递增的 `review_revision` 与指向前一有效 head 的 `supersedes_decision_id`；旧记录在读取侧按 revision 1、无前驱解释，不重写历史。effective-decision selector 只承认同 Candidate、revision 单调、无缺失前驱、无环且唯一 head 的链；任何歧义都记录 `effective_decision_ambiguous`，History 对该 Candidate fail-closed、不写 canon。History 只消费 effective `accepted`，并用自己的 writer state 保证同一 Candidate 至多发布一次。
+同一 Candidate 的重复 Review 形成 decision revision 链：新记录带递增的 `review_revision` 与指向前一有效 head 的 `supersedes_decision_id`；旧记录在读取侧按 revision 1、无前驱解释，不重写历史。effective-decision selector 只承认同 Candidate、revision 单调、无缺失前驱、无环且唯一 head 的链；任何歧义都记录 `effective_decision_ambiguous`，History 对该 Candidate fail-closed、不写 canon。
 
 显式开启 `CYBERBOSS_REVIEW_ARTIFACTS_ENABLED` 后，effective `deferred` / `rejected`
 在同一个 `review-writer` lease 内同步物化两份 append-only artifact：先写第三档「完全按需」
@@ -259,6 +259,22 @@ Auto Review 是海关，不是编辑：
 continuity binding / route lane / session 身份都不物化可投递 envelope，不补空对象或默认值。
 G2-3 期 schema v1 的缺 route 旧行只在读侧标记为 non-routeable legacy，保留审计可见性，
 不得成为 dispatcher 输入。
+
+effective `accepted` 在 decision 与其 decision chain 所需的 envelope/case 全部物化后，
+由同一个 Review writer 追加
+`decisions/publication-intents.jsonl`。intent ID 由 Candidate + effective decision
+稳定派生，携带 candidate lineage root、lineage publication key，以及
+decision + candidate + source proof 的 digest；Review 重跑或崩溃补跑只会幂等补齐，
+不会改写旧行。该写入面与上述 artifact 共用
+`CYBERBOSS_REVIEW_ARTIFACTS_ENABLED` 显式门控，仓库默认关闭。
+
+History writer **只按 intent 发布**，不再扫描 accepted decision 当作交接协议。消费前重新
+验证 effective head、digest 与 lineage 唯一性；stale intent、多个 lineage leaf 或 digest
+不符都不写 canon。canon 与 History 自己的
+`.jobs/history-writer-state.json` 由 History writer 写，intent 永不被 History 回填；
+canon 行保存 lineage publication key，因此 History 在 canon append 后崩溃或 writer state
+重放时仍能恢复为 exactly-once。`history_publish_refused` 保持为通过上述校验后的最后发布闸
+诊断，只写 History state，不与 Review 的 case/intent 合并。
 
 投递与 ack 只在此阶段定义记录边界：`.jobs/handoff-delivery-events.jsonl` 唯一 writer
 是 handoff dispatcher，`.jobs/handoff-ack-events.jsonl` 唯一 writer 是 subject context
@@ -316,12 +332,15 @@ Desire 属于 Cyberboss runtime，不属于关系正史。
 
 - 原始会话：系统自动写，唯一事实来源。
 - candidates：Closeout / Janitor 等自动流程写。
-- Episode canon：唯一 History writer 按 Auto Review 决策写。
-- 账本 `details.jsonl`：唯一 History writer 按 Auto Review 决策写（内容仍由主体 AI 执笔）。
+- Episode canon：唯一 History writer 按已验证的 publication intent 写。
+- 账本 `details.jsonl`：唯一 History writer 按已验证的 publication intent 写（内容仍由主体 AI 执笔）。
 - Re-entry：主体 AI 唯一执笔，Auto Review 只校验。
 - Re-entry 的 last-known-good 副本（`.jobs/reentry-last-known-good.json`）：唯一 writer 是
   注入侧 loader；属机制状态，不是 canon，不许被当成正史引用。
-- 打回 envelope 与 rejection case：唯一 Review writer 在同一 lease 内 append-only 写。
+- 打回 envelope、rejection case 与 publication intent：唯一 Review writer 在同一 lease
+  内 append-only 写；History 只读 intent。
+- History 消费账 `.jobs/history-writer-state.json`：唯一 History writer 写；不得与
+  publication intent 合成一份多 writer store。
 - handoff delivery event：唯一 handoff dispatcher 写；handoff ack event：唯一 subject
   context injector 写；二者都不属于 Review writer。
 - Self-note：主体 AI 唯一 writer。它有两个写入点（Closeout→Review→History writer 的

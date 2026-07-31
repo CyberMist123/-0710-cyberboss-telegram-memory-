@@ -202,6 +202,7 @@ function createPipeline({ root, continuityDir, conversationDir, reviewScript }) 
     branch: "fixture",
     worktree: root,
     baseSha: "a".repeat(40),
+    reviewArtifactsEnabled: true,
   });
 }
 

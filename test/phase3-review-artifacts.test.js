@@ -194,7 +194,15 @@ test("handoff records declare separate writers and Review has no delivery or ack
     ".jobs/handoff-delivery-events.jsonl",
   );
   assert.equal(RECORD_DEFINITIONS.handoff_ack_event.relative_path, ".jobs/handoff-ack-events.jsonl");
-  assert.deepEqual(REVIEW_WRITER_RECORDS, ["handoff_envelope", "rejection_case"]);
+  assert.equal(
+    RECORD_DEFINITIONS.publication_intent.relative_path,
+    "decisions/publication-intents.jsonl",
+  );
+  assert.equal(RECORD_DEFINITIONS.publication_intent.writer, REVIEW_WRITER);
+  assert.deepEqual(
+    REVIEW_WRITER_RECORDS,
+    ["handoff_envelope", "rejection_case", "publication_intent"],
+  );
   assert.equal(REVIEW_WRITER_RECORDS.includes("handoff_delivery_event"), false);
   assert.equal(REVIEW_WRITER_RECORDS.includes("handoff_ack_event"), false);
   assert.equal(MACHINE_REASON_CODES.has("over_budget"), true);

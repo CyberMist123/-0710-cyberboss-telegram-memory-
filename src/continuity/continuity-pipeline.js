@@ -23,6 +23,13 @@ const {
   materializeReviewArtifacts,
   reviewArtifactPaths,
 } = require("./review-artifacts");
+const {
+  INVALID_INTENT_EVENT,
+  STALE_INTENT_EVENT,
+  analyzeCandidateLineages,
+  materializePublicationIntents,
+  validatePublicationIntent,
+} = require("./publication-intent");
 const { resolveMaterialRoute } = require("./subject-route");
 const {
   appendJsonlUnique,
@@ -288,7 +295,9 @@ class ContinuityPipeline {
         }));
       }
       const added = appendJsonlUnique(this.paths.decisions, decisions, "decision_id");
-      const artifacts = this.materializeEffectiveReviewArtifacts(candidates, [...existing, ...added]);
+      const allDecisions = [...existing, ...added];
+      const artifacts = this.materializeEffectiveReviewArtifacts(candidates, allDecisions);
+      const intents = this.materializeEffectivePublicationIntents(candidates, allDecisions);
       return {
         status: "success",
         decisions: added,
@@ -297,6 +306,9 @@ class ContinuityPipeline {
         artifact_errors: artifacts.errors,
         handoff_ids: artifacts.handoff_ids,
         rejection_case_ids: artifacts.case_ids,
+        publication_intent_complete: intents.publication_intent_complete,
+        publication_intent_errors: intents.errors,
+        publication_intent_ids: intents.publication_intent_ids,
       };
     });
   }
@@ -319,8 +331,7 @@ class ContinuityPipeline {
       handoff_ids: [],
       case_ids: [],
     };
-    const rejected = [...selected.effectiveByCandidate.values()]
-      .filter((decision) => ["deferred", "rejected"].includes(decision.result));
+    const rejected = requiredReviewArtifactDecisions(selected, decisions);
 
     if (!this.reviewArtifactsEnabled) {
       combined.artifact_complete = rejected.length === 0;
@@ -362,17 +373,39 @@ class ContinuityPipeline {
     return combined;
   }
 
+  /**
+   * Must run inside the review-writer lease and after required Review artifacts.
+   * Intents are append-only Review output; History never calls this method.
+   */
+  materializeEffectivePublicationIntents(candidates, decisions) {
+    return materializePublicationIntents({
+      writer: REVIEW_WRITER,
+      paths: this.paths,
+      candidates,
+      decisions,
+      // Reuse G2-3's explicit default-off gate. This keeps the whole
+      // Review handoff surface behind one switch instead of allowing a
+      // publishable intent while its prerequisite artifact writer is off.
+      enabled: this.reviewArtifactsEnabled,
+      createdAt: normalizeTimestamp(this.now()),
+    });
+  }
+
   repairReviewArtifacts() {
     return this.withLease(REVIEW_WRITER, () => {
       const candidates = readJsonl(this.paths.candidates).map(normalizeCandidateMetadata);
       const decisions = readJsonl(this.paths.decisions);
       const artifacts = this.materializeEffectiveReviewArtifacts(candidates, decisions);
+      const intents = this.materializeEffectivePublicationIntents(candidates, decisions);
       return {
         status: "success",
         artifact_complete: artifacts.artifact_complete,
         artifact_errors: artifacts.errors,
         handoff_ids: artifacts.handoff_ids,
         rejection_case_ids: artifacts.case_ids,
+        publication_intent_complete: intents.publication_intent_complete,
+        publication_intent_errors: intents.errors,
+        publication_intent_ids: intents.publication_intent_ids,
       };
     });
   }
@@ -399,21 +432,43 @@ class ContinuityPipeline {
   }
 
   runHistoryWriter() {
+    if (!this.reviewArtifactsEnabled) {
+      return { status: "skipped", reason: "review_artifacts_disabled" };
+    }
     return this.withLease("history-writer", () => {
-      const candidates = new Map(
-        readJsonl(this.paths.candidates)
-          .map(normalizeCandidateMetadata)
-          .map((item) => [item.candidate_id, item]),
-      );
+      const candidateRows = readJsonl(this.paths.candidates).map(normalizeCandidateMetadata);
+      const candidates = new Map(candidateRows.map((item) => [item.candidate_id, item]));
       const decisions = readJsonl(this.paths.decisions);
+      const decisionsById = new Map(decisions.map((item) => [item.decision_id, item]));
       const selected = selectEffectiveDecisions(decisions);
+      const lineages = analyzeCandidateLineages(candidateRows);
+      let intents;
+      try {
+        intents = readJsonl(this.paths.publicationIntents);
+      } catch (error) {
+        return {
+          status: "success",
+          written: [],
+          skipped: [{
+            reason: "publication_intent_store_unavailable",
+            message: error.message || String(error),
+          }],
+          diagnostics: [],
+        };
+      }
       const state = loadJson(this.paths.writerState, {
         applied_decision_ids: [],
         published_candidate_ids: [],
+        applied_publication_keys: [],
+        intent_consumptions: [],
         diagnostic_events: [],
       });
       const applied = new Set(state.applied_decision_ids || []);
       const publishedCandidates = loadPublishedCandidateIds(this.paths, decisions, state);
+      const publishedPublicationKeys = loadPublishedPublicationKeys(this.paths, state);
+      const intentConsumptions = new Map(
+        (state.intent_consumptions || []).map((item) => [item.publication_intent_id, item]),
+      );
       const diagnosticEvents = new Map(
         (state.diagnostic_events || []).map((event) => [event.event_id, event]),
       );
@@ -436,16 +491,52 @@ class ContinuityPipeline {
         }
       }
 
-      for (const decision of selected.effectiveByCandidate.values()) {
-        if (decision.result !== "accepted" || applied.has(decision.decision_id)) continue;
-        const candidate = candidates.get(decision.candidate_id);
-        if (!candidate) continue;
-        if (!canPublishCandidate(candidate)) {
-          skipped.push({ decision_id: decision.decision_id, reason: authorityFailureReason(candidate) });
+      for (const intent of intents) {
+        const intentId = normalizeBody(intent?.publication_intent_id);
+        if (intentId && intentConsumptions.has(intentId)) continue;
+        const candidate = candidates.get(normalizeBody(intent?.candidate_id));
+        const decision = decisionsById.get(normalizeBody(intent?.effective_decision_id));
+        const effectiveDecision = candidate
+          ? selected.effectiveByCandidate.get(candidate.candidate_id)
+          : null;
+        const validation = validatePublicationIntent({
+          intent,
+          candidate,
+          decision,
+          effectiveDecision,
+          lineage: candidate ? lineages.byCandidate.get(candidate.candidate_id) : null,
+        });
+        if (!validation.ok) {
+          const event = createIntentDiagnosticEvent(intent, validation);
+          diagnostics.push(event);
+          skipped.push({
+            publication_intent_id: intentId,
+            candidate_id: normalizeBody(intent?.candidate_id),
+            reason: validation.event,
+            event_id: event.event_id,
+          });
+          if (!diagnosticEvents.has(event.event_id)) {
+            diagnosticEvents.set(event.event_id, event);
+            stateChanged = true;
+          }
+          if (validation.event === STALE_INTENT_EVENT && intentId) {
+            intentConsumptions.set(intentId, createIntentConsumption(intent, "stale_intent"));
+            stateChanged = true;
+          }
           continue;
         }
-        if (publishedCandidates.has(candidate.candidate_id)) {
+        if (!canPublishCandidate(candidate)) {
+          skipped.push({
+            publication_intent_id: intentId,
+            decision_id: decision.decision_id,
+            reason: authorityFailureReason(candidate),
+          });
+          continue;
+        }
+        if (publishedPublicationKeys.has(intent.publication_key)) {
           applied.add(decision.decision_id);
+          publishedCandidates.add(candidate.candidate_id);
+          intentConsumptions.set(intentId, createIntentConsumption(intent, "already_published"));
           skipped.push({ decision_id: decision.decision_id, reason: "candidate_already_published" });
           stateChanged = true;
           continue;
@@ -474,54 +565,78 @@ class ContinuityPipeline {
           }
           continue;
         }
-        if (candidate.type === "episode") this.publishEpisode(candidate, decision);
-        if (candidate.type === "self_note") this.publishSelfNote(candidate, decision);
-        if (candidate.type === "reentry_draft") this.publishReentry(candidate, decision);
-        if (candidate.type === "details") this.publishDetails(candidate, decision);
+        if (candidate.type === "episode") this.publishEpisode(candidate, decision, intent);
+        if (candidate.type === "self_note") this.publishSelfNote(candidate, decision, intent);
+        if (candidate.type === "reentry_draft") this.publishReentry(candidate, decision, intent);
+        if (candidate.type === "details") this.publishDetails(candidate, decision, intent);
         applied.add(decision.decision_id);
         publishedCandidates.add(candidate.candidate_id);
+        publishedPublicationKeys.add(intent.publication_key);
+        intentConsumptions.set(intentId, createIntentConsumption(intent, "published"));
         written.push(decision.decision_id);
         stateChanged = true;
-        writeHistoryWriterState(this.paths.writerState, state, applied, publishedCandidates, diagnosticEvents);
+        writeHistoryWriterState(
+          this.paths.writerState,
+          state,
+          applied,
+          publishedCandidates,
+          publishedPublicationKeys,
+          intentConsumptions,
+          diagnosticEvents,
+        );
       }
       if (stateChanged) {
-        writeHistoryWriterState(this.paths.writerState, state, applied, publishedCandidates, diagnosticEvents);
+        writeHistoryWriterState(
+          this.paths.writerState,
+          state,
+          applied,
+          publishedCandidates,
+          publishedPublicationKeys,
+          intentConsumptions,
+          diagnosticEvents,
+        );
       }
       return { status: "success", written, skipped, diagnostics };
     });
   }
 
-  publishEpisode(candidate, decision) {
+  publishEpisode(candidate, decision, intent) {
     const existing = readJsonl(this.paths.episodes);
-    if (existing.some((item) => item.decision_id === decision.decision_id)) return;
+    if (existing.some((item) => item.publication_key === intent.publication_key)) return;
     backupFile(this.paths.episodes, this.paths.backups);
     appendJsonlUnique(this.paths.episodes, [{
-      ep_id: `ep-${sha256(decision.decision_id).slice(0, 16)}`,
+      ep_id: `ep-${sha256(intent.publication_key).slice(0, 16)}`,
       ts: candidate.ts,
       type: candidate.supersedes ? "correction" : "episode",
       body: candidate.body,
       source_ref: candidate.source_ref,
       candidate_id: candidate.candidate_id,
       decision_id: decision.decision_id,
+      publication_intent_id: intent.publication_intent_id,
+      publication_key: intent.publication_key,
       supersedes: candidate.supersedes || null,
       origin: candidate.origin,
       author_role: candidate.author_role,
       author_model: candidate.author_model,
       context_scope: candidate.context_scope,
       semantic_authority: candidate.semantic_authority,
-    }], "decision_id");
+    }], "publication_key");
   }
 
   /**
    * 账本条目发布（issue #76 目标 1）。账本是第三档「完全按需」：
    * 只落 `details.jsonl`，不进任何注入通路，读取只走 `memory_lookup`。
-   * 与 Episode 同一套幂等键（decision_id）与同一个 writer（History writer）。
+   * 与 Episode 同一套 lineage publication key 与同一个 writer（History writer）。
    */
-  publishDetails(candidate, decision) {
+  publishDetails(candidate, decision, intent) {
     const existing = readJsonl(this.paths.details);
-    if (existing.some((item) => item.decision_id === decision.decision_id)) return;
+    if (existing.some((item) => item.publication_key === intent.publication_key)) return;
     backupFile(this.paths.details, this.paths.backups);
-    appendJsonlUnique(this.paths.details, [createDetailEntry(candidate, decision, { sha256 })], "decision_id");
+    appendJsonlUnique(this.paths.details, [{
+      ...createDetailEntry(candidate, decision, { sha256 }),
+      publication_intent_id: intent.publication_intent_id,
+      publication_key: intent.publication_key,
+    }], "publication_key");
   }
 
   /**
@@ -530,13 +645,18 @@ class ContinuityPipeline {
    * `writerLeaseFile` 上；两边都必须保持**只追加**：任何一侧改回整读整写回，
    * 都会在锁交替的间隙把对方刚落的行盖掉。
    */
-  publishSelfNote(candidate, decision) {
+  publishSelfNote(candidate, decision, intent) {
+    const publicationMarker = `<!-- publication:${intent.publication_key} intent:${intent.publication_intent_id} -->`;
     const marker = `<!-- decision:${decision.decision_id} -->`;
     const current = safeReadText(this.paths.selfNotes);
-    if (current.includes(marker)) return;
+    if (current.includes(publicationMarker)) return;
     backupFile(this.paths.selfNotes, this.paths.backups);
     fs.mkdirSync(path.dirname(this.paths.selfNotes), { recursive: true });
-    fs.appendFileSync(this.paths.selfNotes, `${current ? "\n" : ""}${marker}\n${candidate.body}\n`, "utf8");
+    fs.appendFileSync(
+      this.paths.selfNotes,
+      `${current ? "\n" : ""}${publicationMarker}\n${marker}\n${candidate.body}\n`,
+      "utf8",
+    );
   }
 
   // 预算已在 runHistoryWriter 的 publicationRefusal() 里拦过；走到这里的正文一定
@@ -553,7 +673,9 @@ class ContinuityPipeline {
     try {
       lease = acquireWriterLease(this.writerLeaseFile, { writer, ...this.leaseDetails }, this.leaseOptions);
     } catch (error) {
-      if (/already held/.test(error.message)) return { status: "skipped", reason: "lease_unavailable" };
+      if (/already held|lease is unreadable/.test(error.message)) {
+        return { status: "skipped", reason: "lease_unavailable" };
+      }
       throw error;
     }
     try { return fn(); } finally { releaseWriterLease(this.writerLeaseFile, lease.lease_id); }
@@ -564,7 +686,9 @@ class ContinuityPipeline {
     try {
       lease = acquireWriterLease(this.writerLeaseFile, { writer, ...this.leaseDetails }, this.leaseOptions);
     } catch (error) {
-      if (/already held/.test(error.message)) return { status: "skipped", reason: "lease_unavailable" };
+      if (/already held|lease is unreadable/.test(error.message)) {
+        return { status: "skipped", reason: "lease_unavailable" };
+      }
       throw error;
     }
     try { return await fn(); } finally { releaseWriterLease(this.writerLeaseFile, lease.lease_id); }
@@ -703,6 +827,28 @@ function createPublishRefusalEvent(candidate = {}, decision = {}, refusal = {}) 
   };
 }
 
+function requiredReviewArtifactDecisions(selected, decisions) {
+  const byId = new Map(
+    (Array.isArray(decisions) ? decisions : [])
+      .map((item) => [normalizeBody(item?.decision_id), item]),
+  );
+  const required = new Map();
+  for (const effective of selected.effectiveByCandidate.values()) {
+    const visited = new Set();
+    let cursor = effective;
+    while (cursor && !visited.has(cursor.decision_id)) {
+      visited.add(cursor.decision_id);
+      if (["deferred", "rejected"].includes(cursor.result)) {
+        required.set(cursor.decision_id, cursor);
+      }
+      cursor = cursor.supersedes_decision_id
+        ? byId.get(normalizeBody(cursor.supersedes_decision_id))
+        : null;
+    }
+  }
+  return [...required.values()];
+}
+
 function loadPublishedCandidateIds(paths, decisions, state) {
   const published = new Set(state.published_candidate_ids || []);
   const byDecisionId = new Map(decisions.map((item) => [item.decision_id, item]));
@@ -726,6 +872,21 @@ function loadPublishedCandidateIds(paths, decisions, state) {
   return published;
 }
 
+function loadPublishedPublicationKeys(paths, state) {
+  const published = new Set(state.applied_publication_keys || []);
+  for (const episode of readJsonl(paths.episodes)) {
+    if (episode.publication_key) published.add(episode.publication_key);
+  }
+  for (const detail of (paths.details ? readJsonl(paths.details) : [])) {
+    if (detail.publication_key) published.add(detail.publication_key);
+  }
+  const selfNotes = safeReadText(paths.selfNotes);
+  for (const match of selfNotes.matchAll(/<!-- publication:([^\s>]+) intent:[^\s>]+ -->/g)) {
+    published.add(match[1]);
+  }
+  return published;
+}
+
 function createDiagnosticEvent(ambiguous) {
   const stable = {
     event: EFFECTIVE_DECISION_AMBIGUOUS,
@@ -739,11 +900,47 @@ function createDiagnosticEvent(ambiguous) {
   };
 }
 
-function writeHistoryWriterState(filePath, previous, applied, publishedCandidates, diagnosticEvents) {
+function createIntentDiagnosticEvent(intent = {}, validation = {}) {
+  const stable = {
+    event: validation.event || INVALID_INTENT_EVENT,
+    code: validation.code || "publication_intent_invalid",
+    publication_intent_id: normalizeBody(intent.publication_intent_id),
+    publication_key: normalizeBody(intent.publication_key),
+    candidate_id: normalizeBody(intent.candidate_id),
+    effective_decision_id: normalizeBody(intent.effective_decision_id),
+  };
+  return {
+    event_id: `event-${sha256(JSON.stringify(stable)).slice(0, 20)}`,
+    ...stable,
+    message: validation.message || "publication intent validation failed",
+  };
+}
+
+function createIntentConsumption(intent = {}, status) {
+  return {
+    publication_intent_id: normalizeBody(intent.publication_intent_id),
+    publication_key: normalizeBody(intent.publication_key),
+    candidate_id: normalizeBody(intent.candidate_id),
+    effective_decision_id: normalizeBody(intent.effective_decision_id),
+    status,
+  };
+}
+
+function writeHistoryWriterState(
+  filePath,
+  previous,
+  applied,
+  publishedCandidates,
+  publishedPublicationKeys,
+  intentConsumptions,
+  diagnosticEvents,
+) {
   writeJsonAtomic(filePath, {
     ...previous,
     applied_decision_ids: [...applied],
     published_candidate_ids: [...publishedCandidates],
+    applied_publication_keys: [...publishedPublicationKeys],
+    intent_consumptions: [...intentConsumptions.values()],
     diagnostic_events: [...diagnosticEvents.values()],
   });
 }

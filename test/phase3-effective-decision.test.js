@@ -12,6 +12,7 @@ const {
   EFFECTIVE_DECISION_AMBIGUOUS,
   selectEffectiveDecisions,
 } = require("../src/continuity/effective-decision");
+const { createSubjectRoute } = require("../src/continuity/subject-route");
 const { appendJsonlUnique, readJsonl } = require("../src/continuity/continuity-store");
 
 const REVIEW_SCRIPT = path.resolve(__dirname, "../extensions/relationship-memory/memory-kit/auto_review.py");
@@ -49,7 +50,9 @@ test("accepted then rejected leaves the old accepted decision unpublished", () =
   const fixture = createFixture("accept-reject");
   const accepted = decision(fixture.candidate, "accepted", "accepted-first", 1);
   const rejected = decision(fixture.candidate, "rejected", "rejected-latest", 2, accepted.decision_id);
-  appendJsonlUnique(fixture.pipeline.paths.decisions, [accepted, rejected], "decision_id");
+  appendJsonlUnique(fixture.pipeline.paths.decisions, [accepted], "decision_id");
+  assert.equal(fixture.pipeline.repairReviewArtifacts().publication_intent_complete, true);
+  appendJsonlUnique(fixture.pipeline.paths.decisions, [rejected], "decision_id");
 
   const result = fixture.pipeline.runHistoryWriter();
   assert.equal(result.written.length, 0);
@@ -59,15 +62,17 @@ test("accepted then rejected leaves the old accepted decision unpublished", () =
 
 test("rejected then accepted publishes once, and a later same-result revision is not deduplicated", () => {
   const fixture = createFixture("reject-accept");
-  const rejected = decision(fixture.candidate, "rejected", "rejected-first", 1);
+  const rejected = decision(fixture.candidate, "rejected", "safety_failed", 1);
   const accepted = decision(fixture.candidate, "accepted", "accepted-second", 2, rejected.decision_id);
   appendJsonlUnique(fixture.pipeline.paths.decisions, [rejected, accepted], "decision_id");
+  assert.equal(fixture.pipeline.repairReviewArtifacts().publication_intent_complete, true);
 
   assert.deepEqual(fixture.pipeline.runHistoryWriter().written, [accepted.decision_id]);
   assert.equal(readJsonl(fixture.pipeline.paths.episodes).length, 1);
 
   const acceptedAgain = decision(fixture.candidate, "accepted", "accepted-after-recheck", 3, accepted.decision_id);
   appendJsonlUnique(fixture.pipeline.paths.decisions, [acceptedAgain], "decision_id");
+  assert.equal(fixture.pipeline.repairReviewArtifacts().publication_intent_complete, true);
   assert.notEqual(acceptedAgain.decision_id, accepted.decision_id);
   const replay = fixture.pipeline.runHistoryWriter();
   assert.equal(replay.written.length, 0);
@@ -147,9 +152,10 @@ test("History crash after canon append retries without a duplicate publication",
   const fixture = createFixture("history-crash");
   const accepted = decision(fixture.candidate, "accepted", "fixture", 1);
   appendJsonlUnique(fixture.pipeline.paths.decisions, [accepted], "decision_id");
+  assert.equal(fixture.pipeline.repairReviewArtifacts().publication_intent_complete, true);
   const realPublish = fixture.pipeline.publishEpisode.bind(fixture.pipeline);
-  fixture.pipeline.publishEpisode = (candidate, reviewDecision) => {
-    realPublish(candidate, reviewDecision);
+  fixture.pipeline.publishEpisode = (candidate, reviewDecision, intent) => {
+    realPublish(candidate, reviewDecision, intent);
     throw new Error("fixture crash after canon append");
   };
 
@@ -194,6 +200,7 @@ function createFixture(label, candidateIds = []) {
     branch: "fixture",
     worktree: root,
     baseSha: "a".repeat(40),
+    reviewArtifactsEnabled: true,
   });
   const ids = candidateIds.length ? candidateIds : [`cand-${label}`];
   const candidates = ids.map((candidateId) => ({
@@ -202,8 +209,37 @@ function createFixture(label, candidateIds = []) {
     ...SUBJECT_AI,
     body: `fixture ${candidateId}`,
     source_ref: { file: conversationFile, window: "1-1" },
+    subject_route: exactSubjectRoute(),
     idempotency_key: `key-${candidateId}`,
   }));
   appendJsonlUnique(pipeline.paths.candidates, candidates, "candidate_id");
   return { root, pipeline, candidate: candidates[0], candidates };
+}
+
+function exactSubjectRoute() {
+  return createSubjectRoute({
+    version: 1,
+    provider: "telegram",
+    continuity_binding: {
+      workspace_id: "workspace-fixture",
+      account_id: "telegram",
+      sender_id: "42",
+      binding_key: "workspace-fixture:telegram:42",
+    },
+    route_lane: {
+      lane_key: "v2|tg|8:telegram|4:-100|1:7",
+      chat_id: "-100",
+      message_thread_id: "7",
+    },
+    session: {
+      runtime_id: "claudecode",
+      session_slot_key: "slot-fixture",
+      runtime_thread_id: "native-session-fixture",
+      profile_id: "profile-fixture",
+      profile_fingerprint: "profile-fingerprint-fixture",
+      window_id: "native-session-fixture",
+    },
+    author_turn_id: "turn-fixture",
+    source_entry_ids: ["entry-fixture"],
+  });
 }
