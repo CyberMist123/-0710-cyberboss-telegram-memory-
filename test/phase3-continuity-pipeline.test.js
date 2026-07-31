@@ -38,7 +38,7 @@ test("closeout, review, and history writer are byte-idempotent and preserve auth
     author({ materials }) {
       authorCalls += 1;
       assert.match(materials, /此刻真实原话/);
-      assert.doesNotMatch(materials, /注入回声|secret\.png|旧 Episode 正文|工具结果/);
+      assert.doesNotMatch(materials, /注入回声|打回信封正文|secret\.png|旧 Episode 正文|工具结果/);
       return {
         episodes: [{ body: "2026-07-11，在测试场景里，她说“此刻真实原话”。我注意到这仍悬着。" }],
         self_note: "我选择先承认悬而未决。",
@@ -398,8 +398,8 @@ test("history writer refuses an over-budget reentry draft even with an accepted 
   assert.equal(refusal.reason, "over_budget");
   assert.equal(refusal.candidate_id, candidate.candidate_id);
 
-  // 打回案例走既有存档通路：History writer 自己的 diagnostic_events，
-  // 正文不复制进机制状态，只留可 join 的 candidate_id 与摘要哈希（D17）。
+  // 这是与 Review 案例库共存的 History 发布闸诊断：仍只写自己的
+  // diagnostic_events，正文不复制，只留可 join 的 candidate_id 与摘要哈希。
   const event = first.diagnostics.find((item) => item.event === PUBLISH_REFUSED_EVENT);
   assert.equal(event.candidate_id, candidate.candidate_id);
   assert.equal(event.chars, 954);
@@ -547,7 +547,7 @@ test("janitor runs through the leased wrapper and writes evidence only", () => {
 test("consumer filter removes injected blocks, tool results, attachments, and old episode echoes", () => {
   const cleaned = stripConversationArtifacts(pollutedText());
   assert.match(cleaned, /此刻真实原话/);
-  assert.doesNotMatch(cleaned, /注入回声|工具结果|secret\.png|旧 Episode 正文/);
+  assert.doesNotMatch(cleaned, /注入回声|打回信封正文|工具结果|secret\.png|旧 Episode 正文/);
 });
 
 test("dashboard freezes every legacy write endpoint before Phase 3 data writes", () => {
@@ -667,6 +667,10 @@ persona
 
 Current user message:
 此刻真实原话
+
+<subject_memory_handoff handoff_id="handoff-fixture">
+打回信封正文
+</subject_memory_handoff>
 
 Tool result:
 工具结果

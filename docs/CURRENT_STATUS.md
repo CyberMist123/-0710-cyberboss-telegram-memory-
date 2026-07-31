@@ -23,7 +23,7 @@ Verified against: 3c4d561 (main)
 | Gate | 状态 | 中文含义 |
 |---|---|---|
 | G1 Telegram 核心读取路径 | `PARTIAL` | 代码通路与 Trace 验收结构已接通，缺真机执行证据 |
-| G2 后台记忆写入边界 | `FAIL` | 候选权限闸门、nightly 登记、Review 未完成时阻断 History 与 #73 effective decision 已闭环；Review→History 交接协议已裁定为 publication intent/outbox（D22），实现待 G2-4；主体改写链仍未闭环 |
+| G2 后台记忆写入边界 | `FAIL` | 候选权限闸门、nightly 登记、Review 未完成时阻断 History 与 #73 effective decision 已闭环；G2-3 已把打回 envelope/案例库物化同步接入 Review writer（显式开关、默认关闭），事件 schema/writer 边界与上下文纯净化已有阻塞 CI 覆盖；publication intent/outbox 实现仍待 G2-4，dispatcher/注入/ack 回路仍待 G2-5，主体改写链尚未闭环 |
 | G3 Chat 成本与 profile 隔离 | `PARTIAL` | 基础管道存在，真实 fable-chat 配置与隔离未完成 |
 | G4 Windows 生产验证 | `PARTIAL` | 2026-07-30 首次真机交付成功并已留证（`docs/audit/G4_PRODUCTION_DELIVERY_20260730.md`）；**但监督链失效** —— 描述文件带 UTF-8 BOM，加固版 watchdog fail-closed，bot 无人监督地在跑；正规发布包机制仍未启用 |
 | G5 备份与回滚验证 | `NOT_VERIFIED` | 缺少真实备份恢复演练证据 |

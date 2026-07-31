@@ -23,6 +23,25 @@ function runReviewCheckpointed(pipeline, { retryCandidateId = "" } = {}) {
   const decisions = [];
   let authorityDeferred = 0;
   let modelEligible = 0;
+  let artifactComplete = true;
+  const artifactErrors = [];
+
+  if (typeof pipeline.repairReviewArtifacts === "function") {
+    const repair = pipeline.repairReviewArtifacts();
+    if (!repair || repair.status !== "success") {
+      return {
+        status: repair?.status || "deferred",
+        reason: repair?.reason || "review_artifact_repair_failed",
+        decisions,
+        authority_deferred: authorityDeferred,
+        model_eligible: modelEligible,
+        artifact_complete: false,
+        artifact_errors: repair?.artifact_errors || [],
+      };
+    }
+    artifactComplete = repair.artifact_complete !== false;
+    artifactErrors.push(...(repair.artifact_errors || []));
+  }
 
   for (const candidate of candidates) {
     const candidateId = normalizeText(candidate?.candidate_id);
@@ -49,12 +68,16 @@ function runReviewCheckpointed(pipeline, { retryCandidateId = "" } = {}) {
         stopped_at_candidate_id: candidateId,
         authority_deferred: authorityDeferred,
         model_eligible: modelEligible,
+        artifact_complete: false,
+        artifact_errors: artifactErrors,
       };
     }
 
     const added = Array.isArray(result.decisions) ? result.decisions : [];
     decisions.push(...added);
     decided.add(candidateId);
+    artifactComplete = artifactComplete && result.artifact_complete !== false;
+    artifactErrors.push(...(result.artifact_errors || []));
   }
 
   return {
@@ -62,6 +85,8 @@ function runReviewCheckpointed(pipeline, { retryCandidateId = "" } = {}) {
     decisions,
     authority_deferred: authorityDeferred,
     model_eligible: modelEligible,
+    artifact_complete: artifactComplete,
+    artifact_errors: artifactErrors,
   };
 }
 
@@ -93,7 +118,20 @@ function persistAuthorityDeferred(pipeline, candidate, { allowRetry = false } = 
       supersedes_decision_id: selected.decision?.decision_id || null,
     });
     const added = appendJsonlUnique(pipeline.paths.decisions, [decision], "decision_id");
-    return { status: "success", decisions: added };
+    const artifacts = typeof pipeline.materializeEffectiveReviewArtifacts === "function"
+      ? pipeline.materializeEffectiveReviewArtifacts(
+        readJsonl(pipeline.paths.candidates),
+        [...existing, ...added],
+      )
+      : { artifact_complete: true, errors: [], handoff_ids: [], case_ids: [] };
+    return {
+      status: "success",
+      decisions: added,
+      artifact_complete: artifacts.artifact_complete,
+      artifact_errors: artifacts.errors,
+      handoff_ids: artifacts.handoff_ids,
+      rejection_case_ids: artifacts.case_ids,
+    };
   });
 }
 
