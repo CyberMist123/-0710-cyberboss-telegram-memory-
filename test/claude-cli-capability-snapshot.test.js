@@ -22,7 +22,14 @@ test("fake CLI snapshot has the specified shape and never emits path, transcript
   assert.equal(result.status, 0);
   const value = JSON.parse(result.stdout);
   assert.equal(value.cli_version, "0.0.0-fake");
-  assert.deepEqual(value, sample);
+  // binary_path_sha256 hashes the helper's absolute path, so it is machine- and
+  // checkout-location-dependent by construction. Compare everything else against
+  // the sample and only pin its shape.
+  const { binary_path_sha256: actualBinaryHash, ...actualRest } = value;
+  const { binary_path_sha256: sampleBinaryHash, ...sampleRest } = sample;
+  assert.deepEqual(actualRest, sampleRest);
+  assert.match(actualBinaryHash, /^[0-9a-f]{64}$/);
+  assert.match(sampleBinaryHash, /^[0-9a-f]{64}$/);
   assert.match(value.help_sha256, /^[0-9a-f]{64}$/);
   assert.deepEqual(value.missing_flags, []);
   assert.deepEqual(value.observed_optional_flags, ["--config-dir", "--output-style"]);

@@ -98,7 +98,11 @@ function main(argv = process.argv.slice(2)) {
   if (check) {
     const baselinePath = baselineIndex >= 0 ? path.resolve(argv[baselineIndex + 1]) : path.join(__dirname, "../../test/fixtures/catalog-metering-baseline.json");
     const baseline = fs.readFileSync(baselinePath, "utf8");
-    if (output !== baseline) { process.stderr.write("catalog-metering baseline mismatch\n"); process.exitCode = 1; return; }
+    // Compare with BOM/EOL normalized on both sides: git autocrlf checkouts hand
+    // the fixture back with CRLF, which is a transport artifact, not a content
+    // change. Any real content drift still fails closed.
+    const normalizeTransport = (text) => text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+    if (normalizeTransport(output) !== normalizeTransport(baseline)) { process.stderr.write("catalog-metering baseline mismatch\n"); process.exitCode = 1; return; }
   }
   if (outIndex >= 0) fs.writeFileSync(path.resolve(argv[outIndex + 1]), output, "utf8");
   else process.stdout.write(output);

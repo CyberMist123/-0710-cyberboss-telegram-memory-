@@ -1,0 +1,3 @@
+# Byte-compared fixtures must survive checkout unchanged on every platform:
+# autocrlf must never rewrite their line endings.
+test/fixtures/*.json text eol=lf
