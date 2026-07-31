@@ -361,6 +361,24 @@ Decision date: 2026-07-31
 
 ---
 
+## D24 · `window_id` 采用运行时原生会话口径：同一上下文 = 同一窗口
+
+```text
+Status: ACTIVE
+Decision date: 2026-07-31
+```
+
+裁定对象：G2 设计稿决策点 6（`subject_route.session.window_id` 的定义）。候选有三：runtime process epoch（按进程）、native transcript epoch（按运行时会话）、显式 continuity epoch（按 closeout 划的"一天"）。
+
+**Owner 裁定：按同一个窗口 session 看——上下文一样（即 native transcript epoch）。** 判据是上下文连续性本身：打回交接要递回"写它的那个她"，而"那个她"的边界就是她当时看得见的上下文；会话（transcript）延续则上下文延续，即同一窗口。
+
+- **实现口径**：`window_id` 从运行时原生会话身份派生（claudecode 为 session slot 持有的 native session 身份，codex 为其 session store 身份），取稳定不透明值（原 ID 或其哈希）。进程重启但会话 resume → 同一 `window_id`；会话重开（新上下文）→ 新 `window_id`。
+- **拿不到就缺席**：无法取得原生会话身份时，`window_id` 字段缺席并按 G2-1 状态机记 `RECORDED_PARTIAL` / ambiguous，**不许编造或退化成进程 ID / 时间戳**。
+- **不选另两案的理由**：按进程太脆（重启即"换人"，与 2026-07-31 停机事故同款场景冲突）；按"一天"（continuity epoch）语义上与北极星呼应但引入系统自造的第四套身份，违反 G2 设计稿"复用 canonical 值，不另造身份"的原则。
+- **解锁**：G2-1（recorder route snapshot 与 `subject_route` 权威 schema）自本条起可施工；G2-3 登记的 `subject_route` 可选字段欠账（改必填 + 历史行迁移）随 G2-1 一并处理。
+
+---
+
 ## 待裁决 / Candidates
 
 下列**尚未做出决定**，不占用 D 编号，也不得当成已定方向施工。
