@@ -110,6 +110,7 @@ function createProjectTooling(config, options = {}) {
   const toolHost = new ProjectToolHost({
     services,
     runtimeContextStore,
+    toolset: options.toolset || null,
   });
   return {
     services,

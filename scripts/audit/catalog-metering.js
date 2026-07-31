@@ -17,6 +17,7 @@ const path = require("node:path");
 const {
   PROJECT_TOOLS, TOOL_ALIASES, DEPRECATED_HIDDEN_TOOL_NAMES, createExtraToolHosts,
 } = require("../../src/tools/tool-host");
+const { buildManifest, resolveToolset } = require("../../src/tools/tool-catalog-manifest");
 
 const CATEGORIES = ["memory", "tool", "mcp", "skill"];
 
@@ -89,14 +90,32 @@ function buildCatalog({ projectTools = PROJECT_TOOLS, aliases = TOOL_ALIASES, ex
   return output;
 }
 
+function buildResidentCatalog({ toolset = null } = {}) {
+  const full = buildCatalog();
+  const resolved = resolveToolset(toolset || "");
+  const entries = buildManifest({ projectTools: PROJECT_TOOLS, aliases: TOOL_ALIASES, extraHosts: createExtraToolHosts({ whereabouts: {} }), deprecatedNames: DEPRECATED_HIDDEN_TOOL_NAMES })
+    .map((entry) => ({ ...entry, authorized: !resolved || resolved.members.has(entry.alias_of || entry.id) }));
+  const residentTools = PROJECT_TOOLS.filter((tool) => ["cyberboss_system_send", "cyberboss_time"].includes(tool.name)).map((tool) => ({ name: tool.name, schema_chars: metric(tool.inputSchema).chars, schema_bytes: metric(tool.inputSchema).bytes }));
+  const list = ["memory", "tool", "mcp", "skill"].map((category) => ({ name: `cyberboss_catalog_${category}`, description: `${entries.filter((entry) => entry.category === category).length} ${category} catalog entries; optionally load an authorized schema by exact handle.`, inputSchema: { type: "object", properties: { handle: { type: "string" } }, additionalProperties: false } }))
+    .concat(PROJECT_TOOLS.filter((tool) => ["cyberboss_system_send", "cyberboss_time"].includes(tool.name)).map((tool) => ({ name: tool.name, description: tool.shortHint || tool.description, inputSchema: tool.inputSchema })));
+  const totals = { resident_item_count: residentTools.length, resident_schema_chars: residentTools.reduce((n, item) => n + item.schema_chars, 0), resident_schema_bytes: residentTools.reduce((n, item) => n + item.schema_bytes, 0), tools_list_chars: JSON.stringify(list).length, tools_list_bytes: Buffer.byteLength(JSON.stringify(list), "utf8") };
+  const output = { schema_version: 1, generated_by: "scripts/audit/catalog-metering.js", surface: "resident", toolset: resolved?.id || null, resident_tools: residentTools, directory_entries: Object.fromEntries(CATEGORIES.map((category) => [category, entries.filter((item) => item.category === category).length])), totals, full_surface: { item_count: full.totals.item_count, schema_chars: full.totals.schema_chars, tools_list_chars: JSON.stringify(full.items).length } };
+  output.resident_hash = sha256(canonicalJson(output));
+  return output;
+}
+
 function main(argv = process.argv.slice(2)) {
   const check = argv.includes("--check");
+  const surfaceIndex = argv.indexOf("--surface");
+  const surface = surfaceIndex >= 0 ? argv[surfaceIndex + 1] : "full";
+  const toolsetIndex = argv.indexOf("--toolset");
+  if (!["full", "resident"].includes(surface)) throw new Error("--surface must be full or resident");
   const outIndex = argv.indexOf("--out");
   const baselineIndex = argv.indexOf("--baseline");
   if (outIndex >= 0 && (!argv[outIndex + 1] || argv[outIndex + 1].startsWith("--"))) throw new Error("--out requires a path");
-  const output = `${JSON.stringify(buildCatalog(), null, 2)}\n`;
+  const output = `${JSON.stringify(surface === "resident" ? buildResidentCatalog({ toolset: toolsetIndex >= 0 ? argv[toolsetIndex + 1] : "" }) : buildCatalog(), null, 2)}\n`;
   if (check) {
-    const baselinePath = baselineIndex >= 0 ? path.resolve(argv[baselineIndex + 1]) : path.join(__dirname, "../../test/fixtures/catalog-metering-baseline.json");
+    const baselinePath = baselineIndex >= 0 ? path.resolve(argv[baselineIndex + 1]) : path.join(__dirname, surface === "resident" ? "../../test/fixtures/catalog-metering-resident.json" : "../../test/fixtures/catalog-metering-baseline.json");
     const baseline = fs.readFileSync(baselinePath, "utf8");
     // Compare with BOM/EOL normalized on both sides: git autocrlf checkouts hand
     // the fixture back with CRLF, which is a transport artifact, not a content
@@ -109,4 +128,4 @@ function main(argv = process.argv.slice(2)) {
 }
 
 if (require.main === module) { try { main(); } catch (error) { process.stderr.write(`${error.message}\n`); process.exitCode = 1; } }
-module.exports = { buildCatalog, canonicalJson, main };
+module.exports = { buildCatalog, buildResidentCatalog, canonicalJson, main };

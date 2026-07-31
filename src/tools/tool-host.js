@@ -6,15 +6,33 @@ const {
 } = require("../services/sticker-service");
 const { resolveAppTimezone } = require("../utils/app-timezone");
 const { formatAppTime } = require("../utils/beijing-time");
+const { catalogEnabled, resolveToolset, buildManifest, findSchema, RESIDENT_NAMES, catalogError } = require("./tool-catalog-manifest");
 
 class ProjectToolHost {
-  constructor({ services, runtimeContextStore }) {
+  constructor({ services, runtimeContextStore, toolset = null }) {
     this.services = services;
     this.runtimeContextStore = runtimeContextStore;
     this.extraToolHosts = createExtraToolHosts(services);
+    this.toolset = toolset;
+  }
+
+  catalogState() {
+    const toolset = resolveToolset(this.toolset);
+    return { toolset, entries: buildManifest({ projectTools: PROJECT_TOOLS, aliases: TOOL_ALIASES, extraHosts: this.extraToolHosts, deprecatedNames: DEPRECATED_HIDDEN_TOOL_NAMES })
+      .map((entry) => ({ ...entry, authorized: !toolset || toolset.members.has(entry.alias_of || entry.id) })) };
   }
 
   listTools() {
+    if (catalogEnabled()) {
+      const { entries } = this.catalogState();
+      const catalogTools = ["memory", "tool", "mcp", "skill"].map((category) => ({
+        name: `cyberboss_catalog_${category}`,
+        description: `${entries.filter((entry) => entry.category === category).length} ${category} catalog entries; optionally load an authorized schema by exact handle.`,
+        inputSchema: { type: "object", properties: { handle: { type: "string" } }, additionalProperties: false },
+      }));
+      const resident = RESIDENT_NAMES.map((name) => PROJECT_TOOLS.find((tool) => tool.name === name)).filter(Boolean).map(buildCatalogToolEntry);
+      return [...catalogTools, ...resident];
+    }
     const builtIn = PROJECT_TOOLS
       .filter((tool) => tool.hidden !== true)
       .map((tool) => buildCatalogToolEntry(tool));
@@ -28,7 +46,26 @@ class ProjectToolHost {
     const alias = TOOL_ALIASES[toolName];
     const resolvedToolName = alias?.name || toolName;
     const spec = PROJECT_TOOLS.find((candidate) => candidate.name === resolvedToolName);
+    const extraHost = this.extraToolHosts.find((host) => hostSupportsToolName(host, toolName));
     const normalizedArgs = args && typeof args === "object" ? { ...args } : {};
+    if (catalogEnabled()) {
+      const match = /^cyberboss_catalog_(memory|tool|mcp|skill)$/.exec(toolName);
+      if (match) {
+        const { entries } = this.catalogState();
+        if (normalizedArgs.handle !== undefined) {
+          const entry = findSchema({ entries, category: match[1], handle: normalizedArgs.handle });
+          const sourceName = entry.alias_of || entry.id;
+          const source = PROJECT_TOOLS.find((candidate) => candidate.name === sourceName)
+            || this.extraToolHosts.flatMap((host) => host.listTools()).find((candidate) => candidate.name === sourceName);
+          if (!source) throw catalogError("catalog_unknown_handle", normalizedArgs.handle);
+          return { text: `Schema loaded: ${entry.schema_handle}`, data: { entry, inputSchema: source.inputSchema } };
+        }
+        return { text: `${match[1]} catalog`, data: entries.filter((entry) => entry.category === match[1]) };
+      }
+      if (!spec && !extraHost) throw new Error(`Unknown tool: ${toolName}`);
+      const { toolset } = this.catalogState();
+      if (toolset && !toolset.members.has(resolvedToolName)) throw catalogError("catalog_tool_not_in_toolset", resolvedToolName);
+    }
     if (alias?.command && !normalizedArgs.command) {
       normalizedArgs.command = alias.command;
     }
@@ -41,11 +78,7 @@ class ProjectToolHost {
         context: resolvedContext,
       });
     }
-    for (const host of this.extraToolHosts) {
-      if (hostSupportsToolName(host, toolName)) {
-        return await host.invokeTool(toolName, normalizedArgs);
-      }
-    }
+    if (extraHost) return await extraHost.invokeTool(toolName, normalizedArgs);
     throw new Error(`Unknown tool: ${toolName}`);
   }
 

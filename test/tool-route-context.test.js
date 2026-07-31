@@ -216,6 +216,28 @@ test("the tool server is launched with its own route token", () => {
   );
 });
 
+test("catalog toolset preserves route-scoped config bytes when off and never crosses lane tokens when on", () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cb-catalog-route-")));
+  const home = path.join(dir, "home"); const configDir = path.join(dir, "mcp");
+  fs.mkdirSync(path.join(home, "bin"), { recursive: true }); fs.writeFileSync(path.join(home, "bin", "cyberboss.js"), "");
+  const savedEnabled = process.env.CYBERBOSS_TOOL_CATALOG_ENABLED; const savedToolset = process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET;
+  const restore = () => { if (savedEnabled === undefined) delete process.env.CYBERBOSS_TOOL_CATALOG_ENABLED; else process.env.CYBERBOSS_TOOL_CATALOG_ENABLED = savedEnabled; if (savedToolset === undefined) delete process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET; else process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET = savedToolset; };
+  try {
+    delete process.env.CYBERBOSS_TOOL_CATALOG_ENABLED; delete process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET;
+    const baseline = JSON.stringify(buildClaudeProjectMcpServerConfig({ workspaceRoot: dir, cyberbossHome: home, routeToken: "1".repeat(64) }));
+    process.env.CYBERBOSS_TOOL_CATALOG_ENABLED = "false"; process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET = "chat-core@1";
+    assert.equal(JSON.stringify(buildClaudeProjectMcpServerConfig({ workspaceRoot: dir, cyberbossHome: home, routeToken: "1".repeat(64) })), baseline);
+    process.env.CYBERBOSS_TOOL_CATALOG_ENABLED = "true";
+    const first = ensureRouteScopedMcpConfig({ workspaceRoot: dir, cyberbossHome: home, routeToken: "1".repeat(64), configDir });
+    const second = ensureRouteScopedMcpConfig({ workspaceRoot: dir, cyberbossHome: home, routeToken: "2".repeat(64), configDir });
+    for (const [result, token] of [[first, "1".repeat(64)], [second, "2".repeat(64)]]) {
+      const entry = result.config.mcpServers.cyberboss_tools; const routeIndex = entry.args.indexOf("--route-token"); const toolsetIndex = entry.args.indexOf("--toolset");
+      assert.equal(entry.args[routeIndex + 1], token); assert.equal(entry.env.CYBERBOSS_ROUTE_TOKEN, token); assert.equal(entry.args[toolsetIndex + 1], "chat-core@1"); assert.ok(toolsetIndex > routeIndex);
+    }
+    assert.notEqual(first.configPath, second.configPath); assert.equal(first.config.mcpServers.cyberboss_tools.args.includes("2".repeat(64)), false); assert.equal(second.config.mcpServers.cyberboss_tools.args.includes("1".repeat(64)), false);
+  } finally { restore(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("route contexts never grow without bound", () => {
   const store = makeStore();
   for (let i = 0; i < 200; i += 1) {

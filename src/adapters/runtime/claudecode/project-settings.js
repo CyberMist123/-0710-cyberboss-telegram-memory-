@@ -99,6 +99,8 @@ function buildClaudeProjectMcpServerConfig({ workspaceRoot, cyberbossHome = "", 
     // rewrites argv.
     entry.env = { CYBERBOSS_ROUTE_TOKEN: normalizedToken };
   }
+  const toolset = typeof process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET === "string" ? process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET.trim() : "";
+  if (process.env.CYBERBOSS_TOOL_CATALOG_ENABLED === "true" && toolset) args.push("--toolset", toolset);
   return entry;
 }
 
