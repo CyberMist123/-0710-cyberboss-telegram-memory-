@@ -101,6 +101,7 @@ function readConfig() {
     continuityBaseSha: readTextEnv("CYBERBOSS_CONTINUITY_BASE_SHA"),
     reviewArtifactsEnabled: readStrictBoolEnv("CYBERBOSS_REVIEW_ARTIFACTS_ENABLED", false),
     handoffDispatchEnabled: readStrictBoolEnv("CYBERBOSS_HANDOFF_DISPATCH_ENABLED", false),
+    subjectSigningEnabled: readStrictBoolEnv("CYBERBOSS_SUBJECT_SIGNING_ENABLED", false),
     claudeTranscriptDir: resolveConfiguredPath(readTextEnv("CYBERBOSS_CLAUDE_TRANSCRIPT_DIR")),
     reentryAuthoringMode: readTextEnv("CYBERBOSS_REENTRY_AUTHORING_MODE") || "ai_direct",
     memoryStateFile: joinIfBase(memoryDir, "state.md"),

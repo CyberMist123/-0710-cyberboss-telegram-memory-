@@ -29,6 +29,7 @@ function createContinuityPipeline(config) {
     baseSha: config.continuityBaseSha || "0".repeat(40),
     automationTimezone: config.automationTimezone,
     reviewArtifactsEnabled: config.reviewArtifactsEnabled,
+    subjectSigningEnabled: config.subjectSigningEnabled,
   });
 }
 
@@ -40,7 +41,9 @@ async function runAuthoritativeCloseout({ config, runtimeAdapter, date, business
   return activePipeline.runCloseoutAsync({
     date: businessDay?.dateKey || date,
     windowClosed,
-    author: ({ materials }) => authorCloseout({ runtimeAdapter, config, materials }),
+    author: config.subjectSigningEnabled === true
+      ? undefined
+      : ({ materials }) => authorCloseout({ runtimeAdapter, config, materials }),
   });
 }
 

@@ -1,4 +1,7 @@
 const VALID_ORIGINS = new Set([
+  "live_subject",
+  "closeout_materials_then_subject",
+  "subject_rewrite",
   "live_closeout",
   "nightly_closeout",
   "manual",
