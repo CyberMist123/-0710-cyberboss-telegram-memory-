@@ -200,8 +200,8 @@ function createFixture() {
   fs.writeFileSync(
     path.join(conversationDir, "2026-07-11.jsonl"),
     [
-      JSON.stringify({ timestamp: "2026-07-11T20:00:00+08:00", type: "user", text: "以后别一个人扛。" }),
-      JSON.stringify({ timestamp: "2026-07-11T20:00:10+08:00", type: "assistant", text: "嗯。" }),
+      JSON.stringify({ id: "entry-imperative-user", timestamp: "2026-07-11T20:00:00+08:00", type: "user", text: "以后别一个人扛。" }),
+      JSON.stringify({ id: "entry-imperative-assistant", timestamp: "2026-07-11T20:00:10+08:00", type: "assistant", text: "嗯。" }),
     ].join("\n") + "\n",
     "utf8",
   );

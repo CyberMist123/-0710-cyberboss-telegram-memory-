@@ -23,6 +23,7 @@ const {
   materializeReviewArtifacts,
   reviewArtifactPaths,
 } = require("./review-artifacts");
+const { resolveMaterialRoute } = require("./subject-route");
 const {
   appendJsonlUnique,
   backupFile,
@@ -90,7 +91,14 @@ class ContinuityPipeline {
         return recordEmptyCloseout(ledgerPath, day, windowClosed, "no_materials", false);
       }
       if (typeof author !== "function") throw new Error("closeout author is required");
-      const authored = author({ date: day, materials: materials.text, entries: materials.entries });
+      const authored = author({
+        date: day,
+        materials: materials.text,
+        entries: materials.entries,
+        routeStatus: materials.route_status,
+        route: materials.route,
+        sourceEntryIds: materials.source_ref.source_entry_ids,
+      });
       if (authored && typeof authored.then === "function") {
         throw new Error("runCloseout author must be synchronous; use runCloseoutAsync for runtime authoring");
       }
@@ -114,7 +122,14 @@ class ContinuityPipeline {
       if (!materials.entries.length) {
         return recordEmptyCloseout(ledgerPath, day, windowClosed, "no_materials", false);
       }
-      const authored = await author({ date: day, materials: materials.text, entries: materials.entries });
+      const authored = await author({
+        date: day,
+        materials: materials.text,
+        entries: materials.entries,
+        routeStatus: materials.route_status,
+        route: materials.route,
+        sourceEntryIds: materials.source_ref.source_entry_ids,
+      });
       return this.publishCloseout(day, materials, authored, ledgerPath, candidateMetadata, {
         businessDay,
         windowClosed,
@@ -168,16 +183,29 @@ class ContinuityPipeline {
 
   loadFilteredMaterials(day) {
     const filePath = path.join(this.conversationDir, `${day}.jsonl`);
-    const rows = readJsonl(filePath);
-    const entries = rows.map((row, index) => ({
+    const rows = readConversationRowsWithEvidence(filePath);
+    const entries = rows.map((row) => ({
       ...row,
-      line: index + 1,
       text: stripConversationArtifacts(row?.text),
     })).filter((row) => row.text && isConversationType(row.type));
+    const materialRoute = resolveMaterialRoute(entries);
+    const sourceEntryHashes = entries
+      .filter((entry) => typeof entry.id === "string" && entry.id.trim())
+      .map((entry) => ({
+        entry_id: entry.id.trim(),
+        sha256: entry.sourceLineSha256,
+      }));
     return {
       entries,
       text: entries.map((row) => `[${row.timestamp || ""}] ${row.type}: ${row.text}`).join("\n"),
-      source_ref: { file: filePath, window: entries.length ? `${entries[0].line}-${entries[entries.length - 1].line}` : "" },
+      route_status: materialRoute.status,
+      ...(materialRoute.route ? { route: materialRoute.route } : {}),
+      source_ref: {
+        file: filePath,
+        window: entries.length ? `${entries[0].line}-${entries[entries.length - 1].line}` : "",
+        source_entry_ids: materialRoute.sourceEntryIds,
+        source_entry_hashes: sourceEntryHashes,
+      },
     };
   }
 
@@ -581,7 +609,14 @@ function createCandidate({
   needsSubjectReview,
 }) {
   const normalizedBody = normalizeBody(body);
-  const idempotencyKey = sha256(`${date}\n${sourceRef.file}:${sourceRef.window}\n${normalizedBody.replace(/\s+/g, " ")}`);
+  const sourceIdentity = Array.isArray(sourceRef.source_entry_ids)
+    ? JSON.stringify({
+      file: sourceRef.file,
+      source_entry_ids: sourceRef.source_entry_ids,
+      source_entry_hashes: sourceRef.source_entry_hashes,
+    })
+    : `${sourceRef.file}:${sourceRef.window}`;
+  const idempotencyKey = sha256(`${date}\n${sourceIdentity}\n${normalizedBody.replace(/\s+/g, " ")}`);
   return normalizeCandidateMetadata({
     candidate_id: `cand-${idempotencyKey.slice(0, 20)}`,
     ts: candidateTimestamp || businessDayForDate(date, DEFAULT_AUTOMATION_TIMEZONE)?.candidateTimestamp
@@ -761,10 +796,68 @@ function buildLocalChecks(candidate, sourceLocated) {
 }
 
 function locateSourceRef(sourceRef = {}) {
-  if (!sourceRef.file || !sourceRef.window || !fs.existsSync(sourceRef.file)) return false;
+  if (!sourceRef.file || !fs.existsSync(sourceRef.file)) return false;
+  if (Array.isArray(sourceRef.source_entry_ids)) {
+    return locateSourceEntriesById(sourceRef);
+  }
+  if (!sourceRef.window) return false;
   const [start, end] = String(sourceRef.window).split("-").map(Number);
   const lines = safeReadText(sourceRef.file).split(/\r?\n/).length;
   return Number.isInteger(start) && Number.isInteger(end) && start > 0 && end >= start && end <= lines;
+}
+
+function locateSourceEntriesById(sourceRef) {
+  const ids = sourceRef.source_entry_ids;
+  const hashes = Array.isArray(sourceRef.source_entry_hashes)
+    ? sourceRef.source_entry_hashes
+    : [];
+  if (!ids.length || hashes.length !== ids.length || new Set(ids).size !== ids.length) {
+    return false;
+  }
+  const expectedHashes = new Map();
+  for (const item of hashes) {
+    const entryId = normalizeBody(item?.entry_id);
+    const digest = normalizeBody(item?.sha256);
+    if (!entryId || !/^[0-9a-f]{64}$/u.test(digest) || expectedHashes.has(entryId)) {
+      return false;
+    }
+    expectedHashes.set(entryId, digest);
+  }
+
+  const byId = new Map();
+  for (const entry of readConversationRowsWithEvidence(sourceRef.file)) {
+    const entryId = normalizeBody(entry?.id);
+    if (!entryId) continue;
+    if (!byId.has(entryId)) byId.set(entryId, []);
+    byId.get(entryId).push(entry);
+  }
+
+  return ids.every((entryId) => {
+    const normalizedId = normalizeBody(entryId);
+    const matches = byId.get(normalizedId) || [];
+    return normalizedId
+      && matches.length === 1
+      && expectedHashes.get(normalizedId) === matches[0].sourceLineSha256;
+  });
+}
+
+function readConversationRowsWithEvidence(filePath) {
+  const text = safeReadText(filePath);
+  if (!text) return [];
+  return text.split(/\r?\n/u).flatMap((line, index) => {
+    if (!line) return [];
+    try {
+      const parsed = JSON.parse(line);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
+      return [{
+        ...parsed,
+        line: index + 1,
+        sourceLineSha256: sha256(line),
+      }];
+    } catch {
+      return [];
+    }
+  });
 }
 
 function isConversationType(type) {

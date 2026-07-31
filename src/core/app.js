@@ -56,6 +56,7 @@ const { TimelineScreenshotQueueStore } = require("./timeline-screenshot-queue-st
 const { TurnGateStore } = require("./turn-gate-store");
 const { ReminderQueueStore } = require("../adapters/channel/weixin/reminder-queue-store");
 const { ConversationRecorder } = require("../services/conversation-recorder");
+const { windowIdFromNativeSessionId } = require("../continuity/subject-route");
 const { resolveStateMediaReference } = require("../services/media-inbox-service");
 const {
   matchesCommandPrefix,
@@ -2870,14 +2871,16 @@ class CyberbossApp {
       senderId: normalized.senderId,
     });
     const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
-    const threadId = resolveRouteSessionFor(this, {
-      bindingKey, workspaceRoot, lane: resolveRouteLaneFor(normalized, bindingKey), normalized,
-    }).threadId;
+    const lane = resolveRouteLaneFor(normalized, bindingKey);
+    const routeSession = resolveRouteSessionFor(this, {
+      bindingKey, workspaceRoot, lane, normalized,
+    });
     this.conversationRecorder.record({
       type: "user",
       timestamp: normalizeIsoTime(normalized.receivedAt) || new Date().toISOString(),
-      threadId,
+      threadId: routeSession.threadId,
       workspaceRoot,
+      route: buildRecorderRouteSnapshot({ bindingKey, lane, routeSession }),
       text: typeof normalized.text === "string" ? normalized.text : "",
       meta: {
         workspaceId: normalized.workspaceId,
@@ -2897,14 +2900,23 @@ class CyberbossApp {
     }
     const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
     const threadId = normalizeText(payload.threadId);
+    const eventRoute = resolveEventRoute(this, event);
     const workspaceRoot = normalizeText(payload.workspaceRoot)
-      || normalizeText(resolveEventRoute(this, event)?.workspaceRoot);
+      || normalizeText(eventRoute?.workspaceRoot);
     this.conversationRecorder.record({
       type: String(event.type || "").trim(),
       timestamp: normalizeIsoTime(payload.timestamp) || new Date().toISOString(),
       threadId,
       turnId: normalizeText(payload.turnId),
       workspaceRoot,
+      route: buildRecorderRouteSnapshot({
+        bindingKey: eventRoute?.bindingKey,
+        lane: eventRoute,
+        routeSession: {
+          ...eventRoute,
+          threadId,
+        },
+      }),
       text: typeof payload.text === "string" ? payload.text : "",
       meta: payload,
     });
@@ -4374,10 +4386,28 @@ function resolveEventRoute(app, event) {
       sessionSlotKey: payload.sessionSlotKey || "",
       processKey: payload.processKey || "",
       messageThreadId: payload.messageThreadId ?? null,
+      profileId: payload.profileId || "",
     };
   }
   const linked = app.runtimeAdapter.getSessionStore().findBindingForThreadId(payload.threadId);
   return linked?.bindingKey ? { ...linked, laneKey: "", sessionSlotKey: "", processKey: "" } : null;
+}
+
+function buildRecorderRouteSnapshot({ bindingKey = "", lane = null, routeSession = null } = {}) {
+  const session = routeSession && typeof routeSession === "object" ? routeSession : {};
+  const route = {
+    bindingKey,
+    laneKey: session.laneKey || lane?.laneKey,
+    sessionSlotKey: session.sessionSlotKey,
+    profileId: session.profileId,
+    windowId: windowIdFromNativeSessionId(session.threadId),
+  };
+  if (Object.hasOwn(session, "messageThreadId")) {
+    route.messageThreadId = session.messageThreadId;
+  } else if (lane && Object.hasOwn(lane, "messageThreadId")) {
+    route.messageThreadId = lane.messageThreadId;
+  }
+  return route;
 }
 
 // Module-level so the class methods can be borrowed onto lightweight objects

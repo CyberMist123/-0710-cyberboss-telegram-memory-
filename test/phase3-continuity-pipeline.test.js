@@ -17,6 +17,7 @@ const {
 } = require("../src/continuity/continuity-pipeline");
 const { appendJsonlUnique, loadJson, readJsonl } = require("../src/continuity/continuity-store");
 const { detailsFileFor, readDetailsForLookup } = require("../src/continuity/detail-ledger");
+const { MATERIAL_ROUTE_EXACT } = require("../src/continuity/subject-route");
 const { MemoryLookupService } = require("../src/services/memory-lookup-service");
 
 const SUBJECT_AI_METADATA = {
@@ -35,10 +36,13 @@ test("closeout, review, and history writer are byte-idempotent and preserve auth
   const closeout = pipeline.runCloseout({
     date: "2026-07-11",
     candidateMetadata: SUBJECT_AI_METADATA,
-    author({ materials }) {
+    author({ materials, routeStatus, route, sourceEntryIds }) {
       authorCalls += 1;
       assert.match(materials, /此刻真实原话/);
       assert.doesNotMatch(materials, /注入回声|打回信封正文|secret\.png|旧 Episode 正文|工具结果/);
+      assert.equal(routeStatus, MATERIAL_ROUTE_EXACT);
+      assert.equal(route.windowId, "native-session-fixture");
+      assert.deepEqual(sourceEntryIds, ["entry-fixture-user", "entry-fixture-reply"]);
       return {
         episodes: [{ body: "2026-07-11，在测试场景里，她说“此刻真实原话”。我注意到这仍悬着。" }],
         self_note: "我选择先承认悬而未决。",
@@ -59,6 +63,11 @@ test("closeout, review, and history writer are byte-idempotent and preserve auth
     assert.equal(candidate.author_role, "subject_ai");
     assert.equal(candidate.semantic_authority, "high");
     assert.equal(candidate.needs_subject_review, false);
+    assert.deepEqual(
+      candidate.source_ref.source_entry_ids,
+      ["entry-fixture-user", "entry-fixture-reply"],
+    );
+    assert.equal(candidate.source_ref.source_entry_hashes.length, 2);
   }
 
   const review = pipeline.runReview({ env: { ...process.env, AUTO_REVIEW_MOCK: "accept" } });
@@ -355,6 +364,29 @@ test("review model can be disabled without bypassing deterministic checks", () =
   assert.equal(review.decisions[0].checks.length_ok, true);
 });
 
+test("closeout source evidence is located by entry id and exact persisted-line hash", () => {
+  const fixture = createFixture();
+  const closeout = fixture.pipeline.runCloseout({
+    date: "2026-07-11",
+    author: () => ({ episodes: ["按 entry ID 取证。"] }),
+    candidateMetadata: { authorRole: "subject_ai", semanticAuthority: "high", needsSubjectReview: false },
+  });
+  const sourceRef = closeout.candidates[0].source_ref;
+  assert.deepEqual(sourceRef.source_entry_ids, ["entry-fixture-user", "entry-fixture-reply"]);
+  assert.equal(sourceRef.source_entry_hashes.length, 2);
+
+  const lines = fs.readFileSync(fixture.conversationFile, "utf8").trim().split(/\r?\n/u);
+  const tampered = JSON.parse(lines[0]);
+  tampered.text = "同 ID 但正文已被篡改";
+  lines[0] = JSON.stringify(tampered);
+  fs.writeFileSync(fixture.conversationFile, `${lines.join("\n")}\n`, "utf8");
+
+  const review = fixture.pipeline.runReview({ env: { ...process.env, CYBERBOSS_AUTO_REVIEW_MODEL: "off" } });
+  assert.equal(review.decisions[0].result, "deferred");
+  assert.equal(review.decisions[0].reason, "source_ref_missing");
+  assert.equal(review.decisions[0].checks.source_ref_located, false);
+});
+
 test("over-budget Re-entry is retained as evidence, deferred, and never published", () => {
   const fixture = createFixture();
   fixture.pipeline.runCloseout({
@@ -632,8 +664,22 @@ function createFixture(options = {}) {
   fs.mkdirSync(conversationDir, { recursive: true });
   fs.mkdirSync(transcriptDir, { recursive: true });
   fs.writeFileSync(conversationFile, [
-    JSON.stringify({ type: "user", timestamp: "2026-07-11T12:00:00Z", text: pollutedText() }),
-    JSON.stringify({ type: "runtime.reply.completed", timestamp: "2026-07-11T12:01:00Z", text: "我先听见此刻。" }),
+    JSON.stringify({
+      id: "entry-fixture-user",
+      type: "user",
+      timestamp: "2026-07-11T12:00:00Z",
+      route: exactRecorderRoute(),
+      routeStatus: "RECORDED_EXACT",
+      text: pollutedText(),
+    }),
+    JSON.stringify({
+      id: "entry-fixture-reply",
+      type: "runtime.reply.completed",
+      timestamp: "2026-07-11T12:01:00Z",
+      route: exactRecorderRoute(),
+      routeStatus: "RECORDED_EXACT",
+      text: "我先听见此刻。",
+    }),
   ].join("\n") + "\n", "utf8");
   fs.writeFileSync(stateLog, '{"frozen":true}\n', "utf8");
   fs.writeFileSync(path.join(transcriptDir, "session.jsonl"), [
@@ -655,6 +701,17 @@ function createFixture(options = {}) {
     isProcessAlive: options.isProcessAlive,
   });
   return { root, continuityDir, conversationDir, conversationFile, writerLeaseFile, stateLog, stateLogHash: hashFile(stateLog), pipeline };
+}
+
+function exactRecorderRoute() {
+  return {
+    bindingKey: "workspace-fixture:telegram:42",
+    laneKey: "v2|tg|8:telegram|4:-100|1:7",
+    sessionSlotKey: "slot-fixture",
+    messageThreadId: "7",
+    profileId: "profile-fixture",
+    windowId: "native-session-fixture",
+  };
 }
 
 function pollutedText() {
