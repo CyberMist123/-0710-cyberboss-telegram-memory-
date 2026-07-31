@@ -1,4 +1,4 @@
-﻿"use strict";
+"use strict";
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -120,14 +120,18 @@ test("A6/A7/A8/A9/A14 fail-closed codes", async () => {
 
 test("A11 failures do not disclose secret, path, or raw profile id", async () => {
   const root = tempRoot();
-  const secret = "sk-fakefakefakefakefakefake";
+  // Deliberately NOT shaped like a real credential: the secret-audit CI gate
+  // scans every reachable blob with no placeholder exemption, so an sk-style
+  // fake would trip it forever once merged. The assertion only needs a unique
+  // value to prove non-disclosure.
+  const plantedValue = "planted-nondisclosure-canary-0000";
   try {
     let caught;
     try {
-      await runG3LaunchPreflight({ profile: profile(root, { env: { UNKNOWN_ENV: secret } }), baseEnv: flagEnv(), baseCwd: root, baseDir: root, expectedLockPath: root });
+      await runG3LaunchPreflight({ profile: profile(root, { env: { UNKNOWN_ENV: plantedValue } }), baseEnv: flagEnv(), baseCwd: root, baseDir: root, expectedLockPath: root });
     } catch (error) { caught = error; }
     const text = JSON.stringify({ message: caught.message, code: caught.code, details: caught.details });
-    assert.equal(text.includes(secret), false);
+    assert.equal(text.includes(plantedValue), false);
     assert.equal(text.includes(root), false);
     assert.equal(text.includes("private-profile"), false);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
