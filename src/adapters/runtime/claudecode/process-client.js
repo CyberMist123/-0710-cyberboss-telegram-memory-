@@ -1,4 +1,5 @@
 const { spawn } = require("child_process");
+const crypto = require("node:crypto");
 const { buildProfileLaunch, fingerprintLaunchProfile } = require("./launch-profile");
 const { EFFORT_VALUES } = require("./cli-capabilities");
 
@@ -42,6 +43,7 @@ class ClaudeCodeProcessClient {
     cliCapabilities = null,
     allowAuthBackendOverride = false,
     allowCloudCredentialInheritance = false,
+    g3Preflight = null,
     onLaunchTelemetry = null,
     ipcServer = null,
     workspaceRoot = "",
@@ -70,6 +72,7 @@ class ClaudeCodeProcessClient {
     this.cliCapabilities = cliCapabilities || null;
     this.allowAuthBackendOverride = Boolean(allowAuthBackendOverride);
     this.allowCloudCredentialInheritance = Boolean(allowCloudCredentialInheritance);
+    this.g3Preflight = g3Preflight?.enabled ? g3Preflight : null;
     this.launchProfileFingerprint = fingerprintLaunchProfile(this.launchProfile, {
       baseDir: this.launchProfileBaseDir,
       allowAuthBackendOverride: this.allowAuthBackendOverride,
@@ -174,7 +177,16 @@ class ClaudeCodeProcessClient {
     const launchEnv = profileLaunch ? profileLaunch.env : this.env;
     this.launchFingerprint = profileLaunch ? profileLaunch.launchFingerprint : "legacy";
     if (profileLaunch?.telemetry && this.onLaunchTelemetry) {
-      this.onLaunchTelemetry(profileLaunch.telemetry);
+      const telemetry = this.g3Preflight
+        ? Object.freeze({
+          ...profileLaunch.telemetry,
+          cli_version: this.g3Preflight.cli.cli_version,
+          cli_help_hash: this.g3Preflight.cli.help_sha256,
+          session_slot_token: crypto.createHash("sha256").update(this.sessionSlotKey, "utf8").digest("hex").slice(0, 24),
+          native_session_present: Boolean(this.resumeSessionId),
+        })
+        : profileLaunch.telemetry;
+      this.onLaunchTelemetry(telemetry);
     }
     const mcpLabel = profileLaunch
       ? `${profileLaunch.mcpConfigMode}:${profileLaunch.mcpConfigPaths.length}`
@@ -651,4 +663,6 @@ module.exports = {
   normalizeEffort,
   resolveEffortLevel,
   resolveStrictMcpConfig,
+  extraArgsContainFlag,
+  isPotentiallySensitive,
 };
