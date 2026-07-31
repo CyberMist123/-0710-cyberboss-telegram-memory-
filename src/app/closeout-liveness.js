@@ -4,6 +4,7 @@ const path = require("path");
 const { acquireWriterLease, releaseWriterLease } = require("../orchestration/writer-lease");
 const { writeJsonAtomic } = require("../orchestration/atomic-json");
 const { createContinuityPipeline, runAuthoritativeCloseout } = require("../continuity/closeout-job");
+const { isActivityPaused } = require("../core/activity-pause-state");
 const {
   DEFAULT_AUTOMATION_TIMEZONE: DEFAULT_TIMEZONE,
   businessDayForDate,
@@ -345,6 +346,13 @@ class CloseoutLivenessAutomation {
       return;
     }
     const now = this.clock.now();
+    if (isActivityPaused(this.config.activityPauseFile)) {
+      this.timer = this.timers.setTimeout(() => {
+        this.timer = null;
+        void this.runScheduledTick();
+      }, this.pollIntervalMs);
+      return;
+    }
     const nextCloseout = this.config.nightlyCloseoutEnabled
       ? Math.min(
         nextScheduleAt(now, this.config.nightlyCloseoutHour, this.config.nightlyCloseoutMinute, this.config.automationTimezone),
@@ -380,6 +388,13 @@ class CloseoutLivenessAutomation {
 
   async runTick(now) {
     const result = { closeout: null, liveness: [] };
+    if (isActivityPaused(this.config.activityPauseFile)) {
+      console.log("[automation] closeout/liveness tick skipped: paused");
+      return {
+        ...result,
+        closeout: { status: "skipped", reason: "paused" },
+      };
+    }
     if (this.config.nightlyCloseoutEnabled && isScheduleDue(now, this.config.nightlyCloseoutHour, this.config.nightlyCloseoutMinute, this.config.automationTimezone)) {
       try {
         result.closeout = await this.runCloseout(now);

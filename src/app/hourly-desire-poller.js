@@ -5,6 +5,7 @@ const { loadDesireSchedule, isNightSkipAt, nextPlannedAt } = require("../core/de
 const { appendDesireTelemetry } = require("../core/desire-telemetry");
 const { acquireWriterLease, releaseWriterLease } = require("../orchestration/writer-lease");
 const { readLatestDesireHistory } = require("../core/desire-state-persistence");
+const { isActivityPaused } = require("../core/activity-pause-state");
 
 const ACTIVE_MARKER_STALE_MS = 2 * 60 * 60 * 1000;
 async function runHourlyDesirePoller(config = {}) {
@@ -31,38 +32,66 @@ async function runHourlyDesirePoller(config = {}) {
     await sleep(Math.max(0, plannedAt - Date.now()));
     const tickTime = Date.now();
     const schedule = loadDesireSchedule(config.desireScheduleFile);
-    if (schedule.enabled && !isNightSkipAt(tickTime, schedule)) {
-      const id = crypto.randomUUID();
-      const marker = { owner: `${process.pid}:${crypto.randomUUID()}`, eventId: id, startedAt: tickTime };
-      if (queue.hasPendingForAccount(accountId) || !tryAcquireActiveMarker(config.desireActiveFile, marker)) {
-        appendDesireTelemetry({ enabled: config.desireTelemetry, filePath: config.desireTelemetryFile, eventId: id, eventType: "overlap_skipped", outcome: "success", configuredTimezone: schedule.timezone, intervalMinutes: schedule.intervalMinutes });
-      } else {
-        try {
-          queue.enqueue({
-            id,
-            markerOwner: marker.owner,
-            markerEventId: marker.eventId,
-            accountId,
-            senderId,
-            workspaceRoot,
-            text: buildDesireTriggerText(config),
-            sourceType: "desire_checkin",
-            createdAt: new Date().toISOString(),
-          });
-          console.log(`[desire] checkin queued id=${id} at=${new Date(tickTime).toISOString()}`);
-        } catch (error) {
-          releaseActiveMarker(config.desireActiveFile, marker);
-          throw error;
-        }
-      }
-    } else if (schedule.enabled && isNightSkipAt(tickTime, schedule)) {
-      appendDesireTelemetry({ enabled: config.desireTelemetry, filePath: config.desireTelemetryFile, eventId: crypto.randomUUID(), eventType: "night_skipped", outcome: "success", configuredTimezone: schedule.timezone, intervalMinutes: schedule.intervalMinutes });
-    }
+    runHourlyDesireTick({
+      config,
+      queue,
+      accountId,
+      senderId,
+      workspaceRoot,
+      tickTime,
+      schedule,
+    });
     // Advance from the planned start, not from completion, and skip missed
     // intervals after sleep/resume instead of replaying them in a burst.
     plannedAt = nextPlannedAt(plannedAt, schedule.intervalMinutes, Date.now());
     writePlanMarker(config.desirePlanFile, plannedAt);
   }
+}
+
+function runHourlyDesireTick({
+  config = {},
+  queue,
+  accountId,
+  senderId,
+  workspaceRoot,
+  tickTime = Date.now(),
+  schedule = loadDesireSchedule(config.desireScheduleFile),
+} = {}) {
+  if (isActivityPaused(config.activityPauseFile)) {
+    console.log("[desire] hourly poller tick skipped: paused");
+    return { status: "skipped", reason: "paused" };
+  }
+  if (schedule.enabled && !isNightSkipAt(tickTime, schedule)) {
+    const id = crypto.randomUUID();
+    const marker = { owner: `${process.pid}:${crypto.randomUUID()}`, eventId: id, startedAt: tickTime };
+    if (queue.hasPendingForAccount(accountId) || !tryAcquireActiveMarker(config.desireActiveFile, marker)) {
+      appendDesireTelemetry({ enabled: config.desireTelemetry, filePath: config.desireTelemetryFile, eventId: id, eventType: "overlap_skipped", outcome: "success", configuredTimezone: schedule.timezone, intervalMinutes: schedule.intervalMinutes });
+      return { status: "skipped", reason: "overlap" };
+    }
+    try {
+      queue.enqueue({
+        id,
+        markerOwner: marker.owner,
+        markerEventId: marker.eventId,
+        accountId,
+        senderId,
+        workspaceRoot,
+        text: buildDesireTriggerText(config),
+        sourceType: "desire_checkin",
+        createdAt: new Date().toISOString(),
+      });
+      console.log(`[desire] checkin queued id=${id} at=${new Date(tickTime).toISOString()}`);
+      return { status: "queued", id };
+    } catch (error) {
+      releaseActiveMarker(config.desireActiveFile, marker);
+      throw error;
+    }
+  }
+  if (schedule.enabled && isNightSkipAt(tickTime, schedule)) {
+    appendDesireTelemetry({ enabled: config.desireTelemetry, filePath: config.desireTelemetryFile, eventId: crypto.randomUUID(), eventType: "night_skipped", outcome: "success", configuredTimezone: schedule.timezone, intervalMinutes: schedule.intervalMinutes });
+    return { status: "skipped", reason: "night" };
+  }
+  return { status: "skipped", reason: "disabled" };
 }
 
 function writePlanMarker(filePath, plannedAt) {
@@ -229,4 +258,5 @@ module.exports = {
   tryAcquireActiveMarker,
   releaseActiveMarker,
   buildDesireTriggerText,
+  runHourlyDesireTick,
 };

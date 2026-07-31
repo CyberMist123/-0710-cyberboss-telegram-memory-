@@ -45,14 +45,17 @@ class SystemMessageQueueStore {
     return normalized;
   }
 
-  drainForAccount(accountId) {
+  drainForAccount(accountId, { shouldDrain = null } = {}) {
     this.load();
     const normalizedAccountId = normalizeText(accountId);
     const drained = [];
     const pending = [];
 
     for (const message of this.state.messages) {
-      if (message.accountId === normalizedAccountId) {
+      if (
+        message.accountId === normalizedAccountId
+        && (typeof shouldDrain !== "function" || shouldDrain(message))
+      ) {
         drained.push(message);
       } else {
         pending.push(message);
@@ -67,10 +70,13 @@ class SystemMessageQueueStore {
     return drained;
   }
 
-  hasPendingForAccount(accountId) {
+  hasPendingForAccount(accountId, { shouldInclude = null } = {}) {
     this.load();
     const normalizedAccountId = normalizeText(accountId);
-    return this.state.messages.some((message) => message.accountId === normalizedAccountId);
+    return this.state.messages.some((message) =>
+      message.accountId === normalizedAccountId
+      && (typeof shouldInclude !== "function" || shouldInclude(message))
+    );
   }
 }
 

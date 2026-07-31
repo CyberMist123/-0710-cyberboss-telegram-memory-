@@ -13,6 +13,7 @@ const {
   nextScheduleAt,
 } = require("../src/app/closeout-liveness");
 const { buildSystemInboundText } = require("../src/core/system-message-dispatcher");
+const { writeActivityPauseState } = require("../src/core/activity-pause-state");
 
 function tempRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-p0-"));
@@ -29,6 +30,7 @@ function baseConfig(root, overrides = {}) {
     continuityWorktree: root,
     continuityBaseSha: "0".repeat(40),
     stateDir: root,
+    activityPauseFile: path.join(root, "activity-pause.json"),
     conversationDir: path.join(root, "conversations"),
     writerLeaseFile: path.join(continuityDir, ".jobs", "writer.lease"),
     closeoutAutomationLeaseFile: path.join(continuityDir, ".jobs", "closeout.lease"),
@@ -184,6 +186,80 @@ test("automation owner is idempotent, uses one timer, and stops cleanly", async 
     assert.equal(callbacks.size, 1);
     await owner.stop();
     assert.equal(cleared, 1);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test("pause skips closeout and liveness ticks without cancelling a closeout already in flight", async () => {
+  const root = tempRoot();
+  try {
+    const now = Date.parse("2026-07-25T00:00:00Z");
+    const config = baseConfig(root, {
+      nightlyCloseoutEnabled: true,
+      canonLivenessEnabled: true,
+    });
+    let closeoutCalls = 0;
+    let releaseRunner;
+    let announceStarted;
+    const started = new Promise((resolve) => { announceStarted = resolve; });
+    const owner = new CloseoutLivenessAutomation({
+      config,
+      pollIntervalMs: 15 * 60_000,
+      closeoutRunner: async () => {
+        closeoutCalls += 1;
+        announceStarted();
+        await new Promise((resolve) => { releaseRunner = resolve; });
+        return { status: "success" };
+      },
+    });
+    let livenessCalls = 0;
+    owner.runLivenessChecks = async () => {
+      livenessCalls += 1;
+      return [];
+    };
+
+    writeActivityPauseState(config.activityPauseFile, false);
+    const inFlight = owner.tick(now);
+    await started;
+    writeActivityPauseState(config.activityPauseFile, true);
+    releaseRunner();
+    const completed = await inFlight;
+    assert.equal(completed.closeout.status, "success");
+    assert.equal(closeoutCalls, 1);
+    assert.equal(livenessCalls, 1);
+
+    const originalLog = console.log;
+    const lines = [];
+    console.log = (...args) => lines.push(args.join(" "));
+    let paused;
+    try {
+      paused = await owner.tick(now + 60_000);
+    } finally {
+      console.log = originalLog;
+    }
+    assert.deepEqual(paused, {
+      closeout: { status: "skipped", reason: "paused" },
+      liveness: [],
+    });
+    assert.equal(closeoutCalls, 1);
+    assert.equal(livenessCalls, 1);
+    assert.ok(lines.some((line) => /closeout\/liveness tick skipped: paused/.test(line)));
+
+    const timers = [];
+    const pausedOwner = new CloseoutLivenessAutomation({
+      config,
+      pollIntervalMs: 15 * 60_000,
+      timers: {
+        setTimeout(callback, delay) {
+          timers.push({ callback, delay });
+          return timers.length;
+        },
+        clearTimeout() {},
+      },
+    });
+    await pausedOwner.scheduleTick(false);
+    assert.equal(timers[0].delay, 15 * 60_000);
   } finally {
     cleanup(root);
   }

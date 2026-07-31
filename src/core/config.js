@@ -49,6 +49,7 @@ function readConfig() {
     accountsDir: joinIfBase(stateDir, "accounts"),
     reminderQueueFile: joinIfBase(stateDir, "reminder-queue.json"),
     systemMessageQueueFile: joinIfBase(stateDir, "system-message-queue.json"),
+    activityPauseFile: joinIfBase(stateDir, "activity-pause.json"),
     deferredSystemReplyQueueFile: joinIfBase(stateDir, "deferred-system-replies.json"),
     checkinConfigFile: joinIfBase(stateDir, "checkin-config.json"),
     conversationDir: joinIfBase(stateDir, "conversations"),
