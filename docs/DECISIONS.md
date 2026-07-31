@@ -433,6 +433,36 @@ Decision date: 2026-07-31
 
 ---
 
+## D27 · Chat 主体全权不减；toolset 只限初始态；work profile 唯记忆零写权；目录按意图主题分级
+
+```text
+Status: ACTIVE
+Decision date: 2026-07-31
+```
+
+裁定背景：T02 目录化（#112）落地的 toolset 白名单被表述为"指定 toolset 时非成员双拒"，与 Owner 反复强调的 Route 1/2 口径（节能态↔完全体，chat 窗口可转化全功能 AI，只限初始状态不限权限）冲突；同时 Owner 对目录组织方式与 work profile 边界作出裁定。
+
+### D27-1 · Chat 主体全权不减，toolset 只是初始装载面
+
+- **chat lane 永不挂硬 toolset ceiling。** `chat-core@1` 等 toolset 重新定义为**初始常驻面描述符**：决定开局哪些 schema 常驻，不决定哪些能调。生产 chat 的 `CYBERBOSS_TOOL_CATALOG_TOOLSET` 保持空（= 全权 + 目录化省 token）。
+- **对主体 AI，"非成员"的语义 = 一次显式自助升格，不是拒绝**：她在目录看到、说要用，系统即给（加载 schema + 授予调用 + Context Trace 记一笔升格），不打断、不走 Owner 审批。该语义落 T05/T08 实施。
+- **硬 fail-closed 的调用闸只挂两处**：Route 1 worker 会话（T09——那是派出去的车，不是她）与 work profile 的记忆写权（见 D27-2）。
+- Route 2 的"硬门"维持为**路由判断**（超阈值转 Route 1 派活执行），不是权限拒绝——活照做，只换执行位置。
+
+### D27-2 · work profile 工程全权，唯记忆零写权
+
+work profile 是修项目的，**不砍任何工程能力**（文件/git/bash/工程 MCP/审批模式按需全给）。它身上唯一的闸：**不得取得关系记忆 writer 身份**（Self-note / Episode / canon / Desire），且工程提示词不得污染 chat 人格。这是**身份边界不是权限边界**——单 writer（D4/D16/D23）：她的记忆只能她本人执笔。T04 票面按此执行。
+
+### D27-3 · 工具目录按意图主题分级，不按实现来源
+
+- **一级索引**（常驻，触发式描述"什么时候来翻我"）按意图主题：表达行动 / 感知（天气·位置·未来健康·手机使用·可穿戴等）/ 记忆 / 生活记录 / 时间线 / 作息 / 工程派活 / 维护调试。memory/tool/mcp/skill 四类降级为机制与计量口径，不再面向模型展示。
+- **二级** = 主题内工具清单 + 一句用途 + risk 标注，按主题取；**三级** = 完整 schema，按 handle 取且**允许跳级**（已知名字直达，层级只服务发现不设卡）。
+- **别名不进目录**（canonicalize 是机器的事）；目录入口收敛为单工具 `cyberboss_catalog`（无参=一级 / theme=二级 / handle=三级）。
+- **数据的"不暴露但找得到"不进目录**——那是三档纪律的第三档（账本/Episodes 在抽屉里，抽屉把手 `memory_lookup` 在目录里）。新 MCP（健康、日常活动等）**按主题入座，不按传输方式入座**。
+- 实施归 T02.5 小单（manifest 加 theme + 单入口重构）；T04/T05/T07/T08 票面与 #112 能力行描述随之修订。
+
+---
+
 ## 待裁决 / Candidates
 
 下列**尚未做出决定**，不占用 D 编号，也不得当成已定方向施工。
