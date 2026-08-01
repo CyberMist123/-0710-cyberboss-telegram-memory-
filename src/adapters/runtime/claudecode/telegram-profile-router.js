@@ -297,6 +297,7 @@ function createTelegramProfileRouter({
   baseDir = "",
   allowAuthBackendOverride = false,
   cliCapabilitiesJson = "",
+  activePointerEnabled = resolveG3ProfileContractEnabled(),
   fs = fsApi,
 } = {}) {
   const capabilities = resolveCliCapabilities({ declaredJson: cliCapabilitiesJson });
@@ -321,6 +322,39 @@ function createTelegramProfileRouter({
   }
 
   const enabled = mappings.length > 0;
+  // T06 keeps only the active profile id. Native session ids remain exclusively
+  // owned by their profile-scoped session slots, so A -> B -> A can never carry
+  // B's transcript into A.
+  const activeProfileIdByLaneKey = new Map();
+
+  function select(lane) {
+    if (!enabled || !lane) {
+      return UNMAPPED;
+    }
+    const laneKey = typeof lane === "string" ? lane : lane.laneKey;
+    if (!laneKey) {
+      return UNMAPPED;
+    }
+    const mappedProfileId = profileIdByLaneKey[laneKey];
+    if (!mappedProfileId) {
+      return UNMAPPED;
+    }
+    const activeProfileId = activePointerEnabled === true
+      ? activeProfileIdByLaneKey.get(laneKey)
+      : "";
+    const profileId = activeProfileId || mappedProfileId;
+    const selection = {
+      status: "matched",
+      profileId,
+      launchProfile: profiles.get(profileId),
+      profileFingerprint: fingerprintByProfileId.get(profileId) || "legacy",
+    };
+    if (activePointerEnabled === true) {
+      selection.effectiveSource = activeProfileId ? "command" : "mapping";
+      selection.effectiveScope = "lane";
+    }
+    return Object.freeze(selection);
+  }
 
   return Object.freeze({
     describe() {
@@ -333,27 +367,38 @@ function createTelegramProfileRouter({
     isEnabled() {
       return enabled;
     },
+    isActivePointerEnabled() {
+      return activePointerEnabled === true;
+    },
     /**
      * @param {{laneKey?: string, accountId?: string, chatId?: string|number,
      *          messageThreadId?: string|number|null}} lane
      */
-    select(lane) {
-      if (!enabled || !lane) {
-        return UNMAPPED;
+    select,
+    switchProfile(lane, requestedProfileId) {
+      const current = select(lane);
+      if (activePointerEnabled !== true) {
+        return Object.freeze({ status: "disabled", selection: current });
+      }
+      if (current.status !== "matched") {
+        return Object.freeze({ status: "unmapped", selection: current });
+      }
+      let profileId = "";
+      try {
+        profileId = canonicalProfileId(requestedProfileId, "requested profile id");
+      } catch {
+        return Object.freeze({ status: "unknown_profile", selection: current });
+      }
+      if (!profiles.has(profileId)) {
+        return Object.freeze({ status: "unknown_profile", selection: current });
       }
       const laneKey = typeof lane === "string" ? lane : lane.laneKey;
-      if (!laneKey) {
-        return UNMAPPED;
-      }
-      const profileId = profileIdByLaneKey[laneKey];
-      if (!profileId) {
-        return UNMAPPED;
-      }
+      const previousProfileId = current.profileId;
+      activeProfileIdByLaneKey.set(laneKey, profileId);
       return Object.freeze({
-        status: "matched",
-        profileId,
-        launchProfile: profiles.get(profileId),
-        profileFingerprint: fingerprintByProfileId.get(profileId) || "legacy",
+        status: profileId === previousProfileId ? "unchanged" : "switched",
+        previousProfileId,
+        selection: select(lane),
       });
     },
     listProfileIds() {

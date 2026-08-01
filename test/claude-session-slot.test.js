@@ -17,6 +17,7 @@ const {
 } = require("../src/adapters/runtime/claudecode/session-slot");
 const { buildTelegramRouteLane, buildSystemRouteLane } = require("../src/core/route-lane");
 const { validateLaunchProfile } = require("../src/adapters/runtime/claudecode/launch-profile");
+const { createTelegramProfileRouter } = require("../src/adapters/runtime/claudecode/telegram-profile-router");
 
 const FAKE_CLI = path.join(__dirname, "helpers", "fake-claude-cli.js");
 
@@ -525,6 +526,53 @@ test("changing only the profile in one topic opens a new session instead of resu
     // The restrictive profile's transcript is never handed to the wide profile.
     assert.equal(launches[1].resumeSessionId, "");
     assert.equal(launches[1].argv.includes(withSafe.threadId), false);
+  } finally {
+    await adapter.close();
+  }
+});
+
+test("T06 one lane follows its active profile pointer and each profile resumes only its own slot", async () => {
+  const { adapter, tempDir, workspaceRoot, waitForLaunches } = makeAdapter();
+  const targetLane = laneFor(500, null);
+  const profileRouter = createTelegramProfileRouter({
+    profilesJson: JSON.stringify({
+      profile_a: { effort: "low" },
+      profile_b: { effort: "high" },
+    }),
+    mappingJson: JSON.stringify([
+      { accountId: "telegram", chatId: 500, messageThreadId: null, profileId: "profile_a" },
+    ]),
+    baseDir: tempDir,
+    activePointerEnabled: true,
+  });
+
+  try {
+    const firstA = await turn(adapter, {
+      workspaceRoot, lane: targetLane, launchProfile: profileRouter.select(targetLane).launchProfile,
+    });
+    profileRouter.switchProfile(targetLane, "profile_b");
+    const firstB = await turn(adapter, {
+      workspaceRoot, lane: targetLane, launchProfile: profileRouter.select(targetLane).launchProfile,
+    });
+    profileRouter.switchProfile(targetLane, "profile_a");
+    const resumedA = await turn(adapter, {
+      workspaceRoot, lane: targetLane, launchProfile: profileRouter.select(targetLane).launchProfile,
+    });
+
+    assert.equal(resumedA.threadId, firstA.threadId);
+    assert.equal(resumedA.sessionSlotKey, firstA.sessionSlotKey);
+    assert.notEqual(firstB.threadId, firstA.threadId);
+    assert.notEqual(firstB.sessionSlotKey, firstA.sessionSlotKey);
+    const slotStore = adapter.__internals.sessionSlotStore;
+    assert.equal(slotStore.getRoute(firstA.sessionSlotKey).bindingKey, BINDING_KEY);
+    assert.equal(slotStore.getRoute(firstB.sessionSlotKey).bindingKey, BINDING_KEY);
+    assert.equal(slotStore.getRoute(resumedA.sessionSlotKey).bindingKey, BINDING_KEY);
+
+    const launches = await waitForLaunches(3);
+    assert.equal(launches[1].resumeSessionId, "");
+    assert.equal(launches[1].argv.includes(firstA.threadId), false);
+    assert.equal(launches[2].resumeSessionId, firstA.threadId);
+    assert.equal(launches[2].argv.includes(firstB.threadId), false);
   } finally {
     await adapter.close();
   }

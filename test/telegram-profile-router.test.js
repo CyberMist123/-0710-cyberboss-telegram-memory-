@@ -10,15 +10,17 @@ const {
   ProfileRoutingError,
   createTelegramProfileRouter,
 } = require("../src/adapters/runtime/claudecode/telegram-profile-router");
+const { CyberbossApp } = require("../src/core/app");
 const { buildTelegramRouteLane } = require("../src/core/route-lane");
 
 const BASE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "cb-router-"));
 
-function router(profiles, mappings) {
+function router(profiles, mappings, options = {}) {
   return createTelegramProfileRouter({
     profilesJson: profiles === undefined ? "" : JSON.stringify(profiles),
     mappingJson: mappings === undefined ? "" : JSON.stringify(mappings),
     baseDir: BASE_DIR,
+    ...options,
   });
 }
 
@@ -67,6 +69,113 @@ test("a mapped route resolves to its validated profile, an unmapped one does not
   assert.equal(otherTopic.status, "unmapped");
   assert.notEqual(defaultLane.profileFingerprint, topicLane.profileFingerprint);
   assert.equal(defaultLane.launchProfile.effort, "low");
+});
+
+test("T06 active pointer is per lane, reports source/scope, and switches A -> B -> A", () => {
+  const r = router(
+    { profile_a: { effort: "low" }, profile_b: { effort: "high" } },
+    [{ accountId: "telegram", chatId: 100, messageThreadId: 7, profileId: "profile_a" }],
+    { activePointerEnabled: true },
+  );
+  const targetLane = lane(100, 7);
+
+  const initial = r.select(targetLane);
+  assert.equal(initial.profileId, "profile_a");
+  assert.equal(initial.effectiveSource, "mapping");
+  assert.equal(initial.effectiveScope, "lane");
+
+  const toB = r.switchProfile(targetLane, "profile_b");
+  assert.equal(toB.status, "switched");
+  assert.equal(toB.selection.profileId, "profile_b");
+  assert.equal(toB.selection.effectiveSource, "command");
+  assert.equal(r.select(lane(100, 8)).status, "unmapped");
+
+  const backToA = r.switchProfile(targetLane, "profile_a");
+  assert.equal(backToA.status, "switched");
+  assert.equal(backToA.selection.profileId, "profile_a");
+  assert.equal(backToA.selection.effectiveSource, "command");
+});
+
+test("T06 unknown profile is atomic and retains the active window pointer", () => {
+  const r = router(
+    { profile_a: {}, profile_b: {} },
+    [{ accountId: "telegram", chatId: 100, messageThreadId: null, profileId: "profile_a" }],
+    { activePointerEnabled: true },
+  );
+  const targetLane = lane(100);
+  r.switchProfile(targetLane, "profile_b");
+  const before = r.select(targetLane);
+
+  const rejected = r.switchProfile(targetLane, "missing_profile");
+  assert.equal(rejected.status, "unknown_profile");
+  assert.equal(JSON.stringify(rejected.selection), JSON.stringify(before));
+  assert.equal(r.select(targetLane).profileId, "profile_b");
+  assert.equal(r.select(targetLane).profileFingerprint, before.profileFingerprint);
+});
+
+test("T06 gate off preserves baseline selection bytes and unknown-command response", async () => {
+  const r = router(
+    { profile_a: {}, profile_b: {} },
+    [{ accountId: "telegram", chatId: 100, messageThreadId: null, profileId: "profile_a" }],
+    { activePointerEnabled: false },
+  );
+  const targetLane = lane(100);
+  const baseline = JSON.stringify(r.select(targetLane));
+  assert.equal(r.switchProfile(targetLane, "profile_b").status, "disabled");
+  assert.equal(JSON.stringify(r.select(targetLane)), baseline);
+  assert.deepEqual(Object.keys(r.select(targetLane)), [
+    "status", "profileId", "launchProfile", "profileFingerprint",
+  ]);
+
+  const sent = [];
+  const app = Object.create(CyberbossApp.prototype);
+  app.telegramProfileRouter = r;
+  app.channelAdapter = { sendText: async (payload) => sent.push(payload) };
+  await app.dispatchChannelCommand({ senderId: "fixture", contextToken: "" }, {
+    name: "profile", args: "profile_b",
+  });
+  const { buildWeixinHelpText } = require("../src/core/command-registry");
+  assert.equal(sent[0].text, buildWeixinHelpText());
+});
+
+test("T06 /profile receipt matches the effective lane-scoped pointer", async () => {
+  const r = router(
+    { profile_a: {}, profile_b: {} },
+    [{ accountId: "telegram", chatId: 100, messageThreadId: 7, profileId: "profile_a" }],
+    { activePointerEnabled: true },
+  );
+  const sent = [];
+  const resolvedProfiles = [];
+  const app = Object.create(CyberbossApp.prototype);
+  app.telegramProfileRouter = r;
+  app.channelAdapter = { sendText: async (payload) => sent.push(payload) };
+  app.resolveWorkspaceRoot = () => "C:\\fixture\\workspace";
+  app.routingCounters = null;
+  app.config = {};
+  app.runtimeAdapter = {
+    describe: () => ({ id: "claudecode" }),
+    getSessionStore: () => ({ buildBindingKey: () => "workspace:telegram:500" }),
+    resolveRouteSession({ launchProfile }) {
+      resolvedProfiles.push(launchProfile.profileId);
+      return { threadId: launchProfile.profileId === "profile_a" ? "native-a" : "native-b" };
+    },
+  };
+  const inbound = {
+    provider: "telegram", accountId: "telegram", workspaceId: "workspace",
+    senderId: "500", chatId: "100", messageThreadId: "7", contextToken: "ctx",
+  };
+
+  await app.dispatchChannelCommand(inbound, { name: "profile", args: "profile_b" });
+  assert.match(sent[0].text, /Profile switched/);
+  assert.match(sent[0].text, /profile: profile_b/);
+  assert.match(sent[0].text, /effective source: command/);
+  assert.match(sent[0].text, /scope: lane/);
+  assert.match(sent[0].text, /window_id: native-b/);
+
+  await app.dispatchChannelCommand(inbound, { name: "profile", args: "missing_profile" });
+  assert.match(sent[1].text, /Profile not found/);
+  assert.match(sent[1].text, /active profile: profile_b/);
+  assert.deepEqual(resolvedProfiles, ["profile_b"]);
 });
 
 test("a route naming an unknown profile blocks startup instead of falling back", () => {

@@ -53,6 +53,59 @@ test("same sender in another topic or profile cannot receive the handoff", () =>
   assert.equal(JSON.stringify(readJsonl(paths.handoffDeliveryEvents)).includes("other-profile"), false);
 });
 
+test("T06 switched lane delivers only to the origin window and voids a terminated origin", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-handoff-origin-"));
+  const paths = reviewArtifactPaths(root);
+  const origin = route({
+    profile: "profile-a",
+    profileFingerprint: "fingerprint-a",
+    slot: "slot-profile-a",
+    thread: "native-profile-a",
+  });
+  const envelope = createHandoffEnvelope({
+    candidate_id: "cand-origin-only",
+    type: "reentry_draft",
+    body: "仅供原窗口处理的测试正文",
+    source_ref: { entry_ids: ["entry-1"] },
+    subject_route: origin,
+  }, {
+    decision_id: "decision-origin-only",
+    candidate_id: "cand-origin-only",
+    result: "rejected",
+    reason: "imperative_style",
+    checks: {},
+  }, "2026-08-02T00:00:00.000Z");
+  fs.mkdirSync(path.dirname(paths.handoffEnvelopes), { recursive: true });
+  fs.writeFileSync(paths.handoffEnvelopes, `${JSON.stringify(envelope)}\n`, "utf8");
+  const dispatcher = new HandoffDispatcher({ continuityDir: root, enabled: true });
+
+  const newestWindow = identity(route({
+    profile: "profile-b",
+    profileFingerprint: "fingerprint-b",
+    slot: "slot-profile-b",
+    thread: "native-profile-b",
+  }));
+  assert.equal(dispatcher.beginSubjectTurn({ currentRoute: newestWindow }).status, "none");
+  assert.equal(fs.existsSync(paths.handoffDeliveryEvents), false);
+
+  const exactOrigin = dispatcher.beginSubjectTurn({ currentRoute: identity(origin) });
+  assert.equal(exactOrigin.status, "ready");
+  assert.equal(exactOrigin.token.route_match, "EXACT");
+  dispatcher.markFailed(exactOrigin.token, { reason: "fixture_retry", retryable: true });
+
+  const terminatedOrigin = identity(route({
+    profile: "profile-a",
+    profileFingerprint: "fingerprint-a",
+    slot: "slot-profile-a",
+    thread: "native-profile-a-successor",
+  }));
+  assert.equal(dispatcher.beginSubjectTurn({ currentRoute: terminatedOrigin }).status, "none");
+  const events = readJsonl(paths.handoffDeliveryEvents);
+  assert.equal(events.at(-1).result, "window_gone");
+  assert.equal(events.at(-1).reason, "window_gone");
+  assert.equal(JSON.stringify(events).includes("native-profile-b"), false);
+});
+
 function route(overrides = {}) {
   const thread = overrides.thread || "native-session-a";
   return createSubjectRoute({
