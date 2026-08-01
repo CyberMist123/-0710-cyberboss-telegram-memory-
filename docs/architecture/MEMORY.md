@@ -332,6 +332,7 @@ Desire 属于 Cyberboss runtime，不属于关系正史。
 
 - 原始会话：系统自动写，唯一事实来源。
 - candidates：Closeout / Janitor 等自动流程写。
+- `candidates/legacy-candidate-route-bindings.jsonl`：仅离线 `classify-legacy-candidates.js --apply` migration writer 追加；现有 Review / History / dispatcher / closeout 均不写、不读，未来读者还必须受默认关闭的 `CYBERBOSS_LEGACY_CANDIDATE_BINDING_ENABLED` 门控。
 - Episode canon：唯一 History writer 按已验证的 publication intent 写。
 - 账本 `details.jsonl`：唯一 History writer 按已验证的 publication intent 写（内容仍由主体 AI 执笔）。
 - Re-entry：主体 AI 唯一执笔，Auto Review 只校验。
