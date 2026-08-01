@@ -34,6 +34,7 @@ API 桥永不让外部直接写 episodes.jsonl 正式文件——候选与正式
 """
 import atexit
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -1200,6 +1201,8 @@ def resolve_desire_history_file():
 
 
 CONTEXT_GATE_KEYS = ("reentry", "current_state", "memory_context")
+SLEEP_WINDOW_DEFAULT = {"start": "00:00", "end": "06:00"}
+SLEEP_WINDOW_TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 
 
 def load_context_gates():
@@ -1217,6 +1220,52 @@ def load_context_gates():
     except Exception:
         pass
     return gates
+
+
+def normalize_sleep_window(value):
+    if not isinstance(value, dict):
+        return dict(SLEEP_WINDOW_DEFAULT)
+    start = value.get("start")
+    end = value.get("end")
+    if not isinstance(start, str) or not isinstance(end, str):
+        return dict(SLEEP_WINDOW_DEFAULT)
+    start = start.strip()
+    end = end.strip()
+    if not SLEEP_WINDOW_TIME_RE.fullmatch(start) or not SLEEP_WINDOW_TIME_RE.fullmatch(end) or start == end:
+        return dict(SLEEP_WINDOW_DEFAULT)
+    return {"start": start, "end": end}
+
+
+def load_sleep_window():
+    """Read the check-in sleep window fail-open; 520 is the only writer."""
+    try:
+        parsed = json.loads(read_text(resolve_runtime_state_dir() / "sleep-window.json"))
+    except Exception:
+        return dict(SLEEP_WINDOW_DEFAULT)
+    return normalize_sleep_window(parsed)
+
+
+def validate_sleep_window(value):
+    if not isinstance(value, dict):
+        raise ValueError("请求体必须是 JSON 对象")
+    start = value.get("start")
+    end = value.get("end")
+    if not isinstance(start, str) or not isinstance(end, str):
+        raise ValueError("start 和 end 都必须提供 HH:MM")
+    start = start.strip()
+    end = end.strip()
+    if not SLEEP_WINDOW_TIME_RE.fullmatch(start) or not SLEEP_WINDOW_TIME_RE.fullmatch(end):
+        raise ValueError("start 和 end 必须是 24 小时制 HH:MM")
+    if start == end:
+        raise ValueError("start 和 end 不能相同")
+    return {"start": start, "end": end}
+
+
+def is_loopback_address(value):
+    try:
+        return ipaddress.ip_address(str(value or "").split("%", 1)[0]).is_loopback
+    except ValueError:
+        return False
 
 
 def normalize_octant_score(value):
@@ -3463,6 +3512,19 @@ PAGE = r"""<!doctype html>
         </section>
 
         <section class="ctx-section">
+          <div class="ctx-section-head"><div><h3 class="ctx-section-title">Check-in 睡眠窗口</h3>
+            <div class="ctx-section-copy">使用应用的当地时区；保存后 TG 进程下一轮即时读取，无需重启。</div></div>
+            <span class="ctx-save-state" id="sleep-window-status"></span></div>
+          <div class="ctx-section-body">
+            <div class="ctx-gates">
+              <div class="ctx-gate"><div><strong>开始</strong><small>24 小时制</small></div><input type="time" id="sleep-window-start"></div>
+              <div class="ctx-gate"><div><strong>结束</strong><small>允许跨午夜</small></div><input type="time" id="sleep-window-end"></div>
+            </div>
+            <div style="margin-top:10px;"><button onclick="saveSleepWindow()">保存睡眠窗口</button></div>
+          </div>
+        </section>
+
+        <section class="ctx-section">
           <div class="ctx-section-head"><div><h3 class="ctx-section-title">实际缝入内容</h3>
             <div class="ctx-section-copy">四个入口对应四种真实来源。Live State 和 Memory Context 留空时恢复自动模式。</div></div></div>
           <div class="ctx-section-body"><div class="context-sources" id="context-sources">读取中…</div></div>
@@ -4713,6 +4775,32 @@ async function loadContextGatesForManager() {
   return gates || {};
 }
 
+async function loadSleepWindow() {
+  const response = await fetch('/api/sleep-window');
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.err || ('HTTP ' + response.status));
+  document.getElementById('sleep-window-start').value = data.start || '00:00';
+  document.getElementById('sleep-window-end').value = data.end || '06:00';
+  return data;
+}
+
+async function saveSleepWindow() {
+  const status = document.getElementById('sleep-window-status');
+  status.textContent = '保存中…';
+  try {
+    const data = await contextPost('/api/sleep-window', {
+      start: document.getElementById('sleep-window-start').value,
+      end: document.getElementById('sleep-window-end').value,
+    });
+    document.getElementById('sleep-window-start').value = data.start;
+    document.getElementById('sleep-window-end').value = data.end;
+    status.textContent = '已保存；下一轮即时生效';
+  } catch (e) {
+    status.textContent = '失败：' + e.message;
+    await loadSleepWindow();
+  }
+}
+
 function contextGroups() {
   return ((contextLayoutPayload || {}).layout || {}).groups || [];
 }
@@ -4974,6 +5062,7 @@ async function loadContextManager() {
       fetch('/api/injection'),
       fetch('/api/context-sources'),
       loadContextGatesForManager(),
+      loadSleepWindow(),
     ]);
     renderContextRuntime(await overviewRes.json(), await injectionRes.json());
     renderContextSources(await sourcesRes.json());
@@ -5427,6 +5516,12 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
 
+        elif u.path == "/api/sleep-window":
+            try:
+                self._send(200, json.dumps(load_sleep_window(), ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))
+
         # ---- v2.1 API 桥:只读端点(无需 token,只绑本机) ----
 
         elif u.path == "/api/reentry":
@@ -5691,6 +5786,32 @@ class H(BaseHTTPRequestHandler):
                 }, ensure_ascii=False))
             except Exception as e:
                 self._send(500, json.dumps({"ok": False, "err": str(e)}, ensure_ascii=False))
+            return
+
+        if u.path == "/api/sleep-window":
+            # Single writer: only the local 520 dashboard writes sleep-window.json.
+            if not is_loopback_address(self.client_address[0]):
+                self._send(403, json.dumps({"ok": False, "error": "local_only"}, ensure_ascii=False))
+                return
+            forwarded_for = self.headers.get("X-Forwarded-For", "").strip()
+            if forwarded_for and any(not is_loopback_address(item.strip()) for item in forwarded_for.split(",")):
+                self._send(403, json.dumps({"ok": False, "error": "local_only"}, ensure_ascii=False))
+                return
+            if not self._check_token():
+                return
+            obj, err = self._read_json_body()
+            if err or not isinstance(obj, dict):
+                self._send(400, json.dumps({"ok": False, "error": "invalid_body", "err": err}, ensure_ascii=False))
+                return
+            try:
+                sleep_window = validate_sleep_window(obj)
+                sleep_window_file = resolve_runtime_state_dir() / "sleep-window.json"
+                write_text_atomic(sleep_window_file, json.dumps(sleep_window, ensure_ascii=False, indent=2) + "\n")
+                self._send(200, json.dumps({"ok": True, **sleep_window}, ensure_ascii=False))
+            except ValueError as e:
+                self._send(400, json.dumps({"ok": False, "error": "invalid_sleep_window", "err": str(e)}, ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"ok": False, "error": "sleep_window_write_failed", "err": str(e)}, ensure_ascii=False))
             return
 
         if u.path == "/api/review/retry":
