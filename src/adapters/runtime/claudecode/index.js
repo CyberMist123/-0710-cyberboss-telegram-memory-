@@ -17,6 +17,7 @@ const { ProcessRegistry, buildProcessKey } = require("./process-registry");
 const { fingerprintLaunchProfile, profileLogicalIdentity } = require("./launch-profile");
 const { resolveCliCapabilities } = require("./cli-capabilities");
 const { runG3LaunchPreflight } = require("./g3-preflight");
+const { applyHarnessOverlay, resolveWindowOverride, windowOverrideEnabled } = require("./window-override");
 const {
   buildLegacyRouteLane,
   buildSystemRouteLane,
@@ -226,6 +227,7 @@ function createClaudeCodeRuntimeAdapter(config) {
     // override that outranks it: the chat's own /effort choice is the most
     // specific level, and the env default only applies when it is absent.
     effort = "",
+    windowOverride = null,
     // Required for the one-shot legacy migration: only a Telegram private
     // chat's default lane (chatId === the binding's own senderId) qualifies.
     senderId = "",
@@ -287,6 +289,19 @@ function createClaudeCodeRuntimeAdapter(config) {
       }
     }
 
+    const resolvedModel = resolveModel(model);
+    const storedWindowOverride = sessionSlotStore.getWindowOverride(sessionSlotKey);
+    const mutableOverride = resolveWindowOverride({
+      ...(storedWindowOverride || {}),
+      ...(windowOverride && typeof windowOverride === "object" ? windowOverride : {}),
+      ...(resolvedModel && !storedWindowOverride?.model && !windowOverride?.model
+        ? { model: resolvedModel, modelSource: "command" }
+        : {}),
+      ...(normalizeEffort(effort) && !storedWindowOverride?.effort && !windowOverride?.effort
+        ? { effort: normalizeEffort(effort), effortSource: "command" }
+        : {}),
+    }, { profile: launchProfile, env: process.env });
+
     return {
       bindingKey,
       senderId: normalizeText(senderId),
@@ -301,8 +316,9 @@ function createClaudeCodeRuntimeAdapter(config) {
       agentCwd,
       configIdentity,
       workspaceAccess: normalizeAccessMode(launchProfile?.workspaceAccess),
-      model: resolveModel(model),
-      effort: normalizeEffort(effort),
+      model: mutableOverride?.model || resolvedModel,
+      effort: mutableOverride?.effort || normalizeEffort(effort),
+      mutableOverride,
     };
   }
 
@@ -408,6 +424,7 @@ function createClaudeCodeRuntimeAdapter(config) {
       routeToken: route.sessionSlotKey,
       configDir: path.join(stateDir, "claude-mcp"),
       launchProfile: route.launchProfile,
+      mutableOverride: route.mutableOverride,
     });
     const projectSettings = routeScoped
       || ensureClaudeProjectMcpConfig({ workspaceRoot, cyberbossHome });
@@ -426,6 +443,7 @@ function createClaudeCodeRuntimeAdapter(config) {
       extraArgs: config.claudeExtraArgs || [],
       mcpConfigPaths: [projectSettings.configPath],
       launchProfile: route.launchProfile,
+      mutableOverride: route.mutableOverride,
       launchProfileBaseDir,
       cliCapabilities,
       allowAuthBackendOverride,
@@ -535,7 +553,8 @@ function createClaudeCodeRuntimeAdapter(config) {
       // is passed straight back in as --resume, so the thread survives the swap.
       if (client?.usable
         && (normalizeText(client.model) !== route.model
-          || normalizeEffort(client.effort) !== route.effort)) {
+          || normalizeEffort(client.effort) !== route.effort
+          || normalizeText(client.mutableOverrideFingerprint) !== (route.mutableOverride?.fingerprint || "baseline"))) {
         await closeProcessKey(processKey);
         client = null;
       }
@@ -866,13 +885,39 @@ function createClaudeCodeRuntimeAdapter(config) {
     async sendTextTurn(args) {
       return this.sendTurn(args);
     },
+    getWindowOverride({ bindingKey = "", workspaceRoot = "", lane = null, launchProfile = null, senderId = "" } = {}) {
+      const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, senderId });
+      return {
+        enabled: windowOverrideEnabled(),
+        sessionSlotKey: route.sessionSlotKey,
+        value: sessionSlotStore.getWindowOverride(route.sessionSlotKey) || {},
+        trace: route.mutableOverride?.trace || null,
+      };
+    },
+    setWindowOverride({
+      bindingKey = "", workspaceRoot = "", lane = null, launchProfile = null, senderId = "", patch = {},
+    } = {}) {
+      if (!windowOverrideEnabled()) return { enabled: false, applied: false };
+      const baseRoute = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, senderId });
+      const current = sessionSlotStore.getWindowOverride(baseRoute.sessionSlotKey) || {};
+      const next = { ...current, ...(patch && typeof patch === "object" ? patch : {}) };
+      const resolved = resolveWindowOverride(next, { profile: launchProfile, env: process.env });
+      sessionSlotStore.setWindowOverride(baseRoute.sessionSlotKey, next, { route: baseRoute.routeDescriptor });
+      return {
+        enabled: true,
+        applied: true,
+        sessionSlotKey: baseRoute.sessionSlotKey,
+        value: next,
+        trace: resolved.trace,
+      };
+    },
     async sendTurn({
       bindingKey, workspaceRoot, text, metadata = {}, model = "", effort = "",
-      lane = null, launchProfile = null, senderId = "",
+      lane = null, launchProfile = null, senderId = "", windowOverride = null,
     }) {
       const desiredModel = resolveModel(model);
       const route = resolveRouteContext({
-        bindingKey, workspaceRoot, lane, launchProfile, model: desiredModel, effort, senderId,
+        bindingKey, workspaceRoot, lane, launchProfile, model: desiredModel, effort, senderId, windowOverride,
       });
       // The resume id comes from this slot only. Another lane's session id is
       // simply not reachable from here, which is the structural guarantee that
@@ -938,6 +983,10 @@ function createClaudeCodeRuntimeAdapter(config) {
           outboundText,
           fallback,
         });
+      }
+      if (route.mutableOverride) {
+        outboundText = applyHarnessOverlay(outboundText, route.mutableOverride);
+        continuity = { ...continuity, window_override: route.mutableOverride.trace };
       }
       if (outboundThreadId) {
         storeSlotThreadId(route, outboundThreadId, metadata);
@@ -1007,6 +1056,7 @@ function createClaudeCodeRuntimeAdapter(config) {
         processKey: attached.processKey,
         profileId: route.profileId,
         workspaceAccess: route.workspaceAccess,
+        windowOverride: route.mutableOverride?.trace || null,
         continuity,
       };
     },

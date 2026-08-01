@@ -12,12 +12,21 @@ const {
 } = require("./tool-catalog-manifest");
 
 class ProjectToolHost {
-  constructor({ services, runtimeContextStore, toolset = null, authorizationCeiling = "" }) {
+  constructor({
+    services,
+    runtimeContextStore,
+    toolset = null,
+    authorizationCeiling = "",
+    chatSelfEscalation = false,
+    onSelfEscalation = null,
+  }) {
     this.services = services;
     this.runtimeContextStore = runtimeContextStore;
     this.extraToolHosts = createExtraToolHosts(services);
     this.toolset = toolset;
     this.authorizationCeiling = normalizeAuthorizationCeiling(authorizationCeiling);
+    this.chatSelfEscalation = chatSelfEscalation === true;
+    this.onSelfEscalation = typeof onSelfEscalation === "function" ? onSelfEscalation : null;
   }
 
   catalogState() {
@@ -83,7 +92,17 @@ class ProjectToolHost {
       }
       if (!spec && !extraHost) throw new Error(`Unknown tool: ${toolName}`);
       const { toolset } = this.catalogState();
-      if (toolset && !toolset.members.has(resolvedToolName)) throw catalogError("catalog_tool_not_in_toolset", resolvedToolName);
+      if (toolset && !toolset.members.has(resolvedToolName)) {
+        if (!this.chatSelfEscalation) throw catalogError("catalog_tool_not_in_toolset", resolvedToolName);
+        this.onSelfEscalation?.({
+          type: "toolset_self_escalation",
+          toolset: toolset.id,
+          tool: resolvedToolName,
+          source: "self_escalation",
+          scope: "window",
+          approval_required: false,
+        });
+      }
     }
     if (alias?.command && !normalizedArgs.command) {
       normalizedArgs.command = alias.command;

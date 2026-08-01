@@ -122,6 +122,8 @@ function createProjectTooling(config, options = {}) {
     runtimeContextStore,
     toolset: options.toolset || null,
     authorizationCeiling: options.authorizationCeiling || "",
+    chatSelfEscalation: options.chatSelfEscalation === true,
+    onSelfEscalation: options.onSelfEscalation,
   });
   return {
     services,

@@ -90,6 +90,8 @@ Claude Code 子进程自己可以再起**子代理**。这条链路目前不由�
 | **Route lane** | `accountId + chatId + nullable messageThreadId` | 每对话的**投递与回合串行**身份。两个 lane 绝不共享 turn gate、pending buffer、debounce timer、回复目标、typing 指示或出站 thread id | `route-lane.js` |
 | **Session slot** | `workspace + route lane + effective profile` | Claude native transcript 身份 | `adapters/runtime/claudecode/session-slot.js` |
 
+G3 profile 的 slot 指纹只包含人格、permission identity 与隔离边界。显式开启同窗口 override 后，model、effort、effective toolset、effective MCP set 与非人格 harness overlay 只改变该 slot 的可变运行态；需要重启子进程时仍以 slot 内原生 session id `--resume`，不换窗口。人格正文或 permission identity 变化仍进入 profile 指纹并产生新 slot。每轮 effective value/token、source、scope 与 overlay label 进入 Context Trace；chat lane 的 toolset 只描述初始装载面，非成员调用按主体自助升格处理，不挂审批式硬 ceiling。
+
 `route-lane.js` **无依赖，必须保持无依赖** —— 通道适配器、core app、运行时适配器三边都加载它。
 
 Conversation recorder 在 entry 写入当下冻结

@@ -39,6 +39,7 @@ class ClaudeCodeProcessClient {
     extraArgs = [],
     mcpConfigPaths = [],
     launchProfile = null,
+    mutableOverride = null,
     launchProfileBaseDir = "",
     cliCapabilities = null,
     allowAuthBackendOverride = false,
@@ -66,6 +67,8 @@ class ClaudeCodeProcessClient {
     this.extraArgs = extraArgs;
     this.mcpConfigPaths = mcpConfigPaths;
     this.launchProfile = launchProfile || null;
+    this.mutableOverride = mutableOverride || null;
+    this.mutableOverrideFingerprint = this.mutableOverride?.fingerprint || "baseline";
     // No current-working-directory default: with a profile applied, an unset base directory
     // is a configuration error and must surface as one.
     this.launchProfileBaseDir = typeof launchProfileBaseDir === "string" ? launchProfileBaseDir.trim() : "";
@@ -144,6 +147,7 @@ class ClaudeCodeProcessClient {
     const profileLaunch = this.launchProfile
       ? buildProfileLaunch({
         profile: this.launchProfile,
+        mutableOverride: this.mutableOverride,
         baseEnv: this.env,
         baseCwd: this.cwd,
         baseMcpConfigPaths: this.mcpConfigPaths,

@@ -931,6 +931,7 @@ class CyberbossApp {
         effort: turnParams.effort,
         lane: effectiveLane,
         launchProfile: this.resolveLaunchProfileForLane?.(effectiveLane) || null,
+        windowOverride: turnParams.windowOverride || null,
         senderId: prepared.senderId || "",
         metadata: {
           workspaceId: prepared.workspaceId,
@@ -2479,7 +2480,14 @@ class CyberbossApp {
     const query = normalizeCommandArgument(command.args);
     const sessionStore = this.runtimeAdapter.getSessionStore();
     const catalog = sessionStore.getAvailableModelCatalog();
-    const currentModel = sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot).model;
+    const commandLane = resolveRouteLaneFor(normalized, bindingKey);
+    const launchProfile = this.resolveLaunchProfileForLane?.(commandLane) || null;
+    const windowState = this.runtimeAdapter.getWindowOverride?.({
+      bindingKey, workspaceRoot, lane: commandLane, launchProfile, senderId: normalized.senderId || "",
+    });
+    const currentModel = windowState?.enabled
+      ? (windowState.value?.model || windowState.trace?.entries?.find((entry) => entry.kind === "model")?.effective_value || "")
+      : sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot).model;
 
     if (!query) {
       const lines = [
@@ -2514,12 +2522,24 @@ class CyberbossApp {
       return;
     }
 
-    sessionStore.setRuntimeParamsForWorkspace(bindingKey, workspaceRoot, {
-      model: matched.model,
+    const windowResult = this.runtimeAdapter.setWindowOverride?.({
+      bindingKey,
+      workspaceRoot,
+      lane: commandLane,
+      launchProfile,
+      senderId: normalized.senderId || "",
+      patch: { model: matched.model, modelSource: "command", modelScope: "window" },
     });
+    if (!windowResult?.applied) {
+      sessionStore.setRuntimeParamsForWorkspace(bindingKey, workspaceRoot, {
+        model: matched.model,
+      });
+    }
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
-      text: `✅ Model switched\nworkspace: ${workspaceRoot}\nmodel: ${matched.model}`,
+      text: windowResult?.applied
+        ? `✅ Model switched\nscope: window\nmodel: ${matched.model}`
+        : `✅ Model switched\nworkspace: ${workspaceRoot}\nmodel: ${matched.model}`,
       contextToken: normalized.contextToken,
       ...outboundThreadIdField(normalized),
     });
@@ -2542,13 +2562,20 @@ class CyberbossApp {
     const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
     const sessionStore = this.runtimeAdapter.getSessionStore();
     const requested = normalizeCommandArgument(command.args);
+    const commandLane = resolveRouteLaneFor(normalized, bindingKey);
+    const launchProfile = this.resolveLaunchProfileForLane?.(commandLane) || null;
+    const windowState = this.runtimeAdapter.getWindowOverride?.({
+      bindingKey, workspaceRoot, lane: commandLane, launchProfile, senderId: normalized.senderId || "",
+    });
 
     if (!requested) {
-      const storedEffort = sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot).effort;
+      const storedEffort = windowState?.enabled
+        ? (windowState.value?.effort || windowState.trace?.entries?.find((entry) => entry.kind === "effort")?.effective_value || "")
+        : sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot).effort;
       const envEffort = normalizeEffort(process.env.CYBERBOSS_CLAUDE_EFFORT);
       let source = "default";
       if (normalizeEffort(storedEffort)) {
-        source = "this chat";
+        source = windowState?.enabled ? "this window" : "this chat";
       } else if (envEffort) {
         source = "CYBERBOSS_CLAUDE_EFFORT";
       }
@@ -2576,12 +2603,24 @@ class CyberbossApp {
       return;
     }
 
-    sessionStore.setRuntimeParamsForWorkspace(bindingKey, workspaceRoot, {
-      effort: matched,
+    const windowResult = this.runtimeAdapter.setWindowOverride?.({
+      bindingKey,
+      workspaceRoot,
+      lane: commandLane,
+      launchProfile,
+      senderId: normalized.senderId || "",
+      patch: { effort: matched, effortSource: "command", effortScope: "window" },
     });
+    if (!windowResult?.applied) {
+      sessionStore.setRuntimeParamsForWorkspace(bindingKey, workspaceRoot, {
+        effort: matched,
+      });
+    }
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
-      text: `✅ Effort switched\nworkspace: ${workspaceRoot}\neffort: ${matched}`,
+      text: windowResult?.applied
+        ? `✅ Effort switched\nscope: window\neffort: ${matched}`
+        : `✅ Effort switched\nworkspace: ${workspaceRoot}\neffort: ${matched}`,
       contextToken: normalized.contextToken,
       ...outboundThreadIdField(normalized),
     });
@@ -3348,6 +3387,7 @@ class CyberbossApp {
       fallback: context.fallback,
       total_chars: context.total_chars,
       recall_calls: [],
+      ...(context.window_override ? { window_override: context.window_override } : {}),
     });
   }
 

@@ -20,6 +20,7 @@ function ensureRouteScopedMcpConfig({
   routeToken = "",
   configDir = "",
   launchProfile = null,
+  mutableOverride = null,
 } = {}) {
   const normalizedWorkspaceRoot = normalizeText(workspaceRoot);
   const normalizedToken = normalizeText(routeToken);
@@ -40,8 +41,9 @@ function ensureRouteScopedMcpConfig({
         cyberbossHome,
         routeToken: normalizedToken,
         launchProfile,
+        mutableOverride,
       }),
-      ...Object.fromEntries(resolveAllowedExternalMcpServerConfigs(launchProfile).map((config) => [config.name, config])),
+      ...Object.fromEntries(resolveAllowedExternalMcpServerConfigs(launchProfile, mutableOverride).map((config) => [config.name, config])),
     },
   };
   if (!jsonEquals(readJsonObject(configPath), next)) {
@@ -82,7 +84,9 @@ function ensureClaudeProjectMcpConfig({ workspaceRoot, cyberbossHome = "" } = {}
   };
 }
 
-function buildClaudeProjectMcpServerConfig({ workspaceRoot, cyberbossHome = "", routeToken = "", launchProfile = null } = {}) {
+function buildClaudeProjectMcpServerConfig({
+  workspaceRoot, cyberbossHome = "", routeToken = "", launchProfile = null, mutableOverride = null,
+} = {}) {
   const normalizedWorkspaceRoot = normalizeText(workspaceRoot);
   const home = normalizeText(cyberbossHome) || process.env.CYBERBOSS_HOME || path.resolve(__dirname, "..", "..", "..", "..");
   const scriptPath = path.join(home, "bin", "cyberboss.js");
@@ -106,18 +110,41 @@ function buildClaudeProjectMcpServerConfig({ workspaceRoot, cyberbossHome = "", 
   if (launchProfile?.schemaVersion === 3 && launchProfile.profileId === "fable-chat") {
     entry.env = { ...(entry.env || {}), CYBERBOSS_TOOL_CATALOG_ENABLED: "true" };
   }
-  const toolset = typeof process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET === "string" ? process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET.trim() : "";
-  if (process.env.CYBERBOSS_TOOL_CATALOG_ENABLED === "true" && toolset) args.push("--toolset", toolset);
+  const toolset = mutableOverride?.effectiveToolset && mutableOverride.effectiveToolset !== "full"
+    ? mutableOverride.effectiveToolset
+    : (typeof process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET === "string" ? process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET.trim() : "");
+  const catalogEnabled = entry.env?.CYBERBOSS_TOOL_CATALOG_ENABLED === "true"
+    || process.env.CYBERBOSS_TOOL_CATALOG_ENABLED === "true";
+  if (catalogEnabled && toolset) args.push("--toolset", toolset);
+  if (mutableOverride && launchProfile?.profileId === "fable-chat") {
+    args.push("--chat-self-escalation");
+    entry.env = { ...(entry.env || {}), CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED: "true" };
+  }
   return entry;
 }
 
-function resolveAllowedExternalMcpServerConfigs(launchProfile) {
-  if (launchProfile?.schemaVersion !== 3) return resolveClaudeExternalMcpServerConfigs();
-  if (launchProfile.mcpServerCeiling === "chat-ceiling@1") return [];
-  if (launchProfile.mcpServerCeiling === "work-ceiling@1") return resolveClaudeExternalMcpServerConfigs();
-  const error = new Error("g3_mcp_server_ceiling_unknown");
-  error.code = "g3_mcp_server_ceiling_unknown";
-  throw error;
+function resolveAllowedExternalMcpServerConfigs(launchProfile, mutableOverride = null) {
+  const available = resolveClaudeExternalMcpServerConfigs();
+  let allowed;
+  if (launchProfile?.schemaVersion !== 3) allowed = available;
+  else if (launchProfile.mcpServerCeiling === "chat-ceiling@1") allowed = [];
+  else if (launchProfile.mcpServerCeiling === "work-ceiling@1") allowed = available;
+  else {
+    const error = new Error("g3_mcp_server_ceiling_unknown");
+    error.code = "g3_mcp_server_ceiling_unknown";
+    throw error;
+  }
+  if (!Array.isArray(mutableOverride?.effectiveMcpSet)) return allowed;
+  const requested = new Set(mutableOverride.effectiveMcpSet.filter((name) => name !== "cyberboss_tools"));
+  const known = new Set(allowed.map((config) => config.name));
+  for (const name of requested) {
+    if (!known.has(name)) {
+      const error = new Error("window_override_mcp_outside_ceiling");
+      error.code = "window_override_mcp_outside_ceiling";
+      throw error;
+    }
+  }
+  return allowed.filter((config) => requested.has(config.name));
 }
 
 function resolveToolAuthorizationCeiling(launchProfile) {
