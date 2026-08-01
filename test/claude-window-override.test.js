@@ -285,8 +285,13 @@ test("T05 A7 switch off is byte-compatible for launch, slot and Context Trace", 
       buildSessionSlotKey({ workspaceRoot: root, laneKey: "lane", profileFingerprint: fingerprint }),
       buildSessionSlotKey({ workspaceRoot: root, laneKey: "lane", profileFingerprint: fingerprint }),
     );
-    const baselineTrace = sanitizeTraceEntry({ threadId: "thread", turnId: "turn" });
-    const disabledTrace = sanitizeTraceEntry({ threadId: "thread", turnId: "turn", window_override: disabled?.trace });
+    // ts 必须两侧显式钉死：sanitizeTraceEntry 在 entry.ts 缺失时现取系统时钟
+    // （src/core/context-trace.js 的 `normalizeText(entry.ts) || new Date().toISOString()`），
+    // 两次调用只要跨过一个毫秒刻度就必然不等。本断言要证的是「开关关闭时 trace 结构
+    // 逐字一致」，与时间戳无关——不钉死它等于顺带断言了一件设计上就为假的事。
+    const FIXED_TS = "2026-01-01T00:00:00.000Z";
+    const baselineTrace = sanitizeTraceEntry({ ts: FIXED_TS, threadId: "thread", turnId: "turn" });
+    const disabledTrace = sanitizeTraceEntry({ ts: FIXED_TS, threadId: "thread", turnId: "turn", window_override: disabled?.trace });
     assert.deepEqual(disabledTrace, baselineTrace);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
