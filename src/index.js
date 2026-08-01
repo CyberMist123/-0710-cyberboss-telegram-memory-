@@ -182,7 +182,18 @@ async function main() {
     const authorizationCeiling = readFlagValue(argv.slice(1), "--authorization-ceiling") || "";
     const chatSelfEscalation = argv.slice(1).includes("--chat-self-escalation")
       && /^(?:1|true|yes|on)$/i.test(String(process.env.CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED || "").trim());
-    const { toolHost } = createProjectTooling(config, { toolset, authorizationCeiling, chatSelfEscalation });
+    const route2LeaseToken = readFlagValue(argv.slice(1), "--route2-lease") || "";
+    let route2Lease = null;
+    if (route2LeaseToken && /^(?:1|true|yes|on)$/i.test(String(process.env.CYBERBOSS_ROUTE2_GATE_ENABLED || "").trim())) {
+      try {
+        route2Lease = JSON.parse(Buffer.from(route2LeaseToken, "base64url").toString("utf8"));
+      } catch {
+        const error = new Error("capability_lease_invalid");
+        error.code = "capability_lease_invalid";
+        throw error;
+      }
+    }
+    const { toolHost } = createProjectTooling(config, { toolset, authorizationCeiling, chatSelfEscalation, route2Lease });
     runToolMcpServer({ toolHost, runtimeId, workspaceRoot, routeToken });
     return;
   }

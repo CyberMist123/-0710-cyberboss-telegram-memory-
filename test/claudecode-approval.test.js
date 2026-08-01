@@ -486,6 +486,148 @@ test("T07 A11 feature flag off keeps the pre-T07 event and manifest behavior", (
   }
 });
 
+function beginLeaseFixture({ now = () => 1_000, setTimer = () => ({ unref() {} }), clearTimer = () => {}, onRevoke = null } = {}) {
+  const store = new SessionSlotStore();
+  store.setThreadId("slot-lease-fake", "window-lease-fake");
+  const state = new Route2GateState({
+    sessionSlotStore: store,
+    env: { CYBERBOSS_ROUTE2_GATE_ENABLED: "true" },
+    now,
+    setTimer,
+    clearTimer,
+    onRevoke,
+  });
+  state.begin({
+    sessionSlotKey: "slot-lease-fake",
+    windowId: "window-lease-fake",
+    overrideFingerprint: "override-lease-fake",
+    plan: { catalog: [{ id: "fake_read", estimated_schema_chars: 10, max_result_bytes: 32 }], toolNames: ["fake_read"] },
+    lease: { id: "lease-fake", ttlMs: 100, toolNames: ["fake_read"] },
+  });
+  return { state, store };
+}
+
+test("T08 A2 completed revokes the single-operation lease and clears the slot state", () => {
+  const { state, store } = beginLeaseFixture();
+  const cost = state.observe({ type: "runtime.turn.completed", payload: { sessionSlotKey: "slot-lease-fake" } });
+  assert.equal(cost.payload.outcome, "success");
+  assert.equal(state.get("slot-lease-fake"), null);
+  assert.equal(store.getRoute2Gate("slot-lease-fake"), null);
+});
+
+test("T08 A3 failed revokes the single-operation lease", () => {
+  const { state, store } = beginLeaseFixture();
+  state.observe({ type: "runtime.turn.failed", payload: { sessionSlotKey: "slot-lease-fake" } });
+  assert.equal(state.get("slot-lease-fake"), null);
+  assert.equal(store.getRoute2Gate("slot-lease-fake"), null);
+});
+
+test("T08 A4 TTL expiry revokes the lease and clears persisted state", () => {
+  let now = 1_000;
+  let expire = null;
+  const revoked = [];
+  const { state, store } = beginLeaseFixture({
+    now: () => now,
+    setTimer: (fn) => { expire = fn; return { unref() {} }; },
+    onRevoke: (entry) => revoked.push(entry),
+  });
+  now = 1_101;
+  expire();
+  assert.equal(state.get("slot-lease-fake"), null);
+  assert.equal(store.getRoute2Gate("slot-lease-fake"), null);
+  assert.equal(revoked[0].revokeReason, "ttl_expired");
+});
+
+test("T08 A5 cancel signal revokes the lease", () => {
+  const { state, store } = beginLeaseFixture();
+  state.observe({ type: "runtime.turn.cancelled", payload: { sessionSlotKey: "slot-lease-fake" } });
+  assert.equal(store.getRoute2Gate("slot-lease-fake"), null);
+});
+
+test("T08 A6 strong-interrupt signal revokes the lease without implementing task interruption semantics", () => {
+  const { state, store } = beginLeaseFixture();
+  state.observe({ type: "runtime.strong_interrupt", payload: { sessionSlotKey: "slot-lease-fake" } });
+  assert.equal(store.getRoute2Gate("slot-lease-fake"), null);
+});
+
+test("T08 A7 restart signal revokes the lease", () => {
+  const { state, store } = beginLeaseFixture();
+  state.observe({ type: "runtime.process.restarted", payload: { sessionSlotKey: "slot-lease-fake" } });
+  assert.equal(store.getRoute2Gate("slot-lease-fake"), null);
+});
+
+test("T08 A1/A11 grant relaunches the mutable override and resumes the identical native window", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cb-route2-lease-"));
+  const workspaceRoot = path.join(tempDir, "workspace");
+  const stateDir = path.join(tempDir, "state");
+  const commandFile = path.join(tempDir, "fake-route2-claude.js");
+  const launchLog = path.join(tempDir, "launch.log");
+  const sessionId = "22222222-2222-4222-8222-222222222222";
+  fs.mkdirSync(workspaceRoot, { recursive: true });
+  fs.mkdirSync(stateDir, { recursive: true });
+  fs.writeFileSync(commandFile, [
+    "#!/usr/bin/env node",
+    "const fs = require('node:fs');",
+    `fs.appendFileSync(${JSON.stringify(launchLog)}, JSON.stringify(process.argv.slice(2)) + '\\n');`,
+    "process.stdin.on('data', () => {",
+    `  console.log(JSON.stringify({ type: 'system', session_id: ${JSON.stringify(sessionId)} }));`,
+    `  console.log(JSON.stringify({ type: 'result', session_id: ${JSON.stringify(sessionId)}, result: 'fixture done' }));`,
+    "});",
+  ].join("\n"));
+  const previous = {
+    gate: process.env.CYBERBOSS_ROUTE2_GATE_ENABLED,
+    override: process.env.CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED,
+    catalog: process.env.CYBERBOSS_TOOL_CATALOG_ENABLED,
+  };
+  process.env.CYBERBOSS_ROUTE2_GATE_ENABLED = "true";
+  process.env.CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED = "true";
+  process.env.CYBERBOSS_TOOL_CATALOG_ENABLED = "true";
+  const adapter = createClaudeCodeRuntimeAdapter({
+    stateDir,
+    sessionsFile: path.join(tempDir, "sessions.json"),
+    claudeCommand: process.execPath,
+    claudeCommandPrefixArgs: [commandFile],
+    claudeDisableVerbose: true,
+  });
+  try {
+    const first = await adapter.sendTurn({ bindingKey: "binding-lease", workspaceRoot, text: "fixture opening" });
+    assert.equal(first.threadId, sessionId);
+    const grant = await adapter.grantRoute2Lease({
+      bindingKey: "binding-lease",
+      workspaceRoot,
+      taskId: "task-lease-fake",
+      ttlMs: 10_000,
+      plan: {
+        catalog: [{ id: "cyberboss_time", estimated_schema_chars: 10, max_result_bytes: 64, authorized: true }],
+        toolNames: ["cyberboss_time"],
+        expectedContextTokens: 100,
+      },
+      override: {
+        effectiveToolset: "full",
+        harnessOverlay: [{ label: "route2-grant-fake", text: "Use only the fixture operation." }],
+      },
+    });
+    assert.equal(grant.granted, true);
+    assert.equal(grant.windowIdBefore, sessionId);
+    assert.equal(grant.windowIdAfter, sessionId);
+    assert.ok(grant.overrideFingerprint);
+    assert.equal(grant.lease.toolNames[0], "cyberboss_time");
+    const launches = (await waitForFileText(launchLog, /--resume/)).trim().split(/\r?\n/).map(JSON.parse);
+    assert.equal(launches.length >= 2, true);
+    assert.equal(launches.at(-1)[launches.at(-1).indexOf("--resume") + 1], sessionId);
+  } finally {
+    await adapter.close();
+    for (const [key, value] of Object.entries({
+      CYBERBOSS_ROUTE2_GATE_ENABLED: previous.gate,
+      CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED: previous.override,
+      CYBERBOSS_TOOL_CATALOG_ENABLED: previous.catalog,
+    })) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("claudecode runtime params are isolated from codex model selections", () => {
   const sessionsFile = path.join(
     os.tmpdir(),

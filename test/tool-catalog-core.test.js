@@ -209,6 +209,49 @@ test("A9 D13 floor remains discoverable, schema-loadable and callable without a 
   await catalog.invokeTool("cyberboss_system_send", { text: "test" }); await catalog.invokeTool("cyberboss_time", {});
 }));
 
+test("T08 A8 expired lease keeps both catalog levels visible but schema and call double-reject", async () => withEnv({
+  CYBERBOSS_TOOL_CATALOG_ENABLED: "true",
+  CYBERBOSS_ROUTE2_GATE_ENABLED: "true",
+}, async () => {
+  const expired = new ProjectToolHost({
+    services: services(),
+    runtimeContextStore: { load() {}, resolveActiveContext() { return {}; } },
+    route2Lease: {
+      id: "lease-expired-fake",
+      status: "revoked",
+      expiresAt: Date.now() - 1,
+      toolNames: ["cyberboss_time"],
+    },
+  });
+  const levelOne = await expired.invokeTool("cyberboss_catalog", {});
+  const levelTwo = await expired.invokeTool("cyberboss_catalog", { theme: "感知" });
+  assert.equal(levelOne.data.some((entry) => entry.name === "感知"), true);
+  assert.equal(levelTwo.data.some((entry) => entry.id === "cyberboss_time"), true);
+  await assert.rejects(
+    () => expired.invokeTool("cyberboss_catalog", { handle: "tool/cyberboss_time" }),
+    (error) => assertCode(error, "capability_lease_expired"),
+  );
+  await assert.rejects(
+    () => expired.invokeTool("cyberboss_time", {}),
+    (error) => assertCode(error, "capability_lease_expired"),
+  );
+}));
+
+test("T08 A14 Route 2 flag off leaves schema and invocation behavior identical despite lease input", async () => withEnv({
+  CYBERBOSS_TOOL_CATALOG_ENABLED: "true",
+  CYBERBOSS_ROUTE2_GATE_ENABLED: undefined,
+}, async () => {
+  const disabled = new ProjectToolHost({
+    services: services(),
+    runtimeContextStore: { load() {}, resolveActiveContext() { return {}; } },
+    route2Lease: { status: "revoked", expiresAt: 1, toolNames: ["cyberboss_time"] },
+  });
+  const schema = await disabled.invokeTool("cyberboss_catalog", { handle: "tool/cyberboss_time" });
+  const call = await disabled.invokeTool("cyberboss_time", {});
+  assert.equal(schema.data.entry.id, "cyberboss_time");
+  assert.ok(call.text);
+}));
+
 test("B1 signing gate off omits submit from legacy surface, themed catalog, and stdio", async () => enabled(async () => {
   assert.equal(host().catalogState().entries.some((entry) => entry.id === "memory_candidate_submit"), false);
   const memory = await host().invokeTool("cyberboss_catalog", { theme: "记忆" }); assert.equal(memory.data.some((entry) => entry.id === "memory_candidate_submit"), false);

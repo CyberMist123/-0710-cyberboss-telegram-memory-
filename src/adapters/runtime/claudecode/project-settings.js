@@ -120,7 +120,15 @@ function buildClaudeProjectMcpServerConfig({
     args.push("--chat-self-escalation");
     entry.env = { ...(entry.env || {}), CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED: "true" };
   }
+  if (mutableOverride?.capabilityLease && route2GateEnabled()) {
+    args.push("--route2-lease", Buffer.from(JSON.stringify(mutableOverride.capabilityLease), "utf8").toString("base64url"));
+    entry.env = { ...(entry.env || {}), CYBERBOSS_ROUTE2_GATE_ENABLED: "true" };
+  }
   return entry;
+}
+
+function route2GateEnabled(env = process.env) {
+  return /^(?:1|true|yes|on)$/i.test(String(env.CYBERBOSS_ROUTE2_GATE_ENABLED || "").trim());
 }
 
 function resolveAllowedExternalMcpServerConfigs(launchProfile, mutableOverride = null) {
