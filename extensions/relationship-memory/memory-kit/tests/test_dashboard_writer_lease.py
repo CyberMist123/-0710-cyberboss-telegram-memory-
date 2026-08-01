@@ -43,7 +43,13 @@ spec.loader.exec_module(dashboard)
 
 def test_protocol_shape_and_identity_checked_release():
     lease_file = resolve_memory_writer_lease_file(CONTINUITY, "")
-    assert lease_file == (CONTINUITY / ".jobs" / "MEMORY_WRITER_LEASE.json").resolve()
+    # Expectation must be computed lexically, exactly like the implementation and
+    # like Node's `path.resolve`. Using `.resolve()` here would canonicalise against
+    # the filesystem (8.3 components, junctions) and disagree with the contract on
+    # any machine whose temp path has one -- which is how CI failed on 2026-08-02.
+    assert str(lease_file) == os.path.abspath(
+        os.path.join(str(CONTINUITY), ".jobs", "MEMORY_WRITER_LEASE.json")
+    ), (str(lease_file), str(CONTINUITY))
     lease = acquire_memory_writer_lease(lease_file)
     stored = json.loads(lease_file.read_text(encoding="utf-8"))
     assert stored == lease
