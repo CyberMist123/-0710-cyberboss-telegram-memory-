@@ -754,6 +754,7 @@ function stableStringify(value) {
  */
 function buildProfileLaunch({
   profile,
+  mutableOverride = null,
   baseEnv = {},
   baseCwd = "",
   baseMcpConfigPaths = [],
@@ -798,8 +799,10 @@ function buildProfileLaunch({
   const args = [];
   // NOTE: workspaceAccess is deliberately absent here. It schedules turns; it is
   // not a CLI flag and must never be passed to the child.
-  if (normalized.model) args.push("--model", normalized.model);
-  if (normalized.effort) args.push("--effort", normalized.effort);
+  const effectiveModel = mutableOverride?.model || normalized.model || "";
+  const effectiveEffort = mutableOverride?.effort || normalized.effort || "";
+  if (effectiveModel) args.push("--model", effectiveModel);
+  if (effectiveEffort) args.push("--effort", effectiveEffort);
   if (profileContractEnabledFor(normalized)) {
     if (normalized.harnessMode === "bare") args.push("--bare");
     if (normalized.skillsMode === "disabled") args.push("--disable-slash-commands");
@@ -869,7 +872,12 @@ function buildProfileLaunch({
     workspaceAccess: normalized.workspaceAccess || DEFAULT_ACCESS,
     permissionMode: resolveProfileCliPermissionMode(normalized),
     launchFingerprint,
-    telemetry: buildLaunchTelemetry(normalized, { mcpConfigPaths, mcpConfigMode, g3Enabled }),
+    telemetry: buildLaunchTelemetry(normalized, {
+      mcpConfigPaths,
+      mcpConfigMode,
+      g3Enabled,
+      mutableOverride,
+    }),
   });
 }
 
@@ -927,7 +935,9 @@ function isCloudCredentialEnvKey(key) {
  * Launch telemetry: identity, shapes and counts only. Never a path, an
  * environment value, a model-facing prompt or a chat/topic id.
  */
-function buildLaunchTelemetry(profile, { mcpConfigPaths = [], mcpConfigMode = "inherit", g3Enabled = false } = {}) {
+function buildLaunchTelemetry(profile, {
+  mcpConfigPaths = [], mcpConfigMode = "inherit", g3Enabled = false, mutableOverride = null,
+} = {}) {
   if (g3Enabled) {
     const telemetry = {
       profile_token: hashToken(profileLogicalIdentity(profile)),
@@ -949,11 +959,23 @@ function buildLaunchTelemetry(profile, { mcpConfigPaths = [], mcpConfigMode = "i
         settings_count: profile.settings?.length || 0,
         mcp_server_set_id: hashToken(profile.defaultMcpServerSet),
         toolset_ceiling_id: hashToken(profile.toolsetCeiling),
-        effective_mcp_set_id: hashToken(profile.defaultMcpServerSet),
-        effective_toolset_id: hashToken(profile.defaultToolset),
-        model_source: profile.model ? "profile_default" : "runtime",
-        effort_source: profile.effort ? "profile_default" : "runtime",
-        harness_overlay_tokens: [],
+        effective_mcp_set_id: mutableOverride
+          ? mutableOverride.trace.entries.find((item) => item.kind === "effective_mcp_set")?.effective_token || ""
+          : hashToken(profile.defaultMcpServerSet),
+        effective_toolset_id: mutableOverride
+          ? mutableOverride.trace.entries.find((item) => item.kind === "effective_toolset")?.effective_token || ""
+          : hashToken(profile.defaultToolset),
+        model_source: mutableOverride
+          ? mutableOverride.trace.entries.find((item) => item.kind === "model")?.source || "runtime"
+          : (profile.model ? "profile_default" : "runtime"),
+        effort_source: mutableOverride
+          ? mutableOverride.trace.entries.find((item) => item.kind === "effort")?.source || "runtime"
+          : (profile.effort ? "profile_default" : "runtime"),
+        harness_overlay_tokens: mutableOverride
+          ? mutableOverride.trace.entries
+            .filter((item) => item.kind === "harness_overlay")
+            .map((item) => item.effective_token)
+          : [],
         permission_mode: profile.permissionMode,
       });
     }

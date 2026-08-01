@@ -76,6 +76,7 @@ function sanitizeTraceEntry(entry = {}) {
   for (const type of DEFAULT_HIDDEN_TYPES) {
     if (!seen.has(type)) skipped.push({ type, reason: "default_hidden" });
   }
+  const windowOverride = sanitizeWindowOverride(entry.window_override);
   return {
     ts: normalizeText(entry.ts) || new Date().toISOString(),
     thread: hashThreadId(entry.threadId || entry.thread),
@@ -86,6 +87,36 @@ function sanitizeTraceEntry(entry = {}) {
     fallback: entry.fallback === true || normalizeText(entry.fallback) || false,
     total_chars: Math.max(0, Number(entry.total_chars) || 0),
     recall_calls: Array.isArray(entry.recall_calls) ? entry.recall_calls.map(sanitizeRecallCall) : [],
+    ...(windowOverride ? { window_override: windowOverride } : {}),
+  };
+}
+
+function sanitizeWindowOverride(value) {
+  if (!value || typeof value !== "object" || !Array.isArray(value.entries)) return null;
+  const entries = value.entries.map((item) => {
+    const kind = normalizeText(item?.kind);
+    const effectiveValue = normalizeText(item?.effective_value);
+    const effectiveToken = normalizeText(item?.effective_token);
+    const source = normalizeText(item?.source);
+    const scope = normalizeText(item?.scope);
+    const overlayLabel = normalizeText(item?.overlay_label);
+    if (!kind || !effectiveValue || !/^[0-9a-f]{24}$/.test(effectiveToken)) return null;
+    return {
+      kind,
+      effective_value: effectiveValue,
+      effective_token: effectiveToken,
+      source,
+      scope,
+      ...(overlayLabel ? { overlay_label: overlayLabel } : {}),
+    };
+  }).filter(Boolean);
+  if (!entries.length) return null;
+  return {
+    scope: normalizeText(value.scope) || "window",
+    entries,
+    overlay_labels: Array.isArray(value.overlay_labels)
+      ? value.overlay_labels.map(normalizeText).filter(Boolean)
+      : [],
   };
 }
 
@@ -151,4 +182,10 @@ function normalizeText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-module.exports = { ContextTraceRecorder, DEFAULT_HIDDEN_TYPES, hashThreadId, sanitizeTraceEntry };
+module.exports = {
+  ContextTraceRecorder,
+  DEFAULT_HIDDEN_TYPES,
+  hashThreadId,
+  sanitizeTraceEntry,
+  sanitizeWindowOverride,
+};

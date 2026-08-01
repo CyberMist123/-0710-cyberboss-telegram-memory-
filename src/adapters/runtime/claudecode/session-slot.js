@@ -159,9 +159,11 @@ class SessionSlotStore {
         if (!entry || typeof entry !== "object") {
           return;
         }
+        const windowOverride = cloneJsonObject(entry.windowOverride);
         state.slots[key] = {
           threadId: normalizeSessionId(entry.threadId),
           contextFingerprint: normalizeText(entry.contextFingerprint),
+          ...(windowOverride ? { windowOverride } : {}),
           updatedAt: normalizeText(entry.updatedAt),
           route: normalizeRouteDescriptor(entry.route),
         };
@@ -182,7 +184,7 @@ class SessionSlotStore {
     const slots = {};
     for (const key of Object.keys(this.state.slots)) {
       const entry = this.state.slots[key];
-      if (!entry?.threadId) {
+      if (!entry?.threadId && !entry?.windowOverride) {
         continue;
       }
       slots[key] = { ...entry };
@@ -208,6 +210,10 @@ class SessionSlotStore {
     return this.get(slotKey)?.contextFingerprint || "";
   }
 
+  getWindowOverride(slotKey) {
+    return cloneJsonObject(this.get(slotKey)?.windowOverride);
+  }
+
   getRoute(slotKey) {
     const route = this.get(slotKey)?.route;
     return route ? { ...route } : null;
@@ -223,6 +229,7 @@ class SessionSlotStore {
     this.state.slots[key] = {
       threadId: normalizedThreadId,
       contextFingerprint: current.contextFingerprint || "",
+      ...(current.windowOverride ? { windowOverride: cloneJsonObject(current.windowOverride) } : {}),
       updatedAt: new Date().toISOString(),
       route: normalizeRouteDescriptor(route) || current.route || null,
     };
@@ -238,6 +245,22 @@ class SessionSlotStore {
     }
     current.contextFingerprint = normalizeText(fingerprint);
     current.updatedAt = new Date().toISOString();
+    this.save();
+  }
+
+  setWindowOverride(slotKey, value, { route = null } = {}) {
+    const key = normalizeText(slotKey);
+    if (!key) return;
+    const current = this.state.slots[key] || {};
+    const windowOverride = cloneJsonObject(value);
+    this.state.slots[key] = {
+      threadId: current.threadId || "",
+      contextFingerprint: current.contextFingerprint || "",
+      ...(windowOverride ? { windowOverride } : {}),
+      updatedAt: new Date().toISOString(),
+      route: normalizeRouteDescriptor(route) || current.route || null,
+    };
+    this.evictIfNeeded();
     this.save();
   }
 
@@ -325,6 +348,15 @@ function copySafeEntries(source, apply) {
       continue;
     }
     apply(key, source[key]);
+  }
+}
+
+function cloneJsonObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return null;
   }
 }
 

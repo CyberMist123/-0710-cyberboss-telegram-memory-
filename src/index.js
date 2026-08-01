@@ -180,7 +180,9 @@ async function main() {
     if (toolset && process.env.CYBERBOSS_TOOL_CATALOG_ENABLED !== "true") throw new Error("catalog_disabled_toolset_not_accepted");
     if (toolset) require("./tools/tool-catalog-manifest").resolveToolset(toolset);
     const authorizationCeiling = readFlagValue(argv.slice(1), "--authorization-ceiling") || "";
-    const { toolHost } = createProjectTooling(config, { toolset, authorizationCeiling });
+    const chatSelfEscalation = argv.slice(1).includes("--chat-self-escalation")
+      && /^(?:1|true|yes|on)$/i.test(String(process.env.CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED || "").trim());
+    const { toolHost } = createProjectTooling(config, { toolset, authorizationCeiling, chatSelfEscalation });
     runToolMcpServer({ toolHost, runtimeId, workspaceRoot, routeToken });
     return;
   }

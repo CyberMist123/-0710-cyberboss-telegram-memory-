@@ -123,6 +123,9 @@ class SessionStore {
     const entry = getRuntimeParamsMapForRuntime(current, runtimeId)[normalizedWorkspaceRoot]
       || (runtimeId === "codex" ? getCodexParamsMap(current)[normalizedWorkspaceRoot] : null);
     const effort = normalizeValue(entry?.effort);
+    const windowOverride = entry?.windowOverride && typeof entry.windowOverride === "object" && !Array.isArray(entry.windowOverride)
+      ? JSON.parse(JSON.stringify(entry.windowOverride))
+      : null;
     return {
       model: normalizeValue(entry?.model),
       modelProvider: normalizeValue(entry?.modelProvider || entry?.model_provider),
@@ -130,6 +133,7 @@ class SessionStore {
       // "no override", which is what every binding that has never run /effort
       // reports -- their params keep the exact shape they had before.
       ...(effort ? { effort } : {}),
+      ...(windowOverride ? { windowOverride } : {}),
     };
   }
 
@@ -148,6 +152,7 @@ class SessionStore {
     // Each field is only rewritten when the caller names it, so /model does not
     // reset the binding's effort and /effort does not reset its model.
     const hasEffort = Object.prototype.hasOwnProperty.call(params, "effort");
+    const hasWindowOverride = Object.prototype.hasOwnProperty.call(params, "windowOverride");
     const nextEffort = hasEffort
       ? normalizeValue(params.effort)
       : normalizeValue(previousEntry.effort);
@@ -165,6 +170,13 @@ class SessionStore {
       nextEntry.effort = nextEffort;
     } else {
       delete nextEntry.effort;
+    }
+    if (hasWindowOverride) {
+      if (params.windowOverride && typeof params.windowOverride === "object" && !Array.isArray(params.windowOverride)) {
+        nextEntry.windowOverride = JSON.parse(JSON.stringify(params.windowOverride));
+      } else {
+        delete nextEntry.windowOverride;
+      }
     }
     const runtimeParamsByWorkspaceRootByRuntime = {
       ...getRuntimeParamsRuntimeMap(current),
