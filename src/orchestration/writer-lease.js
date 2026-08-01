@@ -129,4 +129,5 @@ module.exports = {
   clearStaleWriterLease,
   recoverStaleWriterLease,
   releaseWriterLease,
+  validateStoredLease,
 };

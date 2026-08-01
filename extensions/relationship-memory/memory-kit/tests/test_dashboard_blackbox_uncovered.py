@@ -22,6 +22,7 @@ SOURCE_FILES = (
     "dashboard_continuity.py",
     "continuity_layers.py",
     "janitor_config.py",
+    "writer_lease.py",
 )
 ACTIVE_POSTS = (
     "/api/runtime-prompt/save",
