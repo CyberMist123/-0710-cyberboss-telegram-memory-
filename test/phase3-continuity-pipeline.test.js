@@ -294,7 +294,7 @@ test("correction appends and never overwrites the superseded episode", () => {
     sourceRef: { file: fixture.conversationFile, window: "1-2" },
     ...SUBJECT_AI_METADATA,
   });
-  correction.supersedes = original.ep_id;
+  correction.canon_supersedes = original.ep_id;
   appendJsonlUnique(pipeline.paths.candidates, [correction], "candidate_id");
   pipeline.runReview({ env: { ...process.env, AUTO_REVIEW_MOCK: "accept" } });
   pipeline.runHistoryWriter();

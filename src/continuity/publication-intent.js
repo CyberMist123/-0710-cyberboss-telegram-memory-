@@ -19,6 +19,7 @@ function materializePublicationIntents({
   paths,
   candidates,
   decisions,
+  publishedCandidateIds = [],
   enabled,
   createdAt = new Date().toISOString(),
 }) {
@@ -30,7 +31,7 @@ function materializePublicationIntents({
   const decisionRows = Array.isArray(decisions) ? decisions : [];
   const byCandidate = new Map(candidateRows.map((item) => [normalizeText(item?.candidate_id), item]));
   const selected = selectEffectiveDecisions(decisionRows);
-  const lineages = analyzeCandidateLineages(candidateRows);
+  const lineages = analyzeCandidateLineages(candidateRows, { publishedCandidateIds });
   const result = {
     publication_intent_complete: true,
     publication_intent_ids: [],
@@ -64,6 +65,9 @@ function materializePublicationIntents({
       ));
       continue;
     }
+    // An accepted decision on an older draft never makes that draft publishable
+    // again. Only the unique effective leaf may cross the Review→History outbox.
+    if (lineage.is_leaf !== true) continue;
 
     const missingArtifacts = findMissingRequiredArtifacts({
       paths,
@@ -179,6 +183,14 @@ function validatePublicationIntent({
       message: lineage?.message || "candidate lineage cannot be resolved uniquely",
     };
   }
+  if (lineage.is_leaf !== true) {
+    return {
+      ok: false,
+      event: LINEAGE_AMBIGUOUS_EVENT,
+      code: "candidate_not_lineage_leaf",
+      message: "publication intent candidate is not the effective lineage leaf",
+    };
+  }
   if (
     intent.candidate_lineage_root_id !== lineage.root_id
     || intent.publication_key !== publicationKey(lineage.root_id)
@@ -203,8 +215,11 @@ function validatePublicationIntent({
   return { ok: true };
 }
 
-function analyzeCandidateLineages(candidates = []) {
+function analyzeCandidateLineages(candidates = [], { publishedCandidateIds = [] } = {}) {
   const rows = Array.isArray(candidates) ? candidates : [];
+  const published = new Set(
+    Array.from(publishedCandidateIds || []).map(normalizeText).filter(Boolean),
+  );
   const byId = new Map();
   const duplicateIds = new Set();
   for (const candidate of rows) {
@@ -212,6 +227,20 @@ function analyzeCandidateLineages(candidates = []) {
     if (!candidateId) continue;
     if (byId.has(candidateId)) duplicateIds.add(candidateId);
     else byId.set(candidateId, candidate);
+  }
+
+  const children = new Map();
+  for (const [candidateId, candidate] of byId) {
+    const hasPredecessorField = Object.prototype.hasOwnProperty.call(
+      candidate || {},
+      "supersedes_candidate_id",
+    );
+    if (!hasPredecessorField || candidate.supersedes_candidate_id == null) continue;
+    if (typeof candidate.supersedes_candidate_id !== "string") continue;
+    const predecessorId = normalizeText(candidate.supersedes_candidate_id);
+    if (!predecessorId) continue;
+    if (!children.has(predecessorId)) children.set(predecessorId, []);
+    children.get(predecessorId).push(candidateId);
   }
 
   const byCandidate = new Map();
@@ -230,7 +259,29 @@ function analyzeCandidateLineages(candidates = []) {
         break;
       }
       visited.add(cursorId);
+      const hasPredecessorField = Object.prototype.hasOwnProperty.call(
+        cursor || {},
+        "supersedes_candidate_id",
+      );
+      if (
+        hasPredecessorField
+        && cursor.supersedes_candidate_id != null
+        && typeof cursor.supersedes_candidate_id !== "string"
+      ) {
+        failure = lineageInvalid(
+          "supersedes_candidate_id_invalid",
+          "supersedes_candidate_id must be a non-empty string when present",
+        );
+        break;
+      }
       const predecessorId = normalizeText(cursor.supersedes_candidate_id);
+      if (hasPredecessorField && cursor.supersedes_candidate_id != null && !predecessorId) {
+        failure = lineageInvalid(
+          "supersedes_candidate_id_invalid",
+          "supersedes_candidate_id must be a non-empty string when present",
+        );
+        break;
+      }
       if (!predecessorId) break;
       const predecessor = byId.get(predecessorId);
       if (!predecessor || duplicateIds.has(predecessorId)) {
@@ -241,10 +292,21 @@ function analyzeCandidateLineages(candidates = []) {
         failure = lineageInvalid("candidate_lineage_type_mismatch", "candidate lineage crosses candidate types");
         break;
       }
+      if (published.has(predecessorId)) {
+        failure = lineageInvalid(
+          "candidate_predecessor_already_published",
+          "published candidates must be changed through canon correction semantics",
+        );
+        break;
+      }
       cursor = predecessor;
     }
     if (failure) byCandidate.set(candidateId, failure);
-    else byCandidate.set(candidateId, { status: "valid", root_id: normalizeText(cursor.candidate_id) });
+    else byCandidate.set(candidateId, {
+      status: "valid",
+      root_id: normalizeText(cursor.candidate_id),
+      is_leaf: (children.get(candidateId) || []).length === 0,
+    });
   }
 
   const groups = new Map();
@@ -254,12 +316,9 @@ function analyzeCandidateLineages(candidates = []) {
     groups.get(lineage.root_id).push(candidateId);
   }
   for (const [rootId, candidateIds] of groups) {
-    const superseded = new Set();
-    for (const candidateId of candidateIds) {
-      const predecessorId = normalizeText(byId.get(candidateId)?.supersedes_candidate_id);
-      if (predecessorId) superseded.add(predecessorId);
-    }
-    const leaves = candidateIds.filter((candidateId) => !superseded.has(candidateId));
+    const leaves = candidateIds.filter(
+      (candidateId) => (children.get(candidateId) || []).length === 0,
+    );
     if (leaves.length === 1) continue;
     for (const candidateId of candidateIds) {
       byCandidate.set(candidateId, lineageInvalid(

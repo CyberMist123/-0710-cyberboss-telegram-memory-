@@ -11,10 +11,14 @@ const {
   createDecision,
 } = require("../src/continuity/continuity-pipeline");
 const {
+  analyzeCandidateLineages,
   STALE_INTENT_EVENT,
   publicationIntentId,
   publicationKey,
 } = require("../src/continuity/publication-intent");
+const {
+  POST_PUBLISH_DECISION_CONFLICT,
+} = require("../src/continuity/continuity-pipeline");
 const { createSubjectRoute } = require("../src/continuity/subject-route");
 const { appendJsonlUnique, readJsonl } = require("../src/continuity/continuity-store");
 
@@ -95,6 +99,10 @@ test("History writer-state replay reconstructs the publication key from canon", 
   assert.equal(fs.readFileSync(fixture.pipeline.paths.episodes, "utf8"), canonBefore);
   const state = JSON.parse(fs.readFileSync(fixture.pipeline.paths.writerState, "utf8"));
   assert.equal(state.applied_publication_keys.length, 1);
+  assert.deepEqual(
+    state.published_candidate_lineage_roots,
+    [fixture.candidate.candidate_id],
+  );
   assert.equal(state.intent_consumptions[0].status, "already_published");
 });
 
@@ -236,6 +244,150 @@ test("two competing candidate lineage leaves invalidate an existing intent", () 
     true,
   );
   assert.equal(fs.existsSync(fixture.pipeline.paths.episodes), false);
+});
+
+test("candidate lineage rejects missing predecessors, type changes, cycles, and malformed links with stable codes", () => {
+  const rows = [
+    { candidate_id: "root", type: "episode" },
+    { candidate_id: "missing", type: "episode", supersedes_candidate_id: "absent" },
+    { candidate_id: "cross-type", type: "self_note", supersedes_candidate_id: "root" },
+    { candidate_id: "cycle-a", type: "episode", supersedes_candidate_id: "cycle-b" },
+    { candidate_id: "cycle-b", type: "episode", supersedes_candidate_id: "cycle-a" },
+    { candidate_id: "malformed", type: "episode", supersedes_candidate_id: 42 },
+  ];
+  const analyzed = analyzeCandidateLineages(rows);
+  assert.equal(analyzed.byCandidate.get("missing").code, "candidate_predecessor_missing");
+  assert.equal(analyzed.byCandidate.get("cross-type").code, "candidate_lineage_type_mismatch");
+  assert.equal(analyzed.byCandidate.get("cycle-a").code, "candidate_lineage_cycle");
+  assert.equal(analyzed.byCandidate.get("cycle-b").code, "candidate_lineage_cycle");
+  assert.equal(analyzed.byCandidate.get("malformed").code, "supersedes_candidate_id_invalid");
+});
+
+test("only the unique accepted lineage leaf receives an intent and an older accepted draft never revives", () => {
+  const fixture = createFixture("effective-leaf", { appendCandidate: false });
+  const root = candidateRow(fixture, { candidate_id: "cand-root", body: "old body" });
+  const leaf = candidateRow(fixture, {
+    candidate_id: "cand-leaf",
+    body: "rewritten body",
+    supersedes_candidate_id: root.candidate_id,
+  });
+  appendJsonlUnique(fixture.pipeline.paths.candidates, [root, leaf], "candidate_id");
+  const rootAccepted = createDecision(root, {
+    result: "accepted", reason: "old accepted", checks: { publication_allowed: true },
+  });
+  const leafAccepted = createDecision(leaf, {
+    result: "accepted", reason: "rewrite accepted", checks: { publication_allowed: true },
+  });
+  appendJsonlUnique(
+    fixture.pipeline.paths.decisions,
+    [rootAccepted, leafAccepted],
+    "decision_id",
+  );
+
+  const repair = fixture.pipeline.repairReviewArtifacts();
+  assert.equal(repair.publication_intent_complete, true);
+  const intents = readJsonl(fixture.pipeline.paths.publicationIntents);
+  assert.deepEqual(intents.map((intent) => intent.candidate_id), [leaf.candidate_id]);
+  assert.deepEqual(fixture.pipeline.runHistoryWriter().written, [leafAccepted.decision_id]);
+  assert.equal(readJsonl(fixture.pipeline.paths.episodes)[0].body, leaf.body);
+
+  const rejectedFixture = createFixture("rejected-leaf", { appendCandidate: false });
+  const rejectedRoot = candidateRow(rejectedFixture, { candidate_id: "rejected-root" });
+  const rejectedLeaf = candidateRow(rejectedFixture, {
+    candidate_id: "rejected-leaf",
+    supersedes_candidate_id: rejectedRoot.candidate_id,
+  });
+  appendJsonlUnique(
+    rejectedFixture.pipeline.paths.candidates,
+    [rejectedRoot, rejectedLeaf],
+    "candidate_id",
+  );
+  appendJsonlUnique(rejectedFixture.pipeline.paths.decisions, [
+    createDecision(rejectedRoot, {
+      result: "accepted", reason: "old accepted", checks: { publication_allowed: true },
+    }),
+    createDecision(rejectedLeaf, {
+      result: "rejected", reason: "new rejected", checks: { publication_allowed: true },
+    }),
+  ], "decision_id");
+  assert.equal(rejectedFixture.pipeline.repairReviewArtifacts().publication_intent_complete, true);
+  assert.equal(fs.existsSync(rejectedFixture.pipeline.paths.publicationIntents), false);
+  assert.equal(rejectedFixture.pipeline.runHistoryWriter().written.length, 0);
+});
+
+test("a published predecessor blocks candidate rewrite and a later decision flip records a conflict without changing canon", () => {
+  const fixture = createFixture("published-rewrite");
+  const accepted = fixture.pipeline.runReview({ env: localReviewEnv() }).decisions[0];
+  fixture.pipeline.runHistoryWriter();
+  const canonBefore = fs.readFileSync(fixture.pipeline.paths.episodes, "utf8");
+
+  const leaf = candidateRow(fixture, {
+    candidate_id: "cand-after-publication",
+    body: "must use correction instead",
+    supersedes_candidate_id: fixture.candidate.candidate_id,
+  });
+  const leafAccepted = createDecision(leaf, {
+    result: "accepted", reason: "invalid rewrite", checks: { publication_allowed: true },
+  });
+  appendJsonlUnique(fixture.pipeline.paths.candidates, [leaf], "candidate_id");
+  appendJsonlUnique(fixture.pipeline.paths.decisions, [leafAccepted], "decision_id");
+  const repair = fixture.pipeline.repairReviewArtifacts();
+  assert.equal(
+    repair.publication_intent_errors.some(
+      (error) => error.code === "candidate_predecessor_already_published",
+    ),
+    true,
+  );
+
+  const rejected = createDecision(fixture.candidate, {
+    result: "rejected",
+    reason: "post publish flip",
+    checks: { publication_allowed: true },
+    review_revision: 2,
+    supersedes_decision_id: accepted.decision_id,
+  });
+  appendJsonlUnique(fixture.pipeline.paths.decisions, [rejected], "decision_id");
+  const history = fixture.pipeline.runHistoryWriter();
+  assert.equal(history.written.length, 0);
+  assert.equal(
+    history.diagnostics.some((event) => event.event === POST_PUBLISH_DECISION_CONFLICT),
+    true,
+  );
+  assert.equal(fs.readFileSync(fixture.pipeline.paths.episodes, "utf8"), canonBefore);
+});
+
+test("candidate rewrite lineage never becomes canon correction while canon_supersedes preserves canon format", () => {
+  const rewriteFixture = createFixture("field-split-rewrite", { appendCandidate: false });
+  const root = candidateRow(rewriteFixture, { candidate_id: "split-root" });
+  const leaf = candidateRow(rewriteFixture, {
+    candidate_id: "split-leaf",
+    supersedes_candidate_id: root.candidate_id,
+  });
+  appendJsonlUnique(rewriteFixture.pipeline.paths.candidates, [root, leaf], "candidate_id");
+  appendJsonlUnique(rewriteFixture.pipeline.paths.decisions, [createDecision(leaf, {
+    result: "accepted", reason: "rewrite", checks: { publication_allowed: true },
+  })], "decision_id");
+  rewriteFixture.pipeline.repairReviewArtifacts();
+  rewriteFixture.pipeline.runHistoryWriter();
+  const rewriteCanon = readJsonl(rewriteFixture.pipeline.paths.episodes)[0];
+  assert.equal(rewriteCanon.type, "episode");
+  assert.equal(rewriteCanon.supersedes, null);
+
+  const correctionFixture = createFixture("field-split-correction", { appendCandidate: false });
+  const correction = candidateRow(correctionFixture, {
+    candidate_id: "canon-correction",
+    canon_supersedes: "ep-old",
+  });
+  appendJsonlUnique(correctionFixture.pipeline.paths.candidates, [correction], "candidate_id");
+  appendJsonlUnique(correctionFixture.pipeline.paths.decisions, [createDecision(correction, {
+    result: "accepted", reason: "correction", checks: { publication_allowed: true },
+  })], "decision_id");
+  correctionFixture.pipeline.repairReviewArtifacts();
+  correctionFixture.pipeline.runHistoryWriter();
+  const correctionCanon = readJsonl(correctionFixture.pipeline.paths.episodes)[0];
+  assert.equal(correctionCanon.type, "correction");
+  assert.equal(correctionCanon.supersedes, "ep-old");
+  assert.equal(Object.hasOwn(correctionCanon, "canon_supersedes"), false);
 });
 
 test("the shared Review handoff feature gate remains default-off", () => {

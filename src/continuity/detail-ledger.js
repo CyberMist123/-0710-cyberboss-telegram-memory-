@@ -62,7 +62,9 @@ function createDetailEntry(candidate = {}, decision = {}, { sha256 } = {}) {
     source_ref: candidate.source_ref || null,
     candidate_id: normalizeText(candidate.candidate_id),
     decision_id: decisionId,
-    supersedes: normalizeText(candidate.supersedes) || null,
+    // Candidate rewrite lineage uses supersedes_candidate_id and never maps to
+    // canon correction semantics. canon_supersedes alone becomes `supersedes`.
+    supersedes: normalizeText(candidate.canon_supersedes) || null,
     origin: normalizeText(candidate.origin),
     author_role: normalizeText(candidate.author_role),
     author_model: normalizeText(candidate.author_model),
