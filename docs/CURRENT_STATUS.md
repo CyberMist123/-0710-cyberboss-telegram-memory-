@@ -25,7 +25,7 @@ Verified against: b2355f9
 | G1 Telegram 核心读取路径 | `PARTIAL` | 代码通路与 Trace 验收结构已接通，缺真机执行证据 |
 | G2 后台记忆写入边界 | `FAIL` | 候选权限闸门、nightly 登记、#73 effective decision 与 G2-3 Review artifact 已闭环；G2-4 已把 publication intent/outbox 同步接入 Review writer，History 只按 intent 消费并以 lineage publication key 保证 Review 重跑、History 崩溃与 state 重放后的 exactly-once，stale/digest/lineage 歧义均阻断 canon（与 artifact 共用显式默认关闭开关，阻塞 CI 覆盖）。G2-5 已闭环 dispatcher/一次性注入/ack 回路（D26：严格实时、window_gone 作废不递继任者、补投一次即止、失败递送只读聚合视图、注入块确定性组装；独立开关默认关闭）。G2-2 主体签署已落地（一次性 turn 绑定 capability + 服务端固定 `subject_ai/high` + 后台只产确定性材料包，默认关）——**模型侧工具暴露未接**（避让 T02 目录化并行车，合流后补最小 handler）。G2 仍为 `FAIL`：签署入口运行时暴露、改写链 exactly-once（G2-6）、端到端留证（G2-9）|
 | G3 Chat 成本与 profile 隔离 | `PARTIAL` | 基础管道存在，真实 fable-chat 配置与隔离未完成 |
-| G4 Windows 生产验证 | `PARTIAL` | 2026-07-30 首次真机交付成功并已留证（`docs/audit/G4_PRODUCTION_DELIVERY_20260730.md`）；2026-07-31 监督链已修复并经真实停机事故验证（BOM 去除 + `deployed_sha` 改真话 + watchdog 判活恢复，留证 `docs/audit/G4_WATCHDOG_RECOVERY_20260731.md`）；部署身份其余两套真相与正规发布包机制仍未处理（#77） |
+| G4 Windows 生产验证 | `PARTIAL` | 2026-07-30 首次真机交付成功并已留证（`docs/audit/G4_PRODUCTION_DELIVERY_20260730.md`）；2026-07-31 监督链已修复并经真实停机事故验证（BOM 去除 + `deployed_sha` 改真话 + watchdog 判活恢复，留证 `docs/audit/G4_WATCHDOG_RECOVERY_20260731.md`）；2026-08-01 第二次交付成功（main `6fb078e` 上机，首次监督链在位热交付，留证 `docs/audit/G4_PRODUCTION_DELIVERY_20260801.md`）；部署身份其余两套真相与正规发布包机制仍未处理（#77） |
 | G5 备份与回滚验证 | `NOT_VERIFIED` | 缺少真实备份恢复演练证据 |
 
 **是否允许切生产：否。** 判据见第五节。
@@ -93,14 +93,14 @@ Verified against: b2355f9
 | nightly closeout | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | **`PARTIAL`** —— D18 业务日、时区统一及空结果重试/封存语义已实现，五类边界测试进入 `test:phase3`；仓库默认关闭，生产机实际状态未核 |
 | Reflect / 低频重读（rereadings） | `ORPHAN` | `UNIT_ONLY` | `BLOCKING` | `NOT_WIRED` | **`FAIL`** —— 无调度器调它，`runtime.reflect()` 无实现方。`test:reflect` 已接主 CI，但按第二节纪律 1，那只是给这个孤儿模块提供回归信号，**不代表目标通路有 CI 覆盖**；代码仍 `ORPHAN` |
 | `/effort` | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | — |
-| `/pause activity` / `/continue activity` | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 单 writer 持久态、三类 poller/tick 与来源定向队列暂停均已接主链；窗口聊天和用户 reminder 明确不受影响，缺真机命令证据 |
+| `/pause activity` / `/continue activity` | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 单 writer 持久态、三类 poller/tick 与来源定向队列暂停均已接主链；窗口聊天和用户 reminder 明确不受影响。已随 `6fb078e` 上生产（2026-08-01），暂停态经文件预置生效；`/pause` `/continue` 的命令级真机证据仍缺 |
 | Desire（八维状态 + hourly poller） | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | 最小闭环代码与生产落盘形态集成测试已进仓库；挂 `CYBERBOSS_DESIRE_LOOP_MINIMAL_ENABLED`，默认关闭，生产机实际开关状态由不入库的 secrets 决定 |
 | 520 · 只读视图与健康度 | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | 面板由独立计划任务拉起，真机状态未核 |
 | 520 · 活跃写端点（提示词 / 分层 / 门控 / 调度） | `WIRED` | `PARTIAL` | `BLOCKING` | `UNKNOWN` | 改生产行为的端点覆盖仍不全（故测试记 `PARTIAL`）；`test:520-endpoints` 已接主 CI，覆盖提示词写路径的保存/恢复、48 路由总账、17 个零覆盖读端点契约与 DeepSeek 密钥处理 |
 | 520 · 安全冻结写端点（5 个） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 按设计冻结，见 `DECISIONS.md` D5 |
 | 520 · 关怀页写路径（care config / cycle） | `PARTIAL` | `PARTIAL` | `NONE` | `NOT_WIRED` | 后端在、前端未接完；不是安全边界 |
 | 520 · 剧场页（theater scripts） | `WIRED` | `NONE` | `NONE` | `UNKNOWN` | 纯展示只读 |
-| Windows release / watchdog 控制平面 | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | **`PARTIAL`** —— 2026-07-30 首次真机交付留证已归档（`docs/audit/G4_PRODUCTION_DELIVERY_20260730.md`：方案 A 只搬代码，bot 存活并真实应答 Telegram）。**监督链已于 2026-07-31 修复**：描述文件去 BOM、`deployed_sha` 改为运行树真实来源（48660a9），watchdog 判活恢复 `healthy`，重启自愈链路闭合；修复前发生过一次真实停机（~2.5 小时，机器重启后无人拉起），事故与修复过程留证 `docs/audit/G4_WATCHDOG_RECOVERY_20260731.md`。**仍未处理**：`deployment/current.json` 旧真相、`start-telegram.ps1` 硬编码、正规发布包机制（`install-descriptor` + 候选启动器）从未启用 —— 归 issue #77 |
+| Windows release / watchdog 控制平面 | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | **`PARTIAL`** —— 2026-07-30 首次真机交付留证已归档（`docs/audit/G4_PRODUCTION_DELIVERY_20260730.md`：方案 A 只搬代码，bot 存活并真实应答 Telegram）。**监督链已于 2026-07-31 修复**：描述文件去 BOM、`deployed_sha` 改为运行树真实来源（48660a9），watchdog 判活恢复 `healthy`，重启自愈链路闭合；修复前发生过一次真实停机（~2.5 小时，机器重启后无人拉起），事故与修复过程留证 `docs/audit/G4_WATCHDOG_RECOVERY_20260731.md`。2026-08-01 第二次交付（`6fb078e`，监督链在位热交付 + junction 断裂坑 3 留证）见 `docs/audit/G4_PRODUCTION_DELIVERY_20260801.md`。**仍未处理**：`deployment/current.json` 旧真相、`start-telegram.ps1` 硬编码、正规发布包机制（`install-descriptor` + 候选启动器）从未启用 —— 归 issue #77 |
 | 备份与回滚演练 | `WIRED` | `PARTIAL` | `NONBLOCKING` | `UNKNOWN` | **`NOT_VERIFIED`** —— 无真实恢复演练证据 |
 | G3 CLI preflight / 独立 config root（T03） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 挂 `CYBERBOSS_CLAUDE_G3_PREFLIGHT_ENABLED`，仓库默认关闭（关闭时 launch 与基线逐字兼容）。开启时：`configRoot` 经 env `CLAUDE_CONFIG_DIR` 归一进 profile fingerprint / slot 身份；八个 required CLI flag、env allowlist、auth 探针、cwd 与 lock key 同源任一失败均在切换前 fail-closed，旧进程继续服务。测试进 `test:route-lanes`（阻塞主 CI）。**离线硬边界证据**，不证明 fable/work 真隔离——差分 canary 与真机验收属 T04/T11 |
 | `fable-chat` profile 绑定 | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | 仅设计交接文档，代码侧零实现 |
