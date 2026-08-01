@@ -32,6 +32,7 @@ from writer_lease import (  # noqa: E402
     WriterLeaseUnavailable,
     acquire_memory_writer_lease,
     release_memory_writer_lease,
+    MEMORY_WRITER_LEASE_BASENAME,
     resolve_memory_writer_lease_file,
 )
 
@@ -113,12 +114,46 @@ def test_no_python_recovery_or_process_liveness_implementation():
         assert forbidden not in source
 
 
+def test_lease_path_resolution_is_lexical_not_filesystem_canonical():
+    """Pin the resolution semantics that make the cross-language lock a lock.
+
+    Node's `path.resolve` is purely lexical. If this side ever goes back to
+    `Path(...).resolve()`, Windows canonicalisation (8.3 short names, junctions,
+    symlinks) makes the two languages compute *different* lease files -- which is
+    no lock at all, and it fails silently. CI caught exactly this on 2026-08-02
+    (`RUNNER~1` vs `runneradmin`), so this assertion is environment-independent
+    on purpose: it compares against os.path.abspath rather than against a fixture.
+    """
+    messy = os.path.join(tempfile.gettempdir(), "a", "..", "b", ".jobs", "x.json")
+    got = resolve_memory_writer_lease_file("", writer_lease_file=messy)
+    assert str(got) == os.path.abspath(messy), (str(got), os.path.abspath(messy))
+
+    # Environment-independent guard: the equality above only diverges where the
+    # filesystem has 8.3 names / junctions / symlinks, so it silently passes on a
+    # clean dev box. Assert the semantics at the source level instead.
+    source = (KIT / "writer_lease.py").read_text(encoding="utf-8")
+    code = [
+        line for line in source.splitlines()
+        if not line.lstrip().startswith("#") and "Do NOT use" not in line
+    ]
+    code = chr(10).join(code)
+    assert ".resolve()" not in code, "writer_lease.py must stay lexical; .resolve() reintroduces the split-lock bug"
+
+    directory = os.path.join(tempfile.gettempdir(), "cont", "..", "cont2")
+    got_default = resolve_memory_writer_lease_file(directory)
+    expected_default = os.path.abspath(
+        os.path.join(directory, ".jobs", MEMORY_WRITER_LEASE_BASENAME)
+    )
+    assert str(got_default) == expected_default, (str(got_default), expected_default)
+
+
 def main():
     tests = [
         test_protocol_shape_and_identity_checked_release,
         test_reentry_write_failure_releases_lease,
         test_non_reentry_path_is_unchanged_and_frozen_set_stays_seven,
         test_no_python_recovery_or_process_liveness_implementation,
+        test_lease_path_resolution_is_lexical_not_filesystem_canonical,
     ]
     for case in tests:
         case()
