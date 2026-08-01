@@ -144,6 +144,10 @@ class SubjectCandidateService {
     const subjectTurnId = requireText(input.subject_turn_id, "subject_turn_id");
     const subjectRoute = assertExactSubjectRoute(input.subject_route);
     const sourceEntryIds = normalizeSourceEntryIds(input.source_ref?.source_entry_ids);
+    const sourceEntryHashes = normalizeSourceEntryHashes(
+      input.source_ref?.source_entry_hashes,
+      sourceEntryIds,
+    );
     if (canonicalSerialize(sourceEntryIds) !== canonicalSerialize(subjectRoute.source_entry_ids)) {
       throw this.registry.failure("subject_sources_mismatch", "source_ref does not match subject_route sources");
     }
@@ -183,6 +187,7 @@ class SubjectCandidateService {
       subject_route: subjectRoute,
       source_ref: {
         source_entry_ids: sourceEntryIds,
+        ...(sourceEntryHashes.length ? { source_entry_hashes: sourceEntryHashes } : {}),
         content_sha256: requireSha256(input.source_ref?.content_sha256, "source_ref.content_sha256"),
         ...(normalizeText(input.source_ref?.file) ? { file: normalizeText(input.source_ref.file) } : {}),
         ...(normalizeText(input.source_ref?.window) ? { window: normalizeText(input.source_ref.window) } : {}),
@@ -314,6 +319,8 @@ function validateOriginMaterialReference(input, origin, sourceEntryIds) {
       || normalizeText(pack.material_pack_id) !== materialPackId
       || normalizeText(pack.created_by) !== "closeout-materializer"
       || canonicalSerialize(pack.source_entry_ids) !== canonicalSerialize(sourceEntryIds)
+      || canonicalSerialize(pack.source_entry_hashes || [])
+        !== canonicalSerialize(input.source_ref?.source_entry_hashes || [])
       || requireSha256(pack.source_content_sha256, "material_pack.source_content_sha256")
         !== requireSha256(input.source_ref?.content_sha256, "source_ref.content_sha256")
       || sha256(String(pack.facts || "")) !== pack.source_content_sha256
@@ -324,6 +331,27 @@ function validateOriginMaterialReference(input, origin, sourceEntryIds) {
   if (origin === "live_subject" && materialPackId) {
     throw signingFailure("material_pack_forbidden", "live subject origin cannot cite a material pack");
   }
+}
+
+function normalizeSourceEntryHashes(value, sourceEntryIds) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length !== sourceEntryIds.length) {
+    throw signingFailure(
+      "source_entry_hashes_invalid",
+      "source_entry_hashes must align one-to-one with source_entry_ids",
+    );
+  }
+  const hashes = value.map((item) => ({
+    entry_id: requireText(item?.entry_id, "source_entry_hash.entry_id"),
+    sha256: requireSha256(item?.sha256, "source_entry_hash.sha256"),
+  }));
+  if (canonicalSerialize(hashes.map((item) => item.entry_id)) !== canonicalSerialize(sourceEntryIds)) {
+    throw signingFailure(
+      "source_entry_hashes_invalid",
+      "source_entry_hashes must preserve source_entry_ids order",
+    );
+  }
+  return hashes;
 }
 
 function looksLikeBackgroundCandidate(input) {

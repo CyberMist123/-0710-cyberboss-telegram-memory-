@@ -244,6 +244,11 @@ test("enabled closeout deterministically persists only a source-derived material
   assert.equal(authorCalls, 0);
   assert.equal(first.candidates.length, 0);
   assert.equal(first.material_pack.created_by, "closeout-materializer");
+  assert.deepEqual(
+    first.material_pack.source_entry_hashes.map((item) => item.entry_id),
+    ["entry-u", "entry-a"],
+  );
+  assert.ok(first.material_pack.source_entry_hashes.every((item) => /^[0-9a-f]{64}$/u.test(item.sha256)));
   assert.equal(first.material_pack.facts, "[2026-07-31T01:00:00.000Z] user: 她说先停一下。\n[2026-07-31T01:01:00.000Z] runtime.turn.completed: 我收住了追问。");
   for (const fragment of first.material_pack.facts.split("\n")) {
     assert.equal(rows.some((row) => fragment.includes(row.text)), true);
