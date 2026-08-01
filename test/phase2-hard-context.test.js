@@ -18,6 +18,8 @@ const {
 const { countNonWhitespace, loadReentry, reentrySnapshotFileFor } = require("../src/core/reentry-loader");
 const { validateStartupPreflight } = require("../src/core/startup-preflight");
 const { CyberbossApp } = require("../src/core/app");
+const { Route2GateState } = require("../src/adapters/runtime/claudecode/route2-gate");
+const { SessionSlotStore } = require("../src/adapters/runtime/claudecode/session-slot");
 
 test("reentry is injected once per persisted thread without template rewriting", () => {
   const root = fixtureRoot();
@@ -577,4 +579,48 @@ test("context trace explains memory_context as a loaded block or a reasoned skip
   // The shared continuity object was never mutated across the three calls.
   assert.deepEqual(continuity.skipped, [{ type: "reentry", reason: "existing_thread" }]);
   assert.deepEqual(continuity.blocks, []);
+});
+
+test("T07 A7/A12 cost trace records bounded metrics and correlations without user or tool-result text", async () => {
+  const root = fixtureRoot();
+  const tracePath = path.join(root, "context_trace.jsonl");
+  const recorder = new ContextTraceRecorder({ filePath: tracePath });
+  const tracker = new Route2GateState({
+    sessionSlotStore: new SessionSlotStore(),
+    env: { CYBERBOSS_ROUTE2_GATE_ENABLED: "true" },
+  });
+  tracker.begin({
+    sessionSlotKey: "slot-cost-fake",
+    windowId: "window-cost-fake",
+    overrideFingerprint: "override-cost-fake",
+    taskId: "task-cost-fake",
+    plan: {
+      catalog: [{ id: "fake_read", estimated_schema_chars: 321, max_result_bytes: 1024, authorized: true }],
+      toolNames: ["fake_read"],
+      expectedContextTokens: 456,
+    },
+  });
+  const base = { threadId: "window-cost-fake", turnId: "turn-cost-fake", sessionSlotKey: "slot-cost-fake" };
+  tracker.observe({ type: "runtime.tool.use", payload: { ...base, toolName: "fake_read" } });
+  tracker.observe({ type: "runtime.tool.result", payload: { ...base, returnBytes: 789, isError: false } });
+  tracker.observe({ type: "runtime.context.updated", payload: { ...base, inputTokens: 10, cacheCreationInputTokens: 20, cacheReadInputTokens: 30, outputTokens: 40 } });
+  const costEvent = tracker.observe({ type: "runtime.turn.completed", payload: base });
+  assert.equal(Object.hasOwn(costEvent.payload, "userText"), false);
+  assert.equal(Object.hasOwn(costEvent.payload, "toolResult"), false);
+  await CyberbossApp.prototype.handleRuntimeEvent.call({ contextTraceRecorder: recorder }, costEvent);
+  await recorder.flush();
+
+  const raw = fs.readFileSync(tracePath, "utf8");
+  const row = JSON.parse(raw.trim());
+  assert.equal(row.route2_cost.schema_chars, 321);
+  assert.equal(row.route2_cost.expected_context_tokens, 456);
+  assert.equal(row.route2_cost.actual_tool_uses, 1);
+  assert.equal(row.route2_cost.return_bytes, 789);
+  assert.deepEqual(row.route2_cost.usage, { input_tokens: 10, cache_creation_input_tokens: 20, cache_read_input_tokens: 30, output_tokens: 40 });
+  assert.equal(row.route2_cost.session_slot, "slot-cost-fake");
+  assert.equal(row.route2_cost.task, "task-cost-fake");
+  assert.equal(raw.includes("user fixture body"), false);
+  assert.equal(raw.includes("tool result fixture body"), false);
+  assert.equal(raw.includes("episodes.jsonl"), false);
+  assert.equal(raw.includes("candidate"), false);
 });

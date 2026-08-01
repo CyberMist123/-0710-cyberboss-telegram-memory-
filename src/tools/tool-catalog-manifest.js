@@ -51,9 +51,27 @@ const TOOL_RISKS = Object.freeze({
   whereabouts_current_stay: "read", whereabouts_recent_moves: "read", whereabouts_recent_stays: "read",
   whereabouts_snapshot: "read", whereabouts_summary: "read",
 });
+// These are per-tool response budgets enforced by mcp-stdio-server before the
+// result enters the model context. Tools not listed here remain structurally
+// ineligible for Route 2; there is deliberately no global fallback.
+const TOOL_MAX_RESULT_BYTES = Object.freeze({
+  cyberboss_time: 2048,
+  weather: 16384,
+  memory_lookup: 32768,
+  cyberboss_sticker_tags: 8192,
+  cyberboss_sticker_pick: 16384,
+  cyberboss_timeline_read: 32768,
+  cyberboss_timeline_categories: 8192,
+  cyberboss_timeline_proposals: 16384,
+  whereabouts_current_stay: 4096,
+  whereabouts_recent_moves: 16384,
+  whereabouts_recent_stays: 16384,
+  whereabouts_summary: 16384,
+});
 
 function catalogEnabled(env = process.env) { return env.CYBERBOSS_TOOL_CATALOG_ENABLED === "true"; }
 function subjectSigningEnabled(env = process.env) { return env.CYBERBOSS_SUBJECT_SIGNING_ENABLED === "true"; }
+function route2GateEnabled(env = process.env) { return /^(?:1|true|yes|on)$/i.test(String(env.CYBERBOSS_ROUTE2_GATE_ENABLED || "").trim()); }
 function resolveToolset(value, env = process.env, toolsets = TOOLSETS) {
   const id = typeof value === "string" ? value.trim() : (env.CYBERBOSS_TOOL_CATALOG_TOOLSET || "").trim();
   if (!id) return null;
@@ -93,7 +111,7 @@ function makeEntry(id, category, tool, { hidden = false, deprecated = false, ali
   if (!risk) throw catalogError("catalog_unclassified_entry", `${id} (risk missing)`);
   const theme = TOOL_THEMES[canonical];
   if (!theme || !THEME_DEFINITIONS.some((definition) => definition.name === theme)) throw catalogError("catalog_unclassified_entry", `${id} (theme missing)`);
-  return { id, category, theme, purpose: tool.shortHint || tool.description || "", risk, estimated_schema_chars: schemaMetric(tool.inputSchema), schema_handle: `${category}/${canonical}`, hidden, deprecated, alias_of: aliasOf, resident: RESIDENT_NAMES.includes(canonical), authorized, max_result_bytes: null };
+  return { id, category, theme, purpose: tool.shortHint || tool.description || "", risk, estimated_schema_chars: schemaMetric(tool.inputSchema), schema_handle: `${category}/${canonical}`, hidden, deprecated, alias_of: aliasOf, resident: RESIDENT_NAMES.includes(canonical), authorized, max_result_bytes: route2GateEnabled() ? (TOOL_MAX_RESULT_BYTES[canonical] || null) : null };
 }
 function findSchema({ entries, category, handle }) {
   if (typeof handle !== "string" || !/^(memory|tool|mcp|skill)\/[^/]+$/.test(handle)) throw catalogError("catalog_invalid_handle", String(handle));
@@ -107,7 +125,7 @@ function findSchema({ entries, category, handle }) {
   return entry;
 }
 module.exports = {
-  CATEGORIES, RESIDENT_NAMES, TOOLSETS, TOOL_RISKS, TOOL_THEMES, THEME_DEFINITIONS,
-  CATALOG_INPUT_SCHEMA, catalogEnabled, subjectSigningEnabled, resolveToolset,
+  CATEGORIES, RESIDENT_NAMES, TOOLSETS, TOOL_RISKS, TOOL_THEMES, TOOL_MAX_RESULT_BYTES, THEME_DEFINITIONS,
+  CATALOG_INPUT_SCHEMA, catalogEnabled, subjectSigningEnabled, route2GateEnabled, resolveToolset,
   catalogError, classifyProjectTool, buildManifest, findSchema,
 };

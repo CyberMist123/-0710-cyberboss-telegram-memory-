@@ -13,7 +13,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "precheck": "node --check ./src/services/memory-lookup-service.js && node --check ./src/continuity/legacy-candidate-lookup.js && node --check ./src/core/desire-state-persistence.js && node --check ./src/core/desire-schedule.js && node --check ./src/core/desire-telemetry.js && node --check ./src/app/hourly-desire-poller.js && node --check ./src/adapters/runtime/opening-turn-metrics.js && node --check ./src/services/local-whisper-transcriber.js && node --check ./src/services/telegram-media-descriptor.js && node --check ./src/tools/tool-catalog-manifest.js",
+    "precheck": "node --check ./src/services/memory-lookup-service.js && node --check ./src/continuity/legacy-candidate-lookup.js && node --check ./src/core/desire-state-persistence.js && node --check ./src/core/desire-schedule.js && node --check ./src/core/desire-telemetry.js && node --check ./src/app/hourly-desire-poller.js && node --check ./src/adapters/runtime/opening-turn-metrics.js && node --check ./src/adapters/runtime/claudecode/route2-gate.js && node --check ./src/services/local-whisper-transcriber.js && node --check ./src/services/telegram-media-descriptor.js && node --check ./src/tools/tool-catalog-manifest.js",
     "start": "node ./bin/cyberboss.js start",
     "start:checkin": "node ./bin/cyberboss.js start --checkin",
     "login": "node ./bin/cyberboss.js login",

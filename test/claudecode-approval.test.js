@@ -9,6 +9,12 @@ const { mapClaudeCodeMessageToRuntimeEvent } = require("../src/adapters/runtime/
 const { createClaudeCodeRuntimeAdapter } = require("../src/adapters/runtime/claudecode");
 const { ClaudeCodeProcessClient } = require("../src/adapters/runtime/claudecode/process-client");
 const { SessionStore } = require("../src/adapters/runtime/codex/session-store");
+const { SessionSlotStore } = require("../src/adapters/runtime/claudecode/session-slot");
+const {
+  Route2GateState,
+  decideRoute2Gate,
+  runOptionalRoute2Tool,
+} = require("../src/adapters/runtime/claudecode/route2-gate");
 
 // Thread-bearing runtime events resolve a reply target before delivery
 // (src/core/app.js:2642-2648), so appLike fixtures must provide the real
@@ -388,6 +394,96 @@ test("claudecode process client treats assistant text as non-deliverable until t
   assert.equal(completed.payload.threadId, "thread-tool");
   assert.equal(completed.payload.turnId, "turn-tool");
   assert.equal(completed.payload.text, "查完了，这是工具后的最终结果。");
+});
+
+test("T07 A1/A2 counts each real tool.use once and never counts approvals", () => {
+  const previous = process.env.CYBERBOSS_ROUTE2_GATE_ENABLED;
+  process.env.CYBERBOSS_ROUTE2_GATE_ENABLED = "true";
+  const slotStore = new SessionSlotStore();
+  const tracker = new Route2GateState({ sessionSlotStore: slotStore });
+  const catalog = [{ id: "fake_read", estimated_schema_chars: 100, max_result_bytes: 64, authorized: true }];
+  tracker.begin({ sessionSlotKey: "slot-fake", windowId: "window-fake", taskId: "task-fake", plan: { catalog, toolNames: ["fake_read"], expectedContextTokens: 100 } });
+  try {
+    const client = new ClaudeCodeProcessClient({ command: "claude", cwd: "/workspace", env: {} });
+    client.pendingTurnId = "turn-fake";
+    client.sessionId = "window-fake";
+    client.activeThreadId = "window-fake";
+    const sourceEvents = [];
+    client.onMessage((event, raw) => sourceEvents.push({ event, raw }));
+    for (let index = 0; index < 3; index += 1) {
+      client.handleAssistant({ message: { content: [{ type: "tool_use", name: "fake_read", input: { fixture: index } }] } });
+    }
+    const mappedTools = sourceEvents.map(({ event, raw }) => mapClaudeCodeMessageToRuntimeEvent(event, raw)).filter(Boolean);
+    for (const event of mappedTools) tracker.observe({ ...event, payload: { ...event.payload, sessionSlotKey: "slot-fake" } });
+    for (let index = 0; index < 5; index += 1) {
+      const approval = mapClaudeCodeMessageToRuntimeEvent({ type: "approval.requested", sessionId: "window-fake", requestId: `approval-${index}`, toolName: "fake_read", input: {} });
+      tracker.observe({ ...approval, payload: { ...approval.payload, sessionSlotKey: "slot-fake" } });
+    }
+    const cost = tracker.observe({ type: "runtime.turn.completed", payload: { threadId: "window-fake", turnId: "turn-fake", sessionSlotKey: "slot-fake" } });
+    assert.equal(sourceEvents.length, 3);
+    assert.equal(mappedTools.length, 3);
+    assert.equal(cost.payload.actualToolUses, 3);
+  } finally {
+    if (previous === undefined) delete process.env.CYBERBOSS_ROUTE2_GATE_ENABLED;
+    else process.env.CYBERBOSS_ROUTE2_GATE_ENABLED = previous;
+  }
+});
+
+test("T07 A3/A4/A5 gate stays inside soft A and routes hard B or unbounded results to Route 1", () => {
+  const env = { CYBERBOSS_ROUTE2_GATE_ENABLED: "true" };
+  const bounded = Array.from({ length: 4 }, (_, index) => ({ id: `fake_${index}`, estimated_schema_chars: 500, max_result_bytes: 1024, authorized: true }));
+  const soft = decideRoute2Gate({ catalog: bounded, toolNames: bounded.map((entry) => entry.id), actualToolUses: 3, expectedContextTokens: 6000 }, { env });
+  assert.equal(soft.route, "route2");
+  assert.equal(soft.decision, "stay_route2");
+
+  const hard = decideRoute2Gate({ catalog: bounded, toolNames: bounded.map((entry) => entry.id), expectedContextTokens: 8000 }, { env });
+  assert.equal(hard.route, "route1");
+  assert.equal(hard.decision, "route_to_route1");
+  assert.ok(hard.status.length > 0 && hard.status.length < 40);
+  assert.equal(hard.chat_capability, "unchanged");
+
+  const unbounded = decideRoute2Gate({ catalog: [{ ...bounded[0], max_result_bytes: null }], toolNames: [bounded[0].id], expectedContextTokens: 10 }, { env });
+  assert.equal(unbounded.route, "route1");
+  assert.ok(unbounded.reasons.includes("unbounded_result"));
+});
+
+test("T07 A9 optional Route 2 failure remains fail-open to chat-core", async () => {
+  const result = await runOptionalRoute2Tool({
+    invoke: async () => { const error = new Error("fake optional failure"); error.code = "fake_failure"; throw error; },
+    chatCore: async () => "chat-core still replied",
+  });
+  assert.equal(result.reply, "chat-core still replied");
+  assert.equal(result.toolResult, null);
+  assert.equal(result.toolError, "fake_failure");
+});
+
+test("T07 A10 Route 2 state is attached to the existing slot without changing window identity", () => {
+  const store = new SessionSlotStore();
+  store.setThreadId("slot-stable", "window-stable");
+  store.setWindowOverride("slot-stable", { model: "fake-model" });
+  const before = store.getThreadId("slot-stable");
+  const state = new Route2GateState({ sessionSlotStore: store, env: { CYBERBOSS_ROUTE2_GATE_ENABLED: "true" } });
+  state.begin({
+    sessionSlotKey: "slot-stable",
+    windowId: before,
+    overrideFingerprint: "override-fingerprint-fake",
+    taskId: "task-stable",
+    plan: { catalog: [{ id: "fake_read", estimated_schema_chars: 10, max_result_bytes: 32 }], toolNames: ["fake_read"], expectedContextTokens: 10 },
+  });
+  assert.equal(store.getThreadId("slot-stable"), before);
+  assert.deepEqual(store.getWindowOverride("slot-stable"), { model: "fake-model" });
+  assert.equal(store.getRoute2Gate("slot-stable").overrideFingerprint, "override-fingerprint-fake");
+});
+
+test("T07 A11 feature flag off keeps the pre-T07 event and manifest behavior", () => {
+  const previous = process.env.CYBERBOSS_ROUTE2_GATE_ENABLED;
+  delete process.env.CYBERBOSS_ROUTE2_GATE_ENABLED;
+  try {
+    assert.equal(mapClaudeCodeMessageToRuntimeEvent({ type: "tool.use", toolName: "fake_read", sessionId: "fake", turnId: "fake" }), null);
+    assert.equal(decideRoute2Gate({ catalog: [], toolNames: [] }), null);
+  } finally {
+    if (previous !== undefined) process.env.CYBERBOSS_ROUTE2_GATE_ENABLED = previous;
+  }
 });
 
 test("claudecode runtime params are isolated from codex model selections", () => {

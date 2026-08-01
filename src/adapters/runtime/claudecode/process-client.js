@@ -347,9 +347,14 @@ class ClaudeCodeProcessClient {
       if (item.type === "tool_result") {
         const isError = Boolean(item.is_error);
         const resultText = typeof item.content === "string" ? item.content : "";
+        const resultBytes = Buffer.byteLength(
+          typeof item.content === "string" ? item.content : JSON.stringify(item.content ?? ""),
+          "utf8",
+        );
         this.emit({
           type: "tool.result",
           toolResult: resultText,
+          toolResultBytes: resultBytes,
           isError,
           turnId: this.pendingTurnId,
           sessionId: this.activeThreadId || this.sessionId,

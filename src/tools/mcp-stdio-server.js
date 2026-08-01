@@ -102,11 +102,13 @@ function runToolMcpServer({ toolHost, runtimeId = "", workspaceRoot = "", routeT
           workspaceRoot,
           routeToken,
         });
+        const formatted = formatToolResult(result);
+        const maxResultBytes = toolHost.maxResultBytes?.(toolName) || null;
         writeRpcResponse(id, {
           content: [
             {
               type: "text",
-              text: formatToolResult(result),
+              text: truncateToolResult(formatted, maxResultBytes),
             },
           ],
         }, reader.getMode());
@@ -115,11 +117,13 @@ function runToolMcpServer({ toolHost, runtimeId = "", workspaceRoot = "", routeT
 
       writeRpcError(id, -32601, `Method not found: ${method}`, reader.getMode());
     } catch (error) {
+      const errorToolName = method === "tools/call" && typeof params.name === "string" ? params.name : "";
+      const errorLimit = errorToolName ? (toolHost.maxResultBytes?.(errorToolName) || null) : null;
       writeRpcResponse(id, {
         content: [
           {
             type: "text",
-          text: formatToolError(error),
+          text: truncateToolResult(formatToolError(error), errorLimit),
           },
         ],
         isError: true,
@@ -145,6 +149,26 @@ function formatToolError(error) {
   const message = error instanceof Error ? error.message : String(error || "unknown error");
   const code = typeof error?.code === "string" ? error.code.trim() : "";
   return code && !message.startsWith(`${code}:`) ? `${code}: ${message}` : message;
+}
+
+function truncateToolResult(text, maxBytes) {
+  const value = String(text || "");
+  if (!Number.isInteger(maxBytes) || maxBytes <= 0 || Buffer.byteLength(value, "utf8") <= maxBytes) return value;
+  const suffix = "\n[truncated]";
+  if (Buffer.byteLength(suffix, "utf8") >= maxBytes) return utf8Prefix(suffix, maxBytes);
+  return `${utf8Prefix(value, maxBytes - Buffer.byteLength(suffix, "utf8"))}${suffix}`;
+}
+
+function utf8Prefix(text, maxBytes) {
+  let output = "";
+  let used = 0;
+  for (const character of String(text || "")) {
+    const bytes = Buffer.byteLength(character, "utf8");
+    if (used + bytes > maxBytes) break;
+    output += character;
+    used += bytes;
+  }
+  return output;
 }
 
 function buildToolResources(toolCatalog, catalogEntries = null) {
@@ -511,4 +535,4 @@ function writeMessage(payload, mode = "content-length") {
   fs.writeSync(process.stdout.fd, Buffer.concat([header, body]));
 }
 
-module.exports = { runToolMcpServer };
+module.exports = { runToolMcpServer, truncateToolResult };

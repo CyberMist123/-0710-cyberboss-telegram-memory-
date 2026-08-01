@@ -18,6 +18,7 @@ const {
   TOOL_RISKS, TOOL_THEMES, THEME_DEFINITIONS, CATALOG_INPUT_SCHEMA,
   buildManifest, catalogEnabled, findSchema, resolveToolset,
 } = require("../src/tools/tool-catalog-manifest");
+const { truncateToolResult } = require("../src/tools/mcp-stdio-server");
 
 const plantedValue = "planted-nondisclosure-canary-0000";
 const privatePatterns = [/[A-Za-z]:[\\/]/, /\/home\/[A-Za-z0-9_.-]+/, /\/Users\/[A-Za-z0-9_.-]+/, /(sk|ghp|xoxb)-[A-Za-z0-9_-]{8,}/];
@@ -94,6 +95,46 @@ test("A1/A2 flag-off is exact and enabled surface is one minimal catalog plus tw
     assert.ok(JSON.stringify(tools[0].inputSchema).length <= 160);
     for (const tool of tools.slice(1)) assert.deepEqual(tool.inputSchema, PROJECT_TOOLS.find((item) => item.name === tool.name).inputSchema);
   });
+});
+
+test("T07 A5/A8 max_result_bytes is per tool and schema estimates come from the actual tools/list schemas", () => {
+  withEnv({ CYBERBOSS_ROUTE2_GATE_ENABLED: "true" }, () => {
+    const toolHost = host();
+    const listed = toolHost.listTools();
+    const entries = toolHost.catalogState().entries.filter((entry) => !entry.alias_of);
+    const time = entries.find((entry) => entry.id === "cyberboss_time");
+    const send = entries.find((entry) => entry.id === "cyberboss_system_send");
+    assert.equal(time.max_result_bytes, 2048);
+    assert.equal(send.max_result_bytes, null);
+    for (const tool of listed) {
+      const entry = entries.find((candidate) => candidate.id === tool.name);
+      assert.ok(entry, `manifest entry missing for ${tool.name}`);
+      assert.equal(entry.estimated_schema_chars, JSON.stringify(tool.inputSchema || {}).length);
+    }
+  });
+});
+
+test("T07 A6 server-side result truncation is UTF-8 safe and never exceeds the tool budget", () => {
+  const result = truncateToolResult("假数据".repeat(100), 37);
+  assert.ok(Buffer.byteLength(result, "utf8") <= 37);
+  assert.match(result, /\[truncated\]$/);
+  assert.doesNotMatch(result, /�/);
+
+  const program = String.raw`
+    const { runToolMcpServer } = require("./src/tools/mcp-stdio-server");
+    runToolMcpServer({ toolHost: {
+      listTools() { return [{ name: "fake_bounded", description: "fixture", inputSchema: { type: "object" } }]; },
+      maxResultBytes(name) { return name === "fake_bounded" ? 37 : null; },
+      async invokeTool() { return { text: "假数据".repeat(100) }; },
+    }});`;
+  const input = `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "fake_bounded", arguments: {} } })}\n`;
+  const child = spawnSync(process.execPath, ["-e", program], { cwd: path.join(__dirname, ".."), input, encoding: "utf8" });
+  assert.equal(child.error, undefined);
+  assert.equal(child.status, 0, child.stderr);
+  const response = JSON.parse(child.stdout.trim());
+  const returned = response.result.content[0].text;
+  assert.ok(Buffer.byteLength(returned, "utf8") <= 37);
+  assert.match(returned, /\[truncated\]$/);
 });
 
 test("A1 flag-off leaves legacy invocation and real stdio tools/resources byte-compatible", async () => withEnv({ CYBERBOSS_TOOL_CATALOG_ENABLED: "false", CYBERBOSS_SUBJECT_SIGNING_ENABLED: undefined }, async () => {
