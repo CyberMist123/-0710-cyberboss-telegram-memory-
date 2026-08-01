@@ -123,6 +123,7 @@ Notes:
 - `/model`
 - `/model <id>`
 - `/effort` / `/effort <low|medium|high|xhigh|max>`
+- `/profile` / `/profile <profileId>`（仅 `CYBERBOSS_CLAUDE_G3_PROFILE_CONTRACT_ENABLED` 开启时）
 - `/pause activity`
 - `/continue activity`
 - `/memory <subcommand>`（pending / approve / reject / list / review / search / add / update / delete / prune / cleanup / undo / suggest / apply-suggestion）
@@ -134,6 +135,7 @@ Notes:
 - `/status` covers thread, workspace, and context details
 - there is no separate `/context` command; use `/status` and read the `📦 context` line
 - `/effort` with no argument reports the level in force and where it came from: this chat's own choice, `CYBERBOSS_CLAUDE_EFFORT`, or the `medium` default. Setting a level relaunches the workspace's Claude child and resumes the same thread
+- `/profile` reports the lane's effective profile/source/scope; `/profile <profileId>` moves that lane to the selected full-profile window, and switching back resumes only that profile's own session slot
 - `/compact` asks the current thread to compact its context and reports start / finish back to Telegram
 - `/pause activity` pauses Desire hourly ticks, scheduled check-ins, closeout/liveness scheduling, and delivery of proactive messages queued by those sources; window chat and user-set reminders stay active
 - `/continue activity` resumes those ticks and delivers retained proactive messages using the existing queue order
