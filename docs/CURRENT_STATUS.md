@@ -97,7 +97,7 @@ Verified against: b2355f9
 | `/pause activity` / `/continue activity` | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 单 writer 持久态、三类 poller/tick 与来源定向队列暂停均已接主链；窗口聊天和用户 reminder 明确不受影响。已随 `6fb078e` 上生产（2026-08-01），暂停态经文件预置生效；`/pause` `/continue` 的命令级真机证据仍缺 |
 | Desire（八维状态 + hourly poller） | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | 最小闭环代码与生产落盘形态集成测试已进仓库；挂 `CYBERBOSS_DESIRE_LOOP_MINIMAL_ENABLED`，默认关闭，生产机实际开关状态由不入库的 secrets 决定 |
 | 520 · 只读视图与健康度 | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | 面板由独立计划任务拉起，真机状态未核 |
-| 520 · 活跃写端点（提示词 / 分层 / 门控 / 调度） | `WIRED` | `PARTIAL` | `BLOCKING` | `UNKNOWN` | 改生产行为的端点覆盖仍不全（故测试记 `PARTIAL`）；`test:520-endpoints` 已接主 CI，覆盖提示词写路径的保存/恢复、50 路由总账、18 个黑盒读端点契约、sleep-window 读写与 Node 同进程即时重读、DeepSeek 密钥处理 |
+| 520 · 活跃写端点（提示词 / 分层 / 门控 / 调度） | `WIRED` | `PARTIAL` | `BLOCKING` | `UNKNOWN` | 改生产行为的端点覆盖仍不全（故测试记 `PARTIAL`）；`test:520-endpoints` 已接主 CI，覆盖提示词写路径的保存/恢复、50 路由总账、18 个黑盒读端点契约、sleep-window 读写与 Node 同进程即时重读、DeepSeek 密钥处理；`reentry` 保存分支已与 Node History writer 共用同一把跨语言 writer lease，撞锁显式返回 409 |
 | 520 · 安全冻结写端点（5 个） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 按设计冻结，见 `DECISIONS.md` D5 |
 | 520 · 关怀页写路径（care config / cycle） | `PARTIAL` | `PARTIAL` | `NONE` | `NOT_WIRED` | 后端在、前端未接完；不是安全边界 |
 | 520 · 剧场页（theater scripts） | `WIRED` | `NONE` | `NONE` | `UNKNOWN` | 纯展示只读 |

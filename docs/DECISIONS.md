@@ -481,6 +481,27 @@ Decision date: 2026-08-01
 
 ---
 
+## D29 · writer lease 升格为跨语言契约：520（Python）与 Node 共用同一把锁
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-02
+```
+
+裁定对象：issue #89「`reentry.md` 双锁域」的修复方向。该 issue 列了三个方向并注明「勿直接开工」，其中跨语言 lease 一项明写「需要显式决定并登记」。
+
+- **裁定**：取**跨语言 lease** 方向 —— 520 面板（Python）实现 `src/orchestration/writer-lease.js` 的同一套 JSON 文件租约协议，与 Node 侧共用同一把锁。不取「面板改走候选链」，也不止步于「`expected_sha256` 改必填」的最小止损。
+- **由此，writer lease 协议从 Node 内部实现升格为跨语言契约**，两侧改动必须同步，协议形状变更属破坏性变更。
+- **边界**：
+  - **唯一路径口径**：`CYBERBOSS_WRITER_LEASE_FILE` 优先，否则 `<continuityDir>/.jobs/MEMORY_WRITER_LEASE.json`。两侧必须解析出逐字节相同的绝对路径 —— 这是 #74 的教训：两个不同的 lease 文件等于没有锁。
+  - **独占获取只用 `O_EXCL`**（Node `"wx"` / Python `O_CREAT|O_EXCL`），禁止先查后建。
+  - **回收权只归 Node。** Python 只拿锁不回收、**不实现判活**：撞锁即 fail-closed 返回 409，Node 下次拿锁时自愈。双语言都做回收会让"误删活锁"风险翻倍，且 Node 的 `process.kill(pid, 0)` 在 Windows 上 Python 无等价物。
+  - **释放前校验 `lease_id`**，绝不删别人的锁；正文写入失败也必须释放。
+- **fail-open 在此不适用**：不变量 5 说的是**读**。写 canon 拿不到锁必须拒绝写并暴露 409 —— **把静默数据丢失变成可见失败，正是本条的目的**。
+- **理由**：`reentry.md` 原有两个整文件替换的 writer，其中 520 一侧完全无锁，竞态丢的不是一行而是整封 Re-entry 交接信。加锁是让第二个 writer 服从既有锁域，而不是新增第三套机制。
+
+---
+
 ## 待裁决 / Candidates
 
 下列**尚未做出决定**，不占用 D 编号，也不得当成已定方向施工。

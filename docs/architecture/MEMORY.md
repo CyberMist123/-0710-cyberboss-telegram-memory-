@@ -335,7 +335,8 @@ Desire 属于 Cyberboss runtime，不属于关系正史。
 - `candidates/legacy-candidate-route-bindings.jsonl`：仅离线 `classify-legacy-candidates.js --apply` migration writer 追加；现有 Review / History / dispatcher / closeout 均不写、不读，未来读者还必须受默认关闭的 `CYBERBOSS_LEGACY_CANDIDATE_BINDING_ENABLED` 门控。
 - Episode canon：唯一 History writer 按已验证的 publication intent 写。
 - 账本 `details.jsonl`：唯一 History writer 按已验证的 publication intent 写（内容仍由主体 AI 执笔）。
-- Re-entry：主体 AI 唯一执笔，Auto Review 只校验。
+- Re-entry：主体 AI 唯一执笔，Auto Review 只校验；canon 有 History writer 发布与 520
+  人工保存两个整文件写入点，二者必须共用同一把跨语言 writer lease。
 - Re-entry 的 last-known-good 副本（`.jobs/reentry-last-known-good.json`）：唯一 writer 是
   注入侧 loader；属机制状态，不是 canon，不许被当成正史引用。
 - 打回 envelope、rejection case 与 publication intent：唯一 Review writer 在同一 lease
@@ -349,6 +350,11 @@ Desire 属于 Cyberboss runtime，不属于关系正史。
   （`CYBERBOSS_WRITER_LEASE_FILE`，缺省 `<continuityDir>/.jobs/MEMORY_WRITER_LEASE.json`，
   由 `src/orchestration/memory-writer-lease.js` 统一解析）。同一份文件出现第二把锁等于没有锁；
   两侧写入都必须**只追加**，不许整读整写回 —— 整写回会把并发落下的那一行连同其余内容盖掉。
+- Re-entry 的 History writer 与 Python 520 保存端点共用同一路径契约：显式
+  `CYBERBOSS_WRITER_LEASE_FILE` 优先，否则唯一缺省是
+  `<continuityDir>/.jobs/MEMORY_WRITER_LEASE.json`。Python 只以排他创建获取、按
+  `lease_id` 校验释放；撞锁立即 409，不重试、不判活、不回收。失效 lease 的判活与
+  回收权只归 Node writer。
 - Desire：唯一 Desire service 写。
 - Timeline / Rereadings / Portrait：受控 Reflect writer 更新。
 - 520：只调用后端服务，不直接改正式文件。

@@ -54,6 +54,12 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs, unquote
 
 from janitor_config import resolve_auto_janitor_hours_from_keys
+from writer_lease import (
+    WriterLeaseUnavailable,
+    acquire_memory_writer_lease,
+    release_memory_writer_lease,
+    resolve_memory_writer_lease_file,
+)
 
 KIT_DIR = Path(__file__).resolve().parent
 ROOT = Path(os.environ.get("CYBERBOSS_MEMORY_DIR") or (KIT_DIR.parent / "memory"))
@@ -244,6 +250,7 @@ DEFAULT_CONTEXT_LAYOUT = {
 HOST = os.environ.get("CYBERBOSS_DASHBOARD_HOST", "127.0.0.1")
 PORT = int(os.environ.get("CYBERBOSS_DASHBOARD_PORT", "520"))
 CONTINUITY_DIR = Path(os.environ.get("CYBERBOSS_CONTINUITY_DIR") or (WORKSPACE_ROOT / "continuity"))
+WRITER_LEASE_FILE = resolve_memory_writer_lease_file(CONTINUITY_DIR)
 CYBERBOSS_HOME_TEXT = os.environ.get("CYBERBOSS_HOME", "").strip()
 CYBERBOSS_HOME = Path(CYBERBOSS_HOME_TEXT) if CYBERBOSS_HOME_TEXT else None
 NODE_COMMAND = os.environ.get("CYBERBOSS_NODE_COMMAND", "node")
@@ -2054,6 +2061,16 @@ def save_context_source(key, content, expected_sha256="", source="520"):
     if key == "prompt":
         save_runtime_prompt(text, expected_sha256=expected_sha256, source=source)
         return get_context_sources_payload()
+    if key == "reentry":
+        lease = acquire_memory_writer_lease(WRITER_LEASE_FILE)
+        try:
+            return _save_context_source_unlocked(key, text, expected_sha256, source)
+        finally:
+            release_memory_writer_lease(WRITER_LEASE_FILE, lease["lease_id"])
+    return _save_context_source_unlocked(key, text, expected_sha256, source)
+
+
+def _save_context_source_unlocked(key, text, expected_sha256="", source="520"):
     paths = _context_source_paths()
     if key not in paths:
         raise ValueError("不支持的上下文来源。")
@@ -5682,6 +5699,8 @@ class H(BaseHTTPRequestHandler):
                 self._send(200, json.dumps({"ok": True, "context_sources": payload}, ensure_ascii=False))
             except ValueError as e:
                 self._send(400, json.dumps({"ok": False, "error": "invalid_context_source", "err": str(e)}, ensure_ascii=False))
+            except WriterLeaseUnavailable as e:
+                self._send(409, json.dumps({"ok": False, "error": "writer_lease_unavailable", "err": str(e)}, ensure_ascii=False))
             except RuntimeError as e:
                 self._send(409, json.dumps({"ok": False, "error": "context_source_conflict", "err": str(e)}, ensure_ascii=False))
             except Exception as e:
