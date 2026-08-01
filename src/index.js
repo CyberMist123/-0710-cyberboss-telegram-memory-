@@ -179,7 +179,8 @@ async function main() {
       || (typeof process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET === "string" ? process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET.trim() : "");
     if (toolset && process.env.CYBERBOSS_TOOL_CATALOG_ENABLED !== "true") throw new Error("catalog_disabled_toolset_not_accepted");
     if (toolset) require("./tools/tool-catalog-manifest").resolveToolset(toolset);
-    const { toolHost } = createProjectTooling(config, { toolset });
+    const authorizationCeiling = readFlagValue(argv.slice(1), "--authorization-ceiling") || "";
+    const { toolHost } = createProjectTooling(config, { toolset, authorizationCeiling });
     runToolMcpServer({ toolHost, runtimeId, workspaceRoot, routeToken });
     return;
   }

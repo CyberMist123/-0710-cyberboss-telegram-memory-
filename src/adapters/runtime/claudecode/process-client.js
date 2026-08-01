@@ -162,7 +162,7 @@ class ClaudeCodeProcessClient {
       model: profileLaunch ? "" : this.model,
       effort: profileLaunch ? "" : this.effort,
       emitEffort: this.emitEffort,
-      permissionMode: this.permissionMode,
+      permissionMode: resolveEffectivePermissionMode(profileLaunch?.permissionMode, this.permissionMode),
       disableVerbose: this.disableVerbose,
       extraArgs: profileLaunch ? [] : this.extraArgs,
       mcpConfigPaths: profileLaunch ? [] : this.mcpConfigPaths,
@@ -587,6 +587,11 @@ function extraArgsContainFlag(extraArgs, flag) {
   });
 }
 
+function resolveEffectivePermissionMode(profilePermissionMode, basePermissionMode) {
+  if (!profilePermissionMode) return basePermissionMode;
+  return profilePermissionMode === "inherit" ? basePermissionMode : profilePermissionMode;
+}
+
 function buildArgs({
   model,
   permissionMode,
@@ -665,4 +670,5 @@ module.exports = {
   resolveStrictMcpConfig,
   extraArgsContainFlag,
   isPotentiallySensitive,
+  resolveEffectivePermissionMode,
 };

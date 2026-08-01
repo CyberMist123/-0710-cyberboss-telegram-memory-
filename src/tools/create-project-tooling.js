@@ -121,6 +121,7 @@ function createProjectTooling(config, options = {}) {
     services,
     runtimeContextStore,
     toolset: options.toolset || null,
+    authorizationCeiling: options.authorizationCeiling || "",
   });
   return {
     services,

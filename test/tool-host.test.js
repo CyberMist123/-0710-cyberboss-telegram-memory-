@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 
 const { ProjectToolHost } = require("../src/tools/tool-host");
 
-function createHost() {
+function createHost(options = {}) {
   return new ProjectToolHost({
     services: {
       diary: {
@@ -194,6 +194,7 @@ function createHost() {
         },
       },
     },
+    authorizationCeiling: options.authorizationCeiling || "",
     runtimeContextStore: {
       resolveActiveContext() {
         return {};
@@ -201,6 +202,33 @@ function createHost() {
     },
   });
 }
+
+test("T04 A4/A5 work authorization denies relationship-memory schema and calls independently of discovery", async () => {
+  const previous = process.env.CYBERBOSS_TOOL_CATALOG_ENABLED;
+  const host = createHost({ authorizationCeiling: "work-memory-readonly@1" });
+  try {
+    for (const enabled of ["false", "true"]) {
+      process.env.CYBERBOSS_TOOL_CATALOG_ENABLED = enabled;
+      const visibleNames = host.listTools().map((tool) => tool.name);
+      assert.equal(visibleNames.includes("cyberboss_catalog"), enabled === "true");
+      await assert.rejects(
+        () => host.invokeTool("cyberboss_catalog", { handle: "memory/memory_note" }),
+        (error) => error.code === "g3_schema_not_authorized",
+      );
+      await assert.rejects(
+        () => host.invokeTool("memory_note", { text: "bounded fixture" }),
+        (error) => error.code === "g3_call_not_authorized",
+      );
+    }
+    assert.throws(
+      () => new ProjectToolHost({ services: {}, runtimeContextStore: {}, authorizationCeiling: "unknown@1" }),
+      (error) => error.code === "g3_authorization_ceiling_unknown",
+    );
+  } finally {
+    if (previous === undefined) delete process.env.CYBERBOSS_TOOL_CATALOG_ENABLED;
+    else process.env.CYBERBOSS_TOOL_CATALOG_ENABLED = previous;
+  }
+});
 
 test("tool host rejects legacy timeline write CLI-shaped fields", async () => {
   const host = createHost();

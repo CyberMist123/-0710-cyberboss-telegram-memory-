@@ -16,6 +16,9 @@ const { BoundedJsonError, parseBoundedJson } = require("../../../core/bounded-js
 //   --tools
 //   --agents
 //   --system-prompt
+//   --bare
+//   --disable-slash-commands
+//   --setting-sources
 //
 // `--config-dir` and `--output-style` are NOT declared by that help output, so
 // they are treated as unverified: a profile using them fails validation before
@@ -44,6 +47,9 @@ const VERIFIED_PROFILE_FLAGS = Object.freeze(new Set([
   "--tools",
   "--agents",
   "--system-prompt",
+  "--bare",
+  "--disable-slash-commands",
+  "--setting-sources",
 ]));
 
 // Profile fields whose flag is not declared by the verified CLI help output.

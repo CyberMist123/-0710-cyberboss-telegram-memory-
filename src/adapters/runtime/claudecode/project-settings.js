@@ -19,6 +19,7 @@ function ensureRouteScopedMcpConfig({
   cyberbossHome = "",
   routeToken = "",
   configDir = "",
+  launchProfile = null,
 } = {}) {
   const normalizedWorkspaceRoot = normalizeText(workspaceRoot);
   const normalizedToken = normalizeText(routeToken);
@@ -38,8 +39,9 @@ function ensureRouteScopedMcpConfig({
         workspaceRoot: normalizedWorkspaceRoot,
         cyberbossHome,
         routeToken: normalizedToken,
+        launchProfile,
       }),
-      ...Object.fromEntries(resolveClaudeExternalMcpServerConfigs().map((config) => [config.name, config])),
+      ...Object.fromEntries(resolveAllowedExternalMcpServerConfigs(launchProfile).map((config) => [config.name, config])),
     },
   };
   if (!jsonEquals(readJsonObject(configPath), next)) {
@@ -80,7 +82,7 @@ function ensureClaudeProjectMcpConfig({ workspaceRoot, cyberbossHome = "" } = {}
   };
 }
 
-function buildClaudeProjectMcpServerConfig({ workspaceRoot, cyberbossHome = "", routeToken = "" } = {}) {
+function buildClaudeProjectMcpServerConfig({ workspaceRoot, cyberbossHome = "", routeToken = "", launchProfile = null } = {}) {
   const normalizedWorkspaceRoot = normalizeText(workspaceRoot);
   const home = normalizeText(cyberbossHome) || process.env.CYBERBOSS_HOME || path.resolve(__dirname, "..", "..", "..", "..");
   const scriptPath = path.join(home, "bin", "cyberboss.js");
@@ -92,6 +94,8 @@ function buildClaudeProjectMcpServerConfig({ workspaceRoot, cyberbossHome = "", 
   if (normalizedToken) {
     args.push("--route-token", normalizedToken);
   }
+  const authorizationCeiling = resolveToolAuthorizationCeiling(launchProfile);
+  if (authorizationCeiling) args.push("--authorization-ceiling", authorizationCeiling);
   const entry = { command: process.execPath, args };
   if (normalizedToken) {
     // Passed twice on purpose: the argument is what the server reads, the
@@ -99,9 +103,30 @@ function buildClaudeProjectMcpServerConfig({ workspaceRoot, cyberbossHome = "", 
     // rewrites argv.
     entry.env = { CYBERBOSS_ROUTE_TOKEN: normalizedToken };
   }
+  if (launchProfile?.schemaVersion === 3 && launchProfile.profileId === "fable-chat") {
+    entry.env = { ...(entry.env || {}), CYBERBOSS_TOOL_CATALOG_ENABLED: "true" };
+  }
   const toolset = typeof process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET === "string" ? process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET.trim() : "";
   if (process.env.CYBERBOSS_TOOL_CATALOG_ENABLED === "true" && toolset) args.push("--toolset", toolset);
   return entry;
+}
+
+function resolveAllowedExternalMcpServerConfigs(launchProfile) {
+  if (launchProfile?.schemaVersion !== 3) return resolveClaudeExternalMcpServerConfigs();
+  if (launchProfile.mcpServerCeiling === "chat-ceiling@1") return [];
+  if (launchProfile.mcpServerCeiling === "work-ceiling@1") return resolveClaudeExternalMcpServerConfigs();
+  const error = new Error("g3_mcp_server_ceiling_unknown");
+  error.code = "g3_mcp_server_ceiling_unknown";
+  throw error;
+}
+
+function resolveToolAuthorizationCeiling(launchProfile) {
+  if (launchProfile?.schemaVersion !== 3) return "";
+  if (launchProfile.profileId === "fable-chat") return "";
+  if (launchProfile.profileId === "work-engineering") return "work-memory-readonly@1";
+  const error = new Error("g3_tool_authorization_identity_unknown");
+  error.code = "g3_tool_authorization_identity_unknown";
+  throw error;
 }
 
 function resolveClaudeExternalMcpServerConfigs() {
@@ -141,4 +166,6 @@ module.exports = {
   ensureRouteScopedMcpConfig,
   buildClaudeProjectMcpServerConfig,
   resolveClaudeExternalMcpServerConfigs,
+  resolveAllowedExternalMcpServerConfigs,
+  resolveToolAuthorizationCeiling,
 };

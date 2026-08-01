@@ -8,15 +8,21 @@ const test = require("node:test");
 const { buildSessionSlotKey } = require("../src/adapters/runtime/claudecode/session-slot");
 const {
   buildProfileLaunch,
+  fingerprintG3ProfileIdentity,
   fingerprintLaunchProfile,
   resolveG3PreflightEnabled,
+  resolveG3ProfileContractEnabled,
+  validateLaunchProfile,
 } = require("../src/adapters/runtime/claudecode/launch-profile");
+const { buildArgs, resolveEffectivePermissionMode } = require("../src/adapters/runtime/claudecode/process-client");
+const { buildOpeningTurnText, loadInstructionFile } = require("../src/adapters/runtime/shared-instructions");
 const {
   clearCliProbeCache,
   runG3LaunchPreflight,
 } = require("../src/adapters/runtime/claudecode/g3-preflight");
 const { canonicalWorkspaceKey } = require("../src/core/workspace-lock");
 const { createClaudeCodeRuntimeAdapter } = require("../src/adapters/runtime/claudecode");
+const { createTelegramProfileRouter } = require("../src/adapters/runtime/claudecode/telegram-profile-router");
 const { buildTelegramRouteLane } = require("../src/core/route-lane");
 
 const helper = path.join(__dirname, "helpers", "fake-claude-g3-help-cli.js");
@@ -29,6 +35,154 @@ function tempRoot() {
 function profile(root, extra = {}) {
   return { profileId: "private-profile", cwd: root, configRoot: root, strictMcpConfig: true, ...extra };
 }
+
+function managedProfile(root, id) {
+  const fable = id === "fable-chat";
+  const cwd = path.join(root, fable ? "fable-workspace" : "engineering-workspace");
+  const configRoot = path.join(root, fable ? "fable-config" : "engineering-config");
+  const settings = path.join(root, fable ? "fable.settings.json" : "work.settings.json");
+  const personaSource = path.join(root, fable ? "fable.role.md" : "work.role.md");
+  fs.mkdirSync(cwd, { recursive: true });
+  fs.mkdirSync(configRoot, { recursive: true });
+  fs.writeFileSync(settings, JSON.stringify({ fixture: id }), "utf8");
+  fs.writeFileSync(personaSource, fable ? "FABLE_ROLE_SENTINEL" : "WORK_ENGINEERING_SENTINEL", "utf8");
+  return {
+    schemaVersion: 3,
+    profileId: id,
+    cwd,
+    configRoot,
+    harnessMode: fable ? "bare" : "engineering",
+    settingSources: fable ? ["user"] : ["user", "project", "local"],
+    skillsMode: fable ? "disabled" : "enabled",
+    settings: [settings],
+    personaSource,
+    residentToolSchemas: fable ? ["cyberboss_system_send", "cyberboss_time"] : ["engineering-tools"],
+    mcpServerCeiling: fable ? "chat-ceiling@1" : "work-ceiling@1",
+    toolsetCeiling: fable ? "chat-ceiling@1" : "work-ceiling@1",
+    defaultMcpServerSet: fable ? "chat-base@1" : "work-base@1",
+    defaultToolset: fable ? "chat-core@1" : "work-full@1",
+    strictMcpConfig: true,
+    permissionMode: fable ? "profile-local-least-privilege" : "work-engineering-full",
+    envPolicy: fable ? "chat-minimal" : "work-engineering",
+  };
+}
+
+function withManagedProfileGate(run) {
+  const previous = process.env.CYBERBOSS_CLAUDE_G3_PROFILE_CONTRACT_ENABLED;
+  const previousPreflight = process.env.CYBERBOSS_CLAUDE_G3_PREFLIGHT_ENABLED;
+  process.env.CYBERBOSS_CLAUDE_G3_PROFILE_CONTRACT_ENABLED = "true";
+  process.env.CYBERBOSS_CLAUDE_G3_PREFLIGHT_ENABLED = "true";
+  try { return run(); } finally {
+    if (previous === undefined) delete process.env.CYBERBOSS_CLAUDE_G3_PROFILE_CONTRACT_ENABLED;
+    else process.env.CYBERBOSS_CLAUDE_G3_PROFILE_CONTRACT_ENABLED = previous;
+    if (previousPreflight === undefined) delete process.env.CYBERBOSS_CLAUDE_G3_PREFLIGHT_ENABLED;
+    else process.env.CYBERBOSS_CLAUDE_G3_PREFLIGHT_ENABLED = previousPreflight;
+  }
+}
+
+test("T04 A1/A2 managed identities bind harness, role source, permission identity and ceilings into slots", () => {
+  const root = tempRoot();
+  try {
+    withManagedProfileGate(() => {
+      assert.equal(resolveG3ProfileContractEnabled(), true);
+      const fable = validateLaunchProfile(managedProfile(root, "fable-chat"), { baseDir: root });
+      const work = validateLaunchProfile(managedProfile(root, "work-engineering"), { baseDir: root });
+      const fableLaunch = buildProfileLaunch({ profile: fable, baseEnv: {}, baseCwd: root, baseDir: root });
+      const workLaunch = buildProfileLaunch({ profile: work, baseEnv: {}, baseCwd: root, baseDir: root });
+      assert.deepEqual(fableLaunch.args.slice(0, 5), ["--bare", "--disable-slash-commands", "--setting-sources", "user", "--settings"]);
+      assert.equal(workLaunch.args.includes("--bare"), false);
+      assert.equal(workLaunch.args.includes("--disable-slash-commands"), false);
+      assert.equal(loadInstructionFile(fable.personaSource).includes("WORK_ENGINEERING_SENTINEL"), false);
+      assert.equal(loadInstructionFile(work.personaSource).includes("WORK_ENGINEERING_SENTINEL"), true);
+      const opening = buildOpeningTurnText(
+        { channel: "telegram", weixinInstructionsFile: work.personaSource },
+        "hello",
+        { roleCard: loadInstructionFile(fable.personaSource) },
+      );
+      assert.equal(opening.includes("FABLE_ROLE_SENTINEL"), true);
+      assert.equal(opening.includes("WORK_ENGINEERING_SENTINEL"), false);
+
+      const base = fingerprintG3ProfileIdentity(fable);
+      const variants = [
+        { ...fable, cwd: work.cwd },
+        { ...fable, configRoot: work.configRoot },
+        { ...fable, permissionMode: "rotated-permission-identity" },
+        { ...fable, mcpServerCeiling: "rotated-mcp-ceiling" },
+        { ...fable, toolsetCeiling: "rotated-tool-ceiling" },
+      ];
+      for (const variant of variants) {
+        const changed = fingerprintG3ProfileIdentity(variant);
+        assert.notEqual(changed, base);
+        assert.notEqual(
+          buildSessionSlotKey({ workspaceRoot: root, laneKey: "lane", profileFingerprint: changed }),
+          buildSessionSlotKey({ workspaceRoot: root, laneKey: "lane", profileFingerprint: base }),
+        );
+      }
+      fs.writeFileSync(fable.personaSource, "FABLE_ROLE_SENTINEL_CHANGED", "utf8");
+      assert.notEqual(fingerprintG3ProfileIdentity(fable), base, "persona content change rotates identity");
+    });
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("T04 A6 global bypassPermissions cannot cross the fable permission identity", () => {
+  const root = tempRoot();
+  try {
+    withManagedProfileGate(() => {
+      const launch = buildProfileLaunch({ profile: managedProfile(root, "fable-chat"), baseEnv: {}, baseCwd: root, baseDir: root });
+      const effective = resolveEffectivePermissionMode(launch.permissionMode, "bypassPermissions");
+      const args = buildArgs({ permissionMode: effective, disableVerbose: true, extraArgs: [], mcpConfigPaths: [], emitEffort: false });
+      assert.equal(effective, "default");
+      assert.equal(args.includes("bypassPermissions"), false);
+    });
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("T04 A7/A8 contract gate off is byte-compatible and launch trace is tokenized", () => {
+  const root = tempRoot();
+  try {
+    assert.equal(resolveG3ProfileContractEnabled({}), false);
+    const input = { profile: { profileId: "baseline", cwd: root }, baseEnv: { PATH: "fixture", CUSTOM: "unchanged" }, baseCwd: root, baseDir: root };
+    const launch = buildProfileLaunch(input);
+    assert.deepEqual({ args: launch.args, env: launch.env, cwd: launch.cwd }, { args: [], env: input.baseEnv, cwd: root });
+    const previousContract = process.env.CYBERBOSS_CLAUDE_G3_PROFILE_CONTRACT_ENABLED;
+    const previousPreflight = process.env.CYBERBOSS_CLAUDE_G3_PREFLIGHT_ENABLED;
+    process.env.CYBERBOSS_CLAUDE_G3_PROFILE_CONTRACT_ENABLED = "true";
+    delete process.env.CYBERBOSS_CLAUDE_G3_PREFLIGHT_ENABLED;
+    try {
+      assert.throws(
+        () => validateLaunchProfile(managedProfile(root, "fable-chat"), { baseDir: root }),
+        (error) => error.code === "g3_preflight_required",
+      );
+    } finally {
+      if (previousContract === undefined) delete process.env.CYBERBOSS_CLAUDE_G3_PROFILE_CONTRACT_ENABLED;
+      else process.env.CYBERBOSS_CLAUDE_G3_PROFILE_CONTRACT_ENABLED = previousContract;
+      if (previousPreflight === undefined) delete process.env.CYBERBOSS_CLAUDE_G3_PREFLIGHT_ENABLED;
+      else process.env.CYBERBOSS_CLAUDE_G3_PREFLIGHT_ENABLED = previousPreflight;
+    }
+    withManagedProfileGate(() => {
+      const rawManaged = managedProfile(root, "fable-chat");
+      const managed = buildProfileLaunch({ profile: rawManaged, baseEnv: {}, baseCwd: root, baseDir: root });
+      const trace = JSON.stringify(managed.telemetry);
+      assert.equal(trace.includes(root), false);
+      assert.equal(trace.includes("fable-chat"), false);
+      assert.equal(trace.includes("FABLE_ROLE_SENTINEL"), false);
+      assert.equal(managed.telemetry.profile_schema_version, 3);
+      assert.equal(managed.telemetry.permission_mode, "profile-local-least-privilege");
+      let caught;
+      try {
+        createTelegramProfileRouter({
+          profilesJson: JSON.stringify({ "fable-chat": { ...rawManaged, envPolicy: "planted-private-profile-value" } }),
+          baseDir: root,
+        });
+      } catch (error) { caught = error; }
+      assert.equal(caught?.code, "invalid_enum");
+      const failure = JSON.stringify({ message: caught?.message, code: caught?.code, details: caught?.details });
+      assert.equal(failure.includes("fable-chat"), false);
+      assert.equal(failure.includes(root), false);
+      assert.equal(failure.includes("planted-private-profile-value"), false);
+    });
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
 
 test("A0/A16 gate defaults off and preserves baseline launch byte-for-byte", () => {
   const root = tempRoot();

@@ -12,11 +12,12 @@ const {
 } = require("./tool-catalog-manifest");
 
 class ProjectToolHost {
-  constructor({ services, runtimeContextStore, toolset = null }) {
+  constructor({ services, runtimeContextStore, toolset = null, authorizationCeiling = "" }) {
     this.services = services;
     this.runtimeContextStore = runtimeContextStore;
     this.extraToolHosts = createExtraToolHosts(services);
     this.toolset = toolset;
+    this.authorizationCeiling = normalizeAuthorizationCeiling(authorizationCeiling);
   }
 
   catalogState() {
@@ -47,6 +48,11 @@ class ProjectToolHost {
     const spec = registeredProjectTools().find((candidate) => candidate.name === resolvedToolName);
     const extraHost = this.extraToolHosts.find((host) => hostSupportsToolName(host, toolName));
     const normalizedArgs = args && typeof args === "object" ? { ...args } : {};
+    if (toolName === "cyberboss_catalog" && normalizedArgs.handle !== undefined) {
+      assertAuthorizedSchema(this.authorizationCeiling, normalizedArgs.handle);
+    } else if (toolName !== "cyberboss_catalog") {
+      assertAuthorizedCall(this.authorizationCeiling, resolvedToolName);
+    }
     if (catalogEnabled()) {
       if (toolName === "cyberboss_catalog") {
         validateSchema(CATALOG_INPUT_SCHEMA, normalizedArgs, toolName, "input");
@@ -120,6 +126,37 @@ class ProjectToolHost {
       provider: normalizeText(context.provider) || normalizeText(active.provider),
     };
   }
+}
+
+const AUTHORIZATION_CEILINGS = Object.freeze({
+  "work-memory-readonly@1": Object.freeze(new Set(["memory_note", "memory_candidate_submit"])),
+});
+
+function normalizeAuthorizationCeiling(value) {
+  const id = normalizeText(value);
+  if (!id) return "";
+  if (!Object.hasOwn(AUTHORIZATION_CEILINGS, id)) throw authorizationError("g3_authorization_ceiling_unknown");
+  return id;
+}
+
+function assertAuthorizedSchema(ceiling, handle) {
+  if (!ceiling) return;
+  const canonical = String(handle || "").split("/", 2)[1] || "";
+  if (AUTHORIZATION_CEILINGS[ceiling].has(canonical)) {
+    throw authorizationError("g3_schema_not_authorized");
+  }
+}
+
+function assertAuthorizedCall(ceiling, toolName) {
+  if (ceiling && AUTHORIZATION_CEILINGS[ceiling].has(toolName)) {
+    throw authorizationError("g3_call_not_authorized");
+  }
+}
+
+function authorizationError(code) {
+  const error = new Error(code);
+  error.code = code;
+  return error;
 }
 
 function buildCatalogToolEntry(tool) {
