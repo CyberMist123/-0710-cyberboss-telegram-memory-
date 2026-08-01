@@ -3,10 +3,41 @@
 const CATEGORIES = ["memory", "tool", "mcp", "skill"];
 const RESIDENT_NAMES = ["cyberboss_system_send", "cyberboss_time"];
 const TOOLSETS = { "chat-core@1": ["memory_lookup", "memory_note", "cyberboss_reminder", "cyberboss_diary_append", "cyberboss_system_send", "cyberboss_time"] };
+const TOOL_THEMES = Object.freeze({
+  github_repo_create: "工程派活", github_file_upload: "工程派活", github_issue_open: "工程派活", github_pr_open: "工程派活",
+  location_debug_snapshot: "感知", location_event_dashboard: "感知",
+  memory_note: "记忆", memory_lookup: "记忆", memory_candidate_submit: "记忆",
+  cyberboss_time: "感知", cyberboss_diary_append: "生活记录", cyberboss_reminder: "生活记录",
+  cyberboss_system_send: "表达行动", cyberboss_sleep_mode: "作息", weather: "感知",
+  cyberboss_channel_send_file: "表达行动", cyberboss_telegram_send: "表达行动",
+  cyberboss_telegram_send_file: "表达行动", cyberboss_telegram_send_voice: "表达行动",
+  cyberboss_sticker_tags: "表达行动", cyberboss_sticker_pick: "表达行动", cyberboss_sticker_send: "表达行动",
+  cyberboss_sticker_delete: "维护调试", cyberboss_sticker_save_from_inbox: "维护调试", cyberboss_sticker_update: "维护调试",
+  cyberboss_timeline_read: "时间线", cyberboss_timeline_categories: "时间线", cyberboss_timeline_proposals: "时间线",
+  cyberboss_timeline_write: "时间线", cyberboss_timeline_build: "时间线", cyberboss_timeline_serve: "时间线",
+  cyberboss_timeline_dev: "时间线", cyberboss_timeline_screenshot: "时间线",
+  whereabouts_current_stay: "感知", whereabouts_recent_moves: "感知", whereabouts_recent_stays: "感知",
+  whereabouts_snapshot: "感知", whereabouts_summary: "感知",
+});
+const THEME_DEFINITIONS = Object.freeze([
+  Object.freeze({ name: "表达行动", description: "想跟你说话、发文件、发语音、发贴纸时来这——她伸出手的那一面" }),
+  Object.freeze({ name: "感知", description: "你和世界的状态：天气、位置；将来健康、手机使用、可穿戴、日常活动 MCP 全进这" }),
+  Object.freeze({ name: "记忆", description: "翻过去（Episodes/账本都从这个把手进）、留笔记" }),
+  Object.freeze({ name: "生活记录", description: "记日记、设提醒" }),
+  Object.freeze({ name: "时间线", description: "你们的时间线回看与整理" }),
+  Object.freeze({ name: "作息", description: "睡眠模式" }),
+  Object.freeze({ name: "工程派活", description: "GitHub 操作；将来 Route 1 派工程车也在这" }),
+  Object.freeze({ name: "维护调试", description: "平时不碰" }),
+]);
+const CATALOG_INPUT_SCHEMA = Object.freeze({
+  type: "object",
+  properties: { theme: { type: "string" }, handle: { type: "string" } },
+  additionalProperties: false,
+});
 // Explicit policy data: risk is reviewed per canonical tool, never inferred from
 // spelling at runtime. Aliases inherit their canonical target's value.
 const TOOL_RISKS = Object.freeze({
-  memory_lookup: "read", memory_note: "append",
+  memory_lookup: "read", memory_note: "append", memory_candidate_submit: "append",
   cyberboss_channel_send_file: "send", cyberboss_diary_append: "append", cyberboss_reminder: "append",
   cyberboss_sleep_mode: "mutate", cyberboss_sticker_delete: "mutate", cyberboss_sticker_pick: "read",
   cyberboss_sticker_save_from_inbox: "append", cyberboss_sticker_send: "send", cyberboss_sticker_tags: "read",
@@ -22,6 +53,7 @@ const TOOL_RISKS = Object.freeze({
 });
 
 function catalogEnabled(env = process.env) { return env.CYBERBOSS_TOOL_CATALOG_ENABLED === "true"; }
+function subjectSigningEnabled(env = process.env) { return env.CYBERBOSS_SUBJECT_SIGNING_ENABLED === "true"; }
 function resolveToolset(value, env = process.env, toolsets = TOOLSETS) {
   const id = typeof value === "string" ? value.trim() : (env.CYBERBOSS_TOOL_CATALOG_TOOLSET || "").trim();
   if (!id) return null;
@@ -59,15 +91,23 @@ function makeEntry(id, category, tool, { hidden = false, deprecated = false, ali
   const canonical = aliasOf || id;
   const risk = TOOL_RISKS[canonical];
   if (!risk) throw catalogError("catalog_unclassified_entry", `${id} (risk missing)`);
-  return { id, category, purpose: tool.shortHint || tool.description || "", risk, estimated_schema_chars: schemaMetric(tool.inputSchema), schema_handle: `${category}/${canonical}`, hidden, deprecated, alias_of: aliasOf, resident: RESIDENT_NAMES.includes(canonical), authorized, max_result_bytes: null };
+  const theme = TOOL_THEMES[canonical];
+  if (!theme || !THEME_DEFINITIONS.some((definition) => definition.name === theme)) throw catalogError("catalog_unclassified_entry", `${id} (theme missing)`);
+  return { id, category, theme, purpose: tool.shortHint || tool.description || "", risk, estimated_schema_chars: schemaMetric(tool.inputSchema), schema_handle: `${category}/${canonical}`, hidden, deprecated, alias_of: aliasOf, resident: RESIDENT_NAMES.includes(canonical), authorized, max_result_bytes: null };
 }
 function findSchema({ entries, category, handle }) {
   if (typeof handle !== "string" || !/^(memory|tool|mcp|skill)\/[^/]+$/.test(handle)) throw catalogError("catalog_invalid_handle", String(handle));
   if (!handle.startsWith(`${category}/`)) throw catalogError("catalog_handle_category_mismatch", handle);
-  const entry = entries.find((item) => item.schema_handle === handle);
+  const matches = entries.filter((item) => item.schema_handle === handle && !item.alias_of);
+  if (matches.length > 1) throw catalogError("catalog_duplicate_handle", handle);
+  const entry = matches[0];
   if (!entry) throw catalogError("catalog_unknown_handle", handle);
   if (entry.category !== category) throw catalogError("catalog_handle_category_mismatch", handle);
   if (!entry.authorized) throw catalogError("catalog_schema_not_authorized", handle);
   return entry;
 }
-module.exports = { CATEGORIES, RESIDENT_NAMES, TOOLSETS, TOOL_RISKS, catalogEnabled, resolveToolset, catalogError, classifyProjectTool, buildManifest, findSchema };
+module.exports = {
+  CATEGORIES, RESIDENT_NAMES, TOOLSETS, TOOL_RISKS, TOOL_THEMES, THEME_DEFINITIONS,
+  CATALOG_INPUT_SCHEMA, catalogEnabled, subjectSigningEnabled, resolveToolset,
+  catalogError, classifyProjectTool, buildManifest, findSchema,
+};

@@ -59,7 +59,6 @@ const { ConversationRecorder } = require("../services/conversation-recorder");
 const { createSubjectRoute, windowIdFromNativeSessionId } = require("../continuity/subject-route");
 const {
   SubjectCapabilityRegistry,
-  SubjectCandidateService,
 } = require("../continuity/subject-signing");
 const { HandoffDispatcher } = require("../continuity/handoff-dispatcher");
 const { HandoffAckLedger } = require("../continuity/handoff-ack");
@@ -124,22 +123,23 @@ class CyberbossApp {
       ? this.telegramChannelAdapter
       : this.weixinChannelAdapter;
     this.timelineIntegration = createTimelineIntegration(config);
+    this.subjectCapabilityRegistry = new SubjectCapabilityRegistry({
+      enabled: config.subjectSigningEnabled === true,
+    });
+    this.subjectCapabilityByRunKey = new Map();
     const projectTooling = createProjectTooling(config, {
       channelAdapter: this.channelAdapter,
       timelineIntegration: this.timelineIntegration,
+      subjectCapabilityRegistry: this.subjectCapabilityRegistry,
+      subjectSigningContext: {
+        resolve: ({ threadId, turnId } = {}) => this.subjectCapabilityByRunKey.get(
+          buildRunKey(threadId, turnId),
+        ) || null,
+      },
     });
     this.projectServices = projectTooling.services;
     this.projectToolHost = projectTooling.toolHost;
     this.runtimeContextStore = projectTooling.runtimeContextStore;
-    this.subjectCapabilityRegistry = new SubjectCapabilityRegistry({
-      enabled: config.subjectSigningEnabled === true,
-    });
-    this.projectServices.subjectCandidate = new SubjectCandidateService({
-      continuityDir: config.continuityDir,
-      registry: this.subjectCapabilityRegistry,
-      enabled: config.subjectSigningEnabled === true,
-    });
-    this.subjectCapabilityByRunKey = new Map();
     this.runtimeAdapter = createRuntimeAdapter(config);
     // Fail-closed: a malformed profile mapping throws here and startup stops.
     // There is deliberately no fallback to a more permissive legacy profile.
@@ -989,6 +989,9 @@ class CyberbossApp {
         routeToken: turn.routeToken || turn.sessionSlotKey || "",
         laneKey: turn.laneKey || effectiveLane?.laneKey || "",
         processKey: turn.processKey || "",
+        ...(this.config.subjectSigningEnabled === true && turn.turnId
+          ? { turnId: turn.turnId }
+          : {}),
       });
       this.turnGateStore.attachThread(pendingScopeKey, turn.threadId);
       // The reply target carries the originating topic, so a reply, a media

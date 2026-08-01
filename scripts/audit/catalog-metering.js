@@ -15,9 +15,10 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const {
-  PROJECT_TOOLS, TOOL_ALIASES, DEPRECATED_HIDDEN_TOOL_NAMES, createExtraToolHosts,
+  TOOL_ALIASES, DEPRECATED_HIDDEN_TOOL_NAMES, createExtraToolHosts,
+  registeredProjectTools, buildThemeIndex, buildCatalogDirectoryTool,
 } = require("../../src/tools/tool-host");
-const { buildManifest, resolveToolset } = require("../../src/tools/tool-catalog-manifest");
+const { buildManifest, resolveToolset, TOOL_THEMES, THEME_DEFINITIONS } = require("../../src/tools/tool-catalog-manifest");
 
 const CATEGORIES = ["memory", "tool", "mcp", "skill"];
 
@@ -42,27 +43,31 @@ function classifyProjectTool(tool) {
   return Array.isArray(tool.topics) && tool.topics.includes("memory") ? "memory" : "tool";
 }
 
-function makeItem({ category, name, namespace, schema, description, hidden = false, deprecated = false, aliasOf = null }) {
+function makeItem({ category, theme, name, namespace, schema, description, hidden = false, deprecated = false, aliasOf = null }) {
   if (!CATEGORIES.includes(category)) throw new Error(`Unclassified catalog entry: ${name}`);
+  if (!THEME_DEFINITIONS.some((definition) => definition.name === theme)) throw new Error(`Unclassified catalog entry: ${name} (theme missing)`);
   const schemaMetric = metric(schema);
   return {
-    category, name, namespace, hidden, deprecated, alias_of: aliasOf,
+    category, theme, name, namespace, hidden, deprecated, alias_of: aliasOf,
     schema_chars: schemaMetric.chars, schema_bytes: schemaMetric.bytes,
     description_chars: String(description || "").length,
     has_max_result_bytes: false, max_result_bytes: null,
   };
 }
 
-function buildCatalog({ projectTools = PROJECT_TOOLS, aliases = TOOL_ALIASES, extraHosts = createExtraToolHosts({ whereabouts: {} }) } = {}) {
+function buildCatalog(options = {}) {
+  const projectTools = Object.hasOwn(options, "projectTools") ? options.projectTools : registeredProjectTools();
+  const aliases = Object.hasOwn(options, "aliases") ? options.aliases : TOOL_ALIASES;
+  const extraHosts = Object.hasOwn(options, "extraHosts") ? options.extraHosts : createExtraToolHosts({ whereabouts: {} });
   const canonical = new Map();
   for (const tool of projectTools) {
     const category = classifyProjectTool(tool);
-    canonical.set(tool.name, { category, schema: tool.inputSchema, description: tool.shortHint || tool.description, hidden: tool.hidden === true });
+    canonical.set(tool.name, { category, theme: TOOL_THEMES[tool.name], schema: tool.inputSchema, description: tool.shortHint || tool.description, hidden: tool.hidden === true });
   }
   const items = [...canonical.entries()].map(([name, tool]) => makeItem({ ...tool, name, namespace: "cyberboss" }));
   for (const host of extraHosts) {
     for (const tool of host.listTools()) {
-      items.push(makeItem({ category: "mcp", name: tool.name, namespace: "whereabouts", schema: tool.inputSchema, description: tool.description, deprecated: DEPRECATED_HIDDEN_TOOL_NAMES.has(tool.name) }));
+      items.push(makeItem({ category: "mcp", theme: TOOL_THEMES[tool.name], name: tool.name, namespace: "whereabouts", schema: tool.inputSchema, description: tool.description, deprecated: DEPRECATED_HIDDEN_TOOL_NAMES.has(tool.name) }));
     }
   }
   for (const [name, alias] of Object.entries(aliases)) {
@@ -78,10 +83,13 @@ function buildCatalog({ projectTools = PROJECT_TOOLS, aliases = TOOL_ALIASES, ex
   }
   items.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
   const categories = Object.fromEntries(CATEGORIES.map((category) => [category, { item_count: items.filter((item) => item.category === category).length }]));
+  const themes = Object.fromEntries(THEME_DEFINITIONS.map((definition) => [definition.name, {
+    item_count: items.filter((item) => item.theme === definition.name && !item.alias_of && item.hidden !== true).length,
+  }]));
   const totals = items.reduce((sum, item) => ({
     item_count: sum.item_count + 1, schema_chars: sum.schema_chars + item.schema_chars, schema_bytes: sum.schema_bytes + item.schema_bytes,
   }), { item_count: 0, schema_chars: 0, schema_bytes: 0 });
-  const withoutHashes = { schema_version: 1, generated_by: "scripts/audit/catalog-metering.js", categories, items, totals };
+  const withoutHashes = { schema_version: 1, generated_by: "scripts/audit/catalog-metering.js", categories, themes, items, totals };
   const catalogText = canonicalJson(withoutHashes);
   totals.catalog_chars = catalogText.length;
   totals.catalog_bytes = Buffer.byteLength(catalogText, "utf8");
@@ -93,13 +101,14 @@ function buildCatalog({ projectTools = PROJECT_TOOLS, aliases = TOOL_ALIASES, ex
 function buildResidentCatalog({ toolset = null } = {}) {
   const full = buildCatalog();
   const resolved = resolveToolset(toolset || "");
-  const entries = buildManifest({ projectTools: PROJECT_TOOLS, aliases: TOOL_ALIASES, extraHosts: createExtraToolHosts({ whereabouts: {} }), deprecatedNames: DEPRECATED_HIDDEN_TOOL_NAMES })
+  const projectTools = registeredProjectTools();
+  const entries = buildManifest({ projectTools, aliases: TOOL_ALIASES, extraHosts: createExtraToolHosts({ whereabouts: {} }), deprecatedNames: DEPRECATED_HIDDEN_TOOL_NAMES })
     .map((entry) => ({ ...entry, authorized: !resolved || resolved.members.has(entry.alias_of || entry.id) }));
-  const residentTools = PROJECT_TOOLS.filter((tool) => ["cyberboss_system_send", "cyberboss_time"].includes(tool.name)).map((tool) => ({ name: tool.name, schema_chars: metric(tool.inputSchema).chars, schema_bytes: metric(tool.inputSchema).bytes }));
-  const list = ["memory", "tool", "mcp", "skill"].map((category) => ({ name: `cyberboss_catalog_${category}`, description: `${entries.filter((entry) => entry.category === category).length} ${category} catalog entries; optionally load an authorized schema by exact handle.`, inputSchema: { type: "object", properties: { handle: { type: "string" } }, additionalProperties: false } }))
-    .concat(PROJECT_TOOLS.filter((tool) => ["cyberboss_system_send", "cyberboss_time"].includes(tool.name)).map((tool) => ({ name: tool.name, description: tool.shortHint || tool.description, inputSchema: tool.inputSchema })));
+  const list = [buildCatalogDirectoryTool(entries)]
+    .concat(["cyberboss_system_send", "cyberboss_time"].map((name) => projectTools.find((tool) => tool.name === name)).filter(Boolean).map((tool) => ({ name: tool.name, description: tool.shortHint || tool.description, inputSchema: tool.inputSchema })));
+  const residentTools = list.map((tool) => ({ name: tool.name, schema_chars: metric(tool.inputSchema).chars, schema_bytes: metric(tool.inputSchema).bytes }));
   const totals = { resident_item_count: residentTools.length, resident_schema_chars: residentTools.reduce((n, item) => n + item.schema_chars, 0), resident_schema_bytes: residentTools.reduce((n, item) => n + item.schema_bytes, 0), tools_list_chars: JSON.stringify(list).length, tools_list_bytes: Buffer.byteLength(JSON.stringify(list), "utf8") };
-  const output = { schema_version: 1, generated_by: "scripts/audit/catalog-metering.js", surface: "resident", toolset: resolved?.id || null, resident_tools: residentTools, directory_entries: Object.fromEntries(CATEGORIES.map((category) => [category, entries.filter((item) => item.category === category).length])), totals, full_surface: { item_count: full.totals.item_count, schema_chars: full.totals.schema_chars, tools_list_chars: JSON.stringify(full.items).length } };
+  const output = { schema_version: 1, generated_by: "scripts/audit/catalog-metering.js", surface: "resident", toolset: resolved?.id || null, resident_tools: residentTools, directory_entries: Object.fromEntries(buildThemeIndex(entries).map((theme) => [theme.name, theme.count])), totals, full_surface: { item_count: full.totals.item_count, schema_chars: full.totals.schema_chars, tools_list_chars: JSON.stringify(full.items).length } };
   output.resident_hash = sha256(canonicalJson(output));
   return output;
 }

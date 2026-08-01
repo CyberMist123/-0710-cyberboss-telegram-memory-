@@ -5,33 +5,42 @@
   "toolset": null,
   "resident_tools": [
     {
-      "name": "cyberboss_time",
-      "schema_chars": 62,
-      "schema_bytes": 62
+      "name": "cyberboss_catalog",
+      "schema_chars": 114,
+      "schema_bytes": 114
     },
     {
       "name": "cyberboss_system_send",
       "schema_chars": 167,
       "schema_bytes": 167
+    },
+    {
+      "name": "cyberboss_time",
+      "schema_chars": 62,
+      "schema_bytes": 62
     }
   ],
   "directory_entries": {
-    "memory": 4,
-    "tool": 40,
-    "mcp": 5,
-    "skill": 0
+    "表达行动": 8,
+    "感知": 7,
+    "记忆": 2,
+    "生活记录": 2,
+    "时间线": 8,
+    "作息": 1,
+    "工程派活": 4,
+    "维护调试": 3
   },
   "totals": {
-    "resident_item_count": 2,
-    "resident_schema_chars": 229,
-    "resident_schema_bytes": 229,
-    "tools_list_chars": 1412,
-    "tools_list_bytes": 1412
+    "resident_item_count": 3,
+    "resident_schema_chars": 343,
+    "resident_schema_bytes": 343,
+    "tools_list_chars": 724,
+    "tools_list_bytes": 724
   },
   "full_surface": {
     "item_count": 49,
     "schema_chars": 15810,
-    "tools_list_chars": 11936
+    "tools_list_chars": 12617
   },
-  "resident_hash": "sha256:09b0e9e5a3da8889752f52427a05ca9932c492c4123bf0f318d0dca9c429ea65"
+  "resident_hash": "sha256:28b71ec1759de558bec6ae8f2ad17026a142ff7df93ab230bda35e43e244094c"
 }
