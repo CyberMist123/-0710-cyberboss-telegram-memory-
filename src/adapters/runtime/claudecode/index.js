@@ -27,7 +27,7 @@ const {
   normalizeAccessMode,
 } = require("../../../core/workspace-lock");
 const { SessionStore } = require("../codex/session-store");
-const { buildOpeningTurnText, buildInstructionRefreshText } = require("../shared-instructions");
+const { buildOpeningTurnText, buildInstructionRefreshText, loadInstructionFile } = require("../shared-instructions");
 const { ClaudeCodeIpcServer } = require("./ipc-server");
 const {
   finalizeOpeningContext,
@@ -407,6 +407,7 @@ function createClaudeCodeRuntimeAdapter(config) {
       cyberbossHome,
       routeToken: route.sessionSlotKey,
       configDir: path.join(stateDir, "claude-mcp"),
+      launchProfile: route.launchProfile,
     });
     const projectSettings = routeScoped
       || ensureClaudeProjectMcpConfig({ workspaceRoot, cyberbossHome });
@@ -920,6 +921,9 @@ function createClaudeCodeRuntimeAdapter(config) {
           threadId: outboundThreadId,
           reason: openingReason,
         });
+        if (route.launchProfile?.schemaVersion === 3 && route.launchProfile.personaSource) {
+          openingContext.roleCard = loadInstructionFile(route.launchProfile.personaSource, config);
+        }
         let fallback = false;
         try {
           outboundText = buildOpeningTurnText(config, text, openingContext);

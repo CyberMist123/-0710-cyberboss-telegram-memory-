@@ -60,6 +60,32 @@ const PROFILE_FIELDS = Object.freeze(new Set([
   "workspaceAccess",
 ]));
 
+const G3_PROFILE_FIELDS = Object.freeze(new Set([
+  "schemaVersion",
+  "harnessMode",
+  "settingSources",
+  "skillsMode",
+  "personaSource",
+  "residentToolSchemas",
+  "mcpServerCeiling",
+  "toolsetCeiling",
+  "defaultMcpServerSet",
+  "defaultToolset",
+  "permissionMode",
+  "envPolicy",
+]));
+
+const G3_PROFILE_SCHEMA_VERSION = 3;
+const G3_PROFILE_IDS = Object.freeze(["fable-chat", "work-engineering"]);
+const G3_MCP_SERVER_CEILINGS = Object.freeze(["chat-ceiling@1", "work-ceiling@1"]);
+const G3_TOOLSET_CEILINGS = Object.freeze(["chat-ceiling@1", "work-ceiling@1"]);
+const G3_PERMISSION_MODES = Object.freeze([
+  "profile-local-least-privilege",
+  "work-engineering-full",
+]);
+const G3_ENV_POLICIES = Object.freeze(["chat-minimal", "work-engineering"]);
+const G3_RESIDENT_TOOL_SCHEMAS = Object.freeze(["cyberboss_system_send", "cyberboss_time"]);
+
 // Sourced from the CLI capability table so the enum cannot drift from what the
 // installed Claude CLI actually accepts.
 const EFFORT_SET = new Set(EFFORT_VALUES);
@@ -499,7 +525,8 @@ function validateLaunchProfile(profile, {
   allowAuthBackendOverride = false,
   capabilities = null,
   fs = fsApi,
-  g3Enabled = resolveG3PreflightEnabled(),
+  g3Enabled = resolveG3PreflightEnabled() || resolveG3ProfileContractEnabled(),
+  g3ProfileContractEnabled = resolveG3ProfileContractEnabled(),
 } = {}) {
   if (profile === undefined || profile === null) {
     return null;
@@ -511,6 +538,10 @@ function validateLaunchProfile(profile, {
     return profile;
   }
   assertPlainObject(profile, "launchProfile must be an object");
+  const profileContractEnabled = g3ProfileContractEnabled;
+  if (profileContractEnabled && !resolveG3PreflightEnabled()) {
+    throw new LaunchProfileError("G3 profile contract requires G3 preflight", "g3_preflight_required");
+  }
   if (g3Enabled && profile.configRoot !== undefined && profile.configDir !== undefined) {
     throw new LaunchProfileError(
       "configRoot and configDir cannot both be set",
@@ -521,7 +552,7 @@ function validateLaunchProfile(profile, {
   const keys = Object.keys(profile);
   for (const key of keys) {
     assertSafeKey(key, "launchProfile");
-    if (!PROFILE_FIELDS.has(key)) {
+    if (!PROFILE_FIELDS.has(key) && !(profileContractEnabled && G3_PROFILE_FIELDS.has(key))) {
       throw new LaunchProfileError(`launchProfile contains an unknown field: ${key}`, "unknown_field");
     }
   }
@@ -531,6 +562,9 @@ function validateLaunchProfile(profile, {
 
   if (profile.profileId !== undefined) {
     normalized.profileId = canonicalProfileId(profile.profileId);
+  }
+  if (profileContractEnabled) {
+    validateG3ProfileContract(profile, normalized, { baseDir, fs });
   }
   if (profile.model !== undefined) {
     normalized.model = nonEmptyBoundedString(profile.model, "model", LIMITS.model);
@@ -730,10 +764,13 @@ function buildProfileLaunch({
   capabilities = null,
   fs = fsApi,
 } = {}) {
-  const g3Enabled = resolveG3PreflightEnabled(baseEnv);
+  const g3Enabled = resolveG3PreflightEnabled(baseEnv)
+    || resolveG3ProfileContractEnabled(baseEnv)
+    || resolveG3ProfileContractEnabled();
   const caps = capabilities || resolveCliCapabilities();
   const normalized = validateLaunchProfile(profile, {
     baseDir, allowAuthBackendOverride, capabilities: caps, fs, g3Enabled,
+    g3ProfileContractEnabled: resolveG3ProfileContractEnabled(baseEnv) || resolveG3ProfileContractEnabled(),
   });
 
   if (!normalized) {
@@ -763,6 +800,11 @@ function buildProfileLaunch({
   // not a CLI flag and must never be passed to the child.
   if (normalized.model) args.push("--model", normalized.model);
   if (normalized.effort) args.push("--effort", normalized.effort);
+  if (profileContractEnabledFor(normalized)) {
+    if (normalized.harnessMode === "bare") args.push("--bare");
+    if (normalized.skillsMode === "disabled") args.push("--disable-slash-commands");
+    args.push("--setting-sources", normalized.settingSources.join(","));
+  }
   if (normalized.configDir) args.push("--config-dir", normalized.configDir);
   for (const settingsPath of normalized.settings || []) {
     args.push("--settings", settingsPath);
@@ -825,6 +867,7 @@ function buildProfileLaunch({
     mcpConfigPaths: Object.freeze(mcpConfigPaths),
     mcpConfigMode,
     workspaceAccess: normalized.workspaceAccess || DEFAULT_ACCESS,
+    permissionMode: resolveProfileCliPermissionMode(normalized),
     launchFingerprint,
     telemetry: buildLaunchTelemetry(normalized, { mcpConfigPaths, mcpConfigMode, g3Enabled }),
   });
@@ -886,9 +929,9 @@ function isCloudCredentialEnvKey(key) {
  */
 function buildLaunchTelemetry(profile, { mcpConfigPaths = [], mcpConfigMode = "inherit", g3Enabled = false } = {}) {
   if (g3Enabled) {
-    return Object.freeze({
+    const telemetry = {
       profile_token: hashToken(profileLogicalIdentity(profile)),
-      profile_schema_version: 3,
+      profile_schema_version: profile.schemaVersion || 3,
       config_root_token: hashToken(profile.configRoot || ""),
       cwd_source: profile.cwd ? "profile" : "runtime",
       env_policy: "allowlist",
@@ -897,7 +940,24 @@ function buildLaunchTelemetry(profile, { mcpConfigPaths = [], mcpConfigMode = "i
       cli_help_hash: "",
       session_slot_token: "",
       native_session_present: false,
-    });
+    };
+    if (profileContractEnabledFor(profile)) {
+      Object.assign(telemetry, {
+        harness_mode: profile.harnessMode,
+        setting_sources_shape: profile.settingSources.join("+"),
+        skills_mode: profile.skillsMode,
+        settings_count: profile.settings?.length || 0,
+        mcp_server_set_id: hashToken(profile.defaultMcpServerSet),
+        toolset_ceiling_id: hashToken(profile.toolsetCeiling),
+        effective_mcp_set_id: hashToken(profile.defaultMcpServerSet),
+        effective_toolset_id: hashToken(profile.defaultToolset),
+        model_source: profile.model ? "profile_default" : "runtime",
+        effort_source: profile.effort ? "profile_default" : "runtime",
+        harness_overlay_tokens: [],
+        permission_mode: profile.permissionMode,
+      });
+    }
+    return Object.freeze(telemetry);
   }
   return Object.freeze({
     hasProfile: true,
@@ -927,6 +987,14 @@ function resolveG3PreflightEnabled(env = process.env) {
   return /^(?:1|true|yes|on)$/i.test(String(env?.CYBERBOSS_CLAUDE_G3_PREFLIGHT_ENABLED || "").trim());
 }
 
+function resolveG3ProfileContractEnabled(env = process.env) {
+  return /^(?:1|true|yes|on)$/i.test(String(env?.CYBERBOSS_CLAUDE_G3_PROFILE_CONTRACT_ENABLED || "").trim());
+}
+
+function profileContractEnabledFor(profile) {
+  return Boolean(profile?.schemaVersion === G3_PROFILE_SCHEMA_VERSION && G3_PROFILE_IDS.includes(profile.profileId));
+}
+
 /**
  * Fingerprint used for session-slot and process identity. `legacy` when no
  * profile is applied, so the unmapped path keeps its pre-v2 identity.
@@ -946,6 +1014,9 @@ function fingerprintLaunchProfile(profile, {
   if (!normalized) {
     return "legacy";
   }
+  if (profileContractEnabledFor(normalized)) {
+    return fingerprintG3ProfileIdentity(normalized, { fs });
+  }
   return crypto
     .createHash("sha256")
     .update(stableStringify({
@@ -954,6 +1025,101 @@ function fingerprintLaunchProfile(profile, {
       env: normalized.env ? { ...normalized.env } : undefined,
     }), "utf8")
     .digest("hex");
+}
+
+function validateG3ProfileContract(profile, normalized, { baseDir, fs = fsApi } = {}) {
+  if (profile.schemaVersion !== G3_PROFILE_SCHEMA_VERSION) {
+    throw new LaunchProfileError("schemaVersion must be 3", "g3_profile_schema_version_invalid");
+  }
+  if (!G3_PROFILE_IDS.includes(normalized.profileId)) {
+    throw new LaunchProfileError("profileId is not a managed G3 identity", "g3_profile_identity_unknown");
+  }
+  for (const field of ["cwd", "configRoot", "settings", "personaSource"]) {
+    if (profile[field] === undefined) {
+      throw new LaunchProfileError(`${field} is required by the managed profile contract`, "g3_profile_field_required");
+    }
+  }
+  if (profile.strictMcpConfig !== true) {
+    throw new LaunchProfileError("strictMcpConfig must be true for managed profiles", "g3_profile_contract_mismatch");
+  }
+  normalized.schemaVersion = G3_PROFILE_SCHEMA_VERSION;
+  normalized.harnessMode = enumField(profile.harnessMode, "harnessMode", ["bare", "engineering"]);
+  normalized.skillsMode = enumField(profile.skillsMode, "skillsMode", ["disabled", "enabled"]);
+  normalized.settingSources = normalizeStringList(profile.settingSources, {
+    field: "settingSources", maxItems: 3, maxLength: 16,
+  });
+  for (const source of normalized.settingSources) {
+    if (!["user", "project", "local"].includes(source)) {
+      throw new LaunchProfileError("settingSources contains an unsupported source", "g3_setting_source_invalid");
+    }
+  }
+  normalized.residentToolSchemas = normalizeStringList(profile.residentToolSchemas, {
+    field: "residentToolSchemas", maxItems: 8, maxLength: LIMITS.builtInToolName,
+  });
+  normalized.mcpServerCeiling = enumField(profile.mcpServerCeiling, "mcpServerCeiling", G3_MCP_SERVER_CEILINGS);
+  normalized.toolsetCeiling = enumField(profile.toolsetCeiling, "toolsetCeiling", G3_TOOLSET_CEILINGS);
+  normalized.defaultMcpServerSet = nonEmptyBoundedString(profile.defaultMcpServerSet, "defaultMcpServerSet", 64);
+  normalized.defaultToolset = nonEmptyBoundedString(profile.defaultToolset, "defaultToolset", 64);
+  normalized.permissionMode = enumField(profile.permissionMode, "permissionMode", G3_PERMISSION_MODES);
+  normalized.envPolicy = enumField(profile.envPolicy, "envPolicy", G3_ENV_POLICIES);
+  const persona = resolveExistingPath(profile.personaSource, {
+    field: "personaSource", baseDir, kind: "file", fs,
+  });
+  normalized.personaSource = persona.path;
+
+  const fable = normalized.profileId === "fable-chat";
+  const expected = fable ? {
+    harnessMode: "bare", skillsMode: "disabled", settingSources: ["user"],
+    residentToolSchemas: G3_RESIDENT_TOOL_SCHEMAS, mcpServerCeiling: "chat-ceiling@1",
+    toolsetCeiling: "chat-ceiling@1", permissionMode: "profile-local-least-privilege",
+    envPolicy: "chat-minimal",
+  } : {
+    harnessMode: "engineering", skillsMode: "enabled", settingSources: ["user", "project", "local"],
+    mcpServerCeiling: "work-ceiling@1",
+    toolsetCeiling: "work-ceiling@1", permissionMode: "work-engineering-full",
+    envPolicy: "work-engineering",
+  };
+  for (const [field, value] of Object.entries(expected)) {
+    const actual = normalized[field];
+    const matches = Array.isArray(value)
+      ? stableStringify(actual) === stableStringify(value)
+      : actual === value;
+    if (!matches) throw new LaunchProfileError(`${field} violates the managed profile contract`, "g3_profile_contract_mismatch");
+  }
+}
+
+function enumField(value, field, allowed) {
+  const text = nonEmptyBoundedString(value, field, 64);
+  if (!allowed.includes(text)) throw new LaunchProfileError(`${field} is not supported`, "invalid_enum");
+  return text;
+}
+
+function fileDigest(filePath, fs = fsApi) {
+  return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+}
+
+function fingerprintG3ProfileIdentity(profile, { fs = fsApi } = {}) {
+  const identity = {
+    schemaVersion: profile.schemaVersion,
+    profileId: profile.profileId,
+    cwd: profile.cwd,
+    configRoot: profile.configRoot,
+    harnessMode: profile.harnessMode,
+    settingSources: profile.settingSources,
+    skillsMode: profile.skillsMode,
+    settings: (profile.settings || []).map((filePath) => fileDigest(filePath, fs)),
+    persona: fileDigest(profile.personaSource, fs),
+    mcpServerCeiling: profile.mcpServerCeiling,
+    toolsetCeiling: profile.toolsetCeiling,
+    permissionMode: profile.permissionMode,
+    envPolicy: profile.envPolicy,
+  };
+  return crypto.createHash("sha256").update(stableStringify(identity), "utf8").digest("hex");
+}
+
+function resolveProfileCliPermissionMode(profile) {
+  if (!profileContractEnabledFor(profile)) return "";
+  return profile.permissionMode === "profile-local-least-privilege" ? "default" : "inherit";
 }
 
 module.exports = {
@@ -971,8 +1137,10 @@ module.exports = {
   buildProfileLaunch,
   canonicalProfileId,
   fingerprintLaunchProfile,
+  fingerprintG3ProfileIdentity,
   profileLogicalIdentity,
   resolveG3PreflightEnabled,
+  resolveG3ProfileContractEnabled,
   resolveExistingPath,
   stableStringify,
   validateLaunchProfile,

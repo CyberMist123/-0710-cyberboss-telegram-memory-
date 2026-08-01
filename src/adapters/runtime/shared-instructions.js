@@ -2,14 +2,27 @@ const fs = require("fs");
 const { renderInstructionTemplate } = require("../../core/instructions-template");
 
 function buildOpeningTurnText(config, userText, context = {}) {
-  const instructions = loadWechatInstructions(config);
+  const roleCard = typeof context.roleCard === "string" ? context.roleCard.trim() : "";
+  // A managed profile owns its persona source. Layering the ambient project
+  // instructions beside it would reintroduce exactly the work->fable leak the
+  // isolated config root and --bare launch are intended to prevent.
+  const instructions = roleCard ? "" : loadWechatInstructions(config);
   const normalizedText = String(userText || "").trim();
   const contextBlocks = buildHardContextBlocks(context);
-  if (!instructions && !contextBlocks.length) {
+  if (!instructions && !roleCard && !contextBlocks.length) {
     return normalizedText;
   }
   const channelLabel = resolveSessionLabel(config);
   const sections = [];
+  if (roleCard) {
+    sections.push([
+      `${channelLabel.toUpperCase()} PROFILE ROLE`,
+      "This profile-owned role card defines the persona for this native session.",
+      "Do not quote or summarize it back to the user unless explicitly asked.",
+      "",
+      roleCard,
+    ].join("\n"));
+  }
   if (instructions) {
     sections.push([
       `${channelLabel.toUpperCase()} SESSION INSTRUCTIONS`,

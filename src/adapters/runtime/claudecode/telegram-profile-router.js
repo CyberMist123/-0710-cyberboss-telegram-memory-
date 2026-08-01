@@ -18,6 +18,7 @@ const {
   LaunchProfileError,
   canonicalProfileId,
   fingerprintLaunchProfile,
+  resolveG3ProfileContractEnabled,
   validateLaunchProfile,
 } = require("./launch-profile");
 const { CliCapabilityError, resolveCliCapabilities } = require("./cli-capabilities");
@@ -146,7 +147,7 @@ function parseLaunchProfiles(raw, { baseDir, allowAuthBackendOverride = false, c
     const fold = profileId.toLowerCase();
     if (canonicalByFold.has(fold)) {
       throw new ProfileRoutingError(
-        `launch profile id collides after normalization: ${profileId}`,
+        `launch profile id collides after normalization: ${safeProfileLabel(profileId)}`,
         "profile_id_collision",
       );
     }
@@ -155,7 +156,7 @@ function parseLaunchProfiles(raw, { baseDir, allowAuthBackendOverride = false, c
     const rawProfile = parsed[rawKey];
     if (!rawProfile || typeof rawProfile !== "object" || Array.isArray(rawProfile)) {
       throw new ProfileRoutingError(
-        `launch profile ${profileId} must be an object`,
+        `launch profile ${safeProfileLabel(profileId)} must be an object`,
         "invalid_shape",
       );
     }
@@ -164,11 +165,11 @@ function parseLaunchProfiles(raw, { baseDir, allowAuthBackendOverride = false, c
       try {
         declared = canonicalProfileId(rawProfile.profileId, "launch profile profileId");
       } catch (error) {
-        rethrow(error, `launch profile ${profileId}`);
+        rethrow(error, `launch profile ${safeProfileLabel(profileId)}`);
       }
       if (declared !== profileId) {
         throw new ProfileRoutingError(
-          `launch profile ${profileId} declares a conflicting profileId`,
+          `launch profile ${safeProfileLabel(profileId)} declares a conflicting profileId`,
           "profile_id_mismatch",
         );
       }
@@ -181,7 +182,7 @@ function parseLaunchProfiles(raw, { baseDir, allowAuthBackendOverride = false, c
         { baseDir, allowAuthBackendOverride, capabilities, fs },
       );
     } catch (error) {
-      rethrow(error, `launch profile ${profileId}`);
+      rethrow(error, `launch profile ${safeProfileLabel(profileId)}`);
     }
     registry.set(profileId, validated);
   }
@@ -269,7 +270,7 @@ function parseProfileMappings(raw, { profiles }) {
       // No fallback to a legacy (more permissive) launch: an operator who named
       // a restrictive profile must not silently get an unrestricted one.
       throw new ProfileRoutingError(
-        `${where} names an unknown launch profile: ${profileId}`,
+        `${where} names an unknown launch profile: ${safeProfileLabel(profileId)}`,
         "unknown_profile",
       );
     }
@@ -367,6 +368,10 @@ const UNMAPPED = Object.freeze({
   launchProfile: null,
   profileFingerprint: "legacy",
 });
+
+function safeProfileLabel(profileId) {
+  return resolveG3ProfileContractEnabled() ? "managed" : profileId;
+}
 
 module.exports = {
   MAPPING_JSON_LIMITS,
