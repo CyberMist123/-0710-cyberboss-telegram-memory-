@@ -164,6 +164,7 @@ class SessionSlotStore {
           threadId: normalizeSessionId(entry.threadId),
           contextFingerprint: normalizeText(entry.contextFingerprint),
           ...(windowOverride ? { windowOverride } : {}),
+          ...(cloneJsonObject(entry.route2Gate) ? { route2Gate: cloneJsonObject(entry.route2Gate) } : {}),
           updatedAt: normalizeText(entry.updatedAt),
           route: normalizeRouteDescriptor(entry.route),
         };
@@ -214,6 +215,10 @@ class SessionSlotStore {
     return cloneJsonObject(this.get(slotKey)?.windowOverride);
   }
 
+  getRoute2Gate(slotKey) {
+    return cloneJsonObject(this.get(slotKey)?.route2Gate);
+  }
+
   getRoute(slotKey) {
     const route = this.get(slotKey)?.route;
     return route ? { ...route } : null;
@@ -230,6 +235,7 @@ class SessionSlotStore {
       threadId: normalizedThreadId,
       contextFingerprint: current.contextFingerprint || "",
       ...(current.windowOverride ? { windowOverride: cloneJsonObject(current.windowOverride) } : {}),
+      ...(current.route2Gate ? { route2Gate: cloneJsonObject(current.route2Gate) } : {}),
       updatedAt: new Date().toISOString(),
       route: normalizeRouteDescriptor(route) || current.route || null,
     };
@@ -257,9 +263,20 @@ class SessionSlotStore {
       threadId: current.threadId || "",
       contextFingerprint: current.contextFingerprint || "",
       ...(windowOverride ? { windowOverride } : {}),
+      ...(current.route2Gate ? { route2Gate: cloneJsonObject(current.route2Gate) } : {}),
       updatedAt: new Date().toISOString(),
       route: normalizeRouteDescriptor(route) || current.route || null,
     };
+    this.evictIfNeeded();
+    this.save();
+  }
+
+  setRoute2Gate(slotKey, value) {
+    const key = normalizeText(slotKey);
+    const route2Gate = cloneJsonObject(value);
+    if (!key || !route2Gate) return;
+    const current = this.state.slots[key] || {};
+    this.state.slots[key] = { ...current, route2Gate, updatedAt: new Date().toISOString() };
     this.evictIfNeeded();
     this.save();
   }

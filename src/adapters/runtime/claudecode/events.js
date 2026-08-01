@@ -4,6 +4,7 @@ const {
   extractApprovalFilePaths,
   buildApprovalMatchTokens,
 } = require("../shared/approval-command");
+const { route2GateEnabled } = require("./route2-gate");
 
 function mapClaudeCodeMessageToRuntimeEvent(message, raw) {
   const type = message?.type;
@@ -57,6 +58,29 @@ function mapClaudeCodeMessageToRuntimeEvent(message, raw) {
             input: message.input,
             options: { preferredKeys: ["prefix_rule"] },
           }),
+        },
+      };
+    case "tool.use":
+      if (!route2GateEnabled()) return null;
+      return {
+        type: "runtime.tool.use",
+        payload: {
+          threadId: message.sessionId,
+          turnId: message.turnId,
+          toolName: formatReadableToolName(message.toolName),
+        },
+      };
+    case "tool.result":
+      if (!route2GateEnabled()) return null;
+      return {
+        type: "runtime.tool.result",
+        payload: {
+          threadId: message.sessionId,
+          turnId: message.turnId,
+          returnBytes: Number.isFinite(Number(message.toolResultBytes))
+            ? Math.max(0, Number(message.toolResultBytes))
+            : Buffer.byteLength(typeof message.toolResult === "string" ? message.toolResult : "", "utf8"),
+          isError: message.isError === true,
         },
       };
     case "process.error":

@@ -2957,6 +2957,14 @@ class CyberbossApp {
   }
 
   async handleRuntimeEvent(event) {
+    if (event?.type === "runtime.route2.cost") {
+      await this.contextTraceRecorder.record({
+        threadId: event.payload.threadId,
+        turnId: event.payload.turnId,
+        route2_cost: event.payload,
+      });
+      return;
+    }
     if (event?.type === "runtime.context.updated") {
       this.desireUsageByRunKey.set(buildRunKey(event?.payload?.threadId, event?.payload?.turnId), event.payload);
     }
