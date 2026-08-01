@@ -141,6 +141,31 @@ test("subject_route fingerprint is stable across input key order", () => {
   assert.equal(Object.isFrozen(left.session), true);
 });
 
+test("T06 profile windows change only the session identity, never continuity binding", () => {
+  const profileA = createSubjectRoute(exactSubjectRouteInput());
+  const profileBInput = exactSubjectRouteInput();
+  profileBInput.session = {
+    ...profileBInput.session,
+    session_slot_key: "slot-profile-b",
+    runtime_thread_id: "native-session-b",
+    profile_id: "profile-b",
+    profile_fingerprint: "profile-fingerprint-b",
+    window_id: "native-session-b",
+  };
+  const profileB = createSubjectRoute(profileBInput);
+
+  assert.equal(
+    Buffer.from(JSON.stringify(profileB.continuity_binding)).equals(
+      Buffer.from(JSON.stringify(profileA.continuity_binding)),
+    ),
+    true,
+  );
+  assert.equal(profileB.continuity_binding.binding_key, profileA.continuity_binding.binding_key);
+  assert.equal(profileB.continuity_binding.workspace_id, profileA.continuity_binding.workspace_id);
+  assert.notEqual(profileB.session.profile_id, profileA.session.profile_id);
+  assert.notEqual(profileB.session.window_id, profileA.session.window_id);
+});
+
 test("missing any subject identity is PARTIAL and cannot produce a subject candidate", () => {
   for (const pathParts of [
     ["continuity_binding", "binding_key"],

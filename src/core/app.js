@@ -1933,6 +1933,14 @@ class CyberbossApp {
       case "memory":
         await this.handleMemoryCommand(normalized);
         return;
+      case "profile":
+        // With the T06 gate off, preserve the former unknown-command response
+        // byte-for-byte instead of exposing a dormant command surface.
+        if (this.telegramProfileRouter?.isActivePointerEnabled?.()) {
+          await this.handleProfileCommand(normalized, command);
+          return;
+        }
+        // Fall through to the baseline help response.
       default:
         await this.channelAdapter.sendText({
           userId: normalized.senderId,
@@ -2545,6 +2553,70 @@ class CyberbossApp {
     });
   }
 
+  async handleProfileCommand(normalized, command) {
+    const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
+      workspaceId: normalized.workspaceId,
+      accountId: normalized.accountId,
+      senderId: normalized.senderId,
+    });
+    const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
+    const commandLane = resolveRouteLaneFor(normalized, bindingKey);
+    const requested = normalizeCommandArgument(command.args);
+    const current = this.telegramProfileRouter.select(commandLane);
+
+    if (!requested) {
+      const routeSession = resolveRouteSessionFor(this, {
+        bindingKey, workspaceRoot, lane: commandLane, normalized,
+      });
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: [
+          `Current profile: ${current.profileId || "(unmapped)"}`,
+          `effective source: ${current.effectiveSource || "mapping"}`,
+          `scope: ${current.effectiveScope || "lane"}`,
+          `window_id: ${routeSession.threadId || "(new on next turn)"}`,
+        ].join("\n"),
+        contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
+      });
+      return;
+    }
+
+    const switched = this.telegramProfileRouter.switchProfile(commandLane, requested);
+    if (!switched || switched.status === "unknown_profile" || switched.status === "unmapped") {
+      const retained = switched?.selection || current;
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: [
+          `❌ Profile not found: ${requested}`,
+          `active profile: ${retained.profileId || "(unmapped)"}`,
+          `effective source: ${retained.effectiveSource || "mapping"}`,
+          `scope: ${retained.effectiveScope || "lane"}`,
+        ].join("\n"),
+        contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
+      });
+      return;
+    }
+
+    const effective = switched.selection;
+    const routeSession = resolveRouteSessionFor(this, {
+      bindingKey, workspaceRoot, lane: commandLane, normalized,
+    });
+    await this.channelAdapter.sendText({
+      userId: normalized.senderId,
+      text: [
+        switched.status === "unchanged" ? "✅ Profile already active" : "✅ Profile switched",
+        `profile: ${effective.profileId}`,
+        `effective source: ${effective.effectiveSource}`,
+        `scope: ${effective.effectiveScope}`,
+        `window_id: ${routeSession.threadId || "(new on next turn)"}`,
+      ].join("\n"),
+      contextToken: normalized.contextToken,
+      ...outboundThreadIdField(normalized),
+    });
+  }
+
   /**
    * Inspect or switch the reasoning effort the Claude Code child is launched
    * with, for this binding's workspace only.
@@ -2763,9 +2835,12 @@ class CyberbossApp {
   }
 
   async handleHelpCommand(normalized) {
+    const baselineHelp = buildWeixinHelpText();
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
-      text: buildWeixinHelpText(),
+      text: this.telegramProfileRouter?.isActivePointerEnabled?.()
+        ? `${baselineHelp}\n/profile, /profile <profileId>`
+        : baselineHelp,
       contextToken: normalized.contextToken,
       ...outboundThreadIdField(normalized),
     });
