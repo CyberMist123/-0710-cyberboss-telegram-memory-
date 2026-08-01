@@ -52,6 +52,7 @@ function readConfig() {
     activityPauseFile: joinIfBase(stateDir, "activity-pause.json"),
     deferredSystemReplyQueueFile: joinIfBase(stateDir, "deferred-system-replies.json"),
     checkinConfigFile: joinIfBase(stateDir, "checkin-config.json"),
+    sleepWindowFile: joinIfBase(stateDir, "sleep-window.json"),
     conversationDir: joinIfBase(stateDir, "conversations"),
     telegramBotToken: readTextEnv("CYBERBOSS_TELEGRAM_BOT_TOKEN"),
     telegramAllowedUserIds: readListEnv("CYBERBOSS_TELEGRAM_ALLOWED_USER_IDS"),

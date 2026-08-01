@@ -1,4 +1,6 @@
 const fs = require("fs");
+const path = require("path");
+const { SleepWindowStore } = require("../core/sleep-window-store");
 const { catalogEnabled, RESIDENT_NAMES, THEME_DEFINITIONS } = require("./tool-catalog-manifest");
 function runToolMcpServer({ toolHost, runtimeId = "", workspaceRoot = "", routeToken = "" }) {
   const reader = createMessageReader(process.stdin);
@@ -237,15 +239,21 @@ function buildToolIndexMarkdown(tools) {
 
 
 function buildSleepModeMarkdown() {
+  const sleepWindow = new SleepWindowStore({
+    filePath: process.env.CYBERBOSS_STATE_DIR
+      ? path.join(process.env.CYBERBOSS_STATE_DIR, "sleep-window.json")
+      : "",
+  }).getWindow();
+  const windowLabel = `${sleepWindow.start} and ${sleepWindow.end}`;
   return [
     "# Cyberboss Sleep Mode",
     "",
-    "Sleep mode switches the check-in poller into a long-interval state when the user says they are going to sleep or the configured local time is between 22:00 and 06:30.",
+    `Sleep mode switches the check-in poller into a long-interval state when the user says they are going to sleep or the configured local time is between ${windowLabel}.`,
     "",
     "## When to switch to sleep mode",
     "",
     "- The user says sleep-related phrases such as 晚安, 睡了, 去睡了, good night, or going to bed.",
-    "- The configured local time is between 22:00 and 06:30.",
+    `- The configured local time is between ${windowLabel}.`,
     "",
     "## When to switch back",
     "",

@@ -92,7 +92,7 @@ class DashboardRouteCatalogTest(unittest.TestCase):
 
     def test_catalog_schema_and_counts(self):
         self.assertIsInstance(self.catalog, list)
-        self.assertEqual(len(self.catalog), 48)
+        self.assertEqual(len(self.catalog), 50)
         self.assertTrue(all(set(row) == REQUIRED_FIELDS for row in self.catalog))
         self.assertTrue(all(row["method"] in {"GET", "POST"} for row in self.catalog))
         self.assertTrue(
@@ -101,19 +101,19 @@ class DashboardRouteCatalogTest(unittest.TestCase):
         self.assertTrue(all(row["path"].startswith("/") for row in self.catalog))
         self.assertTrue(all(row["auth"] for row in self.catalog))
         self.assertTrue(all(row["side_effect"] for row in self.catalog))
-        self.assertEqual(len({row["test_id"] for row in self.catalog}), 48)
+        self.assertEqual(len({row["test_id"] for row in self.catalog}), 50)
 
         methods = Counter(row["method"] for row in self.catalog)
         statuses = Counter(row["status"] for row in self.catalog)
-        self.assertEqual(methods, {"GET": 31, "POST": 17})
+        self.assertEqual(methods, {"GET": 32, "POST": 18})
         self.assertEqual(
             statuses,
-            {"active": 31, "compat": 8, "frozen": 7, "retired": 2},
+            {"active": 33, "compat": 8, "frozen": 7, "retired": 2},
         )
 
     def test_catalog_matches_both_real_dispatchers_exactly(self):
         catalog_routes = {(row["method"], row["path"]) for row in self.catalog}
-        self.assertEqual(len(catalog_routes), 48, "catalog contains duplicate method/path entries")
+        self.assertEqual(len(catalog_routes), 50, "catalog contains duplicate method/path entries")
         self.assertSetEqual(catalog_routes, actual_routes())
 
     def test_auth_contract_matches_route_status(self):
