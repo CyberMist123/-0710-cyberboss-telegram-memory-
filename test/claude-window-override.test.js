@@ -198,7 +198,7 @@ test("T05 A4/A5 persona and permission identity rotate windows and are refused a
   }
 });
 
-test("T05 A6 chat non-member self-escalates with trace hook and without an approval flow", async () => {
+test("T05 A6 / T08 A10 chat non-member loads schema, calls, and self-escalates with trace but no approval", async () => {
   await withEnv({ CYBERBOSS_TOOL_CATALOG_ENABLED: "true" }, async () => {
     const escalations = [];
     let approvals = 0;
@@ -214,7 +214,9 @@ test("T05 A6 chat non-member self-escalates with trace hook and without an appro
       onSelfEscalation: (entry) => escalations.push(entry),
       onApproval: () => { approvals += 1; },
     });
+    const schema = await host.invokeTool("cyberboss_catalog", { handle: "tool/weather" });
     const result = await host.invokeTool("weather_raw", {});
+    assert.equal(schema.data.entry.id, "weather");
     assert.deepEqual(result.data, { ok: true });
     assert.equal(escalations.length, 1);
     assert.equal(escalations[0].source, "self_escalation");
@@ -234,7 +236,79 @@ test("T05 A6 chat non-member self-escalates with trace hook and without an appro
   });
 });
 
-test("T05 A6 chat route config has no hard ceiling and MCP overrides cannot exceed the profile ceiling", () => {
+test("T08 A1/A9/A11 lease override changes only mutable fingerprint and MCP config while --resume keeps window id", () => {
+  const root = tempRoot();
+  try {
+    withEnv({
+      CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED: "true",
+      CYBERBOSS_ROUTE2_GATE_ENABLED: "true",
+      CYBERBOSS_TOOL_CATALOG_ENABLED: "true",
+    }, () => {
+      const profile = managedProfile(root);
+      const profileFingerprint = fingerprintG3ProfileIdentity(profile);
+      const slotKey = buildSessionSlotKey({ workspaceRoot: profile.cwd, laneKey: "lane-lease", profileFingerprint });
+      const store = new SessionSlotStore({ filePath: path.join(root, "slots-lease.json") });
+      store.setThreadId(slotKey, SESSION_ID);
+      const leaseInput = {
+        effectiveToolset: "full",
+        toolsetSource: "self_escalation",
+        effectiveMcpSet: ["cyberboss_tools"],
+        harnessOverlay: [{ label: "route2-fixture", text: "Use the bounded fixture capability." }],
+        capabilityLease: {
+          id: "lease-route2-fake",
+          status: "active",
+          expiresAt: Date.now() + 60_000,
+          toolNames: ["cyberboss_time"],
+          sessionSlotKey: slotKey,
+          windowId: SESSION_ID,
+        },
+      };
+      const active = resolveWindowOverride(leaseInput, { profile, env: process.env });
+      const revoked = resolveWindowOverride({
+        capabilityLease: { ...leaseInput.capabilityLease, status: "revoked" },
+      }, { profile, env: process.env });
+      assert.notEqual(active.fingerprint, revoked.fingerprint);
+      assert.equal(fingerprintG3ProfileIdentity(profile), profileFingerprint, "launch/profile fingerprint is untouched");
+      assert.equal(buildSessionSlotKey({ workspaceRoot: profile.cwd, laneKey: "lane-lease", profileFingerprint }), slotKey);
+      assert.equal(store.getThreadId(slotKey), SESSION_ID);
+      const transport = buildArgs({
+        permissionMode: "default", disableVerbose: true, extraArgs: [], mcpConfigPaths: [],
+        resumeSessionId: store.getThreadId(slotKey), profileManaged: true,
+      });
+      assert.equal(transport[transport.indexOf("--resume") + 1], SESSION_ID);
+
+      const cyberbossHome = path.join(root, "home");
+      fs.mkdirSync(path.join(cyberbossHome, "bin"), { recursive: true });
+      fs.writeFileSync(path.join(cyberbossHome, "bin", "cyberboss.js"), "", "utf8");
+      const routeConfig = ensureRouteScopedMcpConfig({
+        workspaceRoot: profile.cwd,
+        cyberbossHome,
+        routeToken: "a".repeat(64),
+        configDir: path.join(root, "route-config-lease"),
+        launchProfile: profile,
+        mutableOverride: active,
+      });
+      const mcpArgs = routeConfig.config.mcpServers.cyberboss_tools.args;
+      assert.equal(mcpArgs.includes("--route2-lease"), true, "listChanged:false takeover is carried by relaunched MCP config");
+      assert.deepEqual(Object.keys(routeConfig.config.mcpServers), ["cyberboss_tools"]);
+
+      const persona = "<role_card>PERSONA_FIXTURE</role_card>";
+      const memory = "<memory_context>MEMORY_FIXTURE</memory_context>";
+      const baseline = `${persona}\n${memory}\nhello`;
+      const overlaid = applyHarnessOverlay(baseline, active);
+      assert.equal(overlaid.endsWith(baseline), true);
+      assert.equal(overlaid.match(/PERSONA_FIXTURE/g).length, 1);
+      assert.equal(overlaid.match(/MEMORY_FIXTURE/g).length, 1);
+      assert.equal(active.trace.overlay_labels[0], "route2-fixture");
+      assert.equal(active.trace.entries.find((entry) => entry.kind === "capability_lease").source, "self_escalation");
+      assert.equal(applyHarnessOverlay(baseline, revoked), baseline, "revocation restores the non-persona overlay");
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("T05 A6 / T08 A11 chat route config has no hard ceiling and MCP overrides cannot exceed the profile ceiling", () => {
   const root = tempRoot();
   try {
     const workspaceRoot = path.join(root, "workspace");
@@ -296,6 +370,24 @@ test("T05 A7 switch off is byte-compatible for launch, slot and Context Trace", 
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("T08 A14 Route 2 flag off ignores a stored lease tombstone byte-for-byte in mutable launch state", () => {
+  const profile = { defaultToolset: "chat-core@1", defaultMcpServerSet: "chat-base@1" };
+  const env = { CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED: "true" };
+  const baseline = resolveWindowOverride({}, { profile, env });
+  const disabled = resolveWindowOverride({
+    capabilityLease: {
+      id: "lease-disabled-fake",
+      status: "revoked",
+      expiresAt: 1,
+      toolNames: ["cyberboss_time"],
+      sessionSlotKey: "slot-disabled-fake",
+      windowId: SESSION_ID,
+    },
+  }, { profile, env });
+  assert.equal(disabled.fingerprint, baseline.fingerprint);
+  assert.deepEqual(disabled.trace, baseline.trace);
 });
 
 test("T05 A8 trace never echoes credentials, absolute paths or raw profile identity", () => {

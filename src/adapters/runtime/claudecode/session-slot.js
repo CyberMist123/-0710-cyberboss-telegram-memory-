@@ -281,6 +281,15 @@ class SessionSlotStore {
     this.save();
   }
 
+  clearRoute2Gate(slotKey) {
+    const key = normalizeText(slotKey);
+    const current = key ? this.state.slots[key] : null;
+    if (!current || !Object.hasOwn(current, "route2Gate")) return;
+    const { route2Gate: _route2Gate, ...rest } = current;
+    this.state.slots[key] = { ...rest, updatedAt: new Date().toISOString() };
+    this.save();
+  }
+
   clear(slotKey) {
     const key = normalizeText(slotKey);
     if (!key || !this.state.slots[key]) {

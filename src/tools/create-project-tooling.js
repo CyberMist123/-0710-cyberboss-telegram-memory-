@@ -124,6 +124,7 @@ function createProjectTooling(config, options = {}) {
     authorizationCeiling: options.authorizationCeiling || "",
     chatSelfEscalation: options.chatSelfEscalation === true,
     onSelfEscalation: options.onSelfEscalation,
+    route2Lease: options.route2Lease || null,
   });
   return {
     services,

@@ -18,7 +18,7 @@ const { fingerprintLaunchProfile, profileLogicalIdentity } = require("./launch-p
 const { resolveCliCapabilities } = require("./cli-capabilities");
 const { runG3LaunchPreflight } = require("./g3-preflight");
 const { applyHarnessOverlay, resolveWindowOverride, windowOverrideEnabled } = require("./window-override");
-const { Route2GateState } = require("./route2-gate");
+const { Route2GateState, decideRoute2Gate } = require("./route2-gate");
 const {
   buildLegacyRouteLane,
   buildSystemRouteLane,
@@ -81,7 +81,10 @@ function createClaudeCodeRuntimeAdapter(config) {
     filePath: config.claudeSessionSlotsFile
       || (stateDir ? path.join(stateDir, "claude-session-slots.json") : ""),
   });
-  const route2GateState = new Route2GateState({ sessionSlotStore });
+  const route2GateState = new Route2GateState({
+    sessionSlotStore,
+    onRevoke: (revoked) => handleRoute2LeaseRevoked(revoked),
+  });
   const processRegistry = new ProcessRegistry({
     maxProcesses: Number.isSafeInteger(config.claudeMaxProcesses) && config.claudeMaxProcesses > 0
       ? config.claudeMaxProcesses
@@ -359,6 +362,27 @@ function createClaudeCodeRuntimeAdapter(config) {
     }
   }
 
+  function handleRoute2LeaseRevoked(revoked) {
+    const lease = revoked?.lease;
+    if (!lease || !revoked.sessionSlotKey) return;
+    sessionSlotStore.setWindowOverride(revoked.sessionSlotKey, {
+      ...(revoked.restoreOverride || {}),
+      capabilityLease: { ...lease, status: "revoked" },
+    });
+    const entry = processRegistry.listEntries().find((candidate) => candidate.sessionSlotKey === revoked.sessionSlotKey);
+    if (entry) void processRegistry.withLock(entry.processKey, () => closeProcessKey(entry.processKey));
+  }
+
+  function refreshRouteAfterLeaseRevocation(route) {
+    const restored = resolveWindowOverride(
+      sessionSlotStore.getWindowOverride(route.sessionSlotKey) || {},
+      { profile: route.launchProfile, env: process.env },
+    );
+    route.mutableOverride = restored;
+    route.model = restored?.model || resolveModel("");
+    route.effort = restored?.effort || "";
+  }
+
   async function handleIpcSendUserMessage(msg) {
     try {
       const target = resolveIpcTarget(msg);
@@ -496,6 +520,9 @@ function createClaudeCodeRuntimeAdapter(config) {
         });
       }
       const route2CostEvent = mapped ? route2GateState.observe(mapped) : null;
+      if (!mapped && (event.type === "process.close" || event.type === "process.error")) {
+        route2GateState.observe({ type: "runtime.process.restarted", payload: { sessionSlotKey: route.sessionSlotKey } });
+      }
       // The turn slot and the workspace lock are held for the *whole* turn and
       // released here, on result, cancel or failure -- never when sendTurn
       // returns, which happens while the reply is still streaming.
@@ -555,12 +582,22 @@ function createClaudeCodeRuntimeAdapter(config) {
       // Model and effort are launch flags, not turn parameters: changing either
       // means this slot's child is retired and relaunched. The stored session id
       // is passed straight back in as --resume, so the thread survives the swap.
-      if (client?.usable
+      const launchStateChanged = client?.usable
         && (normalizeText(client.model) !== route.model
           || normalizeEffort(client.effort) !== route.effort
-          || normalizeText(client.mutableOverrideFingerprint) !== (route.mutableOverride?.fingerprint || "baseline"))) {
+          || normalizeText(client.mutableOverrideFingerprint) !== (route.mutableOverride?.fingerprint || "baseline"));
+      if (launchStateChanged) {
+        if (route2GateState.get(route.sessionSlotKey)) {
+          route2GateState.revoke(route.sessionSlotKey, "restart");
+          refreshRouteAfterLeaseRevocation(route);
+        }
         await closeProcessKey(processKey);
         client = null;
+      }
+
+      if (!client?.usable && route2GateState.get(route.sessionSlotKey)) {
+        route2GateState.revoke(route.sessionSlotKey, "restart");
+        refreshRouteAfterLeaseRevocation(route);
       }
 
       if (client?.usable && normalizedThreadId && clientMatchesThread(client, normalizedThreadId)) {
@@ -770,11 +807,13 @@ function createClaudeCodeRuntimeAdapter(config) {
       // what let one topic stop another topic's run.
       const entry = processRegistry.findEntryByThreadId(threadId);
       if (entry) {
+        route2GateState.revoke(entry.sessionSlotKey, "cancelled");
         await processRegistry.withLock(entry.processKey, () => closeProcessKey(entry.processKey));
         return { threadId, turnId };
       }
       if (workspaceRoot && (lane || bindingKey)) {
         const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, senderId });
+        route2GateState.revoke(route.sessionSlotKey, "cancelled");
         await closeRouteProcess(route);
       }
       return { threadId, turnId };
@@ -852,7 +891,9 @@ function createClaudeCodeRuntimeAdapter(config) {
       }
     },
     async compactThread({ threadId, workspaceRoot, model = "", effort = "", bindingKey = "", lane = null, launchProfile = null, senderId = "" }) {
-      const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, model, effort, senderId });
+      let route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, model, effort, senderId });
+      route2GateState.revoke(route.sessionSlotKey, "restart");
+      route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, model, effort, senderId });
       const attached = await attachProcessToSession(route, {
         threadId: normalizeThreadId(threadId) || route.storedThreadId,
       });
@@ -870,7 +911,9 @@ function createClaudeCodeRuntimeAdapter(config) {
       threadId, workspaceRoot, model = "", effort = "", reason = "refresh",
       bindingKey = "", lane = null, launchProfile = null, senderId = "",
     }) {
-      const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, model, effort, senderId });
+      let route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, model, effort, senderId });
+      route2GateState.revoke(route.sessionSlotKey, "restart");
+      route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, model, effort, senderId });
       const attached = await attachProcessToSession(route, {
         threadId: normalizeThreadId(threadId) || route.storedThreadId,
       });
@@ -910,6 +953,73 @@ function createClaudeCodeRuntimeAdapter(config) {
         taskId,
         plan,
       });
+    },
+    async grantRoute2Lease({
+      bindingKey = "", workspaceRoot = "", lane = null, launchProfile = null, senderId = "",
+      taskId = "", plan = {}, ttlMs = 60_000, override = {},
+    } = {}) {
+      const initialRoute = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, senderId });
+      const decision = decideRoute2Gate(plan, { env: process.env });
+      if (!decision || decision.route !== "route2") return { granted: false, decision };
+      if (!windowOverrideEnabled()) {
+        const error = new Error("route2_window_override_required");
+        error.code = "route2_window_override_required";
+        throw error;
+      }
+      if (!initialRoute.storedThreadId) {
+        const error = new Error("route2_window_id_required");
+        error.code = "route2_window_id_required";
+        throw error;
+      }
+      const previousOverride = sessionSlotStore.getWindowOverride(initialRoute.sessionSlotKey) || {};
+      const lease = {
+        id: `route2-${crypto.randomBytes(12).toString("hex")}`,
+        status: "active",
+        expiresAt: Date.now() + Math.max(1, Number(ttlMs) || 60_000),
+        toolNames: Array.isArray(plan.toolNames) ? plan.toolNames : [],
+        sessionSlotKey: initialRoute.sessionSlotKey,
+        windowId: initialRoute.storedThreadId,
+      };
+      sessionSlotStore.setWindowOverride(initialRoute.sessionSlotKey, {
+        ...previousOverride,
+        ...(override && typeof override === "object" ? override : {}),
+        ...(override?.effectiveToolset ? { toolsetSource: "self_escalation", toolsetScope: "turn" } : {}),
+        capabilityLease: lease,
+      }, { route: initialRoute.routeDescriptor });
+      const leasedRoute = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, senderId });
+      try {
+        const attached = await attachProcessToSession(leasedRoute, { threadId: initialRoute.storedThreadId });
+        if (attached.threadId !== initialRoute.storedThreadId) throw new Error("route2_window_id_changed");
+        route2GateState.begin({
+          sessionSlotKey: leasedRoute.sessionSlotKey,
+          windowId: initialRoute.storedThreadId,
+          overrideFingerprint: leasedRoute.mutableOverride?.fingerprint || "",
+          taskId,
+          plan,
+          lease: { ...lease, ttlMs: Math.max(1, Number(ttlMs) || 60_000) },
+          restoreOverride: previousOverride,
+        });
+        return {
+          granted: true,
+          decision,
+          lease: route2GateState.get(leasedRoute.sessionSlotKey)?.lease || null,
+          sessionSlotKey: leasedRoute.sessionSlotKey,
+          windowIdBefore: initialRoute.storedThreadId,
+          windowIdAfter: attached.threadId,
+          overrideFingerprint: leasedRoute.mutableOverride?.fingerprint || "",
+          trace: leasedRoute.mutableOverride?.trace || null,
+        };
+      } catch (error) {
+        sessionSlotStore.setWindowOverride(leasedRoute.sessionSlotKey, {
+          ...previousOverride,
+          capabilityLease: { ...lease, status: "revoked" },
+        }, { route: initialRoute.routeDescriptor });
+        throw error;
+      }
+    },
+    strongInterruptRoute2({ bindingKey = "", workspaceRoot = "", lane = null, launchProfile = null, senderId = "" } = {}) {
+      const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, senderId });
+      return route2GateState.revoke(route.sessionSlotKey, "strong_interrupt");
     },
     setWindowOverride({
       bindingKey = "", workspaceRoot = "", lane = null, launchProfile = null, senderId = "", patch = {},
@@ -953,6 +1063,7 @@ function createClaudeCodeRuntimeAdapter(config) {
       const legacyOffMismatch = Boolean(threadId && !appliedFingerprint && !reentryNowEnabled && previousReentry?.reentry_injected);
       const contextChanged = Boolean(threadId && ((appliedFingerprint && appliedFingerprint !== contextFingerprint) || legacyOffMismatch));
       if (contextChanged) {
+        route2GateState.revoke(route.sessionSlotKey, "restart");
         await closeRouteProcess(route);
         clearSlotThreadId(route);
         threadId = "";

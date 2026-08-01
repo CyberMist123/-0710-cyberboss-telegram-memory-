@@ -22,6 +22,10 @@ function windowOverrideEnabled(env = process.env) {
   return /^(?:1|true|yes|on)$/i.test(String(env?.[WINDOW_OVERRIDE_FLAG] || "").trim());
 }
 
+function route2GateEnabled(env = process.env) {
+  return /^(?:1|true|yes|on)$/i.test(String(env?.CYBERBOSS_ROUTE2_GATE_ENABLED || "").trim());
+}
+
 function resolveWindowOverride(input = {}, { profile = null, env = process.env } = {}) {
   if (!windowOverrideEnabled(env)) return null;
   const raw = input && typeof input === "object" && !Array.isArray(input) ? input : {};
@@ -42,6 +46,7 @@ function resolveWindowOverride(input = {}, { profile = null, env = process.env }
   const mcpNames = normalizeMcpNames(raw.effectiveMcpSet);
   const defaultMcpSet = safeId(profile?.defaultMcpServerSet || "runtime-default", "defaultMcpServerSet");
   const overlays = normalizeOverlays(raw.harnessOverlay);
+  const capabilityLease = route2GateEnabled(env) ? normalizeCapabilityLease(raw.capabilityLease) : null;
 
   const entries = [
     traceEntry("model", model, raw.modelSource || (raw.model ? "command" : (profile?.model ? "profile_default" : "default")), raw.modelScope),
@@ -65,6 +70,15 @@ function resolveWindowOverride(input = {}, { profile = null, env = process.env }
       overlay.label,
     ));
   }
+  if (capabilityLease) {
+    entries.push(traceEntry(
+      "capability_lease",
+      capabilityLease.status,
+      "self_escalation",
+      "turn",
+      JSON.stringify(capabilityLease),
+    ));
+  }
 
   const effective = Object.freeze({
     model: launchModel ? model : "",
@@ -72,6 +86,7 @@ function resolveWindowOverride(input = {}, { profile = null, env = process.env }
     effectiveToolset,
     effectiveMcpSet: mcpNames === null ? null : Object.freeze(mcpNames),
     harnessOverlay: Object.freeze(overlays),
+    capabilityLease,
   });
   return Object.freeze({
     ...effective,
@@ -81,6 +96,27 @@ function resolveWindowOverride(input = {}, { profile = null, env = process.env }
       entries: Object.freeze(entries),
       overlay_labels: Object.freeze(overlays.map((item) => item.label)),
     }),
+  });
+}
+
+function normalizeCapabilityLease(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new WindowOverrideError("capabilityLease must be an object");
+  }
+  const status = value.status === "active" ? "active" : "revoked";
+  const toolNames = normalizeMcpNames(value.toolNames || []);
+  const expiresAt = Number(value.expiresAt);
+  if (!Number.isFinite(expiresAt) || expiresAt <= 0) {
+    throw new WindowOverrideError("capabilityLease.expiresAt must be a positive timestamp");
+  }
+  return Object.freeze({
+    id: safeId(value.id, "capabilityLease.id"),
+    status,
+    expiresAt,
+    toolNames: Object.freeze(toolNames || []),
+    sessionSlotKey: safeId(value.sessionSlotKey, "capabilityLease.sessionSlotKey"),
+    windowId: safeId(value.windowId, "capabilityLease.windowId"),
   });
 }
 

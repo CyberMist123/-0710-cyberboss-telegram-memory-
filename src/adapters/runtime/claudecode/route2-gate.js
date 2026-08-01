@@ -62,13 +62,17 @@ function decideRoute2Gate(plan = {}, { env = process.env } = {}) {
 }
 
 class Route2GateState {
-  constructor({ sessionSlotStore, env = process.env } = {}) {
+  constructor({ sessionSlotStore, env = process.env, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, onRevoke = null } = {}) {
     this.sessionSlotStore = sessionSlotStore;
     this.env = env;
+    this.now = now;
+    this.setTimer = setTimer;
+    this.clearTimer = clearTimer;
+    this.onRevoke = typeof onRevoke === "function" ? onRevoke : null;
     this.active = new Map();
   }
 
-  begin({ sessionSlotKey, windowId, overrideFingerprint = "", taskId = "", plan = {} } = {}) {
+  begin({ sessionSlotKey, windowId, overrideFingerprint = "", taskId = "", plan = {}, lease = null, restoreOverride = null } = {}) {
     if (!route2GateEnabled(this.env)) return null;
     const slotKey = normalizeText(sessionSlotKey);
     const decision = decideRoute2Gate(plan, { env: this.env });
@@ -79,10 +83,16 @@ class Route2GateState {
       overrideFingerprint: normalizeText(overrideFingerprint),
       taskId: normalizeText(taskId),
       decision,
+      lease: normalizeLease(lease, { plan, now: this.now() }),
+      restoreOverride: restoreOverride && typeof restoreOverride === "object" ? { ...restoreOverride } : {},
       actualToolUses: 0,
       returnBytes: 0,
       usage: emptyUsage(),
     };
+    if (state.lease) {
+      state.timer = this.setTimer(() => this.revoke(slotKey, "ttl_expired"), Math.max(0, state.lease.expiresAt - this.now()));
+      state.timer?.unref?.();
+    }
     this.active.set(slotKey, state);
     this.sessionSlotStore?.setRoute2Gate?.(slotKey, publicState(state));
     return decision;
@@ -93,12 +103,16 @@ class Route2GateState {
     const slotKey = normalizeText(event?.payload?.sessionSlotKey);
     const state = this.active.get(slotKey);
     if (!state) return null;
+    if (state.lease && this.now() >= state.lease.expiresAt) {
+      this.revoke(slotKey, "ttl_expired");
+      return null;
+    }
     if (event.type === "runtime.tool.use") state.actualToolUses += 1;
     if (event.type === "runtime.tool.result") state.returnBytes += nonnegativeNumber(event.payload.returnBytes);
     if (event.type === "runtime.context.updated") state.usage = normalizeUsage(event.payload);
     this.sessionSlotStore?.setRoute2Gate?.(slotKey, publicState(state));
-    if (event.type !== "runtime.turn.completed" && event.type !== "runtime.turn.failed") return null;
-    this.active.delete(slotKey);
+    const terminal = terminalReason(event.type);
+    if (!terminal) return null;
     const payload = {
       route: state.decision.route,
       routeToken: slotKey,
@@ -114,8 +128,36 @@ class Route2GateState {
       usage: state.usage,
       outcome: event.type === "runtime.turn.completed" ? "success" : "error",
     };
-    this.sessionSlotStore?.setRoute2Gate?.(slotKey, { ...publicState(state), completed: true });
+    this.revoke(slotKey, terminal);
     return { type: "runtime.route2.cost", payload };
+  }
+
+  get(sessionSlotKey) {
+    const state = this.active.get(normalizeText(sessionSlotKey));
+    if (!state) return null;
+    if (state.lease && this.now() >= state.lease.expiresAt) {
+      this.revoke(state.sessionSlotKey, "ttl_expired");
+      return null;
+    }
+    return publicState(state);
+  }
+
+  revoke(sessionSlotKey, reason = "revoked") {
+    if (!route2GateEnabled(this.env)) return null;
+    const slotKey = normalizeText(sessionSlotKey);
+    const state = this.active.get(slotKey);
+    if (!state) return null;
+    this.active.delete(slotKey);
+    if (state.timer) this.clearTimer(state.timer);
+    this.sessionSlotStore?.clearRoute2Gate?.(slotKey);
+    const revoked = {
+      ...publicState(state),
+      restoreOverride: { ...state.restoreOverride },
+      revoked: true,
+      revokeReason: normalizeText(reason) || "revoked",
+    };
+    this.onRevoke?.(revoked);
+    return revoked;
   }
 }
 
@@ -129,15 +171,39 @@ async function runOptionalRoute2Tool({ invoke, chatCore }) {
 
 function publicState(state) {
   return {
+    sessionSlotKey: state.sessionSlotKey,
     route: state.decision.route,
     decision: state.decision.decision,
     windowId: state.windowId,
     overrideFingerprint: state.overrideFingerprint,
     taskId: state.taskId,
+    ...(state.lease ? { lease: { ...state.lease, toolNames: [...state.lease.toolNames] } } : {}),
     actualToolUses: state.actualToolUses,
     returnBytes: state.returnBytes,
     usage: state.usage,
   };
+}
+
+function normalizeLease(value, { plan = {}, now = Date.now() } = {}) {
+  if (!value || typeof value !== "object") return null;
+  const ttlMs = Math.max(1, Number(value.ttlMs) || 60_000);
+  const toolNames = [...new Set((Array.isArray(value.toolNames) ? value.toolNames : plan.toolNames || []).map(normalizeText).filter(Boolean))];
+  return Object.freeze({
+    id: normalizeText(value.id) || `route2-${now}`,
+    issuedAt: now,
+    expiresAt: now + ttlMs,
+    toolNames: Object.freeze(toolNames),
+  });
+}
+
+function terminalReason(type) {
+  return ({
+    "runtime.turn.completed": "completed",
+    "runtime.turn.failed": "failed",
+    "runtime.turn.cancelled": "cancelled",
+    "runtime.strong_interrupt": "strong_interrupt",
+    "runtime.process.restarted": "restart",
+  })[type] || "";
 }
 
 function normalizeUsage(value = {}) {

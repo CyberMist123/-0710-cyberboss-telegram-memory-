@@ -113,7 +113,7 @@ function makeEntry(id, category, tool, { hidden = false, deprecated = false, ali
   if (!theme || !THEME_DEFINITIONS.some((definition) => definition.name === theme)) throw catalogError("catalog_unclassified_entry", `${id} (theme missing)`);
   return { id, category, theme, purpose: tool.shortHint || tool.description || "", risk, estimated_schema_chars: schemaMetric(tool.inputSchema), schema_handle: `${category}/${canonical}`, hidden, deprecated, alias_of: aliasOf, resident: RESIDENT_NAMES.includes(canonical), authorized, max_result_bytes: route2GateEnabled() ? (TOOL_MAX_RESULT_BYTES[canonical] || null) : null };
 }
-function findSchema({ entries, category, handle }) {
+function findSchema({ entries, category, handle, capabilityLease = null, allowSelfEscalation = false, now = Date.now() }) {
   if (typeof handle !== "string" || !/^(memory|tool|mcp|skill)\/[^/]+$/.test(handle)) throw catalogError("catalog_invalid_handle", String(handle));
   if (!handle.startsWith(`${category}/`)) throw catalogError("catalog_handle_category_mismatch", handle);
   const matches = entries.filter((item) => item.schema_handle === handle && !item.alias_of);
@@ -121,11 +121,20 @@ function findSchema({ entries, category, handle }) {
   const entry = matches[0];
   if (!entry) throw catalogError("catalog_unknown_handle", handle);
   if (entry.category !== category) throw catalogError("catalog_handle_category_mismatch", handle);
-  if (!entry.authorized) throw catalogError("catalog_schema_not_authorized", handle);
+  if (!entry.authorized && !allowSelfEscalation) throw catalogError("catalog_schema_not_authorized", handle);
+  assertCapabilityLease(capabilityLease, entry.id, now);
   return entry;
+}
+function assertCapabilityLease(lease, toolName, now = Date.now()) {
+  if (!route2GateEnabled() || !lease || typeof lease !== "object") return;
+  const members = Array.isArray(lease.toolNames) ? lease.toolNames : [];
+  if (!members.includes(toolName)) return;
+  if (lease.status !== "active" || !Number.isFinite(Number(lease.expiresAt)) || Number(now) >= Number(lease.expiresAt)) {
+    throw catalogError("capability_lease_expired", toolName);
+  }
 }
 module.exports = {
   CATEGORIES, RESIDENT_NAMES, TOOLSETS, TOOL_RISKS, TOOL_THEMES, TOOL_MAX_RESULT_BYTES, THEME_DEFINITIONS,
   CATALOG_INPUT_SCHEMA, catalogEnabled, subjectSigningEnabled, route2GateEnabled, resolveToolset,
-  catalogError, classifyProjectTool, buildManifest, findSchema,
+  catalogError, classifyProjectTool, buildManifest, findSchema, assertCapabilityLease,
 };

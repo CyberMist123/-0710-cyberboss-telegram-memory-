@@ -624,3 +624,14 @@ test("T07 A7/A12 cost trace records bounded metrics and correlations without use
   assert.equal(raw.includes("episodes.jsonl"), false);
   assert.equal(raw.includes("candidate"), false);
 });
+
+test("T08 A4/A12 an expired capability lease is a Route 1 routing decision with chat capability unchanged", () => {
+  const decision = require("../src/adapters/runtime/claudecode/route2-gate").decideRoute2Gate({
+    catalog: [{ id: "fake_read", estimated_schema_chars: 10, max_result_bytes: 64, authorized: true }],
+    toolNames: ["fake_read"],
+    leaseValid: false,
+  }, { env: { CYBERBOSS_ROUTE2_GATE_ENABLED: "true" } });
+  assert.equal(decision.route, "route1");
+  assert.equal(decision.chat_capability, "unchanged");
+  assert.deepEqual(decision.reasons, ["capability_lease_expired"]);
+});

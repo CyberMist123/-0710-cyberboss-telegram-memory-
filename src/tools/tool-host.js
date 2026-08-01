@@ -7,7 +7,7 @@ const {
 const { resolveAppTimezone } = require("../utils/app-timezone");
 const { formatAppTime } = require("../utils/beijing-time");
 const {
-  catalogEnabled, subjectSigningEnabled, route2GateEnabled, resolveToolset, buildManifest, findSchema,
+  catalogEnabled, subjectSigningEnabled, route2GateEnabled, resolveToolset, buildManifest, findSchema, assertCapabilityLease,
   RESIDENT_NAMES, THEME_DEFINITIONS, CATALOG_INPUT_SCHEMA, catalogError,
 } = require("./tool-catalog-manifest");
 
@@ -19,6 +19,7 @@ class ProjectToolHost {
     authorizationCeiling = "",
     chatSelfEscalation = false,
     onSelfEscalation = null,
+    route2Lease = null,
   }) {
     this.services = services;
     this.runtimeContextStore = runtimeContextStore;
@@ -27,6 +28,8 @@ class ProjectToolHost {
     this.authorizationCeiling = normalizeAuthorizationCeiling(authorizationCeiling);
     this.chatSelfEscalation = chatSelfEscalation === true;
     this.onSelfEscalation = typeof onSelfEscalation === "function" ? onSelfEscalation : null;
+    this.selfEscalatedTools = new Set();
+    this.route2Lease = route2Lease && typeof route2Lease === "object" ? Object.freeze({ ...route2Lease }) : null;
   }
 
   catalogState() {
@@ -69,6 +72,7 @@ class ProjectToolHost {
       assertAuthorizedSchema(this.authorizationCeiling, normalizedArgs.handle);
     } else if (toolName !== "cyberboss_catalog") {
       assertAuthorizedCall(this.authorizationCeiling, resolvedToolName);
+      assertCapabilityLease(this.route2Lease, resolvedToolName);
     }
     if (catalogEnabled()) {
       if (toolName === "cyberboss_catalog") {
@@ -79,11 +83,18 @@ class ProjectToolHost {
         }
         if (normalizedArgs.handle !== undefined) {
           const category = String(normalizedArgs.handle).split("/", 1)[0];
-          const entry = findSchema({ entries, category, handle: normalizedArgs.handle });
+          const entry = findSchema({
+            entries,
+            category,
+            handle: normalizedArgs.handle,
+            capabilityLease: this.route2Lease,
+            allowSelfEscalation: this.chatSelfEscalation,
+          });
           const sourceName = entry.alias_of || entry.id;
           const source = registeredProjectTools().find((candidate) => candidate.name === sourceName)
             || this.extraToolHosts.flatMap((host) => host.listTools()).find((candidate) => candidate.name === sourceName);
           if (!source) throw catalogError("catalog_unknown_handle", normalizedArgs.handle);
+          if (!entry.authorized) this.recordSelfEscalation(sourceName, toolsetId(this.catalogState().toolset));
           return { text: `Schema loaded: ${entry.schema_handle}`, data: { entry, inputSchema: source.inputSchema } };
         }
         if (normalizedArgs.theme !== undefined) {
@@ -102,14 +113,7 @@ class ProjectToolHost {
       const { toolset } = this.catalogState();
       if (toolset && !toolset.members.has(resolvedToolName)) {
         if (!this.chatSelfEscalation) throw catalogError("catalog_tool_not_in_toolset", resolvedToolName);
-        this.onSelfEscalation?.({
-          type: "toolset_self_escalation",
-          toolset: toolset.id,
-          tool: resolvedToolName,
-          source: "self_escalation",
-          scope: "window",
-          approval_required: false,
-        });
+        this.recordSelfEscalation(resolvedToolName, toolset.id);
       }
     }
     if (alias?.command && !normalizedArgs.command) {
@@ -126,6 +130,19 @@ class ProjectToolHost {
     }
     if (extraHost) return await extraHost.invokeTool(toolName, normalizedArgs);
     throw new Error(`Unknown tool: ${toolName}`);
+  }
+
+  recordSelfEscalation(toolName, toolset) {
+    if (this.selfEscalatedTools.has(toolName)) return;
+    this.selfEscalatedTools.add(toolName);
+    this.onSelfEscalation?.({
+      type: "toolset_self_escalation",
+      toolset,
+      tool: toolName,
+      source: "self_escalation",
+      scope: "window",
+      approval_required: false,
+    });
   }
 
   resolveContext(context = {}) {
@@ -155,6 +172,8 @@ class ProjectToolHost {
     };
   }
 }
+
+function toolsetId(toolset) { return toolset?.id || ""; }
 
 const AUTHORIZATION_CEILINGS = Object.freeze({
   "work-memory-readonly@1": Object.freeze(new Set(["memory_note", "memory_candidate_submit"])),
