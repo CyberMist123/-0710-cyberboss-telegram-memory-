@@ -45,6 +45,8 @@ const {
   writeJsonAtomic,
 } = require("./continuity-store");
 
+const POST_PUBLISH_DECISION_CONFLICT = "post_publish_decision_conflict";
+
 class ContinuityPipeline {
   constructor(options = {}) {
     this.continuityDir = path.resolve(requireText(options.continuityDir, "continuityDir"));
@@ -423,11 +425,16 @@ class ContinuityPipeline {
    * Intents are append-only Review output; History never calls this method.
    */
   materializeEffectivePublicationIntents(candidates, decisions) {
+    const state = loadJson(this.paths.writerState, {
+      applied_decision_ids: [],
+      published_candidate_ids: [],
+    });
     return materializePublicationIntents({
       writer: REVIEW_WRITER,
       paths: this.paths,
       candidates,
       decisions,
+      publishedCandidateIds: loadPublishedCandidateIds(this.paths, decisions, state),
       // Reuse G2-3's explicit default-off gate. This keeps the whole
       // Review handoff surface behind one switch instead of allowing a
       // publishable intent while its prerequisite artifact writer is off.
@@ -486,7 +493,6 @@ class ContinuityPipeline {
       const decisions = readJsonl(this.paths.decisions);
       const decisionsById = new Map(decisions.map((item) => [item.decision_id, item]));
       const selected = selectEffectiveDecisions(decisions);
-      const lineages = analyzeCandidateLineages(candidateRows);
       let intents;
       try {
         intents = readJsonl(this.paths.publicationIntents);
@@ -504,6 +510,7 @@ class ContinuityPipeline {
       const state = loadJson(this.paths.writerState, {
         applied_decision_ids: [],
         published_candidate_ids: [],
+        published_candidate_lineage_roots: [],
         applied_publication_keys: [],
         intent_consumptions: [],
         diagnostic_events: [],
@@ -511,6 +518,16 @@ class ContinuityPipeline {
       const applied = new Set(state.applied_decision_ids || []);
       const publishedCandidates = loadPublishedCandidateIds(this.paths, decisions, state);
       const publishedPublicationKeys = loadPublishedPublicationKeys(this.paths, state);
+      const publishedLineageRoots = new Set(state.published_candidate_lineage_roots || []);
+      for (const intent of intents) {
+        if (publishedPublicationKeys.has(normalizeBody(intent?.publication_key))) {
+          const rootId = normalizeBody(intent?.candidate_lineage_root_id);
+          if (rootId) publishedLineageRoots.add(rootId);
+        }
+      }
+      const lineages = analyzeCandidateLineages(candidateRows, {
+        publishedCandidateIds: publishedCandidates,
+      });
       const intentConsumptions = new Map(
         (state.intent_consumptions || []).map((item) => [item.publication_intent_id, item]),
       );
@@ -528,6 +545,23 @@ class ContinuityPipeline {
         skipped.push({
           candidate_id: event.candidate_id,
           reason: EFFECTIVE_DECISION_AMBIGUOUS,
+          event_id: event.event_id,
+        });
+        if (!diagnosticEvents.has(event.event_id)) {
+          diagnosticEvents.set(event.event_id, event);
+          stateChanged = true;
+        }
+      }
+
+      for (const candidateId of publishedCandidates) {
+        const effectiveDecision = selected.effectiveByCandidate.get(candidateId);
+        if (!effectiveDecision || effectiveDecision.result === "accepted") continue;
+        const event = createPostPublishDecisionConflictEvent(candidateId, effectiveDecision);
+        diagnostics.push(event);
+        skipped.push({
+          candidate_id: candidateId,
+          decision_id: effectiveDecision.decision_id,
+          reason: POST_PUBLISH_DECISION_CONFLICT,
           event_id: event.event_id,
         });
         if (!diagnosticEvents.has(event.event_id)) {
@@ -581,6 +615,7 @@ class ContinuityPipeline {
         if (publishedPublicationKeys.has(intent.publication_key)) {
           applied.add(decision.decision_id);
           publishedCandidates.add(candidate.candidate_id);
+          publishedLineageRoots.add(lineageRootId(intent));
           intentConsumptions.set(intentId, createIntentConsumption(intent, "already_published"));
           skipped.push({ decision_id: decision.decision_id, reason: "candidate_already_published" });
           stateChanged = true;
@@ -617,6 +652,7 @@ class ContinuityPipeline {
         applied.add(decision.decision_id);
         publishedCandidates.add(candidate.candidate_id);
         publishedPublicationKeys.add(intent.publication_key);
+        publishedLineageRoots.add(lineageRootId(intent));
         intentConsumptions.set(intentId, createIntentConsumption(intent, "published"));
         written.push(decision.decision_id);
         stateChanged = true;
@@ -625,6 +661,7 @@ class ContinuityPipeline {
           state,
           applied,
           publishedCandidates,
+          publishedLineageRoots,
           publishedPublicationKeys,
           intentConsumptions,
           diagnosticEvents,
@@ -636,6 +673,7 @@ class ContinuityPipeline {
           state,
           applied,
           publishedCandidates,
+          publishedLineageRoots,
           publishedPublicationKeys,
           intentConsumptions,
           diagnosticEvents,
@@ -649,17 +687,18 @@ class ContinuityPipeline {
     const existing = readJsonl(this.paths.episodes);
     if (existing.some((item) => item.publication_key === intent.publication_key)) return;
     backupFile(this.paths.episodes, this.paths.backups);
+    const canonSupersedes = normalizeBody(candidate.canon_supersedes);
     appendJsonlUnique(this.paths.episodes, [{
       ep_id: `ep-${sha256(intent.publication_key).slice(0, 16)}`,
       ts: candidate.ts,
-      type: candidate.supersedes ? "correction" : "episode",
+      type: canonSupersedes ? "correction" : "episode",
       body: candidate.body,
       source_ref: candidate.source_ref,
       candidate_id: candidate.candidate_id,
       decision_id: decision.decision_id,
       publication_intent_id: intent.publication_intent_id,
       publication_key: intent.publication_key,
-      supersedes: candidate.supersedes || null,
+      supersedes: canonSupersedes || null,
       origin: candidate.origin,
       author_role: candidate.author_role,
       author_model: candidate.author_model,
@@ -961,6 +1000,23 @@ function createIntentDiagnosticEvent(intent = {}, validation = {}) {
   };
 }
 
+function createPostPublishDecisionConflictEvent(candidateId, decision = {}) {
+  const stable = {
+    event: POST_PUBLISH_DECISION_CONFLICT,
+    candidate_id: normalizeBody(candidateId),
+    effective_decision_id: normalizeBody(decision.decision_id),
+    effective_result: normalizeBody(decision.result),
+  };
+  return {
+    event_id: `event-${sha256(JSON.stringify(stable)).slice(0, 20)}`,
+    ...stable,
+  };
+}
+
+function lineageRootId(intent = {}) {
+  return normalizeBody(intent.candidate_lineage_root_id);
+}
+
 function createIntentConsumption(intent = {}, status) {
   return {
     publication_intent_id: normalizeBody(intent.publication_intent_id),
@@ -976,6 +1032,7 @@ function writeHistoryWriterState(
   previous,
   applied,
   publishedCandidates,
+  publishedLineageRoots,
   publishedPublicationKeys,
   intentConsumptions,
   diagnosticEvents,
@@ -984,6 +1041,7 @@ function writeHistoryWriterState(
     ...previous,
     applied_decision_ids: [...applied],
     published_candidate_ids: [...publishedCandidates],
+    published_candidate_lineage_roots: [...publishedLineageRoots].filter(Boolean),
     applied_publication_keys: [...publishedPublicationKeys],
     intent_consumptions: [...intentConsumptions.values()],
     diagnostic_events: [...diagnosticEvents.values()],
@@ -1147,6 +1205,7 @@ function requireText(value, label) {
 
 module.exports = {
   ContinuityPipeline,
+  POST_PUBLISH_DECISION_CONFLICT,
   PUBLISH_REFUSED_EVENT,
   buildLocalChecks,
   createCandidate,

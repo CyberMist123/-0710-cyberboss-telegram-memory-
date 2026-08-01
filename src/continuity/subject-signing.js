@@ -1,8 +1,14 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const fs = require("node:fs");
 const path = require("node:path");
-const { appendJsonlUnique, readJsonl, sha256 } = require("./continuity-store");
+const {
+  appendJsonlUnique,
+  loadJson,
+  readJsonl,
+  sha256,
+} = require("./continuity-store");
 const { assertExactSubjectRoute, canonicalSerialize } = require("./subject-route");
 
 const SUBJECT_CANDIDATE_ORIGINS = Object.freeze([
@@ -116,8 +122,9 @@ class SubjectCandidateService {
   constructor({ continuityDir = "", registry, enabled = false } = {}) {
     this.enabled = enabled === true;
     this.registry = registry;
-    this.candidatesPath = continuityDir
-      ? path.join(path.resolve(continuityDir), "candidates", "episodes.candidates.jsonl")
+    this.continuityDir = continuityDir ? path.resolve(continuityDir) : "";
+    this.candidatesPath = this.continuityDir
+      ? path.join(this.continuityDir, "candidates", "episodes.candidates.jsonl")
       : "";
   }
 
@@ -150,12 +157,20 @@ class SubjectCandidateService {
       sourceEntryIdsSha256,
     });
     validateOriginMaterialReference(input, origin, sourceEntryIds);
+    const supersedeMetadata = validateSupersedeSemantics({
+      input,
+      origin,
+      type,
+      continuityDir: this.continuityDir,
+      candidatesPath: this.candidatesPath,
+    });
     const idempotencyKey = sha256(canonicalSerialize({
       route_fingerprint: subjectRoute.route_fingerprint,
       subject_turn_id: subjectTurnId,
       type,
       body,
       source_entry_ids: sourceEntryIds,
+      ...supersedeMetadata,
     }));
     const candidate = {
       candidate_id: `cand-${idempotencyKey.slice(0, 20)}`,
@@ -181,6 +196,7 @@ class SubjectCandidateService {
         issued_at: capability.issued_at,
       },
       idempotency_key: idempotencyKey,
+      ...supersedeMetadata,
       ...(origin === "closeout_materials_then_subject"
         ? { material_pack_id: normalizeText(input.material_pack_id) }
         : {}),
@@ -198,6 +214,93 @@ class SubjectCandidateService {
     this.registry.consume(input.capability_id);
     return { status: "created", candidate: added[0] };
   }
+}
+
+function validateSupersedeSemantics({ input, origin, type, continuityDir, candidatesPath }) {
+  const supersedesCandidateId = normalizeText(input.supersedes_candidate_id);
+  const canonSupersedes = normalizeText(input.canon_supersedes);
+  if (supersedesCandidateId && canonSupersedes) {
+    throw signingFailure(
+      "supersede_semantics_conflict",
+      "candidate rewrite lineage and canon correction supersede cannot be combined",
+    );
+  }
+  if (origin !== "subject_rewrite" && supersedesCandidateId) {
+    throw signingFailure(
+      "candidate_rewrite_origin_invalid",
+      "supersedes_candidate_id requires subject_rewrite origin",
+    );
+  }
+  if (origin === "subject_rewrite") {
+    if (!supersedesCandidateId) {
+      throw signingFailure("candidate_predecessor_missing", "subject rewrite predecessor is required");
+    }
+    const predecessors = readJsonl(candidatesPath).filter(
+      (candidate) => normalizeText(candidate?.candidate_id) === supersedesCandidateId,
+    );
+    if (predecessors.length !== 1) {
+      throw signingFailure(
+        "candidate_predecessor_missing",
+        "subject rewrite predecessor is missing or ambiguous",
+      );
+    }
+    if (normalizeText(predecessors[0].type) !== type) {
+      throw signingFailure(
+        "candidate_lineage_type_mismatch",
+        "subject rewrite must keep the predecessor memory type",
+      );
+    }
+    if (loadPublishedCandidateIds(continuityDir).has(supersedesCandidateId)) {
+      throw signingFailure(
+        "candidate_predecessor_already_published",
+        "published candidates must be changed through canon correction semantics",
+      );
+    }
+    return {
+      supersedes_candidate_id: supersedesCandidateId,
+      rewrite_handoff_id: requireText(input.rewrite_handoff_id, "rewrite_handoff_id"),
+      rewrite_of_decision_id: requireText(
+        input.rewrite_of_decision_id,
+        "rewrite_of_decision_id",
+      ),
+    };
+  }
+  return canonSupersedes ? { canon_supersedes: canonSupersedes } : {};
+}
+
+function loadPublishedCandidateIds(continuityDir) {
+  const published = new Set();
+  if (!continuityDir) return published;
+  const state = loadJson(
+    path.join(continuityDir, ".jobs", "history-writer-state.json"),
+    {},
+  );
+  for (const candidateId of state.published_candidate_ids || []) {
+    const normalized = normalizeText(candidateId);
+    if (normalized) published.add(normalized);
+  }
+  for (const fileName of ["episodes.jsonl", "details.jsonl"]) {
+    for (const row of readJsonl(path.join(continuityDir, fileName))) {
+      const candidateId = normalizeText(row?.candidate_id);
+      if (candidateId) published.add(candidateId);
+    }
+  }
+  const decisions = new Map(
+    readJsonl(path.join(continuityDir, "decisions", "decisions.jsonl"))
+      .map((decision) => [normalizeText(decision?.decision_id), decision]),
+  );
+  let selfNotes = "";
+  try {
+    selfNotes = fs.readFileSync(
+      path.join(continuityDir, "ai_self_notes.md"),
+      "utf8",
+    );
+  } catch {}
+  for (const match of selfNotes.matchAll(/<!-- decision:([^\s>]+) -->/gu)) {
+    const candidateId = normalizeText(decisions.get(match[1])?.candidate_id);
+    if (candidateId) published.add(candidateId);
+  }
+  return published;
 }
 
 function validateOriginMaterialReference(input, origin, sourceEntryIds) {

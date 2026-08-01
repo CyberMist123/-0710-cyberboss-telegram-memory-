@@ -172,6 +172,53 @@ test("same idempotency key persists once and retry never invokes a model", () =>
   assert.equal(modelCalls, 0);
 });
 
+test("subject rewrite persists candidate lineage fields and refuses an already-published predecessor", () => {
+  const root = temporaryRoot();
+  const candidatesPath = path.join(root, "candidates", "episodes.candidates.jsonl");
+  fs.mkdirSync(path.dirname(candidatesPath), { recursive: true });
+  fs.writeFileSync(candidatesPath, `${JSON.stringify({
+    candidate_id: "cand-old",
+    type: "episode",
+    body: "old body",
+  })}\n`, "utf8");
+  const registry = new SubjectCapabilityRegistry({ enabled: true });
+  const service = new SubjectCandidateService({ continuityDir: root, registry, enabled: true });
+  const route = exactRoute("turn-rewrite", ["entry-rewrite"]);
+  const capability = registry.issue({ subjectTurnId: route.author_turn_id, subjectRoute: route });
+  const created = service.createSubjectCandidate(candidateInput({
+    route,
+    capability,
+    origin: "subject_rewrite",
+    body: "new subject-written body",
+    supersedes_candidate_id: "cand-old",
+    rewrite_handoff_id: "handoff-old",
+    rewrite_of_decision_id: "decision-old-head",
+  }));
+  assert.equal(created.candidate.supersedes_candidate_id, "cand-old");
+  assert.equal(created.candidate.rewrite_handoff_id, "handoff-old");
+  assert.equal(created.candidate.rewrite_of_decision_id, "decision-old-head");
+  assert.equal(Object.hasOwn(created.candidate, "supersedes"), false);
+
+  fs.mkdirSync(path.join(root, ".jobs"), { recursive: true });
+  fs.writeFileSync(path.join(root, ".jobs", "history-writer-state.json"), JSON.stringify({
+    published_candidate_ids: ["cand-old"],
+  }), "utf8");
+  const blockedRoute = exactRoute("turn-rewrite-blocked", ["entry-rewrite-blocked"]);
+  const blockedCapability = registry.issue({
+    subjectTurnId: blockedRoute.author_turn_id,
+    subjectRoute: blockedRoute,
+  });
+  assert.throws(() => service.createSubjectCandidate(candidateInput({
+    route: blockedRoute,
+    capability: blockedCapability,
+    origin: "subject_rewrite",
+    body: "published predecessor cannot be rewritten",
+    supersedes_candidate_id: "cand-old",
+    rewrite_handoff_id: "handoff-published",
+    rewrite_of_decision_id: "decision-published",
+  })), { code: "candidate_predecessor_already_published" });
+});
+
 test("enabled closeout deterministically persists only a source-derived material pack", async () => {
   const root = temporaryRoot();
   const conversationDir = path.join(root, "conversations");
