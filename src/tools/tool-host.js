@@ -134,6 +134,7 @@ class ProjectToolHost {
       runtimeId: explicitRuntimeId || normalizeText(active.runtimeId),
       workspaceRoot: explicitWorkspaceRoot || normalizeText(active.workspaceRoot),
       routeToken: explicitRouteToken || normalizeText(active.routeToken),
+      laneKey: normalizeText(context.laneKey) || normalizeText(active.laneKey),
       // Propagated so a tool that sends outbound can refuse rather than guess.
       ambiguousRoute: active.ambiguous === true,
       activeLaneCount: Number(active.activeLaneCount) || 0,
