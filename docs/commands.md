@@ -125,6 +125,7 @@ Notes:
 - `/effort` / `/effort <low|medium|high|xhigh|max>`
 - `/pause activity`
 - `/continue activity`
+- `/memory <subcommand>`（pending / approve / reject / list / review / search / add / update / delete / prune / cleanup / undo / suggest / apply-suggestion）
 - `/star`
 - `/help`
 
