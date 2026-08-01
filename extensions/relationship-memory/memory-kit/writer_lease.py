@@ -14,8 +14,9 @@ def _lexical_abspath(value):
     """Match Node `path.resolve` exactly: purely lexical, never touches the disk.
 
     Do NOT use `Path(value).resolve()` here. On Windows it canonicalises against
-    the filesystem — it expands 8.3 short names (`RUNNER~1` -> `runneradmin`) and
-    follows symlinks/junctions — while Node's `path.resolve` does none of that.
+    the filesystem — it expands 8.3 short names (a `NAME~1` component becomes the
+    long directory name) and follows symlinks/junctions — while Node's
+    `path.resolve` does none of that.
     Any path containing a junction (this repo mounts `node_modules` as one) or an
     8.3 component would then resolve to a *different* absolute path on each side,
     giving two lease files instead of one. That is not a weaker lock, it is no

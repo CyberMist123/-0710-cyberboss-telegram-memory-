@@ -119,10 +119,12 @@ def test_lease_path_resolution_is_lexical_not_filesystem_canonical():
 
     Node's `path.resolve` is purely lexical. If this side ever goes back to
     `Path(...).resolve()`, Windows canonicalisation (8.3 short names, junctions,
-    symlinks) makes the two languages compute *different* lease files -- which is
-    no lock at all, and it fails silently. CI caught exactly this on 2026-08-02
-    (`RUNNER~1` vs `runneradmin`), so this assertion is environment-independent
-    on purpose: it compares against os.path.abspath rather than against a fixture.
+    symlinks) makes the two languages compute *different* lease path strings, and
+    it does so silently. CI caught exactly this on 2026-08-02, where the runner's
+    temp directory carried an 8.3 short component that one side expanded and the
+    other did not. The assertion below is environment-independent on purpose: it
+    compares against os.path.abspath rather than against a fixture path, because a
+    dev box with no 8.3 / junction components makes both implementations agree.
     """
     messy = os.path.join(tempfile.gettempdir(), "a", "..", "b", ".jobs", "x.json")
     got = resolve_memory_writer_lease_file("", writer_lease_file=messy)
