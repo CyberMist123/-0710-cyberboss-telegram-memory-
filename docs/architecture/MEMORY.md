@@ -183,6 +183,8 @@ Self-note 可以记录“想起但没有说”的选择，但这类记录只供�
 账本存在的意义是让 Re-entry 敢只写感情：细节有人接住，遗言就不必清点财产。
 **账本里放什么由主体 AI 决定**，本仓库不做自动提取或搬运。
 
+D28 旧后台候选同属第三档：只读 join 原候选与 G2-7 companion，且仅 `EXACTLY_RECOVERABLE` 在当前 `routeToken` / `laneKey` 双匹配时经既有 `memory_lookup` 返回；命中标为「旧后台存量、非你的笔迹」，不进 Re-entry / Current State / `memory_context`，不自动升格。
+
 ## 3. 阅读视图，不是第二套真相
 
 ### Timeline / Long View

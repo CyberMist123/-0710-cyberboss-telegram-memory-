@@ -5,6 +5,10 @@ const { writeJsonAtomic } = require("../orchestration/atomic-json");
 const { hashThreadId } = require("../core/context-trace");
 const { formatReadableTime } = require("../core/readable-time");
 const { detailsFileFor, readDetailsForLookup } = require("../continuity/detail-ledger");
+const {
+  legacyCandidateFilesFor,
+  readLegacyCandidatesForLookup,
+} = require("../continuity/legacy-candidate-lookup");
 
 const MAX_CALLS_PER_SESSION = 5; // Fault-loop guard, not a relational or posture budget.
 const MAX_HITS = 3;
@@ -17,6 +21,9 @@ class MemoryLookupService {
     this.timelineFile = this.continuityDir ? path.join(this.continuityDir, "relationship_timeline.md") : "";
     this.topicsFile = this.continuityDir ? path.join(this.continuityDir, "topics.md") : "";
     this.detailsFile = detailsFileFor(this.continuityDir);
+    const legacyFiles = legacyCandidateFilesFor(this.continuityDir);
+    this.legacyCandidatesFile = legacyFiles.candidatesFile;
+    this.legacyBindingsFile = legacyFiles.bindingsFile;
     this.recallLogFile = this.continuityDir ? path.join(this.continuityDir, "recall_log.jsonl") : "";
     this.budgetFile = this.continuityDir ? path.join(this.continuityDir, ".jobs", "memory-lookup-budget.json") : "";
     this.lockFile = this.continuityDir ? path.join(this.continuityDir, ".jobs", "memory-lookup.lock") : "";
@@ -24,11 +31,16 @@ class MemoryLookupService {
     // 账本（details）是第三档「完全按需」的抽屉（宪法第三条）：它不注入、没有目录，
     // 只有她明确拉线时才会经这个既有的受控工具被翻到。刻意复用 memory_lookup 而不新增
     // 工具注册，也不新增开关 —— 新增一个默认关的工具只会让抽屉存在却打不开。
-    this.readSources = typeof readSources === "function" ? readSources : () => ({
+    this.readSources = typeof readSources === "function" ? readSources : (context) => ({
       episodes: this.readEpisodes(),
       timeline: readTimeline(this.timelineFile),
       topics: readText(this.topicsFile),
       details: readDetailsForLookup(this.detailsFile),
+      legacy: readLegacyCandidatesForLookup({
+        candidatesFile: this.legacyCandidatesFile,
+        bindingsFile: this.legacyBindingsFile,
+        context,
+      }),
     });
   }
 
@@ -63,7 +75,7 @@ class MemoryLookupService {
       };
       writeJsonAtomic(this.budgetFile, budget);
       try {
-        const sources = this.readSources();
+        const sources = this.readSources(context);
         const hits = searchMemorySources(sources, normalizedQuery);
         this.appendRecall({
           session: session.traceSession,
@@ -114,6 +126,7 @@ function searchMemorySources(sources, query) {
     ...(Array.isArray(normalizedSources.episodes) ? normalizedSources.episodes : []),
     ...(Array.isArray(normalizedSources.timeline) ? normalizedSources.timeline : []),
     ...(Array.isArray(normalizedSources.details) ? normalizedSources.details : []),
+    ...(Array.isArray(normalizedSources.legacy) ? normalizedSources.legacy : []),
   ];
   return searchEpisodes(rows, expandedQuery);
 }
@@ -183,19 +196,24 @@ function normalizeEpisode(row) {
     searchText: JSON.stringify(row).toLocaleLowerCase(),
     supersedes: normalizeText(row.supersedes),
     superseded_by: normalizeText(row.superseded_by) || null,
+    source: normalizeText(row.source),
+    source_notice: normalizeText(row.source_notice),
   };
 }
 
 function pushEpisode(results, seen, episode, supersededBy) {
   if (!episode || seen.has(episode.ep_id) || results.length >= MAX_HITS) return;
   seen.add(episode.ep_id);
-  results.push({
+  const hit = {
     ep_id: episode.ep_id,
     ts: episode.ts,
     body: truncateBody(episode.body, episode.ep_id),
     register: "lookup",
     superseded_by: supersededBy || null,
-  });
+  };
+  if (episode.source) hit.source = episode.source;
+  if (episode.source_notice) hit.source_notice = episode.source_notice;
+  results.push(hit);
 }
 
 function truncateBody(value, epId) {
