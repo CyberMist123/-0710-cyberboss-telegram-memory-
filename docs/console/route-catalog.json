@@ -161,6 +161,14 @@
   },
   {
     "method": "GET",
+    "path": "/api/sleep-window",
+    "status": "active",
+    "auth": "local-only",
+    "side_effect": "none",
+    "test_id": "blackbox-uncovered:sleep-window"
+  },
+  {
+    "method": "GET",
     "path": "/api/reentry",
     "status": "compat",
     "auth": "local-only",
@@ -318,6 +326,14 @@
     "auth": "x-api-token",
     "side_effect": "atomic_write",
     "test_id": "blackbox-auth:context-gates"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sleep-window",
+    "status": "active",
+    "auth": "x-api-token",
+    "side_effect": "atomic_write",
+    "test_id": "blackbox-sleep-window:write-reload-validation"
   },
   {
     "method": "POST",

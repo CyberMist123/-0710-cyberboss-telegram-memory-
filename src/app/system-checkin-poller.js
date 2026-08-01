@@ -5,6 +5,7 @@ const { CheckinConfigStore, SleepScheduleStore, resolveDefaultCheckinRange } = r
 const { resolvePreferredSenderId, resolvePreferredWorkspaceRoot } = require("../core/default-targets");
 const { readPersistedDesireState } = require("../core/desire-state-persistence");
 const { SystemMessageQueueStore } = require("../core/system-message-queue-store");
+const { DEFAULT_SLEEP_WINDOW, SleepWindowStore, normalizeSleepWindow, wallTimeToMinutes } = require("../core/sleep-window-store");
 const { resolveAppTimezone } = require("../utils/app-timezone");
 const { isActivityPaused } = require("../core/activity-pause-state");
 
@@ -15,6 +16,7 @@ async function runSystemCheckinPoller(config) {
   const queue = new SystemMessageQueueStore({ filePath: config.systemMessageQueueFile });
   const checkinConfigStore = new CheckinConfigStore({ filePath: config.checkinConfigFile });
   const sleepScheduleStore = new SleepScheduleStore({ filePath: config.sleepScheduleFile });
+  const sleepWindowStore = new SleepWindowStore({ filePath: config.sleepWindowFile });
   const sessionStore = new SessionStore({ filePath: config.sessionsFile });
   const target = resolvePollerTarget({ config, account, sessionStore });
   const defaultRange = resolveDefaultCheckinRange();
@@ -28,15 +30,17 @@ async function runSystemCheckinPoller(config) {
     currentRange = checkinConfigStore.getRange(defaultRange);
     const sleepState = sleepScheduleStore.getState();
     const now = Date.now();
+    const sleepWindow = sleepWindowStore.getWindow();
     const effectiveRange = resolveEffectiveRange({
       defaultRange: currentRange,
       sleepState,
       now,
       sleepScheduleStore,
       timezone,
+      sleepWindow,
     });
     let delayMs = pickRandomDelayMs(effectiveRange.minIntervalMs, effectiveRange.maxIntervalMs);
-    delayMs = capDelayAtSleepBoundary(delayMs, now, timezone);
+    delayMs = capDelayAtSleepBoundary(delayMs, now, timezone, sleepWindow);
     const wakeAt = formatLocalTime(Date.now() + delayMs, timezone);
     console.log(`[cyberboss] next checkin in ${Math.round(delayMs / 60000)}m at ${wakeAt}`);
     await sleep(delayMs);
@@ -79,13 +83,15 @@ function resolveEffectiveRange({
   now,
   sleepScheduleStore,
   timezone = resolveAppTimezone(),
+  sleepWindow = DEFAULT_SLEEP_WINDOW,
 }) {
   const baseRange = defaultRange || resolveDefaultCheckinRange();
-  const inSleepWindow = isSleepWindow(now, timezone);
+  const effectiveSleepWindow = normalizeSleepWindow(sleepWindow);
+  const inSleepWindow = isSleepWindow(now, timezone, effectiveSleepWindow);
 
   if (!inSleepWindow && sleepState?.sleeping && sleepScheduleStore?.setAwake) {
     sleepScheduleStore.setAwake({ resumedAt: new Date(now).toISOString() });
-    console.log(`[cyberboss] sleep mode auto-restored to awake after 06:30 ${timezone}`);
+    console.log(`[cyberboss] sleep mode auto-restored to awake after ${effectiveSleepWindow.end} ${timezone}`);
   }
 
   if (!inSleepWindow) {
@@ -98,12 +104,13 @@ function resolveEffectiveRange({
   };
 }
 
-function capDelayAtSleepBoundary(delayMs, now, timezone = resolveAppTimezone()) {
-  if (!isSleepWindow(now, timezone)) {
+function capDelayAtSleepBoundary(delayMs, now, timezone = resolveAppTimezone(), sleepWindow = DEFAULT_SLEEP_WINDOW) {
+  const effectiveSleepWindow = normalizeSleepWindow(sleepWindow);
+  if (!isSleepWindow(now, timezone, effectiveSleepWindow)) {
     return delayMs;
   }
 
-  const boundaryAt = nextWakeTimestamp(now, timezone);
+  const boundaryAt = nextWakeTimestamp(now, timezone, effectiveSleepWindow);
   const boundaryDelayMs = boundaryAt - now;
   if (!Number.isFinite(boundaryDelayMs) || boundaryDelayMs <= 0) {
     return delayMs;
@@ -158,34 +165,53 @@ function normalizeText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function isSleepWindow(value, timezone = resolveAppTimezone()) {
+function isSleepWindow(value, timezone = resolveAppTimezone(), sleepWindow = DEFAULT_SLEEP_WINDOW) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) {
     return false;
   }
   const { hour, minute } = resolveZonedDateParts(date, timezone);
-  return hour >= 22 || hour < 6 || (hour === 6 && minute < 30);
+  const currentMinute = hour * 60 + minute;
+  const effectiveSleepWindow = normalizeSleepWindow(sleepWindow);
+  const startMinute = wallTimeToMinutes(effectiveSleepWindow.start);
+  const endMinute = wallTimeToMinutes(effectiveSleepWindow.end);
+  return startMinute < endMinute
+    ? currentMinute >= startMinute && currentMinute < endMinute
+    : currentMinute >= startMinute || currentMinute < endMinute;
 }
 
-function nextWakeTimestamp(value, timezone = resolveAppTimezone()) {
+function nextWakeTimestamp(value, timezone = resolveAppTimezone(), sleepWindow = DEFAULT_SLEEP_WINDOW) {
   const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
   if (Number.isNaN(date.getTime())) {
     return NaN;
   }
 
   const local = resolveZonedDateParts(date, timezone);
-  const afterWake = local.hour > 6 || (local.hour === 6 && local.minute >= 30);
-  const wakeDate = afterWake
-    ? shiftCalendarDate(local, 1)
-    : local;
-  return zonedWallTimeToTimestamp({
+  const effectiveSleepWindow = normalizeSleepWindow(sleepWindow);
+  const endMinute = wallTimeToMinutes(effectiveSleepWindow.end);
+  const wakeHour = Math.floor(endMinute / 60);
+  const wakeMinute = endMinute % 60;
+  let wakeDate = local;
+  let wakeTimestamp = zonedWallTimeToTimestamp({
     year: wakeDate.year,
     month: wakeDate.month,
     day: wakeDate.day,
-    hour: 6,
-    minute: 30,
+    hour: wakeHour,
+    minute: wakeMinute,
     second: 0,
   }, timezone);
+  if (wakeTimestamp <= date.getTime()) {
+    wakeDate = shiftCalendarDate(local, 1);
+    wakeTimestamp = zonedWallTimeToTimestamp({
+      year: wakeDate.year,
+      month: wakeDate.month,
+      day: wakeDate.day,
+      hour: wakeHour,
+      minute: wakeMinute,
+      second: 0,
+    }, timezone);
+  }
+  return wakeTimestamp;
 }
 
 function resolveZonedDateParts(date, timezone) {

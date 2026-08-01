@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 
 
 SOURCE_KIT = Path(__file__).resolve().parent.parent
+REPOSITORY = SOURCE_KIT.parents[2]
 SOURCE_FILES = (
     "dashboard.py",
     "dashboard_continuity.py",
@@ -32,6 +33,7 @@ ACTIVE_POSTS = (
     "/api/context-layout/restore",
     "/api/todo/save",
     "/api/context-gates",
+    "/api/sleep-window",
     "/api/review/retry",
 )
 FROZEN_POSTS = (
@@ -52,6 +54,7 @@ AUDIT_UNCOVERED_ENDPOINTS = {
     "/api/episodes_index",
     "/api/rereadings_index",
     "/api/context-gates",
+    "/api/sleep-window",
     "/api/reentry",
     "/api/timeline",
     "/api/rereadings",
@@ -370,6 +373,10 @@ def exercise_uncovered_gets(port):
     seen.add("/api/context-gates")
     assert gates == {"reentry": True, "current_state": True, "memory_context": True}
 
+    sleep_window = assert_object_endpoint(port, "/api/sleep-window", {"start", "end"})
+    seen.add("/api/sleep-window")
+    assert sleep_window == {"start": "00:00", "end": "06:00"}
+
     reentry = assert_object_endpoint(port, "/api/reentry", {"text", "chars"})
     seen.add("/api/reentry")
     assert reentry["chars"] > 0 and "fixture reentry" in reentry["text"]
@@ -456,7 +463,7 @@ def exercise_uncovered_gets(port):
 
 
 def exercise_post_guards(port):
-    assert len(ACTIVE_POSTS) == 10
+    assert len(ACTIVE_POSTS) == 11
     for endpoint in ACTIVE_POSTS:
         code, raw, content_type = request(port, endpoint, method="POST", payload={})
         assert code == 401, (endpoint, code, raw.decode("utf-8", errors="replace"))
@@ -476,6 +483,78 @@ def exercise_post_guards(port):
             "error": "write_frozen",
             "path": endpoint,
         }
+
+
+def exercise_sleep_window(port, fixture):
+    sleep_window_file = fixture["state"] / "sleep-window.json"
+    token_header = {"X-Api-Token": "blackbox-fixture-token"}
+    corrupt = b"{broken"
+    sleep_window_file.write_bytes(corrupt)
+    code, raw, _ = request(port, "/api/sleep-window")
+    assert code == 200
+    assert decode_json(raw) == {"start": "00:00", "end": "06:00"}
+    assert sleep_window_file.read_bytes() == corrupt
+    sleep_window_file.unlink()
+    node_code = (
+        "const {SleepWindowStore}=require(process.argv[2]);"
+        "const store=new SleepWindowStore({filePath:process.argv[1]});"
+        "console.log(JSON.stringify(store.getWindow()));"
+        "process.stdin.once('data',()=>{console.log(JSON.stringify(store.getWindow()));});"
+    )
+    store_module = REPOSITORY / "src" / "core" / "sleep-window-store.js"
+    node_process = subprocess.Popen(
+        ["node", "-e", node_code, str(sleep_window_file), str(store_module)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert json.loads(node_process.stdout.readline()) == {"start": "00:00", "end": "06:00"}
+        assert not sleep_window_file.exists()
+
+        code, raw, _ = request(
+            port,
+            "/api/sleep-window",
+            method="POST",
+            payload={"start": "23:30", "end": "05:00"},
+            headers=token_header,
+        )
+        assert code == 200, raw.decode("utf-8", errors="replace")
+        assert decode_json(raw) == {"ok": True, "start": "23:30", "end": "05:00"}
+        written = sleep_window_file.read_bytes()
+        assert json.loads(written.decode("utf-8")) == {"start": "23:30", "end": "05:00"}
+
+        node_process.stdin.write("reload\n")
+        node_process.stdin.flush()
+        assert json.loads(node_process.stdout.readline()) == {"start": "23:30", "end": "05:00"}
+
+        for invalid in (
+            {"start": "23:30"},
+            {"start": "25:00", "end": "05:00"},
+            {"start": "05:00", "end": "05:00"},
+        ):
+            code, _, _ = request(
+                port, "/api/sleep-window", method="POST", payload=invalid, headers=token_header
+            )
+            assert code == 400
+            assert sleep_window_file.read_bytes() == written
+
+        code, raw, _ = request(
+            port,
+            "/api/sleep-window",
+            method="POST",
+            payload={"start": "22:00", "end": "04:00"},
+            headers={**token_header, "X-Forwarded-For": "203.0.113.10"},
+        )
+        assert code == 403
+        assert decode_json(raw) == {"ok": False, "error": "local_only"}
+        assert sleep_window_file.read_bytes() == written
+    finally:
+        if node_process.poll() is None:
+            node_process.terminate()
+        node_process.communicate(timeout=5)
+        sleep_window_file.unlink(missing_ok=True)
 
 
 def run_entrypoint(entrypoint, fixture):
@@ -511,6 +590,7 @@ def run_entrypoint(entrypoint, fixture):
         wait_until_ready(process, port)
         exercise_uncovered_gets(port)
         exercise_post_guards(port)
+        exercise_sleep_window(port, fixture)
         assert process.poll() is None, f"{entrypoint} must survive all probes"
     finally:
         stdout, stderr = stop_process(process)
@@ -523,8 +603,9 @@ def run_entrypoint(entrypoint, fixture):
 
 
 def main():
-    assert len(AUDIT_UNCOVERED_ENDPOINTS) == 17
+    assert len(AUDIT_UNCOVERED_ENDPOINTS) == 18
     assert len(EXTRA_CONTRACT_ENDPOINTS) == 2
+    assert "/api/sleep-window" not in FROZEN_POSTS
     temp_root = Path(tempfile.mkdtemp(prefix="dashboard-uncovered-blackbox-"))
     try:
         fixture = prepare_fixture(temp_root)
@@ -541,8 +622,8 @@ def main():
             assert snapshot_tree(fixture["theater"]) == read_only_before["theater"]
 
         print(
-            "520 uncovered black-box: 17 audited GET contracts + 2 extra contracts + "
-            "10 active POST auth + 7 exact frozen writes, production and fallback -> ok"
+            "520 uncovered black-box: 18 audited GET contracts + 2 extra contracts + "
+            "11 active POST auth + 7 exact frozen writes, production and fallback -> ok"
         )
         for entrypoint, stderr in results.items():
             if stderr:
