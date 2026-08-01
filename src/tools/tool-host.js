@@ -7,7 +7,7 @@ const {
 const { resolveAppTimezone } = require("../utils/app-timezone");
 const { formatAppTime } = require("../utils/beijing-time");
 const {
-  catalogEnabled, subjectSigningEnabled, resolveToolset, buildManifest, findSchema,
+  catalogEnabled, subjectSigningEnabled, route2GateEnabled, resolveToolset, buildManifest, findSchema,
   RESIDENT_NAMES, THEME_DEFINITIONS, CATALOG_INPUT_SCHEMA, catalogError,
 } = require("./tool-catalog-manifest");
 
@@ -33,6 +33,14 @@ class ProjectToolHost {
     const toolset = resolveToolset(this.toolset);
     return { toolset, entries: buildManifest({ projectTools: registeredProjectTools(), aliases: TOOL_ALIASES, extraHosts: this.extraToolHosts, deprecatedNames: DEPRECATED_HIDDEN_TOOL_NAMES })
       .map((entry) => ({ ...entry, authorized: !toolset || toolset.members.has(entry.alias_of || entry.id) })) };
+  }
+
+  maxResultBytes(toolName) {
+    if (!route2GateEnabled()) return null;
+    const alias = TOOL_ALIASES[toolName];
+    const canonical = alias?.name || toolName;
+    const entry = this.catalogState().entries.find((candidate) => !candidate.alias_of && candidate.id === canonical);
+    return Number.isInteger(entry?.max_result_bytes) && entry.max_result_bytes > 0 ? entry.max_result_bytes : null;
   }
 
   listTools() {

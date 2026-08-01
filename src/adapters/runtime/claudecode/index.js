@@ -18,6 +18,7 @@ const { fingerprintLaunchProfile, profileLogicalIdentity } = require("./launch-p
 const { resolveCliCapabilities } = require("./cli-capabilities");
 const { runG3LaunchPreflight } = require("./g3-preflight");
 const { applyHarnessOverlay, resolveWindowOverride, windowOverrideEnabled } = require("./window-override");
+const { Route2GateState } = require("./route2-gate");
 const {
   buildLegacyRouteLane,
   buildSystemRouteLane,
@@ -80,6 +81,7 @@ function createClaudeCodeRuntimeAdapter(config) {
     filePath: config.claudeSessionSlotsFile
       || (stateDir ? path.join(stateDir, "claude-session-slots.json") : ""),
   });
+  const route2GateState = new Route2GateState({ sessionSlotStore });
   const processRegistry = new ProcessRegistry({
     maxProcesses: Number.isSafeInteger(config.claudeMaxProcesses) && config.claudeMaxProcesses > 0
       ? config.claudeMaxProcesses
@@ -493,6 +495,7 @@ function createClaudeCodeRuntimeAdapter(config) {
           laneKey: route.lane.laneKey,
         });
       }
+      const route2CostEvent = mapped ? route2GateState.observe(mapped) : null;
       // The turn slot and the workspace lock are held for the *whole* turn and
       // released here, on result, cancel or failure -- never when sendTurn
       // returns, which happens while the reply is still streaming.
@@ -507,6 +510,7 @@ function createClaudeCodeRuntimeAdapter(config) {
       }
       if (mapped && globalListener) {
         globalListener(mapped, raw);
+        if (route2CostEvent) globalListener(route2CostEvent, null);
       }
     });
     return client;
@@ -893,6 +897,19 @@ function createClaudeCodeRuntimeAdapter(config) {
         value: sessionSlotStore.getWindowOverride(route.sessionSlotKey) || {},
         trace: route.mutableOverride?.trace || null,
       };
+    },
+    decideRoute2({
+      bindingKey = "", workspaceRoot = "", lane = null, launchProfile = null, senderId = "",
+      taskId = "", plan = {},
+    } = {}) {
+      const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, senderId });
+      return route2GateState.begin({
+        sessionSlotKey: route.sessionSlotKey,
+        windowId: route.storedThreadId,
+        overrideFingerprint: route.mutableOverride?.fingerprint || "",
+        taskId,
+        plan,
+      });
     },
     setWindowOverride({
       bindingKey = "", workspaceRoot = "", lane = null, launchProfile = null, senderId = "", patch = {},

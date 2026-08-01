@@ -77,6 +77,7 @@ function sanitizeTraceEntry(entry = {}) {
     if (!seen.has(type)) skipped.push({ type, reason: "default_hidden" });
   }
   const windowOverride = sanitizeWindowOverride(entry.window_override);
+  const route2Cost = sanitizeRoute2Cost(entry.route2_cost);
   return {
     ts: normalizeText(entry.ts) || new Date().toISOString(),
     thread: hashThreadId(entry.threadId || entry.thread),
@@ -88,6 +89,32 @@ function sanitizeTraceEntry(entry = {}) {
     total_chars: Math.max(0, Number(entry.total_chars) || 0),
     recall_calls: Array.isArray(entry.recall_calls) ? entry.recall_calls.map(sanitizeRecallCall) : [],
     ...(windowOverride ? { window_override: windowOverride } : {}),
+    ...(route2Cost ? { route2_cost: route2Cost } : {}),
+  };
+}
+
+function sanitizeRoute2Cost(value) {
+  if (!value || typeof value !== "object") return null;
+  const usage = value.usage && typeof value.usage === "object" ? value.usage : {};
+  const estimate = value.estimate && typeof value.estimate === "object" ? value.estimate : {};
+  return {
+    route: normalizeText(value.route),
+    route_token: normalizeText(value.routeToken),
+    session_slot: normalizeText(value.sessionSlotKey),
+    window: hashThreadId(value.windowId),
+    task: normalizeText(value.taskId),
+    override_fingerprint: normalizeText(value.overrideFingerprint),
+    schema_chars: Math.max(0, Number(estimate.schema_chars) || 0),
+    expected_context_tokens: Math.max(0, Number(estimate.expected_context_tokens) || 0),
+    actual_tool_uses: Math.max(0, Number(value.actualToolUses) || 0),
+    return_bytes: Math.max(0, Number(value.returnBytes) || 0),
+    usage: {
+      input_tokens: Math.max(0, Number(usage.input_tokens) || 0),
+      cache_creation_input_tokens: Math.max(0, Number(usage.cache_creation_input_tokens) || 0),
+      cache_read_input_tokens: Math.max(0, Number(usage.cache_read_input_tokens) || 0),
+      output_tokens: Math.max(0, Number(usage.output_tokens) || 0),
+    },
+    outcome: normalizeText(value.outcome),
   };
 }
 
@@ -188,4 +215,5 @@ module.exports = {
   hashThreadId,
   sanitizeTraceEntry,
   sanitizeWindowOverride,
+  sanitizeRoute2Cost,
 };
