@@ -1,9 +1,19 @@
 name: phase1-offline
 
 on:
+  # push 只保留 main：分支推送的信号由 pull_request 事件提供。
+  # 裸 `push:` 加 `pull_request:` 会让同一个 commit 在 PR 分支上跑两遍本工作流
+  # （本仓库的 docs-governance / secret-audit 都只挂 pull_request，本文件原是唯一例外）。
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
+
+# 连续推送时取消同一 ref 上尚未跑完的旧运行；main 例外——它的每个 commit
+# 都要留下自己的 CI 记录，不许被后一个 commit 取消。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
