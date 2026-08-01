@@ -15,9 +15,36 @@
       "item_count": 0
     }
   },
+  "themes": {
+    "表达行动": {
+      "item_count": 8
+    },
+    "感知": {
+      "item_count": 7
+    },
+    "记忆": {
+      "item_count": 2
+    },
+    "生活记录": {
+      "item_count": 2
+    },
+    "时间线": {
+      "item_count": 8
+    },
+    "作息": {
+      "item_count": 1
+    },
+    "工程派活": {
+      "item_count": 4
+    },
+    "维护调试": {
+      "item_count": 3
+    }
+  },
   "items": [
     {
       "category": "mcp",
+      "theme": "感知",
       "name": "whereabouts_current_stay",
       "namespace": "whereabouts",
       "hidden": false,
@@ -31,6 +58,7 @@
     },
     {
       "category": "mcp",
+      "theme": "感知",
       "name": "whereabouts_recent_moves",
       "namespace": "whereabouts",
       "hidden": false,
@@ -44,6 +72,7 @@
     },
     {
       "category": "mcp",
+      "theme": "感知",
       "name": "whereabouts_recent_stays",
       "namespace": "whereabouts",
       "hidden": false,
@@ -57,6 +86,7 @@
     },
     {
       "category": "mcp",
+      "theme": "感知",
       "name": "whereabouts_snapshot",
       "namespace": "whereabouts",
       "hidden": false,
@@ -70,6 +100,7 @@
     },
     {
       "category": "mcp",
+      "theme": "感知",
       "name": "whereabouts_summary",
       "namespace": "whereabouts",
       "hidden": false,
@@ -83,6 +114,7 @@
     },
     {
       "category": "memory",
+      "theme": "记忆",
       "name": "memory_lookup",
       "namespace": "cyberboss",
       "hidden": false,
@@ -96,6 +128,7 @@
     },
     {
       "category": "memory",
+      "theme": "记忆",
       "name": "memory_note",
       "namespace": "cyberboss",
       "hidden": false,
@@ -109,6 +142,7 @@
     },
     {
       "category": "memory",
+      "theme": "记忆",
       "name": "memory.lookup",
       "namespace": "cyberboss",
       "hidden": false,
@@ -122,6 +156,7 @@
     },
     {
       "category": "memory",
+      "theme": "记忆",
       "name": "memory.note",
       "namespace": "cyberboss",
       "hidden": false,
@@ -135,6 +170,7 @@
     },
     {
       "category": "tool",
+      "theme": "表达行动",
       "name": "cyberboss_channel_send_file",
       "namespace": "cyberboss",
       "hidden": false,
@@ -148,6 +184,7 @@
     },
     {
       "category": "tool",
+      "theme": "生活记录",
       "name": "cyberboss_diary_append",
       "namespace": "cyberboss",
       "hidden": false,
@@ -161,6 +198,7 @@
     },
     {
       "category": "tool",
+      "theme": "生活记录",
       "name": "cyberboss_reminder",
       "namespace": "cyberboss",
       "hidden": false,
@@ -174,6 +212,7 @@
     },
     {
       "category": "tool",
+      "theme": "生活记录",
       "name": "cyberboss_reminder_create",
       "namespace": "cyberboss",
       "hidden": false,
@@ -187,6 +226,7 @@
     },
     {
       "category": "tool",
+      "theme": "作息",
       "name": "cyberboss_sleep_mode",
       "namespace": "cyberboss",
       "hidden": false,
@@ -200,6 +240,7 @@
     },
     {
       "category": "tool",
+      "theme": "作息",
       "name": "cyberboss_sleep_mode_disable",
       "namespace": "cyberboss",
       "hidden": false,
@@ -213,6 +254,7 @@
     },
     {
       "category": "tool",
+      "theme": "作息",
       "name": "cyberboss_sleep_mode_enable",
       "namespace": "cyberboss",
       "hidden": false,
@@ -226,6 +268,7 @@
     },
     {
       "category": "tool",
+      "theme": "作息",
       "name": "cyberboss_sleep_mode_status",
       "namespace": "cyberboss",
       "hidden": false,
@@ -239,6 +282,7 @@
     },
     {
       "category": "tool",
+      "theme": "作息",
       "name": "cyberboss_sleep_schedule",
       "namespace": "cyberboss",
       "hidden": false,
@@ -252,6 +296,7 @@
     },
     {
       "category": "tool",
+      "theme": "作息",
       "name": "cyberboss_sleep_schedule_disable",
       "namespace": "cyberboss",
       "hidden": false,
@@ -265,6 +310,7 @@
     },
     {
       "category": "tool",
+      "theme": "作息",
       "name": "cyberboss_sleep_schedule_enable",
       "namespace": "cyberboss",
       "hidden": false,
@@ -278,6 +324,7 @@
     },
     {
       "category": "tool",
+      "theme": "作息",
       "name": "cyberboss_sleep_schedule_status",
       "namespace": "cyberboss",
       "hidden": false,
@@ -291,6 +338,7 @@
     },
     {
       "category": "tool",
+      "theme": "维护调试",
       "name": "cyberboss_sticker_delete",
       "namespace": "cyberboss",
       "hidden": false,
@@ -304,6 +352,7 @@
     },
     {
       "category": "tool",
+      "theme": "表达行动",
       "name": "cyberboss_sticker_pick",
       "namespace": "cyberboss",
       "hidden": false,
@@ -317,6 +366,7 @@
     },
     {
       "category": "tool",
+      "theme": "维护调试",
       "name": "cyberboss_sticker_save_from_inbox",
       "namespace": "cyberboss",
       "hidden": false,
@@ -330,6 +380,7 @@
     },
     {
       "category": "tool",
+      "theme": "表达行动",
       "name": "cyberboss_sticker_send",
       "namespace": "cyberboss",
       "hidden": false,
@@ -343,6 +394,7 @@
     },
     {
       "category": "tool",
+      "theme": "表达行动",
       "name": "cyberboss_sticker_tags",
       "namespace": "cyberboss",
       "hidden": false,
@@ -356,6 +408,7 @@
     },
     {
       "category": "tool",
+      "theme": "维护调试",
       "name": "cyberboss_sticker_update",
       "namespace": "cyberboss",
       "hidden": false,
@@ -369,6 +422,7 @@
     },
     {
       "category": "tool",
+      "theme": "表达行动",
       "name": "cyberboss_system_send",
       "namespace": "cyberboss",
       "hidden": false,
@@ -382,6 +436,7 @@
     },
     {
       "category": "tool",
+      "theme": "表达行动",
       "name": "cyberboss_telegram_send",
       "namespace": "cyberboss",
       "hidden": false,
@@ -395,6 +450,7 @@
     },
     {
       "category": "tool",
+      "theme": "表达行动",
       "name": "cyberboss_telegram_send_file",
       "namespace": "cyberboss",
       "hidden": false,
@@ -408,6 +464,7 @@
     },
     {
       "category": "tool",
+      "theme": "表达行动",
       "name": "cyberboss_telegram_send_voice",
       "namespace": "cyberboss",
       "hidden": false,
@@ -421,6 +478,7 @@
     },
     {
       "category": "tool",
+      "theme": "感知",
       "name": "cyberboss_time",
       "namespace": "cyberboss",
       "hidden": false,
@@ -434,6 +492,7 @@
     },
     {
       "category": "tool",
+      "theme": "时间线",
       "name": "cyberboss_timeline_build",
       "namespace": "cyberboss",
       "hidden": false,
@@ -447,6 +506,7 @@
     },
     {
       "category": "tool",
+      "theme": "时间线",
       "name": "cyberboss_timeline_categories",
       "namespace": "cyberboss",
       "hidden": false,
@@ -460,6 +520,7 @@
     },
     {
       "category": "tool",
+      "theme": "时间线",
       "name": "cyberboss_timeline_dev",
       "namespace": "cyberboss",
       "hidden": false,
@@ -473,6 +534,7 @@
     },
     {
       "category": "tool",
+      "theme": "时间线",
       "name": "cyberboss_timeline_proposals",
       "namespace": "cyberboss",
       "hidden": false,
@@ -486,6 +548,7 @@
     },
     {
       "category": "tool",
+      "theme": "时间线",
       "name": "cyberboss_timeline_read",
       "namespace": "cyberboss",
       "hidden": false,
@@ -499,6 +562,7 @@
     },
     {
       "category": "tool",
+      "theme": "时间线",
       "name": "cyberboss_timeline_screenshot",
       "namespace": "cyberboss",
       "hidden": false,
@@ -512,6 +576,7 @@
     },
     {
       "category": "tool",
+      "theme": "时间线",
       "name": "cyberboss_timeline_serve",
       "namespace": "cyberboss",
       "hidden": false,
@@ -525,6 +590,7 @@
     },
     {
       "category": "tool",
+      "theme": "时间线",
       "name": "cyberboss_timeline_write",
       "namespace": "cyberboss",
       "hidden": false,
@@ -538,6 +604,7 @@
     },
     {
       "category": "tool",
+      "theme": "工程派活",
       "name": "github_file_upload",
       "namespace": "cyberboss",
       "hidden": false,
@@ -551,6 +618,7 @@
     },
     {
       "category": "tool",
+      "theme": "工程派活",
       "name": "github_issue_open",
       "namespace": "cyberboss",
       "hidden": false,
@@ -564,6 +632,7 @@
     },
     {
       "category": "tool",
+      "theme": "工程派活",
       "name": "github_pr_open",
       "namespace": "cyberboss",
       "hidden": false,
@@ -577,6 +646,7 @@
     },
     {
       "category": "tool",
+      "theme": "工程派活",
       "name": "github_repo_create",
       "namespace": "cyberboss",
       "hidden": false,
@@ -590,6 +660,7 @@
     },
     {
       "category": "tool",
+      "theme": "感知",
       "name": "location_debug_snapshot",
       "namespace": "cyberboss",
       "hidden": true,
@@ -603,6 +674,7 @@
     },
     {
       "category": "tool",
+      "theme": "感知",
       "name": "location_event_dashboard",
       "namespace": "cyberboss",
       "hidden": true,
@@ -616,6 +688,7 @@
     },
     {
       "category": "tool",
+      "theme": "感知",
       "name": "weather",
       "namespace": "cyberboss",
       "hidden": false,
@@ -629,6 +702,7 @@
     },
     {
       "category": "tool",
+      "theme": "感知",
       "name": "weather_current",
       "namespace": "cyberboss",
       "hidden": false,
@@ -642,6 +716,7 @@
     },
     {
       "category": "tool",
+      "theme": "感知",
       "name": "weather_raw",
       "namespace": "cyberboss",
       "hidden": false,
@@ -658,9 +733,9 @@
     "item_count": 49,
     "schema_chars": 15810,
     "schema_bytes": 15826,
-    "catalog_chars": 12199,
-    "catalog_bytes": 12199
+    "catalog_chars": 13076,
+    "catalog_bytes": 13410
   },
-  "items_hash": "sha256:5d266d0c11a73a50c01e8a38b41a91c92d8543a2f0381410b35ba22404e54c9e",
-  "catalog_hash": "sha256:da77d2a9990444d1d16a6b905419b0354373c0213ebe570d8c2b91c74978c57d"
+  "items_hash": "sha256:00cce2d149cfa50048c09679930a7845b60aa7fe16a483fa90ae57abd8dc8c63",
+  "catalog_hash": "sha256:95617d3ab21f12de5ebdfa61f34111308d71d57a8b411a8132c351d316e17292"
 }

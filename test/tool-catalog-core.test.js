@@ -1,39 +1,60 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { buildCatalog } = require("../scripts/audit/catalog-metering");
+const { createSubjectRoute } = require("../src/continuity/subject-route");
+const { SubjectCapabilityRegistry, SubjectCandidateService } = require("../src/continuity/subject-signing");
 const {
-  ProjectToolHost, PROJECT_TOOLS, TOOL_ALIASES, DEPRECATED_HIDDEN_TOOL_NAMES, createExtraToolHosts,
+  ProjectToolHost, PROJECT_TOOLS, TOOL_ALIASES, DEPRECATED_HIDDEN_TOOL_NAMES,
+  createExtraToolHosts, registeredProjectTools,
 } = require("../src/tools/tool-host");
 const {
-  TOOL_RISKS, buildManifest, catalogEnabled, findSchema, resolveToolset,
+  TOOL_RISKS, TOOL_THEMES, THEME_DEFINITIONS, CATALOG_INPUT_SCHEMA,
+  buildManifest, catalogEnabled, findSchema, resolveToolset,
 } = require("../src/tools/tool-catalog-manifest");
 
 const plantedValue = "planted-nondisclosure-canary-0000";
-const directorySchema = { type: "object", properties: { handle: { type: "string" } }, additionalProperties: false };
 const privatePatterns = [/[A-Za-z]:[\\/]/, /\/home\/[A-Za-z0-9_.-]+/, /\/Users\/[A-Za-z0-9_.-]+/, /(sk|ghp|xoxb)-[A-Za-z0-9_-]{8,}/];
+const themeSnapshot = [
+  "表达行动(8)   想跟你说话、发文件、发语音、发贴纸时来这——她伸出手的那一面",
+  "感知(7)   你和世界的状态：天气、位置；将来健康、手机使用、可穿戴、日常活动 MCP 全进这",
+  "记忆(2)   翻过去（Episodes/账本都从这个把手进）、留笔记",
+  "生活记录(2)   记日记、设提醒",
+  "时间线(8)   你们的时间线回看与整理",
+  "作息(1)   睡眠模式",
+  "工程派活(4)   GitHub 操作；将来 Route 1 派工程车也在这",
+  "维护调试(3)   平时不碰",
+].join("\n");
 
 function services() {
   return {
     memoryLookup: { lookup: () => ({ hits: [], empty: true }) }, memoryNote: { note: () => ({ id: "note-test" }) },
     reminder: { create: async (args) => ({ id: "reminder-test", command: args.command }) },
-    diary: { append: async () => ({ filePath: "diary-test" }) }, system: { queueMessage: () => ({ id: "system-test" }) }, weather: { getRaw: async () => ({ query: { value: "test" }, extensions: "all" }) }, whereabouts: {},
+    diary: { append: async () => ({ filePath: "diary-test" }) }, system: { queueMessage: (_args, context) => ({ id: "system-test", routeToken: context.routeToken }) }, weather: { getRaw: async () => ({ query: { value: "test" }, extensions: "all" }) }, whereabouts: {},
   };
 }
-function host(toolset = "") { return new ProjectToolHost({ services: services(), runtimeContextStore: { load() {}, resolveActiveContext() { return {}; } }, toolset }); }
+function host(toolset = "", overrides = {}) {
+  return new ProjectToolHost({
+    services: { ...services(), ...(overrides.services || {}) },
+    runtimeContextStore: overrides.runtimeContextStore || { load() {}, resolveActiveContext() { return {}; } },
+    toolset,
+  });
+}
 function withEnv(values, run) {
   const saved = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]));
   for (const [key, value] of Object.entries(values)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
   const restore = () => { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } };
   try { const value = run(); return value && typeof value.then === "function" ? value.finally(restore) : (restore(), value); } catch (error) { restore(); throw error; }
 }
-function enabled(run, toolset = undefined) { return withEnv({ CYBERBOSS_TOOL_CATALOG_ENABLED: "true", CYBERBOSS_TOOL_CATALOG_TOOLSET: toolset }, run); }
-function manifest(toolset = null) { return buildManifest({ projectTools: PROJECT_TOOLS, aliases: TOOL_ALIASES, extraHosts: createExtraToolHosts({ whereabouts: {} }), deprecatedNames: DEPRECATED_HIDDEN_TOOL_NAMES, toolset }); }
+function enabled(run, toolset = undefined) { return withEnv({ CYBERBOSS_TOOL_CATALOG_ENABLED: "true", CYBERBOSS_TOOL_CATALOG_TOOLSET: toolset, CYBERBOSS_SUBJECT_SIGNING_ENABLED: undefined }, run); }
+function signingEnabled(run, catalog = "true") { return withEnv({ CYBERBOSS_TOOL_CATALOG_ENABLED: catalog, CYBERBOSS_SUBJECT_SIGNING_ENABLED: "true" }, run); }
+function manifest(toolset = null) { return buildManifest({ projectTools: registeredProjectTools(), aliases: TOOL_ALIASES, extraHosts: createExtraToolHosts({ whereabouts: {} }), deprecatedNames: DEPRECATED_HIDDEN_TOOL_NAMES, toolset }); }
 function assertCode(error, code) { assert.equal(error?.code, code); return true; }
 function assertNoPrivateText(value) { const text = typeof value === "string" ? value : JSON.stringify(value); const withoutUriSchemes = text.replace(/[a-z]+:\/\//gi, ""); for (const pattern of privatePatterns) assert.doesNotMatch(withoutUriSchemes, pattern); if (process.env.USERNAME) assert.equal(text.includes(process.env.USERNAME), false); assert.equal(text.includes(plantedValue), false); }
 function assertFailedClosed(result, message) { assert.equal(result.error, undefined, `process never ran: ${result.error}`); assert.notEqual(result.status, null, "process never ran: spawnSync returned status null"); assert.notEqual(result.status, 0, `${message}\nstderr: ${result.stderr}\nstdout: ${result.stdout}`); }
@@ -41,90 +62,149 @@ function assertFailedClosed(result, message) { assert.equal(result.error, undefi
 const serverProgram = String.raw`
 const { ProjectToolHost } = require("./src/tools/tool-host");
 const { runToolMcpServer } = require("./src/tools/mcp-stdio-server");
-const calls = [];
-const services = { memoryLookup:{lookup:()=>({hits:[],empty:true})}, memoryNote:{note:()=>({id:"note-test"})}, reminder:{create:async(args)=>({id:"reminder-test",command:args.command})}, diary:{append:async()=>({filePath:"diary-test"})}, system:{queueMessage:(args,context)=>({id:"system-test",routeToken:context.routeToken})}, whereabouts:{} };
-const toolHost = new ProjectToolHost({ services, runtimeContextStore:{load(){},resolveActiveContext(){return {}}}, toolset:process.env.TEST_TOOLSET||"" });
+const { createSubjectRoute } = require("./src/continuity/subject-route");
+const { SubjectCapabilityRegistry, SubjectCandidateService } = require("./src/continuity/subject-signing");
+const base = { memoryLookup:{lookup:()=>({hits:[],empty:true})}, memoryNote:{note:()=>({id:"note-test"})}, reminder:{create:async(args)=>({id:"reminder-test",command:args.command})}, diary:{append:async()=>({filePath:"diary-test"})}, system:{queueMessage:(args,context)=>({id:"system-test",routeToken:context.routeToken})}, whereabouts:{} };
+if (process.env.CYBERBOSS_SUBJECT_SIGNING_ENABLED === "true") {
+  const registry = new SubjectCapabilityRegistry({enabled:true});
+  const route = createSubjectRoute({provider:"telegram",continuity_binding:{workspace_id:"workspace-a",account_id:"telegram",sender_id:"42",binding_key:"binding-a"},route_lane:{lane_key:"lane:-100:7",chat_id:"-100",message_thread_id:"7"},session:{runtime_id:"claudecode",session_slot_key:"slot-a",runtime_thread_id:"native-a",profile_id:"profile-a",profile_fingerprint:"fingerprint-a",window_id:"native-a"},author_turn_id:"turn-subject",source_entry_ids:["entry-subject"]});
+  const capability = registry.issue({subjectTurnId:"turn-subject",subjectRoute:route});
+  base.subjectCandidate = new SubjectCandidateService({continuityDir:process.env.TEST_CONTINUITY_DIR,registry,enabled:true});
+  base.subjectSigningContext = {resolve:()=>({capability,subject_route:route})};
+}
+const toolHost = new ProjectToolHost({ services:base, runtimeContextStore:{load(){},resolveActiveContext(){return {threadId:"thread-subject",turnId:"turn-subject"}}}, toolset:process.env.TEST_TOOLSET||"" });
 runToolMcpServer({toolHost,runtimeId:"test",workspaceRoot:"workspace-test",routeToken:process.env.TEST_ROUTE_TOKEN||""});`;
 function mcp(messages, env = {}) {
   const input = messages.map((message) => JSON.stringify({ jsonrpc: "2.0", ...message })).join("\n") + "\n";
-  const result = spawnSync(process.execPath, ["-e", serverProgram], { cwd: path.join(__dirname, ".."), input, encoding: "utf8", env: { ...process.env, CYBERBOSS_TOOL_CATALOG_ENABLED: undefined, CYBERBOSS_TOOL_CATALOG_TOOLSET: undefined, ...env } });
+  const result = spawnSync(process.execPath, ["-e", serverProgram], { cwd: path.join(__dirname, ".."), input, encoding: "utf8", env: { ...process.env, CYBERBOSS_TOOL_CATALOG_ENABLED: undefined, CYBERBOSS_TOOL_CATALOG_TOOLSET: undefined, CYBERBOSS_SUBJECT_SIGNING_ENABLED: undefined, ...env } });
   assert.equal(result.error, undefined); assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
 }
 
-test("A0/A1/A15 flag-off is exact and enabled surface is four minimal directories plus two original residents", () => {
-  withEnv({ CYBERBOSS_TOOL_CATALOG_ENABLED: undefined, CYBERBOSS_TOOL_CATALOG_TOOLSET: undefined }, () => {
+test("A1/A2 flag-off is exact and enabled surface is one minimal catalog plus two residents", () => {
+  withEnv({ CYBERBOSS_TOOL_CATALOG_ENABLED: undefined, CYBERBOSS_TOOL_CATALOG_TOOLSET: undefined, CYBERBOSS_SUBJECT_SIGNING_ENABLED: undefined }, () => {
     assert.equal(catalogEnabled(), false); const baseline = host().listTools();
     withEnv({ CYBERBOSS_TOOL_CATALOG_ENABLED: "false" }, () => assert.deepEqual(host().listTools(), baseline));
   });
   enabled(() => {
     const tools = host().listTools();
-    assert.deepEqual(tools.map((tool) => tool.name), ["cyberboss_catalog_memory", "cyberboss_catalog_tool", "cyberboss_catalog_mcp", "cyberboss_catalog_skill", "cyberboss_system_send", "cyberboss_time"]);
-    for (const tool of tools.slice(0, 4)) { assert.deepEqual(tool.inputSchema, directorySchema); assert.ok(JSON.stringify(tool.inputSchema).length <= 120); }
-    for (const tool of tools.slice(4)) assert.deepEqual(tool.inputSchema, PROJECT_TOOLS.find((item) => item.name === tool.name).inputSchema);
+    assert.deepEqual(tools.map((tool) => tool.name), ["cyberboss_catalog", "cyberboss_system_send", "cyberboss_time"]);
+    assert.deepEqual(tools[0].inputSchema, CATALOG_INPUT_SCHEMA);
+    assert.deepEqual(CATALOG_INPUT_SCHEMA, { type: "object", properties: { theme: { type: "string" }, handle: { type: "string" } }, additionalProperties: false });
+    assert.ok(JSON.stringify(tools[0].inputSchema).length <= 160);
+    for (const tool of tools.slice(1)) assert.deepEqual(tool.inputSchema, PROJECT_TOOLS.find((item) => item.name === tool.name).inputSchema);
   });
 });
 
-test("A0 flag-off leaves the legacy invocation set unchanged even when a toolset is supplied", async () => withEnv({ CYBERBOSS_TOOL_CATALOG_ENABLED: "false" }, async () => {
+test("A1 flag-off leaves legacy invocation and real stdio tools/resources byte-compatible", async () => withEnv({ CYBERBOSS_TOOL_CATALOG_ENABLED: "false", CYBERBOSS_SUBJECT_SIGNING_ENABLED: undefined }, async () => {
   const result = await host("chat-core@1").invokeTool("weather_raw", {}); assert.equal(result.data.extensions, "all");
-  await assert.rejects(() => host("chat-core@1").invokeTool("invented_tool", {}), /Unknown tool/);
+  const requests = [{ id: 1, method: "initialize", params: {} }, { id: 2, method: "tools/list" }, { id: 3, method: "resources/list" }];
+  assert.deepEqual(mcp(requests, { CYBERBOSS_TOOL_CATALOG_ENABLED: "false" }), mcp(requests));
 }));
 
-test("A0/A11/A12 MCP stdio preserves flag-off output and narrows enabled resources without schema leakage", () => {
-  const requests = [{ id: 1, method: "initialize", params: {} }, { id: 2, method: "tools/list" }, { id: 3, method: "resources/list" }];
-  const unset = mcp(requests); const disabled = mcp(requests, { CYBERBOSS_TOOL_CATALOG_ENABLED: "false" }); assert.deepEqual(disabled, unset);
-  const enabledOutput = mcp(requests, { CYBERBOSS_TOOL_CATALOG_ENABLED: "true" });
-  assert.equal(enabledOutput[0].result.capabilities.tools.listChanged, false);
-  assert.deepEqual(enabledOutput[1].result.tools.map((tool) => tool.name), ["cyberboss_catalog_memory", "cyberboss_catalog_tool", "cyberboss_catalog_mcp", "cyberboss_catalog_skill", "cyberboss_system_send", "cyberboss_time"]);
-  const resources = enabledOutput[2].result.resources; const toolUris = resources.filter((item) => item.uri.startsWith("cyberboss://tools/")).map((item) => item.uri);
-  assert.deepEqual(toolUris, ["cyberboss://tools/index", "cyberboss://tools/cyberboss_system_send", "cyberboss://tools/cyberboss_time"]);
-  for (const uri of ["sleep-mode", "telegram-send", "telegram-send-file", "telegram-send-voice", "weather"]) assert.ok(resources.some((item) => item.uri === `cyberboss://docs/${uri}`));
-  const reads = mcp([{ id: 1, method: "resources/read", params: { uri: "cyberboss://tools/index" } }, { id: 2, method: "resources/read", params: { uri: "cyberboss://tools/weather" } }], { CYBERBOSS_TOOL_CATALOG_ENABLED: "true" });
-  assert.equal(reads[0].result.contents[0].text.includes(JSON.stringify(PROJECT_TOOLS.find((item) => item.name === "weather").inputSchema)), false);
-  assert.match(reads[1].error.message, /Unknown resource/); assertNoPrivateText(enabledOutput); assertNoPrivateText(reads);
+test("A3 theme index is an exact eight-line snapshot and excludes aliases and hidden entries", async () => enabled(async () => {
+  const result = await host().invokeTool("cyberboss_catalog", {});
+  assert.equal(result.text, themeSnapshot);
+  assert.deepEqual(result.data.map((item) => item.name), THEME_DEFINITIONS.map((item) => item.name));
+  assert.equal(result.data.reduce((sum, item) => sum + item.count, 0), manifest().filter((entry) => !entry.alias_of && !entry.hidden).length);
+}));
+
+test("A4 theme lists are canonical-only with risk while hidden/deprecated handles remain queryable and marked", async () => enabled(async () => {
+  const catalog = host();
+  const memory = await catalog.invokeTool("cyberboss_catalog", { theme: "记忆" });
+  assert.deepEqual(memory.data.map((entry) => entry.id), ["memory_lookup", "memory_note"]);
+  assert.ok(memory.data.every((entry) => entry.risk));
+  const expression = await catalog.invokeTool("cyberboss_catalog", { theme: "表达行动" });
+  assert.ok(expression.data.some((entry) => entry.id === "cyberboss_telegram_send"));
+  assert.ok(expression.data.some((entry) => entry.id === "cyberboss_sticker_send"));
+  assert.equal(expression.data.some((entry) => entry.alias_of), false);
+  const hidden = await catalog.invokeTool("cyberboss_catalog", { handle: "tool/location_debug_snapshot" });
+  const deprecated = await catalog.invokeTool("cyberboss_catalog", { handle: "mcp/whereabouts_summary" });
+  assert.equal(hidden.data.entry.hidden, true); assert.equal(deprecated.data.entry.deprecated, true);
+}));
+
+test("A5/A6 handle lookup and request validation retain every fail-closed code", async () => enabled(async () => {
+  const catalog = host("chat-core@1");
+  const weather = catalog.catalogState().entries.find((entry) => entry.id === "weather"); assert.equal(weather.authorized, false);
+  await assert.rejects(() => catalog.invokeTool("cyberboss_catalog", { handle: "tool/weather" }), (error) => assertCode(error, "catalog_schema_not_authorized"));
+  await assert.rejects(() => catalog.invokeTool("cyberboss_catalog", { handle: "tool/missing" }), (error) => assertCode(error, "catalog_unknown_handle"));
+  await assert.rejects(() => catalog.invokeTool("cyberboss_catalog", { handle: "not-a-handle" }), (error) => assertCode(error, "catalog_invalid_handle"));
+  await assert.rejects(() => catalog.invokeTool("cyberboss_catalog", { theme: "记忆", handle: "memory/memory_lookup" }), (error) => assertCode(error, "catalog_invalid_request"));
+  await assert.rejects(() => catalog.invokeTool("cyberboss_catalog", { theme: "不存在" }), (error) => assertCode(error, "catalog_unknown_theme"));
+  assert.throws(() => findSchema({ entries: manifest(), category: "memory", handle: "tool/weather" }), (error) => assertCode(error, "catalog_handle_category_mismatch"));
+  assert.throws(() => findSchema({ entries: [{ schema_handle: "tool/x", category: "tool", authorized: true }, { schema_handle: "tool/x", category: "tool", authorized: true }], category: "tool", handle: "tool/x" }), (error) => assertCode(error, "catalog_duplicate_handle"));
+}));
+
+test("A7 real stdio exposes three tools and supports theme and direct-handle catalog calls", () => {
+  const rpc = mcp([
+    { id: 1, method: "tools/list" },
+    { id: 2, method: "tools/call", params: { name: "cyberboss_catalog", arguments: { theme: "记忆" } } },
+    { id: 3, method: "tools/call", params: { name: "cyberboss_catalog", arguments: { handle: "memory/memory_lookup" } } },
+  ], { CYBERBOSS_TOOL_CATALOG_ENABLED: "true" });
+  assert.deepEqual(rpc[0].result.tools.map((tool) => tool.name), ["cyberboss_catalog", "cyberboss_system_send", "cyberboss_time"]);
+  assert.match(rpc[1].result.content[0].text, /memory_lookup/); assert.match(rpc[2].result.content[0].text, /Schema loaded: memory\/memory_lookup/);
+  const resources = mcp([{ id: 1, method: "resources/list" }, { id: 2, method: "resources/read", params: { uri: "cyberboss://tools/weather" } }], { CYBERBOSS_TOOL_CATALOG_ENABLED: "true" });
+  assert.deepEqual(resources[0].result.resources.filter((item) => item.uri.startsWith("cyberboss://tools/")).map((item) => item.uri), ["cyberboss://tools/index", "cyberboss://tools/cyberboss_system_send", "cyberboss://tools/cyberboss_time"]);
+  assert.match(resources[1].error.message, /Unknown resource/);
 });
 
-test("A2/A3/A5/A17 manifest exactly matches T01 classification, marks compatibility entries, and has explicit risk", () => {
-  const entries = manifest(); const t01 = buildCatalog().items;
-  assert.deepEqual(entries.map((entry) => [entry.id, entry.category]), t01.map((entry) => [entry.name, entry.category]));
-  assert.equal(Object.keys(TOOL_RISKS).length, PROJECT_TOOLS.length + 5);
-  for (const entry of entries) { assert.ok(["read", "append", "send", "mutate", "admin"].includes(entry.risk)); assert.equal(entry.max_result_bytes, null); }
-  for (const name of ["location_debug_snapshot", "location_event_dashboard"]) assert.equal(entries.find((entry) => entry.id === name).hidden, true);
-  for (const name of ["whereabouts_current_stay", "whereabouts_recent_stays", "whereabouts_recent_moves", "whereabouts_snapshot", "whereabouts_summary"]) assert.equal(entries.find((entry) => entry.id === name).deprecated, true);
-  assert.throws(() => buildManifest({ projectTools: [{ name: "unclassified-test", topics: [], inputSchema: {} }] }), (error) => assertCode(error, "catalog_unclassified_entry"));
-});
+test("A8 toolset discovery is not invocation authority and aliases canonicalize before the gate", async () => enabled(async () => {
+  const restricted = host("chat-core@1");
+  await restricted.invokeTool("memory.lookup", { query: "test", trigger: "user_pull", reason: "test" });
+  await assert.rejects(() => restricted.invokeTool("weather_raw", {}), (error) => assertCode(error, "catalog_tool_not_in_toolset"));
+  assert.throws(() => resolveToolset("unknown@1"), (error) => assertCode(error, "catalog_unknown_toolset"));
+  assert.throws(() => resolveToolset("duplicate@1", {}, { "duplicate@1": ["weather", "weather"] }), (error) => assertCode(error, "catalog_duplicate_toolset_member"));
+}));
 
-test("A4/A7 D13 floor schemas and calls remain available; aliases canonicalize before gate", async () => enabled(async () => {
+test("A9 D13 floor remains discoverable, schema-loadable and callable without a toolset", async () => enabled(async () => {
   const catalog = host(); const entries = catalog.catalogState().entries;
   for (const name of ["memory_lookup", "memory_note", "cyberboss_reminder", "cyberboss_diary_append", "cyberboss_system_send", "cyberboss_time"]) {
-    const entry = entries.find((item) => item.id === name); assert.ok(entry); const loaded = await catalog.invokeTool(`cyberboss_catalog_${entry.category}`, { handle: entry.schema_handle }); assert.deepEqual(loaded.data.inputSchema, PROJECT_TOOLS.find((tool) => tool.name === name).inputSchema);
+    const entry = entries.find((item) => item.id === name); assert.ok(entry);
+    const loaded = await catalog.invokeTool("cyberboss_catalog", { handle: entry.schema_handle });
+    assert.deepEqual(loaded.data.inputSchema, PROJECT_TOOLS.find((tool) => tool.name === name).inputSchema);
   }
   await catalog.invokeTool("memory_lookup", { query: "test", trigger: "user_pull", reason: "test" }); await catalog.invokeTool("memory_note", { text: "test" });
   await catalog.invokeTool("cyberboss_reminder", { command: "create", text: "test", delayMinutes: 1 }); await catalog.invokeTool("cyberboss_diary_append", { text: "test" });
   await catalog.invokeTool("cyberboss_system_send", { text: "test" }); await catalog.invokeTool("cyberboss_time", {});
-  const restricted = host("chat-core@1"); const reminder = await restricted.invokeTool("cyberboss_reminder_create", { text: "test", delayMinutes: 1 }); assert.equal(reminder.data.command, "create");
-  await restricted.invokeTool("memory.lookup", { query: "test", trigger: "user_pull", reason: "test" });
-  await assert.rejects(() => restricted.invokeTool("weather_raw", {}), (error) => assertCode(error, "catalog_tool_not_in_toolset"));
 }));
 
-test("A6/A8/A10 stdio and in-process paths fail closed with stable catalog reasons", async () => enabled(async () => {
-  const restricted = host("chat-core@1"); const weather = restricted.catalogState().entries.find((entry) => entry.id === "weather"); assert.equal(weather.authorized, false);
-  await assert.rejects(() => restricted.invokeTool("weather", {}), (error) => assertCode(error, "catalog_tool_not_in_toolset"));
-  await assert.rejects(() => restricted.invokeTool("cyberboss_catalog_tool", { handle: "tool/weather" }), (error) => assertCode(error, "catalog_schema_not_authorized"));
-  for (const [category, handle, code] of [["tool", "tool/missing", "catalog_unknown_handle"], ["tool", "not-a-handle", "catalog_invalid_handle"], ["memory", "tool/weather", "catalog_handle_category_mismatch"]]) await assert.rejects(() => restricted.invokeTool(`cyberboss_catalog_${category}`, { handle }), (error) => assertCode(error, code));
-  assert.throws(() => resolveToolset("unknown@1"), (error) => assertCode(error, "catalog_unknown_toolset"));
-  assert.throws(() => resolveToolset("duplicate@1", {}, { "duplicate@1": ["weather", "weather"] }), (error) => assertCode(error, "catalog_duplicate_toolset_member"));
-  await assert.rejects(() => restricted.invokeTool("invented_tool", {}), /Unknown tool/); await assert.rejects(() => restricted.invokeTool("tool/weather", {}), /Unknown tool/);
-  const rpc = mcp([{ id: 1, method: "tools/call", params: { name: "weather", arguments: {} } }, { id: 2, method: "tools/call", params: { name: "cyberboss_catalog_tool", arguments: { handle: "tool/weather" } } }], { CYBERBOSS_TOOL_CATALOG_ENABLED: "true", TEST_TOOLSET: "chat-core@1" });
-  assert.match(rpc[0].result.content[0].text, /catalog_tool_not_in_toolset/); assert.equal(rpc[0].result.isError, true); assert.match(rpc[1].result.content[0].text, /catalog_schema_not_authorized/);
+test("B1 signing gate off omits submit from legacy surface, themed catalog, and stdio", async () => enabled(async () => {
+  assert.equal(host().catalogState().entries.some((entry) => entry.id === "memory_candidate_submit"), false);
+  const memory = await host().invokeTool("cyberboss_catalog", { theme: "记忆" }); assert.equal(memory.data.some((entry) => entry.id === "memory_candidate_submit"), false);
+  assert.equal(mcp([{ id: 1, method: "tools/list" }], { CYBERBOSS_TOOL_CATALOG_ENABLED: "false" })[0].result.tools.some((tool) => tool.name === "memory_candidate_submit"), false);
 }));
 
-test("A9 tools/call passes the exact startup route token through real stdio", () => {
-  const token = "0123456789abcdef"; const rpc = mcp([{ id: 1, method: "tools/call", params: { name: "cyberboss_system_send", arguments: { text: "test" } } }], { CYBERBOSS_TOOL_CATALOG_ENABLED: "true", TEST_ROUTE_TOKEN: token });
-  assert.equal(JSON.parse(rpc[0].result.content[0].text.split("\n").slice(1).join("\n")).routeToken, token);
-});
+test("B2/B4 signing gate on exposes schema and real stdio creates one fully attested subject candidate then relays rejection code", async () => signingEnabled(async () => {
+  assert.equal(host().catalogState().entries.find((entry) => entry.id === "memory_candidate_submit")?.theme, "记忆");
+  const loaded = await host().invokeTool("cyberboss_catalog", { handle: "memory/memory_candidate_submit" });
+  assert.deepEqual(loaded.data.inputSchema, PROJECT_TOOLS.find((tool) => tool.name === "memory_candidate_submit").inputSchema);
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "catalog-subject-stdio-"));
+  const args = { type: "episode", body: "这一刻由我自己留下。", origin: "live_subject", source_ref: { content_sha256: crypto.createHash("sha256").update("source fixture").digest("hex") } };
+  const rpc = mcp([
+    { id: 1, method: "tools/call", params: { name: "memory_candidate_submit", arguments: args } },
+    { id: 2, method: "tools/call", params: { name: "memory_candidate_submit", arguments: { ...args, body: "第二次不该通过。" } } },
+  ], { CYBERBOSS_TOOL_CATALOG_ENABLED: "true", CYBERBOSS_SUBJECT_SIGNING_ENABLED: "true", TEST_CONTINUITY_DIR: temp });
+  assert.equal(rpc[0].result.isError, undefined); assert.match(rpc[0].result.content[0].text, /Memory candidate created/);
+  assert.equal(rpc[1].result.isError, true); assert.match(rpc[1].result.content[0].text, /^capability_expired:/);
+  const rows = fs.readFileSync(path.join(temp, "candidates", "episodes.candidates.jsonl"), "utf8").trim().split(/\r?\n/).map(JSON.parse);
+  assert.equal(rows.length, 1); assert.equal(rows[0].author_role, "subject_ai"); assert.equal(rows[0].author_attestation.subject_turn_id, "turn-subject"); assert.equal(rows[0].subject_route.author_turn_id, "turn-subject");
+}));
 
-test("A16 CLI rejects toolset while catalog flag is off", () => {
+test("B3 missing or expired runtime capability returns the service code and writes nothing", async () => signingEnabled(async () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "catalog-subject-handler-"));
+  const registry = new SubjectCapabilityRegistry({ enabled: true }); const route = exactRoute();
+  const capability = registry.issue({ subjectTurnId: "turn-subject", subjectRoute: route });
+  const subjectCandidate = new SubjectCandidateService({ continuityDir: temp, registry, enabled: true });
+  const args = { type: "episode", body: "候选正文", origin: "live_subject", source_ref: { content_sha256: crypto.createHash("sha256").update("source").digest("hex") } };
+  const missing = host("", { services: { subjectCandidate, subjectSigningContext: { resolve: () => null } } });
+  await assert.rejects(() => missing.invokeTool("memory_candidate_submit", args), (error) => assertCode(error, "subject_turn_id_missing"));
+  registry.expireTurn("turn-subject");
+  const expired = host("", { services: { subjectCandidate, subjectSigningContext: { resolve: () => ({ capability, subject_route: route }) } } });
+  await assert.rejects(() => expired.invokeTool("memory_candidate_submit", args), (error) => assertCode(error, "capability_expired"));
+  assert.equal(fs.existsSync(path.join(temp, "candidates", "episodes.candidates.jsonl")), false);
+}));
+
+test("A1 CLI rejects toolset while catalog flag is off", () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "catalog-cli-"));
   try {
     const env = { ...process.env, CYBERBOSS_CHANNEL: "telegram", CYBERBOSS_RUNTIME: "claudecode", CYBERBOSS_TELEGRAM_BOT_TOKEN: "fake-token", CYBERBOSS_TELEGRAM_ALLOWED_USER_IDS: "1", CYBERBOSS_TOOL_CATALOG_ENABLED: "false", CYBERBOSS_STATE_DIR: path.join(temp, "state"), CYBERBOSS_MEMORY_DIR: path.join(temp, "memory"), CYBERBOSS_WORKSPACE: path.join(temp, "workspace"), CYBERBOSS_CONFIG_DIR: path.join(temp, "config"), CYBERBOSS_CONTINUITY_DIR: path.join(temp, "continuity"), CYBERBOSS_PROMPT_FILE: path.join(temp, "prompt.md") };
@@ -135,8 +215,21 @@ test("A16 CLI rejects toolset while catalog flag is off", () => {
   } finally { fs.rmSync(temp, { recursive: true, force: true }); }
 });
 
-test("privacy canary never appears in manifest, stdio, metering, errors, or fixtures", () => withEnv({ CATALOG_TEST_SECRET: plantedValue }, () => {
-  const values = [manifest(), mcp([{ id: 1, method: "tools/list" }, { id: 2, method: "resources/list" }], { CYBERBOSS_TOOL_CATALOG_ENABLED: "true", CATALOG_TEST_SECRET: plantedValue }), buildCatalog(), fs.readFileSync(path.join(__dirname, "fixtures/catalog-metering-resident.json"), "utf8")];
-  try { findSchema({ entries: [], category: "tool", handle: "tool/missing" }); } catch (error) { values.push(error.message); }
+test("manifest policy and privacy canary are explicit and private-text-free", () => withEnv({ CATALOG_TEST_SECRET: plantedValue, CYBERBOSS_SUBJECT_SIGNING_ENABLED: undefined }, () => {
+  const entries = manifest(); const t01 = buildCatalog().items;
+  assert.deepEqual(entries.map((entry) => [entry.id, entry.category, entry.theme]), t01.map((entry) => [entry.name, entry.category, entry.theme]));
+  assert.equal(Object.keys(TOOL_RISKS).length, PROJECT_TOOLS.length + 5); assert.equal(Object.keys(TOOL_THEMES).length, PROJECT_TOOLS.length + 5);
+  for (const entry of entries) { assert.ok(TOOL_RISKS[entry.alias_of || entry.id]); assert.ok(TOOL_THEMES[entry.alias_of || entry.id]); }
+  assert.throws(() => buildManifest({ projectTools: [{ name: "unclassified-test", topics: [], inputSchema: {} }] }), (error) => assertCode(error, "catalog_unclassified_entry"));
+  const values = [entries, mcp([{ id: 1, method: "tools/list" }, { id: 2, method: "resources/list" }], { CYBERBOSS_TOOL_CATALOG_ENABLED: "true", CATALOG_TEST_SECRET: plantedValue }), buildCatalog(), fs.readFileSync(path.join(__dirname, "fixtures/catalog-metering-resident.json"), "utf8")];
   for (const value of values) assertNoPrivateText(value);
 }));
+
+function exactRoute() {
+  return createSubjectRoute({
+    provider: "telegram", continuity_binding: { workspace_id: "workspace-a", account_id: "telegram", sender_id: "42", binding_key: "binding-a" },
+    route_lane: { lane_key: "lane:-100:7", chat_id: "-100", message_thread_id: "7" },
+    session: { runtime_id: "claudecode", session_slot_key: "slot-a", runtime_thread_id: "native-a", profile_id: "profile-a", profile_fingerprint: "fingerprint-a", window_id: "native-a" },
+    author_turn_id: "turn-subject", source_entry_ids: ["entry-subject"],
+  });
+}

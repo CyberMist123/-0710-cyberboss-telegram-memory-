@@ -58,6 +58,7 @@ class RuntimeContextStore {
     routeToken = "",
     laneKey = "",
     processKey = "",
+    turnId = "",
   } = {}) {
     const normalizedWorkspaceRoot = normalizeText(workspaceRoot);
     if (!normalizedWorkspaceRoot) {
@@ -85,6 +86,7 @@ class RuntimeContextStore {
       routeToken: normalizeText(routeToken),
       laneKey: normalizeText(laneKey),
       processKey: normalizeText(processKey),
+      ...(normalizeText(turnId) ? { turnId: normalizeText(turnId) } : {}),
       turnActive: true,
       updatedAt: new Date().toISOString(),
     };

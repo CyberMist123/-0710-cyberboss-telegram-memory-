@@ -1,5 +1,5 @@
 const fs = require("fs");
-const { catalogEnabled, RESIDENT_NAMES } = require("./tool-catalog-manifest");
+const { catalogEnabled, RESIDENT_NAMES, THEME_DEFINITIONS } = require("./tool-catalog-manifest");
 function runToolMcpServer({ toolHost, runtimeId = "", workspaceRoot = "", routeToken = "" }) {
   const reader = createMessageReader(process.stdin);
   const toolCatalog = toolHost.listTools();
@@ -117,7 +117,7 @@ function runToolMcpServer({ toolHost, runtimeId = "", workspaceRoot = "", routeT
         content: [
           {
             type: "text",
-            text: error instanceof Error ? error.message : String(error || "unknown error"),
+          text: formatToolError(error),
           },
         ],
         isError: true,
@@ -137,6 +137,12 @@ function formatToolResult(result) {
     return String(result.text);
   }
   return JSON.stringify(result, null, 2);
+}
+
+function formatToolError(error) {
+  const message = error instanceof Error ? error.message : String(error || "unknown error");
+  const code = typeof error?.code === "string" ? error.code.trim() : "";
+  return code && !message.startsWith(`${code}:`) ? `${code}: ${message}` : message;
 }
 
 function buildToolResources(toolCatalog, catalogEntries = null) {
@@ -198,8 +204,12 @@ function buildToolResources(toolCatalog, catalogEntries = null) {
 }
 
 function buildCatalogIndexMarkdown(entries) {
+  const visible = entries.filter((entry) => !entry.alias_of && entry.hidden !== true);
   const lines = ["# Cyberboss Tool Catalog", "", "Schemas are loaded only through an authorized exact catalog handle.", ""];
-  for (const entry of entries) lines.push(`- ${entry.category}: ${entry.id} | ${entry.purpose} | risk=${entry.risk} | schema_chars=${entry.estimated_schema_chars} | handle=${entry.schema_handle}`);
+  for (const definition of THEME_DEFINITIONS) {
+    const count = visible.filter((entry) => entry.theme === definition.name).length;
+    lines.push(`- ${definition.name}(${count}) ${definition.description}`);
+  }
   return `${lines.join("\n")}\n`;
 }
 

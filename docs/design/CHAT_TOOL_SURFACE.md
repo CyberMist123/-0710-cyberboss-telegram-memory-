@@ -60,5 +60,5 @@ Current authority: docs/DECISIONS.md（D13 / D25 / D27）+ docs/CURRENT_STATUS.m
 ## 六、实施对应
 
 - 已落地：T02 目录化 core（manifest / schema-on-demand / resources 收窄，#112）。
-- 待实施（T02.5）：manifest 加 `theme` 字段、四个分类目录工具收敛为单入口 `cyberboss_catalog`、一级表按本文主题重排、别名剔出目录展示。
+- 已落地（T02.5）：manifest 已加显式 `theme` 字段，四个分类目录工具已收敛为单入口 `cyberboss_catalog`，一级表按本文八主题稳定排布，别名已剔出目录展示。
 - 相关票面修订：T04（work profile 边界措辞）、T05/T08（自助升格语义）、T07（Route 2 硬门=路由判断）。

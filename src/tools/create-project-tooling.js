@@ -21,6 +21,7 @@ const { createLocationSentinel } = require("../location/sentinel");
 const { createLocationStateEngine, LocationStateStore } = require("../location/state-engine");
 const { RuntimeContextStore } = require("./runtime-context-store");
 const { ProjectToolHost } = require("./tool-host");
+const { SubjectCapabilityRegistry, SubjectCandidateService } = require("../continuity/subject-signing");
 const { WhereaboutsService } = require("whereabouts-mcp");
 
 function createProjectTooling(config, options = {}) {
@@ -43,6 +44,9 @@ function createProjectTooling(config, options = {}) {
     filePath: config.locationStateFile,
   });
   const channelFile = new ChannelFileService({ config, channelAdapter, sessionStore });
+  const subjectCapabilityRegistry = options.subjectCapabilityRegistry || new SubjectCapabilityRegistry({
+    enabled: config.subjectSigningEnabled === true,
+  });
   const services = {
     diary: new DiaryService({ config }),
     reminder: new ReminderService({ config, sessionStore }),
@@ -62,6 +66,12 @@ function createProjectTooling(config, options = {}) {
       continuityDir: config.continuityDir,
       writerLeaseFile: config.writerLeaseFile,
     }),
+    subjectCandidate: options.subjectCandidate || new SubjectCandidateService({
+      continuityDir: config.continuityDir,
+      registry: subjectCapabilityRegistry,
+      enabled: config.subjectSigningEnabled === true,
+    }),
+    subjectSigningContext: options.subjectSigningContext || { resolve() { return null; } },
     github: new GithubService({ ghPath: config.ghPath }),
     locationConfig: {
       v2Enabled: config.locationV2Enabled === true,

@@ -6,7 +6,10 @@ const {
 } = require("../services/sticker-service");
 const { resolveAppTimezone } = require("../utils/app-timezone");
 const { formatAppTime } = require("../utils/beijing-time");
-const { catalogEnabled, resolveToolset, buildManifest, findSchema, RESIDENT_NAMES, catalogError } = require("./tool-catalog-manifest");
+const {
+  catalogEnabled, subjectSigningEnabled, resolveToolset, buildManifest, findSchema,
+  RESIDENT_NAMES, THEME_DEFINITIONS, CATALOG_INPUT_SCHEMA, catalogError,
+} = require("./tool-catalog-manifest");
 
 class ProjectToolHost {
   constructor({ services, runtimeContextStore, toolset = null }) {
@@ -18,22 +21,18 @@ class ProjectToolHost {
 
   catalogState() {
     const toolset = resolveToolset(this.toolset);
-    return { toolset, entries: buildManifest({ projectTools: PROJECT_TOOLS, aliases: TOOL_ALIASES, extraHosts: this.extraToolHosts, deprecatedNames: DEPRECATED_HIDDEN_TOOL_NAMES })
+    return { toolset, entries: buildManifest({ projectTools: registeredProjectTools(), aliases: TOOL_ALIASES, extraHosts: this.extraToolHosts, deprecatedNames: DEPRECATED_HIDDEN_TOOL_NAMES })
       .map((entry) => ({ ...entry, authorized: !toolset || toolset.members.has(entry.alias_of || entry.id) })) };
   }
 
   listTools() {
     if (catalogEnabled()) {
       const { entries } = this.catalogState();
-      const catalogTools = ["memory", "tool", "mcp", "skill"].map((category) => ({
-        name: `cyberboss_catalog_${category}`,
-        description: `${entries.filter((entry) => entry.category === category).length} ${category} catalog entries; optionally load an authorized schema by exact handle.`,
-        inputSchema: { type: "object", properties: { handle: { type: "string" } }, additionalProperties: false },
-      }));
+      const catalogTools = [buildCatalogDirectoryTool(entries)];
       const resident = RESIDENT_NAMES.map((name) => PROJECT_TOOLS.find((tool) => tool.name === name)).filter(Boolean).map(buildCatalogToolEntry);
       return [...catalogTools, ...resident];
     }
-    const builtIn = PROJECT_TOOLS
+    const builtIn = registeredProjectTools()
       .filter((tool) => tool.hidden !== true)
       .map((tool) => buildCatalogToolEntry(tool));
     const extra = this.extraToolHosts.flatMap((host) => host.listTools()
@@ -45,22 +44,36 @@ class ProjectToolHost {
   async invokeTool(toolName, args = {}, context = {}) {
     const alias = TOOL_ALIASES[toolName];
     const resolvedToolName = alias?.name || toolName;
-    const spec = PROJECT_TOOLS.find((candidate) => candidate.name === resolvedToolName);
+    const spec = registeredProjectTools().find((candidate) => candidate.name === resolvedToolName);
     const extraHost = this.extraToolHosts.find((host) => hostSupportsToolName(host, toolName));
     const normalizedArgs = args && typeof args === "object" ? { ...args } : {};
     if (catalogEnabled()) {
-      const match = /^cyberboss_catalog_(memory|tool|mcp|skill)$/.exec(toolName);
-      if (match) {
+      if (toolName === "cyberboss_catalog") {
+        validateSchema(CATALOG_INPUT_SCHEMA, normalizedArgs, toolName, "input");
         const { entries } = this.catalogState();
+        if (normalizedArgs.theme !== undefined && normalizedArgs.handle !== undefined) {
+          throw catalogError("catalog_invalid_request", "theme and handle are mutually exclusive");
+        }
         if (normalizedArgs.handle !== undefined) {
-          const entry = findSchema({ entries, category: match[1], handle: normalizedArgs.handle });
+          const category = String(normalizedArgs.handle).split("/", 1)[0];
+          const entry = findSchema({ entries, category, handle: normalizedArgs.handle });
           const sourceName = entry.alias_of || entry.id;
-          const source = PROJECT_TOOLS.find((candidate) => candidate.name === sourceName)
+          const source = registeredProjectTools().find((candidate) => candidate.name === sourceName)
             || this.extraToolHosts.flatMap((host) => host.listTools()).find((candidate) => candidate.name === sourceName);
           if (!source) throw catalogError("catalog_unknown_handle", normalizedArgs.handle);
           return { text: `Schema loaded: ${entry.schema_handle}`, data: { entry, inputSchema: source.inputSchema } };
         }
-        return { text: `${match[1]} catalog`, data: entries.filter((entry) => entry.category === match[1]) };
+        if (normalizedArgs.theme !== undefined) {
+          const definition = THEME_DEFINITIONS.find((item) => item.name === normalizedArgs.theme);
+          if (!definition) throw catalogError("catalog_unknown_theme", normalizedArgs.theme);
+          const themed = displayableCatalogEntries(entries).filter((entry) => entry.theme === definition.name);
+          return { text: `${definition.name} catalog`, data: themed };
+        }
+        const themes = buildThemeIndex(entries);
+        return {
+          text: themes.map((item) => `${item.name}(${item.count})   ${item.description}`).join("\n"),
+          data: themes,
+        };
       }
       if (!spec && !extraHost) throw new Error(`Unknown tool: ${toolName}`);
       const { toolset } = this.catalogState();
@@ -101,6 +114,7 @@ class ProjectToolHost {
       activeLaneCount: Number(active.activeLaneCount) || 0,
       threadId: normalizeText(context.threadId) || normalizeText(active.threadId),
       bindingKey: normalizeText(context.bindingKey) || normalizeText(active.bindingKey),
+      turnId: normalizeText(context.turnId) || normalizeText(active.turnId),
       accountId: normalizeText(context.accountId) || normalizeText(active.accountId),
       senderId: normalizeText(context.senderId) || normalizeText(active.senderId),
       provider: normalizeText(context.provider) || normalizeText(active.provider),
@@ -118,9 +132,34 @@ function buildCatalogToolEntry(tool) {
 
 function listProjectToolNames() {
   return [
-    ...PROJECT_TOOLS.filter((tool) => tool.hidden !== true).map((tool) => tool.name),
+    ...registeredProjectTools().filter((tool) => tool.hidden !== true).map((tool) => tool.name),
     ...STATIC_EXTRA_TOOL_NAMES.filter((toolName) => !DEPRECATED_HIDDEN_TOOL_NAMES.has(toolName)),
   ];
+}
+
+function registeredProjectTools(env = process.env) {
+  return PROJECT_TOOLS.filter((tool) => tool.name !== "memory_candidate_submit" || subjectSigningEnabled(env));
+}
+
+function displayableCatalogEntries(entries) {
+  return entries.filter((entry) => !entry.alias_of && entry.hidden !== true);
+}
+
+function buildThemeIndex(entries) {
+  const displayable = displayableCatalogEntries(entries);
+  return THEME_DEFINITIONS.map((definition) => ({
+    name: definition.name,
+    description: definition.description,
+    count: displayable.filter((entry) => entry.theme === definition.name).length,
+  }));
+}
+
+function buildCatalogDirectoryTool(entries) {
+  return {
+    name: "cyberboss_catalog",
+    description: `Browse ${THEME_DEFINITIONS.length} intention themes or load one exact tool schema by handle.`,
+    inputSchema: CATALOG_INPUT_SCHEMA,
+  };
 }
 
 function hostSupportsToolName(host, toolName) {
@@ -259,6 +298,51 @@ const PROJECT_TOOLS = [
     shortHint: "Append one private self-note.", topics: ["memory", "continuity"],
     inputSchema: { type: "object", required: ["text"], properties: { text: { type: "string", maxLength: 1000 }, quote: { type: "string", maxLength: 500 } }, additionalProperties: false },
     async handler({ services, args }) { const result = services.memoryNote?.note(args) || { error: "note_unavailable" }; return { text: result.error ? `Memory note ${result.error}.` : "Memory note appended.", data: result }; },
+  },
+  {
+    name: "memory_candidate_submit",
+    description: "Submit subject-authored candidate prose through the current turn's one-time signing capability.",
+    shortHint: "Submit one subject-authored memory candidate from the current turn.",
+    topics: ["memory", "continuity"],
+    inputSchema: {
+      type: "object",
+      required: ["type", "body", "origin", "source_ref"],
+      properties: {
+        type: { type: "string", enum: ["episode", "self_note", "reentry_draft", "details"] },
+        body: { type: "string" },
+        origin: { type: "string", enum: ["live_subject", "closeout_materials_then_subject", "subject_rewrite"] },
+        source_ref: {
+          type: "object",
+          required: ["content_sha256"],
+          properties: {
+            content_sha256: { type: "string" },
+            file: { type: "string" },
+            window: { type: "string" },
+          },
+          additionalProperties: false,
+        },
+        material_pack_id: { type: "string" },
+        material_pack: { type: "object" },
+      },
+      additionalProperties: false,
+    },
+    async handler({ services, args, context }) {
+      const signing = services.subjectSigningContext?.resolve?.(context) || null;
+      const subjectRoute = signing?.subject_route;
+      const result = services.subjectCandidate.createSubjectCandidate({
+        ...args,
+        capability_id: signing?.capability?.capability_id,
+        subject_turn_id: signing?.capability?.subject_turn_id || subjectRoute?.author_turn_id,
+        subject_route: subjectRoute,
+        source_ref: {
+          ...args.source_ref,
+          source_entry_ids: Array.isArray(subjectRoute?.source_entry_ids)
+            ? subjectRoute.source_entry_ids
+            : [],
+        },
+      });
+      return { text: `Memory candidate ${result.status}.`, data: result };
+    },
   },
   {
     name: "memory_lookup",
@@ -1125,6 +1209,9 @@ module.exports = {
   TOOL_ALIASES,
   DEPRECATED_HIDDEN_TOOL_NAMES,
   createExtraToolHosts,
+  registeredProjectTools,
+  buildThemeIndex,
+  buildCatalogDirectoryTool,
   ProjectToolHost,
   listProjectToolNames,
 };
