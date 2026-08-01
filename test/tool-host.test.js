@@ -338,19 +338,23 @@ test("tool host accepts structured timeline screenshot input", async () => {
   assert.equal(result.data.delivery.filePath, "/tmp/shot.png");
 });
 
-test("tool host descriptions include schema summary for models that only surface descriptions", () => {
+test("tool host descriptions stay compact while schemas remain structured", () => {
   const host = createHost();
   const timelineWrite = host.listTools().find((tool) => tool.name === "cyberboss_timeline_write");
-  assert.match(timelineWrite.description, /Input:/);
-  assert.match(timelineWrite.description, /date: string/);
-  assert.match(timelineWrite.description, /events: \{/);
+  assert.equal(timelineWrite.description, "Write timeline events after checking the current day and taxonomy when needed.");
+  assert.deepEqual(timelineWrite.inputSchema.required, ["date", "events"]);
+  assert.equal(timelineWrite.inputSchema.properties.date.type, "string");
+  assert.equal(timelineWrite.inputSchema.properties.events.type, "array");
 });
 
-test("tool host exposes whereabouts tools from the external dependency", async () => {
+test("tool host hides deprecated whereabouts tools from discovery but preserves invocation", async () => {
   const host = createHost();
   const tools = host.listTools();
   const snapshotTool = tools.find((tool) => tool.name === "whereabouts_snapshot");
   const summaryTool = tools.find((tool) => tool.name === "whereabouts_summary");
+  const currentStayTool = tools.find((tool) => tool.name === "whereabouts_current_stay");
+  const recentStaysTool = tools.find((tool) => tool.name === "whereabouts_recent_stays");
+  const recentMovesTool = tools.find((tool) => tool.name === "whereabouts_recent_moves");
   const ingestTool = tools.find((tool) => tool.name === "whereabouts_ingest_point");
   const currentStayResult = await host.invokeTool("whereabouts_current_stay", {}, {});
   const snapshotResult = await host.invokeTool("whereabouts_snapshot", {
@@ -359,8 +363,11 @@ test("tool host exposes whereabouts tools from the external dependency", async (
   }, {});
   const summaryResult = await host.invokeTool("whereabouts_summary", { range: "day" }, {});
 
-  assert.ok(snapshotTool);
-  assert.ok(summaryTool);
+  assert.equal(snapshotTool, undefined);
+  assert.equal(summaryTool, undefined);
+  assert.equal(currentStayTool, undefined);
+  assert.equal(recentStaysTool, undefined);
+  assert.equal(recentMovesTool, undefined);
   assert.equal(ingestTool, undefined);
   assert.equal(currentStayResult.data.currentStay.address, "Office");
   assert.equal(snapshotResult.data.currentStay.address, "Office");
