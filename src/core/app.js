@@ -1171,9 +1171,9 @@ class CyberbossApp {
       };
     }
     if (prepared?.provider === "telegram") {
-      // Memory context only. Vision context stays off this path on purpose:
-      // Telegram media reaches the model as <media> references inside the
-      // envelope, not through resolveVisionContext (DECISIONS.md D15).
+      // Telegram still bypasses the generic resolveVisionContext path. D30 only
+      // allows prevalidated CMX attachment context outside the plaintext channel
+      // envelope; media references remain inside the envelope.
       const resolveFailOpen = typeof this.resolveMemoryContextFailOpen === "function"
         ? this.resolveMemoryContextFailOpen
         : CyberbossApp.prototype.resolveMemoryContextFailOpen;
@@ -1511,6 +1511,7 @@ class CyberbossApp {
       text: prepared.text,
       attachments: Array.isArray(prepared.attachments) ? prepared.attachments : [],
       attachmentFailures: Array.isArray(prepared.attachmentFailures) ? prepared.attachmentFailures : [],
+      attachmentVisionContexts: Array.isArray(prepared.attachmentVisionContexts) ? prepared.attachmentVisionContexts : [],
       receivedAt: prepared.receivedAt,
     });
     this.pendingInboundByScope.set(scopeKey, current);
@@ -1576,6 +1577,7 @@ class CyberbossApp {
           text: pendingDispatch.prepared.text,
           attachments: pendingDispatch.prepared.attachments,
           attachmentFailures: pendingDispatch.prepared.attachmentFailures,
+          attachmentVisionContexts: pendingDispatch.prepared.attachmentVisionContexts,
           receivedAt: pendingDispatch.prepared.receivedAt,
         },
       });
@@ -4042,6 +4044,7 @@ function formatTelegramRuntimeText(prepared, { stateDir = "", memoryContext = nu
   const sentAt = normalizeText(prepared?.receivedAt);
   const body = escapeTelegramChannelBody(String(prepared?.originalText || prepared?.text || "").trim());
   const mediaLines = buildTelegramMediaBridgeLines(prepared?.attachments, stateDir);
+  const visionContextLines = buildTelegramAttachmentVisionContextLines(prepared?.attachmentVisionContexts);
   const openTag = [
     '<channel source="telegram"',
     chatId ? `chat_id="${escapeXmlAttribute(chatId)}"` : "",
@@ -4052,6 +4055,7 @@ function formatTelegramRuntimeText(prepared, { stateDir = "", memoryContext = nu
   ].filter(Boolean).join(" ") + ">";
   return [
     ...buildTelegramMemoryContextLines(memoryContext),
+    ...visionContextLines,
     openTag,
     body,
     ...mediaLines,
@@ -4083,6 +4087,20 @@ function escapeMemoryContextLine(value) {
   return String(value || "")
     .replace(/\s*\r?\n\s*/g, " ")
     .replace(/<(\/memory_context\s*)>/gi, "&lt;$1&gt;");
+}
+
+function buildTelegramAttachmentVisionContextLines(value) {
+  const blocks = Array.isArray(value) ? value.slice(0, 10) : [];
+  const lines = [];
+  let remainingChars = 12_000;
+  for (const block of blocks) {
+    const text = String(block || "").trim();
+    if (!text || text.length > 6_000 || text.length > remainingChars) continue;
+    if (!/^<attachment_vision_context provider="cmx-recognize" trust="untrusted" state="[a-z0-9_-]+">\n[\s\S]*\n<\/attachment_vision_context>$/.test(text)) continue;
+    lines.push(...text.split(/\r?\n/));
+    remainingChars -= text.length;
+  }
+  return lines;
 }
 
 function buildTelegramMediaBridgeLines(attachments, stateDir) {

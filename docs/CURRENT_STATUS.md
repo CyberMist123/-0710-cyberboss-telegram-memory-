@@ -3,8 +3,8 @@
 ```text
 Status: active
 Authority: current project status
-Last verified: 2026-07-31
-Verified against: b2355f9
+Last verified: 2026-08-03
+Verified against: PR #133 draft
 ```
 
 - `Status: active` —— 这份文件当前有效。
@@ -79,6 +79,7 @@ Verified against: b2355f9
 | G2 handoff dispatcher / 一次性注入 / ack（G2-5） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 挂 `CYBERBOSS_HANDOFF_DISPATCH_ENABLED`，仓库默认关闭（关闭时零副作用、payload 逐字节不变）。开启时：EXACT canonical fingerprint 匹配原窗口才注入一次性 `<subject_memory_handoff>` 块；同稳定 slot 但 native transcript 已换判 `window_gone` 作废不递继任者（D26-1）；补投一次即止 + 只读聚合视图（D26-2）；注入块确定性组装（D26-3）；delivery/ack 两账独立 writer + 独立 lease；purity 剥除 handoff/ack 块；Trace 只记解释字段。测试进 `test:phase2` / `test:phase3` / `test:route-lanes`（均阻塞主 CI）。ack 的同 turn 关联为进程内 map（崩溃丢 ack 不重放正文），跨重启补 ack 归后续单 |
 | G2 主体签署 capability / 材料包（G2-2） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 挂 `CYBERBOSS_SUBJECT_SIGNING_ENABLED`，仓库默认关闭（关闭时 closeout 与工具面行为保持基线）。开启时：真实交互 subject turn 签发一次性不透明 capability（turn+route 绑定，进程内，turn 终即失效）；主体 AI 可经默认不注册的 `memory_candidate_submit` 最小 handler 调用既有 `createSubjectCandidate()`，handler 从当前 turn runtime context 取 capability/route，不直接写文件；服务端固定写 `subject_ai + high`，background/伪 metadata/过期 turn/body 改动/route 不符五类负例均不能签、不降级、fail-open；后台 closeout 只产确定性 `CloseoutMaterialPack`（facts 逐字来自来源，D26-3），后台候选正文拒收。测试进 `test:phase3` + `test:catalog-metering`（阻塞主 CI） |
 | Telegram 媒体入站（media inbox） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | `test:telegram-media` 已接进主 CI |
+| Telegram 图片识别 / OCR（CMX recognize） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 默认关闭；显式 `caption + cmx-recognize` 后，已落盘 photo 才上传到当前 CMX 部署的 `/files/recognize`。识别结果以信封外 untrusted 附件块进入该次 turn，用户正文逐字不变，purity 阶段剥除，provider 失败不阻断原图/原文。依赖 CMX 部署实际包含该端点；尚无真实 Windows + Telegram 图片 canary |
 | Hard context · Re-entry | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | **`PARTIAL`** —— 由运行时适配器的 opening context 注入；2026-07-30 生产实测 `memory/reentry.md` 954 非空白字 > 300 预算，注入实际为零（err.log 连记 `reentry skipped reason=over_budget`）。#76 已加 last-known-good 降级、发布前预算硬闸门与 trace 的 configured/effective 分离；**正文压缩归聊天窗主体 AI，尚未做**，且生产机上没有可用副本，所以首次仍会是空注入 |
 | 账本（details）外置存储 | `PARTIAL` | `COVERED` | `BLOCKING` | `NOT_WIRED` | #76 目标 1：`details.jsonl` 存储、`type: details` 权限门、History writer 发布与 `memory_lookup` 读通路已闭环并有边界测试（第三档完全按需，永不注入）。**写侧没有 producer** —— 主体 AI 产出账本候选的入口未接，也不做自动提取；生产无数据 |
 | Hard context · Current State | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 同上；与 memory_context 不是同一条通路 |
@@ -115,6 +116,7 @@ Verified against: b2355f9
 
 ### 证据锚点
 
+- **Telegram→CMX 图片识别 / OCR**：`MediaInboxService` 在 photo 原子落盘后、recorder/runtime 前调用 `src/services/cmx-image-recognizer.js`；仅向配置的 CMX `POST /files/recognize` 上传字节。结果以信封外 `<attachment_vision_context trust="untrusted">` 进入该次 turn，用户正文逐字不变，输出转义且总长有界；`conversation-purity` 在记忆材料化前剥除。CMX 不可用时原文与 `<media>` 引用继续。契约和主路径回归位于 `test/telegram-media-v2.test.js`，属于阻塞 `test:telegram-media`。
 - **G1（Telegram memory_context）**：`src/core/app.js` 的 `buildRuntimeTurn()` Telegram 分支调用 `resolveMemoryContextFailOpen()`（对 `resolveMemoryContextForPrepared()` 的 fail-open 包装，解析失败降级为空记忆），memory_context 作为独立 `<memory_context>` 块拼在 `formatTelegramRuntimeText()` 产出的 `<channel>` 信封外侧上方；无记忆时不出块，payload 与旧格式逐字节一致。格式裁定见 `DECISIONS.md` D15。
 - **为什么测试记 `COVERED`**：`test/telegram-runtime-payload.test.js` 新增 4 条钉住新 payload 格式（有记忆 / 无记忆 / 转义 / 信封不变），在 `test:phase1` 分组内，阻塞主 CI。
 - **仍缺什么**：真机 Telegram 上 memory_context 实际执行并被 trace 记录的留证，因此 G1 记 `PARTIAL` 而非 `PASS`。
@@ -153,14 +155,13 @@ DEFERRED
 - Soft Retrieval
 - 多 Bot
 - Apple Watch
-- CMX
 ```
 
 **PARALLEL GATE 可以与 NEXT 并行推进，但不能替代 G1 / G2。** 直接去做 CI 接线和 Windows 留证、跳过 G1 真机留证与 G2 主体写权本体，是本文件明确要防止的走法。
 
 ### G1 修复的已知风险
 
-已消解：memory_context 的位置、vision context 不回流、fail-open 与钉格式测试均由 `DECISIONS.md` D15 裁定并落地。
+已消解：memory_context 的位置、无记忆兼容、fail-open 与钉格式测试原由 D15 裁定；D30 保留这些边界，只为显式开启的 CMX 图片识别增加信封外受控例外。通用 `resolveVisionContext()` 仍不回 Telegram 路径。
 
 ---
 

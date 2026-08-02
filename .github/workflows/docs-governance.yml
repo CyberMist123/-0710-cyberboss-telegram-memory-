@@ -7,58 +7,10 @@ on:
     types: [opened, edited, synchronize, reopened]
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: read
 
 jobs:
-  pr133-one-shot-sync:
-    if: github.event.pull_request.head.ref == 'feat/tg-cmx-image-recognition-20260803'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: feat/tg-cmx-image-recognition-20260803
-          fetch-depth: 0
-          persist-credentials: true
-      - name: Normalize the diagram anchor for the exact synchronizer
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('docs/architecture/SYSTEM_OVERVIEW.md')
-          s = p.read_text(encoding='utf-8')
-          old = '  │     │        注：这条分支不走 resolveVisionContext() —— Telegram 媒体\n  │     │        以 <media> 引用进 envelope，是刻意设计（DECISIONS.md D15）'
-          new = '        注：这条分支不走 resolveVisionContext() —— Telegram 媒体\n        以 <media> 引用进 envelope，是刻意设计（DECISIONS.md D15）'
-          if s.count(old) != 1:
-              raise SystemExit(f'overview diagram anchor count={s.count(old)}')
-          p.write_text(s.replace(old, new), encoding='utf-8')
-          PY
-      - run: node scripts/pr133-sync.js
-      - name: Restore diagram tree prefixes
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('docs/architecture/SYSTEM_OVERVIEW.md')
-          s = p.read_text(encoding='utf-8')
-          old = '        注：这条分支仍不走通用 resolveVisionContext()。Telegram 媒体\n        默认只以 <media> 引用进 envelope；显式开启 cmx-recognize 时，\n        MediaInboxService 在 photo 原子落盘后调用 CMX /files/recognize，\n        将有界、untrusted 的识别块放在明文 <channel> 信封外（D30）'
-          new = '  │     │        注：这条分支仍不走通用 resolveVisionContext()。Telegram 媒体\n  │     │        默认只以 <media> 引用进 envelope；显式开启 cmx-recognize 时，\n  │     │        MediaInboxService 在 photo 原子落盘后调用 CMX /files/recognize，\n  │     │        将有界、untrusted 的识别块放在明文 <channel> 信封外（D30）'
-          if s.count(old) != 1:
-              raise SystemExit(f'overview replacement count={s.count(old)}')
-          p.write_text(s.replace(old, new), encoding='utf-8')
-          PY
-      - name: Commit exact sync and restore governance workflow
-        shell: bash
-        run: |
-          git config user.name "cyberboss-pr133-sync"
-          git config user.email "cyberboss-pr133-sync@local.invalid"
-          git checkout origin/main -- .github/workflows/docs-governance.yml
-          git rm .github/workflows/pr133-doc-sync.yml scripts/pr133-sync.js
-          git add src/core/app.js test/telegram-media-v2.test.js docs/CURRENT_STATUS.md docs/DECISIONS.md docs/architecture/SYSTEM_OVERVIEW.md .github/workflows/docs-governance.yml
-          git diff --cached --check
-          git commit -m "fix(vision): preserve Telegram plaintext envelope and register D30"
-          git push origin HEAD:feat/tg-cmx-image-recognition-20260803
-
   doc-status-blocks:
     runs-on: ubuntu-latest
     steps:

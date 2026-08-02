@@ -16,6 +16,7 @@ const {
   resolveRecognizeUrl,
 } = require("../src/services/cmx-image-recognizer");
 const { stripConversationArtifacts } = require("../src/continuity/conversation-purity");
+const { buildMergedInboundPrepared, clonePreparedInboundMessage } = require("../src/core/inbound-turn");
 const { createTelegramChannelAdapter, readResponseBytesBounded } = require("../src/adapters/channel/telegram");
 const { resolveStateMediaReference } = require("../src/services/media-inbox-service");
 const { readConfig } = require("../src/core/config");
@@ -281,14 +282,22 @@ test("CMX recognize client sends one authenticated multipart image and normalize
   assert.equal(result.contextText.match(/<\/attachment_vision_context>/g).length, 1);
 });
 
-test("Telegram photo intake appends CMX context before runtime and purity removes it from memory material", async () => {
+test("Telegram photo intake keeps CMX output outside the plaintext channel envelope", async () => {
   const stateDir = tempDir("cb-cmx-recognize-wire-");
   const normalized = {
+    provider: "telegram",
+    accountId: "telegram",
+    workspaceId: "default",
+    senderId: "5",
+    chatId: "5",
+    contextToken: "telegram:5",
     messageId: "vision-1",
     receivedAt: "2026-08-03T00:00:00.000Z",
     text: "[图片] 帮我看看",
     attachments: [],
     telegram: {
+      chatId: "5",
+      userId: "5",
       media: [
         { kind: "photo", type: "photo", fileId: "p", extension: ".jpg", contentType: "image/jpeg", sizeBytes: 4 },
       ],
@@ -306,7 +315,7 @@ test("Telegram photo intake appends CMX context before runtime and purity remove
     },
     recognizeImage: async ({ attachment }) => {
       recognitionCalls += 1;
-      assert.equal(fs.existsSync(attachment.absolutePath), true, "recognition runs only after atomic save");
+      assert.equal(fs.existsSync(attachment.absolutePath), true);
       return {
         state: "done",
         cacheHit: false,
@@ -332,15 +341,55 @@ test("Telegram photo intake appends CMX context before runtime and purity remove
   });
 
   assert.equal(recognitionCalls, 1);
-  assert.equal(normalized.attachments.length, 1);
-  assert.match(normalized.text, /^\[图片\] 帮我看看\n\n<attachment_vision_context/);
-  assert.match(normalized.text, /自行车链条/);
-  assert.equal(normalized.cmxImageRecognition.processed, true);
+  assert.equal(normalized.text, "[图片] 帮我看看");
+  assert.equal(normalized.attachmentVisionContexts.length, 1);
+  assert.match(normalized.attachmentVisionContexts[0], /自行车链条/);
   assert.equal(normalized.cmxImageRecognition.results.length, 1);
-  assert.equal(stripConversationArtifacts(normalized.text), "[图片] 帮我看看");
+
+  const prepared = { ...normalized, originalText: normalized.text };
+  const runtime = await CyberbossApp.prototype.buildRuntimeTurn.call(
+    { config: { stateDir } },
+    { prepared },
+  );
+  assert.match(runtime.text, /^<attachment_vision_context provider="cmx-recognize" trust="untrusted"/);
+  const channelStart = runtime.text.indexOf('<channel source="telegram"');
+  assert.ok(channelStart > 0);
+  const channelEnvelope = runtime.text.slice(channelStart);
+  assert.match(channelEnvelope, /\n\[图片\] 帮我看看\n/);
+  assert.doesNotMatch(channelEnvelope, /attachment_vision_context/);
+  assert.equal(
+    stripConversationArtifacts(normalized.text + "\n\n" + normalized.attachmentVisionContexts[0]),
+    "[图片] 帮我看看",
+  );
 
   await service.processInboundImageRecognition({ normalized });
-  assert.equal(recognitionCalls, 1, "the same normalized message is never charged twice");
+  assert.equal(recognitionCalls, 1);
+});
+
+test("CMX attachment contexts survive Telegram cloning and image batching", () => {
+  const first = {
+    workspaceId: "default",
+    accountId: "telegram",
+    senderId: "5",
+    provider: "telegram",
+    originalText: "",
+    text: "",
+    attachments: [{ kind: "photo", isImage: true }],
+    attachmentFailures: [],
+    attachmentVisionContexts: ['<attachment_vision_context provider="cmx-recognize" trust="untrusted" state="done">\n<visible_text>甲</visible_text>\n</attachment_vision_context>'],
+  };
+  const second = {
+    ...first,
+    messageId: "2",
+    attachmentVisionContexts: ['<attachment_vision_context provider="cmx-recognize" trust="untrusted" state="done">\n<visible_text>乙</visible_text>\n</attachment_vision_context>'],
+  };
+  const cloned = clonePreparedInboundMessage(first);
+  assert.deepEqual(cloned.attachmentVisionContexts, first.attachmentVisionContexts);
+  const merged = buildMergedInboundPrepared({ bindingKey: "b", workspaceRoot: "w", messages: [cloned, second] });
+  assert.equal(merged.attachments.length, 2);
+  assert.equal(merged.attachmentVisionContexts.length, 2);
+  assert.match(merged.attachmentVisionContexts.join("\n"), /甲/);
+  assert.match(merged.attachmentVisionContexts.join("\n"), /乙/);
 });
 
 test("CMX recognition failure is fail-open and never changes the Telegram user text", async () => {
@@ -380,6 +429,7 @@ test("CMX recognition failure is fail-open and never changes the Telegram user t
   });
 
   assert.equal(normalized.text, "[图片] 原文");
+  assert.deepEqual(normalized.attachmentVisionContexts, []);
   assert.equal(normalized.attachments.length, 1, "the original image remains available to the runtime");
   assert.equal(normalized.cmxImageRecognition.failures[0].code, "cmx_recognize_unavailable");
   assert.match(logs.join("\n"), /photo recognition failed/);
