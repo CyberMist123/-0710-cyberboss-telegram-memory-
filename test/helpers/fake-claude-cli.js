@@ -79,6 +79,7 @@ if (logFile) {
 const keepAlive = process.env.CB_FAKE_KEEP_ALIVE === "1";
 const turnDelayMs = Number(process.env.CB_FAKE_TURN_DELAY_MS || 0) || 0;
 const execLog = process.env.CB_FAKE_EXEC_LOG || "";
+const configuredResultText = process.env.CB_FAKE_RESULT_JSON || "";
 
 let buffer = "";
 process.stdin.on("data", (chunk) => {
@@ -95,8 +96,9 @@ process.stdin.on("data", (chunk) => {
       fs.appendFileSync(execLog, `${JSON.stringify({ sessionId, line })}\n`, "utf8");
     }
     const respond = () => {
+      const resultText = configuredResultText || resultForFixturePrompt(line);
       console.log(JSON.stringify({ type: "system", session_id: sessionId }));
-      console.log(JSON.stringify({ type: "result", session_id: sessionId, result: "ok" }));
+      console.log(JSON.stringify({ type: "result", session_id: sessionId, result: resultText }));
       if (!keepAlive) {
         process.exit(0);
       }
@@ -108,3 +110,41 @@ process.stdin.on("data", (chunk) => {
     }
   }
 });
+
+function resultForFixturePrompt(line) {
+  let parsed;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return "ok";
+  }
+  const prompt = findString(parsed, (value) => value.includes("task_spec=") && value.includes("D14 v1"));
+  if (!prompt) return "ok";
+  const specLine = prompt.split("\n").find((entry) => entry.startsWith("task_spec="));
+  if (!specLine) return "ok";
+  try {
+    const spec = JSON.parse(specLine.slice("task_spec=".length));
+    return JSON.stringify({
+      task_id: spec.task_id,
+      status: "completed",
+      summary: "Fixture source src/fixtures/item.json contains one matching item.",
+      files_changed: [],
+      tests: [],
+      commit_sha: null,
+      risks: [],
+      recommended_action: "accept",
+    });
+  } catch {
+    return "ok";
+  }
+}
+
+function findString(value, predicate) {
+  if (typeof value === "string") return predicate(value) ? value : "";
+  if (!value || typeof value !== "object") return "";
+  for (const entry of Object.values(value)) {
+    const found = findString(entry, predicate);
+    if (found) return found;
+  }
+  return "";
+}
