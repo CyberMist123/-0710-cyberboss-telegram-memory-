@@ -168,10 +168,7 @@ class MediaInboxService {
       results,
       failures,
     };
-    if (contextBlocks.length) {
-      if (!normalized.telegram || typeof normalized.telegram !== "object") normalized.telegram = {};
-      normalized.telegram.cmxImageContexts = contextBlocks;
-    }
+    normalized.attachmentVisionContexts = contextBlocks;
   }
 }
 
