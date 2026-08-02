@@ -12,6 +12,7 @@ function buildInboundDraft(normalized, { attachments = [], attachmentFailures = 
     text: originalText,
     attachments: Array.isArray(attachments) ? attachments : [],
     attachmentFailures: Array.isArray(attachmentFailures) ? attachmentFailures : [],
+    attachmentVisionContexts: normalizeAttachmentVisionContexts(normalized?.attachmentVisionContexts),
   };
 }
 
@@ -32,6 +33,10 @@ function buildMergedInboundPrepared({
   }
   const attachments = queued.flatMap((message) => Array.isArray(message.attachments) ? message.attachments : []);
   const attachmentFailures = queued.flatMap((message) => Array.isArray(message.attachmentFailures) ? message.attachmentFailures : []);
+  const attachmentVisionContexts = [
+    ...queued.flatMap((message) => normalizeAttachmentVisionContexts(message?.attachmentVisionContexts)),
+    ...normalizeAttachmentVisionContexts(trailingPrepared?.attachmentVisionContexts),
+  ].slice(0, 10);
   const originalText = originalTexts.join("\n\n");
 
   return {
@@ -42,6 +47,7 @@ function buildMergedInboundPrepared({
     text: originalText,
     attachments,
     attachmentFailures,
+    attachmentVisionContexts,
   };
 }
 
@@ -130,6 +136,7 @@ function takeImageOnlyBatchMessages(messages, maxAttachments) {
 
   for (const message of Array.isArray(messages) ? messages : []) {
     const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
+    const contexts = normalizeAttachmentVisionContexts(message?.attachmentVisionContexts);
     if (!attachments.length) {
       continue;
     }
@@ -145,10 +152,12 @@ function takeImageOnlyBatchMessages(messages, maxAttachments) {
     batchMessages.push({
       ...message,
       attachments: attachments.slice(0, remainingCapacity),
+      attachmentVisionContexts: contexts.slice(0, remainingCapacity),
     });
     remainingMessages.push({
       ...message,
       attachments: attachments.slice(remainingCapacity),
+      attachmentVisionContexts: contexts.slice(remainingCapacity),
     });
     remainingCapacity = 0;
   }
@@ -175,6 +184,7 @@ function clonePreparedInboundMessage(prepared) {
     text: prepared.text,
     attachments: Array.isArray(prepared.attachments) ? prepared.attachments : [],
     attachmentFailures: Array.isArray(prepared.attachmentFailures) ? prepared.attachmentFailures : [],
+    attachmentVisionContexts: normalizeAttachmentVisionContexts(prepared?.attachmentVisionContexts),
     receivedAt: prepared.receivedAt,
   };
 }
@@ -189,6 +199,13 @@ function isPlainTextPreparedMessage(prepared) {
 function isImageAttachmentItem(item) {
   return Boolean(item?.isImage) || normalizeText(item?.contentType).toLowerCase().startsWith("image/")
     || normalizeText(item?.kind).toLowerCase() === "image";
+}
+
+function normalizeAttachmentVisionContexts(value) {
+  return (Array.isArray(value) ? value : [])
+    .filter((item) => typeof item === "string" && item.trim())
+    .map((item) => item.trim())
+    .slice(0, 10);
 }
 
 function pushSectionBreak(lines) {
@@ -220,6 +237,7 @@ module.exports = {
   clonePreparedInboundMessage,
   isImageAttachmentItem,
   isPlainTextPreparedMessage,
+  normalizeAttachmentVisionContexts,
   shouldBatchImageOnlyInbound,
   takeImageOnlyBatchMessages,
 };
