@@ -1,6 +1,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { spawnSync } = require("child_process");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
@@ -56,4 +57,87 @@ test("Telegram runtime bridge escapes hostile fields and exposes only verified s
   ]);
   assert.doesNotMatch(rootedTurn.text, /C:\\secret|\\\\|stateDir/);
   assert.deepEqual(runtimeTurn.attachments, []);
+});
+
+function resolvePythonCommand() {
+  const candidates = [process.env.PYTHON, "python", "python3"].filter(Boolean);
+  for (const command of candidates) {
+    const probe = spawnSync(command, ["--version"], {
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    if (!probe.error && probe.status === 0) return command;
+  }
+  return "";
+}
+
+test("Telegram local Whisper helper matches CMX local-only and VAD contract", (t) => {
+  const python = resolvePythonCommand();
+  if (!python) {
+    t.skip("Python is unavailable");
+    return;
+  }
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cb-cmx-whisper-contract-"));
+  const pythonRoot = path.join(root, "fake-python");
+  const fakePackage = path.join(pythonRoot, "faster_whisper");
+  const modelDir = path.join(root, "model");
+  const audioPath = path.join(root, "voice.oga");
+  const recordPath = path.join(root, "record.json");
+  fs.mkdirSync(fakePackage, { recursive: true });
+  fs.mkdirSync(modelDir, { recursive: true });
+  fs.writeFileSync(audioPath, "fake-audio", "utf8");
+  fs.writeFileSync(path.join(fakePackage, "__init__.py"), [
+    "import json",
+    "import os",
+    "class Segment:",
+    "    def __init__(self, text, end):",
+    "        self.text = text",
+    "        self.end = end",
+    "class WhisperModel:",
+    "    def __init__(self, model_path, **kwargs):",
+    "        self.record = {'model_path': model_path, **kwargs}",
+    "    def transcribe(self, audio_path, **kwargs):",
+    "        self.record['audio_path'] = audio_path",
+    "        self.record['transcribe_kwargs'] = kwargs",
+    "        with open(os.environ['FAKE_WHISPER_RECORD'], 'w', encoding='utf-8') as handle:",
+    "            json.dump(self.record, handle, ensure_ascii=False)",
+    "        return [Segment(' 你好', 1.0), Segment('世界 ', 2.0)], None",
+    "",
+  ].join("\n"), "utf8");
+
+  const scriptPath = path.resolve(__dirname, "../tools/transcribe-file.py");
+  const result = spawnSync(python, [
+    scriptPath,
+    "--input", audioPath,
+    "--model", modelDir,
+    "--device", "cpu",
+    "--compute-type", "int8",
+    "--language", "zh",
+    "--max-audio-seconds", "30",
+    "--max-output-chars", "100",
+  ], {
+    encoding: "utf8",
+    windowsHide: true,
+    env: {
+      ...process.env,
+      PYTHONPATH: [pythonRoot, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
+      FAKE_WHISPER_RECORD: recordPath,
+    },
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.text, "你好世界");
+  assert.equal(path.resolve(payload.model), path.resolve(modelDir));
+  assert.equal(Number.isInteger(payload.elapsedMs), true);
+
+  const record = JSON.parse(fs.readFileSync(recordPath, "utf8"));
+  assert.equal(path.resolve(record.model_path), path.resolve(modelDir));
+  assert.equal(record.local_files_only, true);
+  assert.equal(record.device, "cpu");
+  assert.equal(record.compute_type, "int8");
+  assert.equal(path.resolve(record.audio_path), path.resolve(audioPath));
+  assert.equal(record.transcribe_kwargs.language, "zh");
+  assert.equal(record.transcribe_kwargs.vad_filter, true);
 });
