@@ -1,24 +1,25 @@
-name: pr133-doc-sync
+name: pr133-exact-sync
 
 on:
-  push:
-    branches:
-      - feat/tg-cmx-image-recognition-20260803
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
 
 jobs:
-  sync-authority-docs:
-    if: github.actor != 'github-actions[bot]'
+  sync:
+    if: github.event.pull_request.head.ref == 'feat/tg-cmx-image-recognition-20260803'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: feat/tg-cmx-image-recognition-20260803
           fetch-depth: 0
+          persist-credentials: true
 
-      - name: Apply exact Telegram envelope and authority-document updates
+      - name: Patch Telegram envelope, tests, and authority docs exactly
         shell: bash
         run: |
           node <<'NODE'
@@ -31,101 +32,215 @@ jobs:
             return text.slice(0, first) + to + text.slice(first + from.length);
           }
 
+          function replaceRegexOnce(text, pattern, replacement, label) {
+            const matches = [...text.matchAll(new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`))];
+            if (matches.length !== 1) throw new Error(`${label}: expected one match, got ${matches.length}`);
+            return text.replace(pattern, replacement);
+          }
+
           const appPath = 'src/core/app.js';
           let app = fs.readFileSync(appPath, 'utf8');
           app = replaceOnce(
             app,
             '  const mediaLines = buildTelegramMediaBridgeLines(prepared?.attachments, stateDir);',
-            '  const mediaLines = buildTelegramMediaBridgeLines(prepared?.attachments, stateDir);\n  const visionContextLines = buildTelegramAttachmentVisionContextLines(prepared?.telegram?.cmxImageContexts);',
-            'Telegram vision lines declaration',
+            '  const mediaLines = buildTelegramMediaBridgeLines(prepared?.attachments, stateDir);\n  const visionContextLines = buildTelegramAttachmentVisionContextLines(prepared?.attachmentVisionContexts);',
+            'vision lines declaration',
           );
           app = replaceOnce(
             app,
             '    ...buildTelegramMemoryContextLines(memoryContext),\n    openTag,',
             '    ...buildTelegramMemoryContextLines(memoryContext),\n    ...visionContextLines,\n    openTag,',
-            'Telegram vision envelope placement',
+            'vision block outside channel',
           );
-          const mediaFunctionAnchor = 'function buildTelegramMediaBridgeLines(attachments, stateDir) {';
+          const mediaAnchor = 'function buildTelegramMediaBridgeLines(attachments, stateDir) {';
           const visionHelper = `function buildTelegramAttachmentVisionContextLines(value) {
-  const blocks = Array.isArray(value) ? value.slice(0, 4) : [];
-  return blocks.flatMap((block) => {
+  const blocks = Array.isArray(value) ? value.slice(0, 10) : [];
+  const lines = [];
+  let remainingChars = 12_000;
+  for (const block of blocks) {
     const text = String(block || "").trim();
-    if (!text || text.length > 6_000) return [];
-    if (!/^<attachment_vision_context provider="cmx-recognize" trust="untrusted" state="[a-z0-9_-]+">\\n[\\s\\S]*\\n<\\/attachment_vision_context>$/.test(text)) {
-      return [];
-    }
-    return text.split(/\\r?\\n/);
-  });
+    if (!text || text.length > 6_000 || text.length > remainingChars) continue;
+    if (!/^<attachment_vision_context provider="cmx-recognize" trust="untrusted" state="[a-z0-9_-]+">\\n[\\s\\S]*\\n<\\/attachment_vision_context>$/.test(text)) continue;
+    lines.push(...text.split(/\\r?\\n/));
+    remainingChars -= text.length;
+  }
+  return lines;
 }
 
 `;
-          app = replaceOnce(app, mediaFunctionAnchor, `${visionHelper}${mediaFunctionAnchor}`, 'Telegram vision context validator');
+          app = replaceOnce(app, mediaAnchor, `${visionHelper}${mediaAnchor}`, 'vision context validator');
+          app = replaceOnce(
+            app,
+            '      attachmentFailures: Array.isArray(prepared.attachmentFailures) ? prepared.attachmentFailures : [],\n      receivedAt: prepared.receivedAt,',
+            '      attachmentFailures: Array.isArray(prepared.attachmentFailures) ? prepared.attachmentFailures : [],\n      attachmentVisionContexts: Array.isArray(prepared.attachmentVisionContexts) ? prepared.attachmentVisionContexts : [],\n      receivedAt: prepared.receivedAt,',
+            'busy buffer preservation',
+          );
+          app = replaceOnce(
+            app,
+            '          attachmentFailures: pendingDispatch.prepared.attachmentFailures,\n          receivedAt: pendingDispatch.prepared.receivedAt,',
+            '          attachmentFailures: pendingDispatch.prepared.attachmentFailures,\n          attachmentVisionContexts: pendingDispatch.prepared.attachmentVisionContexts,\n          receivedAt: pendingDispatch.prepared.receivedAt,',
+            'busy flush preservation',
+          );
+          app = replaceOnce(
+            app,
+            '      // Memory context only. Vision context stays off this path on purpose:\n      // Telegram media reaches the model as <media> references inside the\n      // envelope, not through resolveVisionContext (DECISIONS.md D15).',
+            '      // Telegram still bypasses the generic resolveVisionContext path. D30 only\n      // allows prevalidated CMX attachment context outside the plaintext channel\n      // envelope; media references remain inside the envelope.',
+            'Telegram vision comment',
+          );
           fs.writeFileSync(appPath, app);
 
           const testPath = 'test/telegram-media-v2.test.js';
-          let testFile = fs.readFileSync(testPath, 'utf8');
-          testFile = replaceOnce(
-            testFile,
-            'test("Telegram photo intake appends CMX context before runtime and purity removes it from memory material", async () => {',
-            'test("Telegram photo intake places CMX context outside the plaintext channel body and purity removes it from memory material", async () => {',
-            'Telegram vision test title',
+          let tests = fs.readFileSync(testPath, 'utf8');
+          tests = replaceOnce(
+            tests,
+            'const { stripConversationArtifacts } = require("../src/continuity/conversation-purity");',
+            'const { stripConversationArtifacts } = require("../src/continuity/conversation-purity");\nconst { buildMergedInboundPrepared, clonePreparedInboundMessage } = require("../src/core/inbound-turn");',
+            'inbound-turn imports',
           );
-          testFile = replaceOnce(
-            testFile,
-            `  assert.equal(recognitionCalls, 1);
-  assert.equal(normalized.attachments.length, 1);
-  assert.match(normalized.text, /^\\[图片\\] 帮我看看\\n\\n<attachment_vision_context/);
-  assert.match(normalized.text, /自行车链条/);
-  assert.equal(normalized.cmxImageRecognition.processed, true);
-  assert.equal(normalized.cmxImageRecognition.results.length, 1);
-  assert.equal(stripConversationArtifacts(normalized.text), "[图片] 帮我看看");
+          tests = replaceRegexOnce(
+            tests,
+            /test\("Telegram photo intake appends CMX context before runtime and purity removes it from memory material", async \(\) => \{[\s\S]*?\n\}\);\n\ntest\("CMX recognition failure is fail-open/,
+            `test("Telegram photo intake keeps CMX output outside the plaintext channel envelope", async () => {
+  const stateDir = tempDir("cb-cmx-recognize-wire-");
+  const normalized = {
+    provider: "telegram",
+    accountId: "telegram",
+    workspaceId: "default",
+    senderId: "5",
+    chatId: "5",
+    contextToken: "telegram:5",
+    messageId: "vision-1",
+    receivedAt: "2026-08-03T00:00:00.000Z",
+    text: "[图片] 帮我看看",
+    attachments: [],
+    telegram: {
+      chatId: "5",
+      userId: "5",
+      media: [
+        { kind: "photo", type: "photo", fileId: "p", extension: ".jpg", contentType: "image/jpeg", sizeBytes: 4 },
+      ],
+    },
+  };
+  let recognitionCalls = 0;
+  const service = new MediaInboxService({
+    config: {
+      stateDir,
+      mediaInboxMaxBytes: 10,
+      visionMode: "caption",
+      visionProvider: "cmx-recognize",
+      visionApiBaseUrl: "http://127.0.0.1:8000",
+      visionApiKey: "secret",
+    },
+    recognizeImage: async ({ attachment }) => {
+      recognitionCalls += 1;
+      assert.equal(fs.existsSync(attachment.absolutePath), true);
+      return {
+        state: "done",
+        cacheHit: false,
+        sha256: "b".repeat(64),
+        cloudError: "",
+        contextText: [
+          '<attachment_vision_context provider="cmx-recognize" trust="untrusted" state="done">',
+          "<description>一张自行车链条照片</description>",
+          "<visible_text>无文字</visible_text>",
+          "</attachment_vision_context>",
+        ].join("\\n"),
+      };
+    },
+  });
 
-  await service.processInboundImageRecognition({ normalized });`,
-            `  assert.equal(recognitionCalls, 1);
-  assert.equal(normalized.attachments.length, 1);
-  assert.equal(normalized.text, "[图片] 帮我看看", "the plaintext Telegram body remains user-authored bytes only");
-  assert.equal(normalized.telegram.cmxImageContexts.length, 1);
-  assert.match(normalized.telegram.cmxImageContexts[0], /自行车链条/);
-  assert.equal(normalized.cmxImageRecognition.processed, true);
+  await service.processInboundMedia({
+    normalized,
+    channelAdapter: {
+      async fetchFileById() {
+        return { bytes: Buffer.from([0xff, 0xd8, 0xff, 0xd9]), sizeBytes: 4 };
+      },
+    },
+  });
+
+  assert.equal(recognitionCalls, 1);
+  assert.equal(normalized.text, "[图片] 帮我看看");
+  assert.equal(normalized.attachmentVisionContexts.length, 1);
+  assert.match(normalized.attachmentVisionContexts[0], /自行车链条/);
   assert.equal(normalized.cmxImageRecognition.results.length, 1);
 
+  const prepared = {
+    ...normalized,
+    originalText: normalized.text,
+  };
   const runtime = await CyberbossApp.prototype.buildRuntimeTurn.call(
     { config: { stateDir } },
-    { prepared: normalized },
+    { prepared },
   );
   assert.match(runtime.text, /^<attachment_vision_context provider="cmx-recognize" trust="untrusted"/);
   const channelStart = runtime.text.indexOf('<channel source="telegram"');
-  assert.ok(channelStart > 0, "generated attachment context stays outside the plaintext channel envelope");
+  assert.ok(channelStart > 0);
   const channelEnvelope = runtime.text.slice(channelStart);
   assert.match(channelEnvelope, /\\n\\[图片\\] 帮我看看\\n/);
   assert.doesNotMatch(channelEnvelope, /attachment_vision_context/);
   assert.equal(
-    stripConversationArtifacts(`${normalized.text}\\n\\n${normalized.telegram.cmxImageContexts[0]}`),
+    stripConversationArtifacts(\`${normalized.text}\\n\\n${normalized.attachmentVisionContexts[0]}\`),
     "[图片] 帮我看看",
   );
 
-  await service.processInboundImageRecognition({ normalized });`,
-            'Telegram vision test assertions',
+  await service.processInboundImageRecognition({ normalized });
+  assert.equal(recognitionCalls, 1);
+});
+
+test("CMX attachment contexts survive Telegram cloning and image batching", () => {
+  const first = {
+    workspaceId: "default",
+    accountId: "telegram",
+    senderId: "5",
+    provider: "telegram",
+    originalText: "",
+    text: "",
+    attachments: [{ kind: "photo", isImage: true }],
+    attachmentFailures: [],
+    attachmentVisionContexts: ['<attachment_vision_context provider="cmx-recognize" trust="untrusted" state="done">\\n<visible_text>甲</visible_text>\\n</attachment_vision_context>'],
+  };
+  const second = {
+    ...first,
+    messageId: "2",
+    attachmentVisionContexts: ['<attachment_vision_context provider="cmx-recognize" trust="untrusted" state="done">\\n<visible_text>乙</visible_text>\\n</attachment_vision_context>'],
+  };
+  const cloned = clonePreparedInboundMessage(first);
+  assert.deepEqual(cloned.attachmentVisionContexts, first.attachmentVisionContexts);
+  const merged = buildMergedInboundPrepared({ bindingKey: "b", workspaceRoot: "w", messages: [cloned, second] });
+  assert.equal(merged.attachments.length, 2);
+  assert.equal(merged.attachmentVisionContexts.length, 2);
+  assert.match(merged.attachmentVisionContexts.join("\\n"), /甲/);
+  assert.match(merged.attachmentVisionContexts.join("\\n"), /乙/);
+});
+
+test("CMX recognition failure is fail-open`, 
+            'vision wiring test block',
           );
-          fs.writeFileSync(testPath, testFile);
+          tests = replaceOnce(
+            tests,
+            '  assert.equal(normalized.text, "[图片] 原文");\n  assert.equal(normalized.attachments.length, 1, "the original image remains available to the runtime");',
+            '  assert.equal(normalized.text, "[图片] 原文");\n  assert.deepEqual(normalized.attachmentVisionContexts, []);\n  assert.equal(normalized.attachments.length, 1, "the original image remains available to the runtime");',
+            'fail-open context assertion',
+          );
+          fs.writeFileSync(testPath, tests);
 
           const statusPath = 'docs/CURRENT_STATUS.md';
           let status = fs.readFileSync(statusPath, 'utf8');
-          status = replaceOnce(status, 'Last verified: 2026-07-31', 'Last verified: 2026-08-03', 'current-status date');
-          status = replaceOnce(status, 'Verified against: b2355f9', 'Verified against: e70bc07', 'current-status sha');
+          status = replaceOnce(status, 'Last verified: 2026-07-31', 'Last verified: 2026-08-03', 'status date');
+          status = replaceOnce(status, 'Verified against: b2355f9', 'Verified against: PR #133 draft', 'status ref');
           const mediaRow = '| Telegram 媒体入站（media inbox） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | `test:telegram-media` 已接进主 CI |';
-          const visionRow = '| Telegram 图片识别 / OCR（CMX recognize） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 默认关闭；仅显式 `caption + cmx-recognize` 时，已落盘的 photo 才上传 CMX `/files/recognize`，复用本地 OCR、可选云端描述与 SHA-256 缓存；生成结果以信封外 untrusted 附件块进入该次 turn、限长并在记忆 purity 阶段剥除，provider 失败不阻断原图/原文。尚无真实 Windows + Telegram 图片 canary |';
-          status = replaceOnce(status, mediaRow, `${mediaRow}\n${visionRow}`, 'media capability row');
-          status = replaceOnce(status, '\n- CMX\n', '\n', 'CMX deferred item');
+          const visionRow = '| Telegram 图片识别 / OCR（CMX recognize） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 默认关闭；显式 `caption + cmx-recognize` 后，已落盘 photo 才上传到当前 CMX 部署的 `/files/recognize`。识别结果以信封外 untrusted 附件块进入该次 turn，用户正文逐字不变，purity 阶段剥除，provider 失败不阻断原图/原文。依赖 CMX 部署实际包含该端点；尚无真实 Windows + Telegram 图片 canary |';
+          status = replaceOnce(status, mediaRow, `${mediaRow}\n${visionRow}`, 'media row');
+          status = replaceOnce(status, '\n- CMX\n', '\n', 'deferred CMX item');
           status = replaceOnce(
             status,
             '已消解：memory_context 的位置、vision context 不回流、fail-open 与钉格式测试均由 `DECISIONS.md` D15 裁定并落地。',
-            '已消解：memory_context 的位置、无记忆兼容、fail-open 与钉格式测试原由 D15 裁定；D30 保留这些边界，并只为显式开启的 CMX 图片识别增加信封外受控例外。通用 `resolveVisionContext()` 仍不回 Telegram 路径。',
-            'G1 risk statement',
+            '已消解：memory_context 的位置、无记忆兼容、fail-open 与钉格式测试原由 D15 裁定；D30 保留这些边界，只为显式开启的 CMX 图片识别增加信封外受控例外。通用 `resolveVisionContext()` 仍不回 Telegram 路径。',
+            'G1 risk text',
           );
           const evidenceAnchor = '- **G1（Telegram memory_context）**：';
-          const visionEvidence = '- **Telegram→CMX 图片识别 / OCR**：`MediaInboxService` 在 photo 原子落盘后、recorder/runtime 前调用 `src/services/cmx-image-recognizer.js`；只向配置的 CMX `POST /files/recognize` 上传字节，Bearer 不进模型与日志。结果以信封外 `<attachment_vision_context trust="untrusted">` 进入该次 turn，用户正文逐字不变，closing-tag 注入转义且总长有界；`conversation-purity` 在记忆材料化前剥除该块。CMX 不可用时原文与 `<media>` 引用照常继续。契约与主路径回归位于 `test/telegram-media-v2.test.js`，属于阻塞的 `test:telegram-media`。\n';
-          status = replaceOnce(status, evidenceAnchor, `${visionEvidence}${evidenceAnchor}`, 'evidence anchor');
+          const evidence = '- **Telegram→CMX 图片识别 / OCR**：`MediaInboxService` 在 photo 原子落盘后、recorder/runtime 前调用 `src/services/cmx-image-recognizer.js`；仅向配置的 CMX `POST /files/recognize` 上传字节。结果以信封外 `<attachment_vision_context trust="untrusted">` 进入该次 turn，用户正文逐字不变，输出转义且总长有界；`conversation-purity` 在记忆材料化前剥除。CMX 不可用时原文与 `<media>` 引用继续。契约和主路径回归位于 `test/telegram-media-v2.test.js`，属于阻塞 `test:telegram-media`。\n';
+          status = replaceOnce(status, evidenceAnchor, `${evidence}${evidenceAnchor}`, 'status evidence');
           fs.writeFileSync(statusPath, status);
 
           const decisionsPath = 'docs/DECISIONS.md';
@@ -136,7 +251,6 @@ jobs:
             '## D15 · memory_context 拼在 Telegram 信封外侧上方\n\n```text\nStatus: SUPERSEDED\nDecision date: 2026-07-29\nSuperseded by: D30\n```',
             'D15 status',
           );
-
           const candidateAnchor = '## 待裁决 / Candidates';
           const d30 = `## D30 · Telegram 可显式复用 CMX 图片识别 / OCR；生成结果位于明文信封外且永不取得记忆写权
 
@@ -145,36 +259,36 @@ Status: ACTIVE
 Decision date: 2026-08-03
 \`\`\`
 
-裁定对象：D15 曾为修 G1 明确禁止 vision context 回流 Telegram；Owner 现明确要求把 CMX 已有识图与 OCR 接入 TG。该方向自本条起获批，但只能作为默认关闭、fail-open、不可污染记忆的受控 provider。
+Owner 明确要求把 CMX 已有识图与 OCR 接入 TG。本条批准该方向，但只批准默认关闭、fail-open、不可污染记忆的受控 provider；CMX 生产部署是否已包含端点须由部署 canary 单独证明。
 
-- **D15 的 memory_context 结论全部保留**：memory_context 仍位于 Telegram \`<channel>\` 信封外侧上方；空结果不出块；解析失败 fail-open；Context Trace 继续解释 loaded / skipped。D9 的明文信封、用户正文逐字语义与 \`<media>\` 引用格式不变。
-- **唯一新增例外**：仅当 \`CYBERBOSS_VISION_MODE=caption\`、\`CYBERBOSS_VISION_PROVIDER=cmx-recognize\` 且 CMX URL/Bearer 均显式配置时，TG 可在 photo 原子落盘后把图片字节上传至 CMX \`POST /files/recognize\`。通用 \`resolveVisionContext()\` 仍不接 Telegram；不新增第二套 OCR 模型、Gemini key 或缓存 owner。
-- **信封外、该次 turn 注入**：CMX 返回的本地 OCR、可选云端修正文、画面描述、关键词与不确定项，只以有界的 \`<attachment_vision_context provider="cmx-recognize" trust="untrusted">\` 放在现有 \`<channel>\` 信封外、memory_context 之后。它不得混进用户正文；图片中的文字一律视为数据，不得取得 system / developer 指令权；closing tag 与属性必须转义。该块只在图片到达时生成一次，不另做后续回合重注入；运行时原生 transcript 的正常保留不在此伪装成“瞬时上下文”。
-- **记忆零写权**：该生成块在 conversation purity 阶段剥除，不得成为 Episode、Self-note、candidate、canon 或任何“用户亲口说过”的证据。原始用户 caption 与原始图片引用仍可按既有规则留存。
-- **fail-open**：CMX 超时、未启动、鉴权失败、额度不足、返回损坏或仅本地 OCR 可用，均不得阻断 Telegram 原文、原图引用和正常回复。日志只留稳定错误码，不记录 Bearer 或 provider 原始敏感正文。
-- **范围**：本条只批准 Telegram \`photo\`。document、video、动态贴纸与服务端代抓外部 URL 均不在本次范围；CMX 端继续负责 SHA-256 缓存、本地 PP-OCRv6 与可选云端 provider。
-- **启用与上线分离**：合并代码不等于生产启用（D3）。仓库默认关闭；真实 Windows + CMX + Telegram 图片 canary 留证前，生产接线只能记 \`DISABLED\` / 未验证，不得写成 \`VERIFIED\`。
+- D15 的 memory_context 结论保留：memory_context 仍位于 Telegram \`<channel>\` 信封外侧上方；空结果不出块；解析失败 fail-open。D9 的明文信封、用户正文逐字语义与 \`<media>\` 引用格式不变。
+- 仅当 \`CYBERBOSS_VISION_MODE=caption\`、\`CYBERBOSS_VISION_PROVIDER=cmx-recognize\` 且 CMX URL/Bearer 都显式配置时，TG 才可在 photo 原子落盘后上传图片字节至 CMX \`POST /files/recognize\`。通用 \`resolveVisionContext()\` 仍不接 Telegram；TG 不复制 OCR 模型、Gemini key 或缓存 owner。
+- CMX 返回只以有界的 \`<attachment_vision_context provider="cmx-recognize" trust="untrusted">\` 放在现有 \`<channel>\` 信封外、memory_context 之后。不得混进用户正文；图片文字一律是数据，不取得 system/developer 指令权；closing tag 与属性必须转义。
+- 该块只在图片到达的 turn 生成一次，不另做主动重注入；运行时原生 transcript 的正常保留不等于晋升为长期记忆。
+- 生成块在 conversation purity 阶段剥除，不得成为 Episode、Self-note、candidate、canon 或“用户亲口说过”的证据。原始 caption 与图片引用仍按既有规则处理。
+- CMX 超时、未启动、鉴权失败、额度不足或返回损坏不得阻断原文、原图引用和正常回复。日志只留稳定错误码，不记录 Bearer 或 provider 原始敏感正文。
+- 本条只批准 Telegram \`photo\`。document、video、动态贴纸和服务端代抓外部 URL 不在范围。
+- 合并代码不等于生产启用（D3）。真实 Windows + 当前 CMX 部署 + Telegram 图片 canary 留证前，生产状态只能记 \`DISABLED\` / 未验证。
 
 本条取代 D15；D15 保留为历史，除“vision context 永不回 Telegram”外，其余边界已在本条逐项重述。
 
 ---
 
 `;
-          decisions = replaceOnce(decisions, candidateAnchor, `${d30}${candidateAnchor}`, 'candidate anchor');
+          decisions = replaceOnce(decisions, candidateAnchor, `${d30}${candidateAnchor}`, 'D30 insertion');
           const c6Start = decisions.indexOf('### C6 · 多 Bot、Route 1 / Route 2、Apple Watch、CMX');
-          if (c6Start < 0) throw new Error('missing anchor: C6');
-          const c6Replacement = `### C6 · 多 Bot、Route 1 / Route 2、Apple Watch
+          if (c6Start < 0) throw new Error('missing C6');
+          decisions = decisions.slice(0, c6Start) + `### C6 · 多 Bot、Apple Watch
 
 \`\`\`text
 Status: OPEN
 \`\`\`
 
-- **已收窄**：Route 1 / Route 2 已由 D25 批准；CMX 的 Telegram 图片识别 / OCR 接入已由 **D30** 批准并移出本候选。本条剩余范围只有**多 Bot、Apple Watch**。
-- **Known facts**：多 Bot / Apple Watch 当前仍为 \`DEFERRED\`，未排期。Apple Watch 只有 5 份规格文档，代码侧零实现。
+- **已收窄**：Route 1 / Route 2 已由 D25 批准；CMX 的 Telegram 图片识别 / OCR 接入已由 D30 批准并移出本候选。本条剩余范围只有多 Bot、Apple Watch。
+- **Known facts**：多 Bot / Apple Watch 当前仍为 \`DEFERRED\`，未排期。Apple Watch 只有规格文档，代码侧零实现。
 - **Decision needed**：剩余两者是否以及何时排期。
-- **Not authorised**：在排期前对剩余两者投入实现工作。
+- **Not authorised**：排期前不得投入实现工作。
 `;
-          decisions = decisions.slice(0, c6Start) + c6Replacement;
           fs.writeFileSync(decisionsPath, decisions);
 
           const overviewPath = 'docs/architecture/SYSTEM_OVERVIEW.md';
@@ -182,20 +296,20 @@ Status: OPEN
           overview = replaceOnce(
             overview,
             '        注：这条分支不走 resolveVisionContext() —— Telegram 媒体\n        以 <media> 引用进 envelope，是刻意设计（DECISIONS.md D15）',
-            '        注：这条分支仍不走通用 resolveVisionContext()。Telegram 媒体\n        默认只以 <media> 引用进 envelope；显式开启 cmx-recognize 时，\n        MediaInboxService 在 photo 原子落盘后调用 CMX /files/recognize，\n        将有界、untrusted 的识别块放在明文 <channel> 信封外（DECISIONS.md D30）',
-            'overview Telegram path',
+            '        注：这条分支仍不走通用 resolveVisionContext()。Telegram 媒体\n        默认只以 <media> 引用进 envelope；显式开启 cmx-recognize 时，\n        MediaInboxService 在 photo 原子落盘后调用 CMX /files/recognize，\n        将有界、untrusted 的识别块放在明文 <channel> 信封外（D30）',
+            'overview path',
           );
           const budgetAnchor = '**这个分档就是"积木"的接缝。**';
-          const visionBoundary = '**Telegram CMX 图片上下文**属于“该次 turn 的临时附件数据”，不进入三档长期记忆：默认关闭；开启时只随该条 photo 生成一次，位于明文 channel 信封外，明确标为 untrusted，且在 conversation purity 阶段剥除。它不是常驻注入、不是 memory 目录，也不是完全按需翻档；运行时 transcript 的正常保留不等于把它晋升为记忆。\n\n';
-          overview = replaceOnce(overview, budgetAnchor, `${visionBoundary}${budgetAnchor}`, 'overview budget anchor');
+          const boundary = '**Telegram CMX 图片上下文**属于该次 turn 的临时附件数据，不进入三档长期记忆：默认关闭；开启时随 photo 生成，位于明文 channel 信封外，标为 untrusted，并在 conversation purity 阶段剥除。它不是常驻注入或 memory 目录；运行时 transcript 的正常保留不等于记忆晋升。\n\n';
+          overview = replaceOnce(overview, budgetAnchor, `${boundary}${budgetAnchor}`, 'overview budget');
           fs.writeFileSync(overviewPath, overview);
           NODE
 
-      - name: Commit exact sync and remove this one-shot workflow
+      - name: Commit synchronized files and remove one-shot workflow
         shell: bash
         run: |
-          git config user.name "cyberboss-pr133-doc-sync"
-          git config user.email "cyberboss-pr133-doc-sync@local.invalid"
+          git config user.name "cyberboss-pr133-sync"
+          git config user.email "cyberboss-pr133-sync@local.invalid"
           git rm .github/workflows/pr133-doc-sync.yml
           git add src/core/app.js test/telegram-media-v2.test.js docs/CURRENT_STATUS.md docs/DECISIONS.md docs/architecture/SYSTEM_OVERVIEW.md
           git diff --cached --check
