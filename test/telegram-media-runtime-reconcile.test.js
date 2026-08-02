@@ -79,15 +79,17 @@ test("Telegram local Whisper helper matches CMX local-only and VAD contract", (t
   }
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "cb-cmx-whisper-contract-"));
-  const pythonRoot = path.join(root, "fake-python");
-  const fakePackage = path.join(pythonRoot, "faster_whisper");
   const modelDir = path.join(root, "model");
   const audioPath = path.join(root, "voice.oga");
   const recordPath = path.join(root, "record.json");
-  fs.mkdirSync(fakePackage, { recursive: true });
+  const scriptPath = path.join(root, "transcribe-file.py");
   fs.mkdirSync(modelDir, { recursive: true });
   fs.writeFileSync(audioPath, "fake-audio", "utf8");
-  fs.writeFileSync(path.join(fakePackage, "__init__.py"), [
+  // Put the fake provider beside a byte-for-byte copy of the production helper.
+  // Python always searches the script directory first, which is deterministic
+  // on Windows and avoids depending on runner-specific PYTHONPATH behaviour.
+  fs.copyFileSync(path.resolve(__dirname, "../tools/transcribe-file.py"), scriptPath);
+  fs.writeFileSync(path.join(root, "faster_whisper.py"), [
     "import json",
     "import os",
     "class Segment:",
@@ -106,7 +108,6 @@ test("Telegram local Whisper helper matches CMX local-only and VAD contract", (t
     "",
   ].join("\n"), "utf8");
 
-  const scriptPath = path.resolve(__dirname, "../tools/transcribe-file.py");
   const result = spawnSync(python, [
     scriptPath,
     "--input", audioPath,
@@ -121,7 +122,6 @@ test("Telegram local Whisper helper matches CMX local-only and VAD contract", (t
     windowsHide: true,
     env: {
       ...process.env,
-      PYTHONPATH: [pythonRoot, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
       FAKE_WHISPER_RECORD: recordPath,
     },
   });
