@@ -2,7 +2,7 @@
 """Offline, opt-in Whisper transcription helper.
 
 The caller supplies all arguments as an argv array. This helper never downloads
-models and emits exactly one JSON object on stdout.
+models and emits exactly one UTF-8 JSON object on stdout.
 """
 
 import argparse
@@ -12,7 +12,16 @@ import sys
 import time
 
 
+def configure_utf8_stdio():
+    """Make the Node/Python process boundary independent of Windows code pages."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 def main():
+    configure_utf8_stdio()
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
     parser.add_argument("--model", required=True)
