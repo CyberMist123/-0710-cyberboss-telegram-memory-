@@ -5,7 +5,6 @@ const path = require("path");
 
 const { DEFAULT_MAX_INBOUND_MEDIA_BYTES, createTelegramMediaDescriptor } = require("./telegram-media-descriptor");
 const {
-  appendCmxImageContext,
   isCmxImageRecognitionConfigured,
   recognizeImageWithCmx,
 } = require("./cmx-image-recognizer");
@@ -170,7 +169,8 @@ class MediaInboxService {
       failures,
     };
     if (contextBlocks.length) {
-      normalized.text = appendCmxImageContext(normalized.text, contextBlocks);
+      if (!normalized.telegram || typeof normalized.telegram !== "object") normalized.telegram = {};
+      normalized.telegram.cmxImageContexts = contextBlocks;
     }
   }
 }
