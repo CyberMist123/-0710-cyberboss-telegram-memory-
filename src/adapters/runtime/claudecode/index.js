@@ -6,6 +6,7 @@ const { mapClaudeCodeMessageToRuntimeEvent } = require("./events");
 const {
   ensureClaudeProjectMcpConfig,
   ensureRouteScopedMcpConfig,
+  resolveToolAuthorizationCeiling,
 } = require("./project-settings");
 const {
   SessionSlotStore,
@@ -19,6 +20,20 @@ const { resolveCliCapabilities } = require("./cli-capabilities");
 const { runG3LaunchPreflight } = require("./g3-preflight");
 const { applyHarnessOverlay, resolveWindowOverride, windowOverrideEnabled } = require("./window-override");
 const { Route2GateState, decideRoute2Gate } = require("./route2-gate");
+const {
+  TaskSessionRegistry,
+  buildTaskSessionPrompt,
+  buildTaskShortStatus,
+  parseTaskSessionCapsule,
+  route1TaskSessionEnabled,
+  runAtomicTaskStep,
+} = require("./task-session");
+const { assertValidTaskSpec } = require("../../../orchestration/delegation/task-spec");
+const {
+  assertValidResultCapsule,
+  validateResultCapsule,
+} = require("../../../orchestration/delegation/result-capsule");
+const { verifyCapsule } = require("../../../orchestration/delegation/verifier");
 const {
   buildLegacyRouteLane,
   buildSystemRouteLane,
@@ -102,6 +117,8 @@ function createClaudeCodeRuntimeAdapter(config) {
   const allowAuthBackendOverride = config.claudeAllowAuthBackendOverride === true;
   const allowCloudCredentialInheritance = config.claudeAllowCloudCredentialInheritance === true;
   const pendingModelByWorkspaceRoot = new Map();
+  const taskSessionRegistry = new TaskSessionRegistry();
+  const taskSessionInputs = new Map();
 
   // Snapshot of the pre-v2 binding-level session ids, taken once at
   // construction *before* any lane can mirror a new session id into
@@ -727,6 +744,203 @@ function createClaudeCodeRuntimeAdapter(config) {
     const processKey = computeProcessKey(route);
     return processRegistry.withLock(processKey, () => closeProcessKey(processKey));
   }
+
+  function assertTaskWorkerProfile(launchProfile) {
+    if (!launchProfile
+      || launchProfile.schemaVersion !== 3
+      || launchProfile.profileId !== "work-engineering") {
+      const error = new Error("route1_task_worker_profile_required");
+      error.code = "route1_task_worker_profile_required";
+      throw error;
+    }
+    if (resolveToolAuthorizationCeiling(launchProfile) !== "work-memory-readonly@1") {
+      const error = new Error("route1_task_worker_memory_ceiling_required");
+      error.code = "route1_task_worker_memory_ceiling_required";
+      throw error;
+    }
+  }
+
+  function buildTaskRoute(spec, launchProfile) {
+    assertTaskWorkerProfile(launchProfile);
+    return resolveRouteContext({
+      workspaceRoot: spec.workspace,
+      lane: buildSystemRouteLane(`route1-task-${spec.task_id}`),
+      launchProfile,
+    });
+  }
+
+  async function createTaskProcessClient(route) {
+    const cyberbossHome = process.env.CYBERBOSS_HOME || path.resolve(__dirname, "..", "..", "..", "..");
+    const routeScoped = ensureRouteScopedMcpConfig({
+      workspaceRoot: route.workspaceRoot,
+      cyberbossHome,
+      routeToken: route.sessionSlotKey,
+      configDir: path.join(stateDir, "claude-mcp"),
+      launchProfile: route.launchProfile,
+      mutableOverride: null,
+    });
+    if (!routeScoped) throw new Error("route1_task_mcp_config_unavailable");
+    const g3Preflight = await runG3LaunchPreflight({
+      profile: route.launchProfile,
+      baseEnv: filterClaudeCodeEnv(process.env),
+      baseCwd: route.agentCwd,
+      extraArgs: config.claudeExtraArgs || [],
+      baseDir: launchProfileBaseDir,
+      capabilities: cliCapabilities,
+      command: config.claudeCommand || "claude",
+      commandPrefixArgs: config.claudeCommandPrefixArgs || [],
+      authProbe: config.claudeG3AuthProbe,
+      expectedLockPath: route.agentCwd,
+    });
+    return new ClaudeCodeProcessClient({
+      command: config.claudeCommand || "claude",
+      commandPrefixArgs: config.claudeCommandPrefixArgs || [],
+      cwd: route.agentCwd,
+      env: filterClaudeCodeEnv(process.env),
+      model: route.model,
+      effort: route.effort,
+      permissionMode: config.claudePermissionMode || "default",
+      disableVerbose: Boolean(config.claudeDisableVerbose),
+      extraArgs: config.claudeExtraArgs || [],
+      mcpConfigPaths: [routeScoped.configPath],
+      launchProfile: route.launchProfile,
+      launchProfileBaseDir,
+      cliCapabilities,
+      allowAuthBackendOverride,
+      allowCloudCredentialInheritance,
+      g3Preflight,
+      onLaunchTelemetry: config.onClaudeLaunchTelemetry,
+      ipcServer: null,
+      workspaceRoot: route.workspaceRoot,
+      laneKey: route.lane.laneKey,
+      sessionSlotKey: route.sessionSlotKey,
+      processKey: `route1-task:${route.sessionSlotKey}`,
+    });
+  }
+
+  function failureTaskCapsule(taskId, state, summary) {
+    const status = state === "timed_out" || state === "cancelled" ? state : "failed";
+    return assertValidResultCapsule({
+      task_id: taskId,
+      status,
+      summary,
+      files_changed: [],
+      tests: [],
+      commit_sha: null,
+      risks: [],
+      recommended_action: status === "failed" ? "rework" : "stop",
+    });
+  }
+
+  async function executeTaskSession(taskId, { resume = false, observedChangedPaths } = {}) {
+    const input = taskSessionInputs.get(taskId);
+    if (!input) {
+      const error = new Error("task_session_unknown");
+      error.code = "task_session_unknown";
+      throw error;
+    }
+    if (!Array.isArray(observedChangedPaths)) {
+      const error = new Error("task_session_observed_paths_required");
+      error.code = "task_session_observed_paths_required";
+      throw error;
+    }
+    const { spec, launchProfile, prompt } = input;
+    const route = buildTaskRoute(spec, launchProfile);
+    const latch = taskSessionRegistry.getLatch(taskId);
+    taskSessionRegistry.transition(taskId, "running", resume ? "resumed worker running" : "worker running");
+
+    let client = null;
+    let unsubscribe = () => {};
+    let workspaceHold = null;
+    let capsule = null;
+    let verification = null;
+    try {
+      client = await createTaskProcessClient(route);
+      unsubscribe = client.onMessage((event) => {
+        if (event?.type === "session.id") {
+          storeSlotThreadId(route, event.sessionId);
+          taskSessionRegistry.setNativeSessionId(taskId, event.sessionId);
+        } else if (event?.type === "approval.requested") {
+          const current = taskSessionRegistry.get(taskId);
+          if (current?.state === "running") {
+            taskSessionRegistry.transition(taskId, "waiting_approval", "worker waiting for approval");
+          }
+        }
+      });
+      workspaceHold = await workspaceLocks.acquire(route.agentCwd, route.workspaceAccess || DEFAULT_ACCESS);
+      await client.connect(resume ? route.storedThreadId : "");
+
+      let nextText = prompt;
+      let runtimeText = "";
+      for (;;) {
+        const atomic = await runAtomicTaskStep(latch, async () => {
+          const completion = waitForTaskSessionCompletion(client, spec.timeout_ms);
+          await client.sendUserMessage({
+            text: nextText,
+            threadId: resume ? route.storedThreadId : "",
+          });
+          return completion;
+        });
+        if (!atomic.ran || atomic.stopAtBoundary) {
+          taskSessionRegistry.transition(taskId, "cancelled", "stopped at atomic step boundary");
+          capsule = failureTaskCapsule(taskId, "cancelled", "worker stopped at an atomic step boundary");
+          break;
+        }
+        runtimeText = await atomic.value;
+        const queued = taskSessionRegistry.takeInstructions(taskId);
+        if (!queued.length) break;
+        nextText = [
+          "Apply these bounded follow-up instructions, then return a fresh D14 v1 result capsule JSON object:",
+          ...queued.map((instruction) => `- ${instruction}`),
+        ].join("\n");
+      }
+
+      if (!capsule) {
+        const parsed = parseTaskSessionCapsule(runtimeText);
+        const validation = validateResultCapsule(parsed);
+        if (!validation.ok) {
+          const error = new Error("task_session_capsule_invalid");
+          error.code = "task_session_capsule_invalid";
+          throw error;
+        }
+        capsule = parsed;
+      }
+      verification = verifyCapsule({ spec, capsule, observedChangedPaths });
+      if (taskSessionRegistry.get(taskId).state !== "cancelled") {
+        taskSessionRegistry.transition(
+          taskId,
+          verification.decision === "accept" ? "completed" : "failed",
+          verification.decision === "accept" ? "validated capsule accepted" : "validated capsule not accepted",
+        );
+      }
+    } catch (error) {
+      const timedOut = error?.code === "task_session_timed_out";
+      const nextState = timedOut ? "timed_out" : "failed";
+      const current = taskSessionRegistry.get(taskId);
+      if (current && !TERMINAL_TASK_SESSION_STATES.has(current.state)) {
+        taskSessionRegistry.transition(taskId, nextState, timedOut ? "worker timed out" : "worker failed");
+      }
+      capsule = failureTaskCapsule(
+        taskId,
+        nextState,
+        timedOut ? `worker exceeded timeout_ms=${spec.timeout_ms}` : `worker result rejected (${error?.code || "task_session_failed"})`,
+      );
+      verification = verifyCapsule({ spec, capsule, observedChangedPaths });
+    } finally {
+      unsubscribe();
+      workspaceHold?.release();
+      await client?.close().catch(() => {});
+    }
+
+    const task = taskSessionRegistry.get(taskId);
+    return {
+      capsule,
+      shortStatus: buildTaskShortStatus({ task, capsule, verification }),
+    };
+  }
+
+  const TERMINAL_TASK_SESSION_STATES = new Set(["completed", "failed", "timed_out", "cancelled"]);
+
   return {
     describe() {
       return {
@@ -838,6 +1052,70 @@ function createClaudeCodeRuntimeAdapter(config) {
       }
       const attached = await attachProcessToSession(route, { threadId: route.storedThreadId });
       return { threadId: attached.threadId, resumed: true, resumeOrigin, empty: false };
+    },
+    async runTaskSession({ spec, launchProfile, taskMaterials = [], observedChangedPaths } = {}) {
+      if (!route1TaskSessionEnabled()) {
+        const error = new Error("route1_task_session_disabled");
+        error.code = "route1_task_session_disabled";
+        throw error;
+      }
+      assertValidTaskSpec(spec);
+      if (!Array.isArray(observedChangedPaths)) {
+        const error = new Error("task_session_observed_paths_required");
+        error.code = "task_session_observed_paths_required";
+        throw error;
+      }
+      const route = buildTaskRoute(spec, launchProfile);
+      const prompt = buildTaskSessionPrompt({ spec, taskMaterials });
+      taskSessionRegistry.create({
+        spec,
+        sessionSlotKey: route.sessionSlotKey,
+        profileId: route.profileId,
+      });
+      taskSessionInputs.set(spec.task_id, { spec, launchProfile, prompt });
+      return executeTaskSession(spec.task_id, { observedChangedPaths });
+    },
+    addTaskSessionInstruction({ taskId, instruction } = {}) {
+      if (!route1TaskSessionEnabled()) {
+        const error = new Error("route1_task_session_disabled");
+        error.code = "route1_task_session_disabled";
+        throw error;
+      }
+      return taskSessionRegistry.addInstruction(taskId, instruction);
+    },
+    cancelTaskSession({ taskId, reason = "cancel_requested" } = {}) {
+      if (!route1TaskSessionEnabled()) {
+        const error = new Error("route1_task_session_disabled");
+        error.code = "route1_task_session_disabled";
+        throw error;
+      }
+      return taskSessionRegistry.requestCancel(taskId, reason);
+    },
+    requestTaskSessionStrongInterrupt({ taskId } = {}) {
+      if (!route1TaskSessionEnabled()) {
+        const error = new Error("route1_task_session_disabled");
+        error.code = "route1_task_session_disabled";
+        throw error;
+      }
+      return taskSessionRegistry.requestCancel(taskId, "strong_interrupt");
+    },
+    async resumeTaskSession({ taskId, observedChangedPaths } = {}) {
+      if (!route1TaskSessionEnabled()) {
+        const error = new Error("route1_task_session_disabled");
+        error.code = "route1_task_session_disabled";
+        throw error;
+      }
+      if (!Array.isArray(observedChangedPaths)) {
+        const error = new Error("task_session_observed_paths_required");
+        error.code = "task_session_observed_paths_required";
+        throw error;
+      }
+      taskSessionRegistry.resume(taskId);
+      return executeTaskSession(taskId, { resume: true, observedChangedPaths });
+    },
+    getTaskSessionStatus({ taskId } = {}) {
+      if (!route1TaskSessionEnabled()) return null;
+      return taskSessionRegistry.get(taskId);
     },
     async runBackgroundTurn({ workspaceRoot, text, model = "", workspaceAccess = DEFAULT_ACCESS }) {
       const normalizedWorkspaceRoot = normalizeText(workspaceRoot);
@@ -1274,6 +1552,7 @@ function createClaudeCodeRuntimeAdapter(config) {
     __internals: {
       processRegistry,
       sessionSlotStore,
+      taskSessionRegistry,
       workspaceLocks,
       resolveRouteContext,
       computeProcessKey,
@@ -1487,4 +1766,33 @@ function waitForIsolatedCompletion(client, timeoutMs = 120_000) {
     });
     const timer = setTimeout(() => finish(new Error("background runtime timed out")), timeoutMs);
   });
+}
+
+function waitForTaskSessionCompletion(client, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error, text = "") => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      unsubscribe();
+      if (error) reject(error);
+      else resolve(text);
+    };
+    const unsubscribe = client.onMessage((event) => {
+      if (event?.type === "turn.completed") finish(null, event.text || "");
+      if (event?.type === "process.error") finish(taskCompletionError("task_session_process_failed"));
+      if (event?.type === "process.close") finish(taskCompletionError("task_session_process_closed"));
+    });
+    const timer = setTimeout(
+      () => finish(taskCompletionError("task_session_timed_out")),
+      timeoutMs,
+    );
+  });
+}
+
+function taskCompletionError(code) {
+  const error = new Error(code);
+  error.code = code;
+  return error;
 }

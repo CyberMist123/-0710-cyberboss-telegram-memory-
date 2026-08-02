@@ -76,19 +76,30 @@ function verifyCapsule({ spec, capsule, observedChangedPaths } = {}) {
     return { decision: "stop", reasons: [`capsule status is ${capsule.status}`] };
   }
 
-  // Every acceptance test named in the spec must be present in the capsule.
-  // Otherwise "no failures reported" could just mean "the test never ran".
-  const reported = new Set(capsule.tests.map((entry) => entry.name));
-  const missing = spec.acceptance_tests
-    .map((entry) => entry.name)
-    .filter((name) => !reported.has(name));
-  if (missing.length) {
-    reasons.push(`acceptance tests missing from capsule: ${missing.join(", ")}`);
-  }
+  const readonlyQuery = capsule.files_changed.length === 0
+    && capsule.tests.length === 0
+    && capsule.commit_sha === null
+    && observed.length === 0;
 
-  const failed = capsule.tests.filter((entry) => !entry.passed).map((entry) => entry.name);
-  if (failed.length) {
-    reasons.push(`acceptance tests failed: ${failed.join(", ")}`);
+  // D14's existing query shape carries evidence in the bounded summary and
+  // leaves both files_changed and tests empty. The orchestrator still proves
+  // the safety-relevant fact itself (there was no observed diff) before this
+  // branch. Mutation capsules keep the stronger named-test correspondence.
+  if (!readonlyQuery) {
+    // Every acceptance test named in the spec must be present in the capsule.
+    // Otherwise "no failures reported" could just mean "the test never ran".
+    const reported = new Set(capsule.tests.map((entry) => entry.name));
+    const missing = spec.acceptance_tests
+      .map((entry) => entry.name)
+      .filter((name) => !reported.has(name));
+    if (missing.length) {
+      reasons.push(`acceptance tests missing from capsule: ${missing.join(", ")}`);
+    }
+
+    const failed = capsule.tests.filter((entry) => !entry.passed).map((entry) => entry.name);
+    if (failed.length) {
+      reasons.push(`acceptance tests failed: ${failed.join(", ")}`);
+    }
   }
 
   if (reasons.length) {
