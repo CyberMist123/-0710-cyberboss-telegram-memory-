@@ -4,6 +4,11 @@ const fs = require("fs");
 const path = require("path");
 
 const { DEFAULT_MAX_INBOUND_MEDIA_BYTES, createTelegramMediaDescriptor } = require("./telegram-media-descriptor");
+const {
+  appendCmxImageContext,
+  isCmxImageRecognitionConfigured,
+  recognizeImageWithCmx,
+} = require("./cmx-image-recognizer");
 
 const MEDIA_DIRS = Object.freeze({
   voice: "voice",
@@ -13,10 +18,13 @@ const MEDIA_DIRS = Object.freeze({
 });
 
 class MediaInboxService {
-  constructor({ config }) {
+  constructor({ config, recognizeImage = null } = {}) {
     this.config = config || {};
     this.maxInboundBytes = normalizePositiveInt(this.config.mediaInboxMaxBytes)
       || DEFAULT_MAX_INBOUND_MEDIA_BYTES;
+    this.recognizeImage = typeof recognizeImage === "function"
+      ? recognizeImage
+      : recognizeImageWithCmx;
   }
 
   async processInboundMedia({ normalized, channelAdapter, log = null }) {
@@ -26,12 +34,17 @@ class MediaInboxService {
     for (const descriptor of descriptors) {
       await this.processDescriptor({ normalized, descriptor, channelAdapter, log });
     }
+    await this.processInboundImageRecognition({ normalized, log });
   }
 
   async processInboundPhoto(args) {
-    return this.processDescriptor({
+    await this.processDescriptor({
       ...args,
       descriptor: args?.normalized?.telegram?.photo,
+    });
+    await this.processInboundImageRecognition({
+      normalized: args?.normalized,
+      log: args?.log,
     });
   }
 
@@ -103,6 +116,61 @@ class MediaInboxService {
       if (partPath) {
         try { fs.rmSync(partPath, { force: true }); } catch {}
       }
+    }
+  }
+
+  async processInboundImageRecognition({ normalized, log = null } = {}) {
+    if (!normalized || !isCmxImageRecognitionConfigured(this.config)) return;
+    if (normalized.cmxImageRecognition?.processed === true) return;
+
+    const photos = (Array.isArray(normalized.attachments) ? normalized.attachments : [])
+      .filter((item) => item?.kind === "photo" && normalizeText(item.absolutePath));
+    if (!photos.length) return;
+
+    const contextBlocks = [];
+    const results = [];
+    const failures = [];
+    for (const attachment of photos) {
+      try {
+        const result = await this.recognizeImage({
+          attachment,
+          config: this.config,
+        });
+        if (result?.contextText) contextBlocks.push(result.contextText);
+        results.push({
+          provider: "cmx-recognize",
+          state: normalizeText(result?.state) || "unknown",
+          cacheHit: result?.cacheHit === true,
+          sha256: normalizeText(result?.sha256),
+          cloudError: normalizeText(result?.cloudError),
+          sourceRef: normalizeText(attachment.stateMediaRef),
+        });
+        writeMediaLog(
+          log,
+          `photo recognition ok messageId=${normalizeText(normalized.messageId)} state=${normalizeText(result?.state) || "unknown"} cacheHit=${result?.cacheHit === true}`,
+        );
+      } catch (error) {
+        const code = normalizeText(error?.code) || "cmx_recognize_failed";
+        failures.push({
+          code,
+          sourceRef: normalizeText(attachment.stateMediaRef),
+        });
+        writeMediaLog(
+          log,
+          `photo recognition failed messageId=${normalizeText(normalized.messageId)} error=${code}`,
+        );
+      }
+    }
+
+    normalized.cmxImageRecognition = {
+      processed: true,
+      provider: "cmx-recognize",
+      attempted: photos.length,
+      results,
+      failures,
+    };
+    if (contextBlocks.length) {
+      normalized.text = appendCmxImageContext(normalized.text, contextBlocks);
     }
   }
 }
