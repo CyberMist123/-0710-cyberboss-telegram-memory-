@@ -83,8 +83,8 @@ Verified against: d5418e2
 | Hard context · Re-entry | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | **`PARTIAL`** —— 由运行时适配器的 opening context 注入；2026-07-30 生产实测 `memory/reentry.md` 954 非空白字 > 300 预算，注入实际为零（err.log 连记 `reentry skipped reason=over_budget`）。#76 已加 last-known-good 降级、发布前预算硬闸门与 trace 的 configured/effective 分离；**正文压缩归聊天窗主体 AI，尚未做**，且生产机上没有可用副本，所以首次仍会是空注入 |
 | 账本（details）外置存储 | `PARTIAL` | `COVERED` | `BLOCKING` | `NOT_WIRED` | #76 目标 1：`details.jsonl` 存储、`type: details` 权限门、History writer 发布与 `memory_lookup` 读通路已闭环并有边界测试（第三档完全按需，永不注入）。**写侧没有 producer** —— 主体 AI 产出账本候选的入口未接，也不做自动提取；生产无数据 |
 | Hard context · Current State | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 同上；与 memory_context 不是同一条通路 |
-| **Telegram memory_context** | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 逻辑经 `buildRuntimeTurn()` Telegram 分支可达，信封外 `<memory_context>` 块，fail-open；真机执行证据缺失 |
-| Context Trace 覆盖 memory_context | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | trace blocks / skipped 已解释 memory_context（所有 provider 的 turn 路径）；真机证据缺失 |
+| **Telegram memory_context** | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 逻辑经 `buildRuntimeTurn()` Telegram 分支可达，信封外 `<memory_context>` 块，fail-open；生产接线因 `CYBERBOSS_MEMORY_RETRIEVAL=0` 默认关闭（`.env.example:58`；`app.js:1175` 在 flag 为 false 时直接返回 `mode:"disabled"`），真机执行证据缺失 |
+| Context Trace 覆盖 memory_context | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | trace blocks / skipped 已解释 memory_context（所有 provider 的 turn 路径）；生产接线随 `CYBERBOSS_MEMORY_RETRIEVAL=0` 默认关闭而不执行，真机证据缺失 |
 | `memory_lookup`（Phase 5A，仅 user_pull） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 受控翻档；真机使用情况未核 |
 | 工具按需取用（timeline / weather / diary / sticker） | `WIRED` | `PARTIAL` | `NONE` | `WIRED` | 工具存在且注册，边界测试不全；timeline / sticker 组件测试已接入主 CI 的 `test:phase1`，但按第二节纪律 1 不代表整条工具通路为 `BLOCKING`。Windows CI 中 sticker 仅执行 5 条平台无关用例，依赖 macOS `sips` 的 3 条 PNG → GIF 用例恒 skip，因此仍是部分覆盖 |
 | MCP 工具分组隐藏（省 schema token） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | T02/T02.5 目录化已落地：单一 manifest（`src/tools/tool-catalog-manifest.js`）为唯一分组与主题 authority，tool-host / MCP resources / CLI / 计量四个消费方共用。挂 `CYBERBOSS_TOOL_CATALOG_ENABLED` 默认关闭（关闭时 tools/resources/route config 与基线逐字兼容）；开启时按八个意图主题分级，常驻面恰好 3 项（单一 `cyberboss_catalog` + `cyberboss_system_send`/`cyberboss_time`，常驻工具 schema 15,810 → 343 chars，只证明 MCP 出牌字符面，不声称模型侧 token 节省），一级计数与二级清单剔除 alias/hidden，完整 schema 可按 handle 跳级加载；目录可见 ≠ 调用权（toolset 白名单 fail-closed，`chat-core@1` 已定义；授权边界仍归 G3/T04）；hidden/deprecated 条目仍可查询打标。resources 后门同步收窄；测试进 `test:catalog-metering` + `test:route-lanes`（阻塞主 CI），full/resident 计量 fixture 钉住 |
@@ -119,7 +119,7 @@ Verified against: d5418e2
 - **Telegram→CMX 图片识别 / OCR**：`MediaInboxService` 在 photo 原子落盘后、recorder/runtime 前调用 `src/services/cmx-image-recognizer.js`；仅向配置的 CMX `POST /files/recognize` 上传字节。结果以信封外 `<attachment_vision_context trust="untrusted">` 进入该次 turn，用户正文逐字不变，输出转义且总长有界；`conversation-purity` 在记忆材料化前剥除。CMX 不可用时原文与 `<media>` 引用继续。契约和主路径回归位于 `test/telegram-media-v2.test.js`，属于阻塞 `test:telegram-media`。
 - **G1（Telegram memory_context）**：`src/core/app.js` 的 `buildRuntimeTurn()` Telegram 分支调用 `resolveMemoryContextFailOpen()`（对 `resolveMemoryContextForPrepared()` 的 fail-open 包装，解析失败降级为空记忆），memory_context 作为独立 `<memory_context>` 块拼在 `formatTelegramRuntimeText()` 产出的 `<channel>` 信封外侧上方；无记忆时不出块，payload 与旧格式逐字节一致。格式裁定见 `DECISIONS.md` D15。
 - **为什么测试记 `COVERED`**：`test/telegram-runtime-payload.test.js` 新增 4 条钉住新 payload 格式（有记忆 / 无记忆 / 转义 / 信封不变），在 `test:phase1` 分组内，阻塞主 CI。
-- **仍缺什么**：真机 Telegram 上 memory_context 实际执行并被 trace 记录的留证，因此 G1 记 `PARTIAL` 而非 `PASS`。
+- **仍缺什么**：真机 Telegram 上 memory_context 实际执行并被 trace 记录的留证，因此 G1 记 `PARTIAL` 而非 `PASS`。**取证目前被 `CYBERBOSS_MEMORY_RETRIEVAL=0` 阻断**：仓库默认姿态（`.env.example:58`）下 `app.js:1175` 直接返回 `mode:"disabled"`、memory_context 不执行，故判据 0 的证据在默认姿态下取不到。停摆时间线取证与默认开关姿态属产品裁定（`NEEDS_FABLE-1` / fable W9 裁定一.3、一.4），**G1 定义不改**。
 - **为什么 Re-entry / Current State 仍是 `WIRED`**：它们不走 `buildRuntimeTurn`，而是由运行时适配器调 `prepareOpeningContext()`（`claudecode/index.js:895`、`codex/index.js:245/276`）注入。两条独立通路，不能合记一行。
 - **Context Trace 覆盖 memory_context**：`recordContextTrace()` 新增 memoryContext 参数，有记忆行时在 `blocks` 记 `{type:"memory_context", loaded:true, reason:<mode>, chars}`，无记忆时在 `skipped` 记 `{type:"memory_context", reason:<mode|empty>}`；`dispatchPreparedTurn` 的调用点已接入，对所有 provider 的 turn 路径生效（opening refresh 调用点行结构不变）。由 `test/phase2-hard-context.test.js` 钉住，在 `test:phase2` 分组内，阻塞主 CI。
 - **为什么 nightly 的生产接线记 `UNKNOWN`**：仓库只能证明 `.env.example` 里 `CYBERBOSS_NIGHTLY_CLOSEOUT_ENABLED=false`、`CYBERBOSS_NIGHTLY_MODE=evidence`，以及 `src/core/config.js` 对应的默认值为 `false` 与 `evidence`；`scripts/windows/continuity-nightly.ps1` 的计划任务路径显式允许未设置 / `evidence`，而 `shadow` / `auto` 必须另有 `config_dir/nightly-mode.confirm` 标记。生产机实际环境变量在 `settings/secrets/*.local.json`，不入库；计划任务状态与确认标记状态也不在版本控制内。**因此仓库无法对生产机的历史启用情况作出任何结论 —— 这一格只能记 `UNKNOWN`。**
@@ -175,14 +175,14 @@ DEFERRED
 
 0. **G1 通过**：Telegram 上 memory_context 实际执行，且 Context Trace 能证明它执行了。当前 `PARTIAL`（缺真机证据）；
 1. **G2 通过**：Closeout 后的 owner、Review、History 与 nightly 边界闭环。当前 `PARTIAL`（离线全链已闭环并有阻塞 E2E，缺生产启用与真机证据，**未达 PASS**）—— 与第一节 Gate 表统一；此前本行写 `FAIL` 属 G2-2/G2-5/G2-4/G2-6/G2-7 落地前的旧口径；
-2. R4 翻盘清单第 3 条已补：真 Windows 生产机的 release/cutover 测试完整输出已归档进 `docs/audit/`；
+2. R4 翻盘清单第 3 条已补：真 Windows 生产机的 release/cutover 测试完整输出已归档进 `docs/audit/`——**已满足**（2026-08-03，`docs/audit/G4_PREDEPLOY_TEST_OUTPUT_20260803.log`，13 组完整 stdout+stderr；两红组经对照实验定性为无 `.git` 环境因素，fable W9 裁定三）；
 3. 生产机启动项已固化 `CYBERLINK_ROOT`（否则 `start-dashboard.ps1` / `start-telegram.ps1` fail-closed）；
 4. 启动 watchdog 的入口显式传 `--descriptor`；
 5. 能力表中「生产接线」列没有任何 `UNKNOWN` 的能力被计入放行范围；
 6. **G3 通过**（硬门，`DECISIONS.md` D20）：真实 `fable-chat` profile 绑定与隔离证据，Telegram 陪伴线与工程线互相独立。当前 `PARTIAL`；
 7. **G5 通过**（硬门，`DECISIONS.md` D20）：一次真实备份恢复演练留证。当前 `PARTIAL` —— memory 备份恢复演练已于 2026-08-03 在真机完成并留证（含真档原地恢复，`docs/audit/G5_MEMORY_RESTORE_DRILL_20260803.md`）；**尚缺 release 回滚的真机演练**，故本条仍未满足。
 
-**当前状态：条件 0、1、2、6、7 均未满足。不得切生产。**
+**当前状态：条件 0、1、6、7 均未满足。不得切生产。**
 
 ### 放行范围与显式排除项（Owner 裁定 2026-08-03）
 
