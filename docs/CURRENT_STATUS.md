@@ -26,7 +26,7 @@ Verified against: d5418e2
 | G2 后台记忆写入边界 | `PARTIAL` | 候选权限闸门、nightly 登记、#73 effective decision 与 G2-3 Review artifact 已闭环；G2-4/G2-6 已把 publication intent/outbox 与 candidate rewrite lineage 同步接入 Review→History：decision/candidate 两层 supersede 拆名，History 只消费唯一有效叶子的 accepted head，以 lineage publication key 保证 Review 重跑、History 崩溃、state 重放与 decision ID 变化后的整链 exactly-once；stale/digest/fork/cycle/已发布 predecessor 均 fail-closed，发布后 decision 翻转只记冲突、不改 canon（与 artifact 共用显式默认关闭开关，阻塞 CI 覆盖）。G2-5 已闭环 dispatcher/一次性注入/ack 回路（D26：严格实时、window_gone 作废不递继任者、补投一次即止、失败递送只读聚合视图、注入块确定性组装；独立开关默认关闭）。G2-2 主体签署已落地（一次性 turn 绑定 capability + 服务端固定 `subject_ai/high` + 后台只产确定性材料包，默认关），模型侧最小 handler `memory_candidate_submit` 已随 #115 接入（签署开关开启才注册）。离线主路径（签署→路由→打回→重写→唯一 accepted→单次发布）已全链闭环并有阻塞 E2E 留证。G2-7 已落离线只读分类器与 companion binding（零升级/零猜路由/可重跑，默认关、未接消费者、未在真实存量上运行）；剩余：真机留证、生产启用（开关默认 false）、G2-7 真实存量执行、G2-8 睡眠兜底（D28 只读 lookup 消费者已随 #125 实施，旧候选按 route 作用域经 `memory_lookup` 只读可查——详见下方能力表 G2-7 行；本处此前误写"尚未实现"，2026-08-03 truth-reset 已更正） |
 | G3 Chat 成本与 profile 隔离 | `PARTIAL` | T03 preflight、T04 双 profile 身份/permission/MCP ceiling 与 T05 同窗口 mutable override/Context Trace 离线闭环已落地；T05 挂 `CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED` 且默认关闭，model/effort/effective toolset/effective MCP set 与非人格 overlay 不进入 slot 身份，persona/permission identity 变化仍换窗，chat 非成员工具自助升格不走审批且无硬 ceiling；真实机器本地 profile 资产、目标 lane 绑定与差分 canary 仍缺（T11） |
 | G4 Windows 生产验证 | `PARTIAL` | 2026-07-30 首次真机交付成功并已留证（`docs/audit/G4_PRODUCTION_DELIVERY_20260730.md`）；2026-07-31 监督链已修复并经真实停机事故验证（BOM 去除 + `deployed_sha` 改真话 + watchdog 判活恢复，留证 `docs/audit/G4_WATCHDOG_RECOVERY_20260731.md`）；2026-08-01 第二次交付成功（main `6fb078e` 上机，首次监督链在位热交付，留证 `docs/audit/G4_PRODUCTION_DELIVERY_20260801.md`）；部署身份其余两套真相与正规发布包机制仍未处理（#77） |
-| G5 备份与回滚验证 | `NOT_VERIFIED` | 缺少真实备份恢复演练证据 |
+| G5 备份与回滚验证 | `PARTIAL` | 2026-08-03 真机 memory 备份恢复演练已完成并留证（`docs/audit/G5_MEMORY_RESTORE_DRILL_20260803.md`）：真档快照 155/155 → 隔离副本破坏后确被检出 → 恢复逐字节还原 → 真档原地恢复后独立复核一致；缺口明确——**release 回滚（`phase1-rollback.ps1`）未真机演练**，`runtime`/`settings`/`releases` 的备份恢复不在本次范围 |
 
 **是否允许切生产：否。** 判据见第五节。
 
@@ -103,7 +103,7 @@ Verified against: d5418e2
 | 520 · 关怀页写路径（care config / cycle） | `PARTIAL` | `PARTIAL` | `NONE` | `NOT_WIRED` | 后端在、前端未接完；不是安全边界 |
 | 520 · 剧场页（theater scripts） | `WIRED` | `NONE` | `NONE` | `UNKNOWN` | 纯展示只读 |
 | Windows release / watchdog 控制平面 | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | **`PARTIAL`** —— 2026-07-30 首次真机交付留证已归档（`docs/audit/G4_PRODUCTION_DELIVERY_20260730.md`：方案 A 只搬代码，bot 存活并真实应答 Telegram）。**监督链已于 2026-07-31 修复**：描述文件去 BOM、`deployed_sha` 改为运行树真实来源（48660a9），watchdog 判活恢复 `healthy`，重启自愈链路闭合；修复前发生过一次真实停机（~2.5 小时，机器重启后无人拉起），事故与修复过程留证 `docs/audit/G4_WATCHDOG_RECOVERY_20260731.md`。2026-08-01 第二次交付（`6fb078e`，监督链在位热交付 + junction 断裂坑 3 留证）见 `docs/audit/G4_PRODUCTION_DELIVERY_20260801.md`。**仍未处理**：`deployment/current.json` 旧真相、`start-telegram.ps1` 硬编码、正规发布包机制（`install-descriptor` + 候选启动器）从未启用 —— 归 issue #77 |
-| 备份与回滚演练 | `WIRED` | `PARTIAL` | `NONBLOCKING` | `UNKNOWN` | **`NOT_VERIFIED`** —— 无真实恢复演练证据 |
+| 备份与回滚演练 | `WIRED` | `PARTIAL` | `NONBLOCKING` | `UNKNOWN` | **`PARTIAL`** —— memory 备份/恢复：工具 `scripts/memory-backup.js` 已落地，11 条用例进 `test:memory-services`（阻塞 CI），2026-08-03 完成真机演练留证并含真档原地恢复（`docs/audit/G5_MEMORY_RESTORE_DRILL_20260803.md`）；release 回滚：`phase1-rollback.ps1` 无真机演练证据。**四个列词按整行口径保守取值**——本行同时覆盖这两件事，回滚那半既无测试也无真机证据，故不随 memory 那半升格 |
 | G3 CLI preflight / 独立 config root（T03） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 挂 `CYBERBOSS_CLAUDE_G3_PREFLIGHT_ENABLED`，仓库默认关闭（关闭时 launch 与基线逐字兼容）。开启时：`configRoot` 经 env `CLAUDE_CONFIG_DIR` 归一进 profile fingerprint / slot 身份；八个 required CLI flag、env allowlist、auth 探针、cwd 与 lock key 同源任一失败均在切换前 fail-closed，旧进程继续服务。测试进 `test:route-lanes`（阻塞主 CI）。**离线硬边界证据**，不证明 fable/work 真隔离——差分 canary 与真机验收属 T04/T11 |
 | `fable-chat` profile 绑定 / per-lane active window pointer | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 挂 `CYBERBOSS_CLAUDE_G3_PROFILE_CONTRACT_ENABLED` 且强依赖 T03 preflight 开关，均默认关闭。schema v3 固化 `fable-chat` / `work-engineering`：persona/configRoot/cwd/permission identity/authorization ceiling 进入 slot 指纹；fable 发 `--bare` + skills disabled + isolated user source，profile-owned role card 排除工程 instructions，全局 `bypassPermissions` 不穿透；fable 目录与发送/时间核显式启用但不挂硬 toolset ceiling，work 工程能力不减且关系记忆 schema/call 双拒。T06 在同一开关下增加进程内 per-lane active profile 指针与 `/profile`：完整 profile 切换走各自 fingerprint slot，切回只 resume 该 profile 自己的 native session；指针不保存 threadId、不改变 continuity binding，unknown profile 原子失败，退稿仍只在 origin window 再次成为当前窗口时 EXACT 投递，origin transcript 终结则 `WINDOW_GONE` 作废。route-scoped MCP server ceiling 与目录发现独立，关闭时 launch/profile/slot/MCP config、命令/help 与基线逐字兼容；测试进 `test:route-lanes` + `test:catalog-metering`（阻塞主 CI）。真实 local profile/mapping 与差分 canary 归 T11，未声称真机隔离通过 |
 | G3 Route 2 gate / 单次操作 lease（T07/T08） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 挂 `CYBERBOSS_ROUTE2_GATE_ENABLED` 且默认关闭；A/B 成本门与结构硬门只产出“留 Route 2 / 转 Route 1”，不削减 chat 能力。单次 lease 复用既有 session slot 与 window override 指纹，以同一 `storedThreadId --resume` 接管 tool/MCP/带标签非人格 overlay；完成、失败、TTL、cancel、强中断与 restart 均回收，过期成员 schema/call 双拒而目录仍可浏览。真实 `tool.use`、逐工具 `max_result_bytes`、server 截断与成本 Context Trace 已接通；测试进 `test:route-lanes`、`test:catalog-metering`、`test:phase2`（阻塞主 CI），未做真机启用 |
@@ -146,7 +146,7 @@ RELEASE BLOCKERS（第五节切生产判据直接对应，缺一不可）
 - G1 真机取证：Telegram 实际加载 memory_context 并留 Trace
 - G2 生产闭环：打开开关跑完整 签署→Review→History→递送，并真机留证（让 G2 从 PARTIAL 走向 PASS）
 - G3 / T11：真实 fable-chat / work-engineering 隔离 + Route 1/2 真机差分 canary + 生产绑定
-- G5：真实备份→破坏副本→恢复→核对数据（硬门，D20）
+- G5：memory 的「真实备份→破坏副本→恢复→核对数据」已于 2026-08-03 完成留证（含真档原地恢复）；**剩余：release 回滚（`phase1-rollback.ps1`）真机演练**（硬门，D20）
 - #77 中对应「启动入口 / descriptor 单一真相 / 正规 release 包」的剩余项（整理成剩余项，不照旧事故正文推进）
 
 PRODUCT-COMPLETE DECISION REQUIRED（是否属本次正式上线范围，由 Owner 明确裁，不由 Agent 自动算上线门）
@@ -180,7 +180,7 @@ DEFERRED
 4. 启动 watchdog 的入口显式传 `--descriptor`；
 5. 能力表中「生产接线」列没有任何 `UNKNOWN` 的能力被计入放行范围；
 6. **G3 通过**（硬门，`DECISIONS.md` D20）：真实 `fable-chat` profile 绑定与隔离证据，Telegram 陪伴线与工程线互相独立。当前 `PARTIAL`；
-7. **G5 通过**（硬门，`DECISIONS.md` D20）：一次真实备份恢复演练留证。当前 `NOT_VERIFIED`。
+7. **G5 通过**（硬门，`DECISIONS.md` D20）：一次真实备份恢复演练留证。当前 `PARTIAL` —— memory 备份恢复演练已于 2026-08-03 在真机完成并留证（含真档原地恢复，`docs/audit/G5_MEMORY_RESTORE_DRILL_20260803.md`）；**尚缺 release 回滚的真机演练**，故本条仍未满足。
 
 **当前状态：条件 0、1、2、6、7 均未满足。不得切生产。**
 
