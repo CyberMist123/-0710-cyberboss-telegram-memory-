@@ -34,6 +34,7 @@ const {
   takeImageOnlyBatchMessages,
 } = require("./inbound-turn");
 const { resolveVisionContext } = require("../services/vision-context");
+const { resolveExternalMcpServerConfigs } = require("../tools/external-mcp-config");
 const {
   buildWeixinHelpText,
 } = require("./command-registry");
@@ -2032,6 +2033,9 @@ class CyberbossApp {
       case "memory":
         await this.handleMemoryCommand(normalized);
         return;
+      case "ai_profile":
+        await this.handleAiProfileCommand(normalized);
+        return;
       case "profile":
         // With the T06 gate off, preserve the former unknown-command response
         // byte-for-byte instead of exposing a dormant command surface.
@@ -2147,6 +2151,75 @@ class CyberbossApp {
     // stop; shows "unknown · log not configured" until CYBERBOSS_WATCHDOG_LOG points
     // at the real health log on the production machine.
     lines.push(formatWatchdogStatusLine(readWatchdogHealth(this.config?.watchdogLogFile || "")));
+    await this.channelAdapter.sendText({
+      userId: normalized.senderId,
+      text: lines.join("\n"),
+      contextToken: normalized.contextToken,
+      ...outboundThreadIdField(normalized),
+    });
+  }
+
+  // AI-Profile: hidden, read-only capability directory (Owner 2026-08-04). Lists
+  // the AI's 【mcp】【tool】 (real data) and 【skill】 (暂缺 — no enumerator exists;
+  // building the catalog skill category collides with the unstarted D25-A design,
+  // see the design ticket). Pure read — no writer, no network.
+  async handleAiProfileCommand(normalized) {
+    const lines = ["🧩 AI-Profile（只读能力目录）", ""];
+
+    // 【mcp】: external MCP servers configured for the runtime child. Read-only env
+    // read that mirrors the legacy list the claudecode adapter feeds
+    // resolveClaudeExternalMcpServerConfigs (project-settings.js) plus
+    // CYBERBOSS_EXTRA_MCP_SERVERS. Names/commands only — no server spawn.
+    lines.push("【mcp】");
+    let mcpServers = [];
+    try {
+      mcpServers = resolveExternalMcpServerConfigs({
+        legacy: [{
+          nameEnv: "CYBERBOSS_MUSIC_MCP_NAME",
+          commandEnv: "CYBERBOSS_MUSIC_MCP_COMMAND",
+          argsEnv: "CYBERBOSS_MUSIC_MCP_ARGS",
+          defaultName: "netease_music_mcp",
+        }],
+      });
+    } catch {
+      mcpServers = [];
+    }
+    if (mcpServers.length) {
+      for (const server of mcpServers) {
+        lines.push(`  · ${server.name}${server.command ? ` — ${server.command}` : ""}`);
+      }
+    } else {
+      lines.push("  （暂无外部 MCP 服务器）");
+    }
+    lines.push("");
+
+    // 【tool】: in-process project tools from the read-only catalog. Drops aliases,
+    // hidden and deprecated entries (mirrors displayableCatalogEntries). memory-topic
+    // tools are folded in — they are tools too.
+    lines.push("【tool】");
+    let toolEntries = [];
+    try {
+      const entries = this.projectToolHost?.catalogState?.().entries || [];
+      toolEntries = entries.filter((entry) =>
+        !entry.alias_of && !entry.hidden && !entry.deprecated
+        && (entry.category === "tool" || entry.category === "memory"));
+    } catch {
+      toolEntries = [];
+    }
+    if (toolEntries.length) {
+      for (const entry of toolEntries) {
+        const purpose = entry.purpose ? ` — ${entry.purpose}` : "";
+        const risk = entry.risk ? ` [${entry.risk}]` : "";
+        lines.push(`  · ${entry.id}${purpose}${risk}`);
+      }
+    } else {
+      lines.push("  （暂无工具）");
+    }
+    lines.push("");
+
+    lines.push("【skill】");
+    lines.push("  暂缺（无枚举源；catalog skill 类为空占位，见设计单 skill-enumerator-design）");
+
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
       text: lines.join("\n"),

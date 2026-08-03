@@ -137,6 +137,7 @@ from the menu and `/help`, handler retained so they keep working when typed):
 - `/checkin <min>-<max>` — reset the proactive check-in range
 - `/chunk <number>` — adjust WeChat short-chunk merge size
 - `/star` — star the project on GitHub
+- `/ai_profile` — read-only capability directory (AI-Profile): lists 【mcp】 (external MCP servers configured for the runtime child) and 【tool】 (in-process project tools from the read-only catalog); 【skill】 shows 暂缺 (no enumerator — the catalog `skill` category is an empty placeholder, see the skill-enumerator design ticket). Intentionally kept out of the menu/`/help` per the 2026-08-04 roster; typeable only
 - `/memory <subcommand>`（pending / approve / reject / list / review / search / add / update / delete / prune / cleanup / undo / suggest / apply-suggestion）— the old admin suite; the pending-memory human-review path stays reachable by typing
 
 Notes:
