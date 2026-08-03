@@ -46,13 +46,14 @@ function isNonEmptyString(value) {
 // A repo-relative path is only usable as a boundary if it cannot climb out of
 // the workspace. Absolute paths, drive letters and any ".." segment are refused
 // here rather than being normalised away, so the spec author sees the problem.
-function validateRelativePath(value, label, errors) {
+function validateRelativePath(value, label, errors, { allowAbsolute = false } = {}) {
   if (!isNonEmptyString(value)) {
     errors.push(`${label} must be a non-empty string`);
     return;
   }
   const raw = value.trim();
   if (path.isAbsolute(raw) || /^[a-zA-Z]:/.test(raw)) {
+    if (allowAbsolute) return;
     errors.push(`${label} must be repo-relative, got absolute: ${raw}`);
     return;
   }
@@ -83,7 +84,7 @@ function validateAcceptanceTest(entry, index, errors) {
   }
 }
 
-function validateTaskSpec(value) {
+function validateTaskSpec(value, { allowAbsoluteForbiddenPaths = false } = {}) {
   const errors = [];
   if (!isPlainObject(value)) {
     return { ok: false, errors: ["task spec must be an object"] };
@@ -125,7 +126,9 @@ function validateTaskSpec(value) {
       errors.push("forbidden_paths must be an array");
     } else {
       value.forbidden_paths.forEach((entry, index) => {
-        validateRelativePath(entry, `forbidden_paths[${index}]`, errors);
+        validateRelativePath(entry, `forbidden_paths[${index}]`, errors, {
+          allowAbsolute: allowAbsoluteForbiddenPaths,
+        });
       });
     }
   }
@@ -154,8 +157,8 @@ function validateTaskSpec(value) {
   return { ok: errors.length === 0, errors };
 }
 
-function assertValidTaskSpec(value) {
-  const validation = validateTaskSpec(value);
+function assertValidTaskSpec(value, options = {}) {
+  const validation = validateTaskSpec(value, options);
   if (!validation.ok) {
     throw new Error(`Invalid task spec:\n${validation.errors.join("\n")}`);
   }

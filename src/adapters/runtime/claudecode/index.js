@@ -28,6 +28,15 @@ const {
   route1TaskSessionEnabled,
   runAtomicTaskStep,
 } = require("./task-session");
+const {
+  buildProtectedTaskSpec,
+  buildProtectedWorkProfile,
+  cleanupRoute1Worktree,
+  observeRoute1ChangedPaths,
+  provisionRoute1Worktree,
+  resolveRoute1ProtectedRoots,
+  route1RuntimeSeamEnabled,
+} = require("./route1-runtime-seam");
 const { assertValidTaskSpec } = require("../../../orchestration/delegation/task-spec");
 const {
   assertValidResultCapsule,
@@ -119,6 +128,7 @@ function createClaudeCodeRuntimeAdapter(config) {
   const pendingModelByWorkspaceRoot = new Map();
   const taskSessionRegistry = new TaskSessionRegistry();
   const taskSessionInputs = new Map();
+  const taskWorktrees = new Map();
 
   // Snapshot of the pre-v2 binding-level session ids, taken once at
   // construction *before* any lane can mirror a new session id into
@@ -760,13 +770,16 @@ function createClaudeCodeRuntimeAdapter(config) {
     }
   }
 
-  function buildTaskRoute(spec, launchProfile) {
+  function buildTaskRoute(spec, launchProfile, { isolatedWorktree = false } = {}) {
     assertTaskWorkerProfile(launchProfile);
-    return resolveRouteContext({
+    const route = resolveRouteContext({
       workspaceRoot: spec.workspace,
       lane: buildSystemRouteLane(`route1-task-${spec.task_id}`),
       launchProfile,
     });
+    // Under the T10-A seam the worktree itself is the lock domain. A global
+    // chat agentCwd must never pull the worker back onto the foreground key.
+    return isolatedWorktree ? { ...route, agentCwd: spec.workspace } : route;
   }
 
   async function createTaskProcessClient(route) {
@@ -832,20 +845,22 @@ function createClaudeCodeRuntimeAdapter(config) {
     });
   }
 
-  async function executeTaskSession(taskId, { resume = false, observedChangedPaths } = {}) {
+  async function executeTaskSession(taskId, {
+    resume = false, observedChangedPaths, useRuntimeSeam = false,
+  } = {}) {
     const input = taskSessionInputs.get(taskId);
     if (!input) {
       const error = new Error("task_session_unknown");
       error.code = "task_session_unknown";
       throw error;
     }
-    if (!Array.isArray(observedChangedPaths)) {
+    if (!useRuntimeSeam && !Array.isArray(observedChangedPaths)) {
       const error = new Error("task_session_observed_paths_required");
       error.code = "task_session_observed_paths_required";
       throw error;
     }
     const { spec, launchProfile, prompt } = input;
-    const route = buildTaskRoute(spec, launchProfile);
+    const route = buildTaskRoute(spec, launchProfile, { isolatedWorktree: useRuntimeSeam });
     const latch = taskSessionRegistry.getLatch(taskId);
     taskSessionRegistry.transition(taskId, "running", resume ? "resumed worker running" : "worker running");
 
@@ -873,6 +888,9 @@ function createClaudeCodeRuntimeAdapter(config) {
       let nextText = prompt;
       let runtimeText = "";
       for (;;) {
+        // One atomic step is intentionally one small worker round. T10-B owns
+        // the two-level interrupt controls; this seam only keeps the latch
+        // check structurally between rounds.
         const atomic = await runAtomicTaskStep(latch, async () => {
           const completion = waitForTaskSessionCompletion(client, spec.timeout_ms);
           await client.sendUserMessage({
@@ -905,7 +923,17 @@ function createClaudeCodeRuntimeAdapter(config) {
         }
         capsule = parsed;
       }
-      verification = verifyCapsule({ spec, capsule, observedChangedPaths });
+      if (useRuntimeSeam) {
+        // Evidence is collected only after the worker has finished. The caller
+        // and the capsule are not authorities for the worktree's real diff.
+        observedChangedPaths = observeRoute1ChangedPaths({ spec });
+      }
+      verification = verifyCapsule({
+        spec,
+        capsule,
+        observedChangedPaths,
+        allowAbsoluteForbiddenPaths: useRuntimeSeam,
+      });
       if (taskSessionRegistry.get(taskId).state !== "cancelled") {
         taskSessionRegistry.transition(
           taskId,
@@ -925,7 +953,19 @@ function createClaudeCodeRuntimeAdapter(config) {
         nextState,
         timedOut ? `worker exceeded timeout_ms=${spec.timeout_ms}` : `worker result rejected (${error?.code || "task_session_failed"})`,
       );
-      verification = verifyCapsule({ spec, capsule, observedChangedPaths });
+      if (useRuntimeSeam) {
+        try {
+          observedChangedPaths = observeRoute1ChangedPaths({ spec });
+        } catch {
+          observedChangedPaths = undefined;
+        }
+      }
+      verification = verifyCapsule({
+        spec,
+        capsule,
+        observedChangedPaths,
+        allowAbsoluteForbiddenPaths: useRuntimeSeam,
+      });
     } finally {
       unsubscribe();
       workspaceHold?.release();
@@ -933,6 +973,9 @@ function createClaudeCodeRuntimeAdapter(config) {
     }
 
     const task = taskSessionRegistry.get(taskId);
+    if (useRuntimeSeam && task.state === "completed") {
+      cleanupRoute1Worktree(taskWorktrees.get(taskId));
+    }
     return {
       capsule,
       shortStatus: buildTaskShortStatus({ task, capsule, verification }),
@@ -987,6 +1030,8 @@ function createClaudeCodeRuntimeAdapter(config) {
         processRegistry.delete(entry.processKey);
         await entry.client?.close().catch(() => {});
       }
+      for (const worktree of taskWorktrees.values()) cleanupRoute1Worktree(worktree);
+      taskWorktrees.clear();
       await ipcServer.close();
     },
     async startFreshThreadDraft({ workspaceRoot, bindingKey = "", lane = null, launchProfile = null, senderId = "" }) {
@@ -1059,21 +1104,67 @@ function createClaudeCodeRuntimeAdapter(config) {
         error.code = "route1_task_session_disabled";
         throw error;
       }
-      assertValidTaskSpec(spec);
-      if (!Array.isArray(observedChangedPaths)) {
-        const error = new Error("task_session_observed_paths_required");
-        error.code = "task_session_observed_paths_required";
+      const useRuntimeSeam = route1RuntimeSeamEnabled();
+      if (!useRuntimeSeam) {
+        assertValidTaskSpec(spec);
+        if (!Array.isArray(observedChangedPaths)) {
+          const error = new Error("task_session_observed_paths_required");
+          error.code = "task_session_observed_paths_required";
+          throw error;
+        }
+        const route = buildTaskRoute(spec, launchProfile);
+        const prompt = buildTaskSessionPrompt({ spec, taskMaterials });
+        taskSessionRegistry.create({
+          spec,
+          sessionSlotKey: route.sessionSlotKey,
+          profileId: route.profileId,
+        });
+        taskSessionInputs.set(spec.task_id, { spec, launchProfile, prompt });
+        return executeTaskSession(spec.task_id, { observedChangedPaths });
+      }
+
+      assertTaskWorkerProfile(launchProfile);
+      const protectedRoots = resolveRoute1ProtectedRoots({ config, launchProfile });
+      let worktree = null;
+      try {
+        worktree = provisionRoute1Worktree({
+          spec,
+          protectedRoots,
+          worktreeRoot: config.route1WorktreeRoot,
+        });
+        assertValidTaskSpec(spec);
+        const protectedSpec = buildProtectedTaskSpec(spec, worktree, protectedRoots);
+        const protectedProfile = buildProtectedWorkProfile(launchProfile, {
+          stateDir,
+          taskId: spec.task_id,
+          protectedRoots,
+          workspace: worktree.worktreePath,
+        });
+        const route = buildTaskRoute(protectedSpec, protectedProfile, { isolatedWorktree: true });
+        const prompt = buildTaskSessionPrompt({
+          spec: protectedSpec,
+          taskMaterials,
+          allowAbsoluteForbiddenPaths: true,
+          smallRounds: true,
+        });
+        taskSessionRegistry.create({
+          spec: protectedSpec,
+          sessionSlotKey: route.sessionSlotKey,
+          profileId: route.profileId,
+          allowAbsoluteForbiddenPaths: true,
+        });
+        taskSessionInputs.set(spec.task_id, {
+          spec: protectedSpec,
+          launchProfile: protectedProfile,
+          prompt,
+          useRuntimeSeam: true,
+        });
+        taskWorktrees.set(spec.task_id, worktree);
+        return executeTaskSession(spec.task_id, { useRuntimeSeam: true });
+      } catch (error) {
+        if (worktree && !taskWorktrees.has(spec?.task_id)) cleanupRoute1Worktree(worktree);
         throw error;
       }
-      const route = buildTaskRoute(spec, launchProfile);
-      const prompt = buildTaskSessionPrompt({ spec, taskMaterials });
-      taskSessionRegistry.create({
-        spec,
-        sessionSlotKey: route.sessionSlotKey,
-        profileId: route.profileId,
-      });
-      taskSessionInputs.set(spec.task_id, { spec, launchProfile, prompt });
-      return executeTaskSession(spec.task_id, { observedChangedPaths });
     },
     addTaskSessionInstruction({ taskId, instruction } = {}) {
       if (!route1TaskSessionEnabled()) {
@@ -1105,13 +1196,15 @@ function createClaudeCodeRuntimeAdapter(config) {
         error.code = "route1_task_session_disabled";
         throw error;
       }
-      if (!Array.isArray(observedChangedPaths)) {
+      const input = taskSessionInputs.get(taskId);
+      const useRuntimeSeam = input?.useRuntimeSeam === true && route1RuntimeSeamEnabled();
+      if (!useRuntimeSeam && !Array.isArray(observedChangedPaths)) {
         const error = new Error("task_session_observed_paths_required");
         error.code = "task_session_observed_paths_required";
         throw error;
       }
       taskSessionRegistry.resume(taskId);
-      return executeTaskSession(taskId, { resume: true, observedChangedPaths });
+      return executeTaskSession(taskId, { resume: true, observedChangedPaths, useRuntimeSeam });
     },
     getTaskSessionStatus({ taskId } = {}) {
       if (!route1TaskSessionEnabled()) return null;
@@ -1553,6 +1646,7 @@ function createClaudeCodeRuntimeAdapter(config) {
       processRegistry,
       sessionSlotStore,
       taskSessionRegistry,
+      taskWorktrees,
       workspaceLocks,
       resolveRouteContext,
       computeProcessKey,
