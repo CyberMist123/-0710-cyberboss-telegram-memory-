@@ -23,6 +23,7 @@ const { RuntimeContextStore } = require("./runtime-context-store");
 const { ProjectToolHost } = require("./tool-host");
 const { SubjectCapabilityRegistry, SubjectCandidateService } = require("../continuity/subject-signing");
 const { WhereaboutsService } = require("whereabouts-mcp");
+const { Route1DispatchIpcClient, route1DispatchEnabled } = require("../orchestration/route1-dispatch");
 
 function createProjectTooling(config, options = {}) {
   const sessionStore = options.sessionStore || new SessionStore({
@@ -48,6 +49,7 @@ function createProjectTooling(config, options = {}) {
     enabled: config.subjectSigningEnabled === true,
   });
   const services = {
+    ...(route1DispatchEnabled() ? { route1Dispatch: new Route1DispatchIpcClient({ stateDir: config.stateDir }) } : {}),
     diary: new DiaryService({ config }),
     reminder: new ReminderService({ config, sessionStore }),
     system: new SystemMessageService({ config, sessionStore }),

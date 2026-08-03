@@ -183,6 +183,30 @@ const COMMAND_GROUPS = [
         weixin: ["/continue activity"],
         status: "active",
       },
+      {
+        action: "route1.soft_interrupt",
+        summary: "Acknowledge immediately, then stop Route 1 workers at the current small-round boundary",
+        terminal: [],
+        weixin: ["/stop-tasks-and-answer-now"],
+        status: "active",
+        feature: "route1_dispatch",
+      },
+      {
+        action: "route1.hard_interrupt",
+        summary: "Acknowledge immediately and kill the active Route 1 worker process",
+        terminal: [],
+        weixin: ["/force-stop-now"],
+        status: "active",
+        feature: "route1_dispatch",
+      },
+      {
+        action: "route1.continue",
+        summary: "Resume halted Route 1 dispatch",
+        terminal: [],
+        weixin: ["/continue-tasks"],
+        status: "active",
+        feature: "route1_dispatch",
+      },
     ],
   },
   {
@@ -287,7 +311,7 @@ const COMMAND_GROUPS = [
 function listCommandGroups() {
   return COMMAND_GROUPS.map((group) => ({
     ...group,
-    actions: group.actions.map((action) => ({ ...action })),
+    actions: group.actions.filter(isActionEnabled).map((action) => ({ ...action })),
   }));
 }
 
@@ -306,7 +330,7 @@ function buildTerminalHelpText() {
   ];
 
   for (const group of COMMAND_GROUPS) {
-    const activeActions = group.actions.filter((action) => action.status === "active" && action.terminal.length);
+    const activeActions = group.actions.filter((action) => isActionEnabled(action) && action.status === "active" && action.terminal.length);
     if (!activeActions.length) {
       continue;
     }
@@ -324,7 +348,7 @@ function buildTerminalHelpText() {
 function buildWeixinHelpText() {
   const lines = ["💡 Available commands:"];
   for (const group of COMMAND_GROUPS) {
-    const activeActions = group.actions.filter((action) => action.status === "active" && action.weixin.length);
+    const activeActions = group.actions.filter((action) => isActionEnabled(action) && action.status === "active" && action.weixin.length);
     if (!activeActions.length) {
       continue;
     }
@@ -362,6 +386,9 @@ function actionEmoji(action) {
     case "approval.reject_once": return "❌";
     case "activity.pause": return "⏸️";
     case "activity.continue": return "▶️";
+    case "route1.soft_interrupt": return "⏹️";
+    case "route1.hard_interrupt": return "🛑";
+    case "route1.continue": return "▶️";
     case "model.inspect":
     case "model.select": return "🤖";
     case "runtime.effort": return "🎚️";
@@ -369,6 +396,12 @@ function actionEmoji(action) {
     case "app.star": return "⭐️";
     default: return "•";
   }
+}
+
+function isActionEnabled(action, env = process.env) {
+  if (action?.feature !== "route1_dispatch") return true;
+  return /^(?:1|true|yes|on)$/i.test(String(env.CYBERBOSS_ROUTE1_CHAT_DISPATCH_ENABLED || "").trim())
+    && /^(?:1|true|yes|on)$/i.test(String(env.CYBERBOSS_CLAUDE_ROUTE1_TASK_SESSION_ENABLED || "").trim());
 }
 
 module.exports = {

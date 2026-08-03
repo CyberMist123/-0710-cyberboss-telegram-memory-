@@ -6,6 +6,7 @@ const {
 } = require("../services/sticker-service");
 const { resolveAppTimezone } = require("../utils/app-timezone");
 const { formatAppTime } = require("../utils/beijing-time");
+const { route1DispatchEnabled } = require("../orchestration/route1-dispatch");
 const {
   catalogEnabled, subjectSigningEnabled, route2GateEnabled, resolveToolset, buildManifest, findSchema, assertCapabilityLease,
   RESIDENT_NAMES, THEME_DEFINITIONS, CATALOG_INPUT_SCHEMA, catalogError,
@@ -122,11 +123,15 @@ class ProjectToolHost {
     if (spec) {
       validateSchema(spec.inputSchema, normalizedArgs, resolvedToolName, "input");
       const resolvedContext = this.resolveContext(context);
-      return await spec.handler({
+      const result = await spec.handler({
         services: this.services,
         args: normalizedArgs,
         context: resolvedContext,
       });
+      if (resolvedToolName === "route1_dispatch" && result?.data?.self_confirmed === true) {
+        this.recordSelfEscalation("route1_dispatch", toolsetId(this.catalogState().toolset));
+      }
+      return result;
     }
     if (extraHost) return await extraHost.invokeTool(toolName, normalizedArgs);
     throw new Error(`Unknown tool: ${toolName}`);
@@ -222,7 +227,11 @@ function listProjectToolNames() {
 }
 
 function registeredProjectTools(env = process.env) {
-  return PROJECT_TOOLS.filter((tool) => tool.name !== "memory_candidate_submit" || subjectSigningEnabled(env));
+  return PROJECT_TOOLS.filter((tool) => {
+    if (tool.name === "memory_candidate_submit") return subjectSigningEnabled(env);
+    if (tool.name === "route1_dispatch") return route1DispatchEnabled(env);
+    return true;
+  });
 }
 
 function displayableCatalogEntries(entries) {
@@ -264,6 +273,40 @@ const DEPRECATED_HIDDEN_TOOL_NAMES = new Set([
 ]);
 
 const PROJECT_TOOLS = [
+  {
+    name: "route1_dispatch",
+    description: "Create and queue one bounded Route 1 engineering task; execution starts only after the current chat turn releases its lock.",
+    shortHint: "派一台异步单飞工程车；必要时用本窗口的一次性令牌自确认。",
+    topics: ["engineering", "dispatch"],
+    inputSchema: {
+      type: "object",
+      properties: {
+        objective: { type: "string" },
+        allowed_paths: { type: "array", items: { type: "string" } },
+        forbidden_paths: { type: "array", items: { type: "string" } },
+        base_sha: { type: "string" },
+        acceptance_tests: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { name: { type: "string" }, command: { type: "string" }, args: { type: "array", items: { type: "string" } } },
+            required: ["name", "command", "args"],
+            additionalProperties: false,
+          },
+        },
+        timeout_ms: { type: "integer", minimum: 1, maximum: 3600000 },
+        approval_policy: { type: "string", enum: ["never", "on-request", "untrusted"] },
+        task_materials: { type: "array", items: { type: "object" } },
+        confirm_token: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+    async handler({ services, args, context }) {
+      if (!services.route1Dispatch) throw new Error("route1_dispatch_unavailable");
+      const result = await services.route1Dispatch.dispatch(args, context);
+      return { text: result.text || result.status, data: result };
+    },
+  },
   {
     name: "github_repo_create",
     description: "Create a GitHub repository through the locally authenticated gh CLI.",

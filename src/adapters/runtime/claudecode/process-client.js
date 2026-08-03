@@ -524,6 +524,19 @@ class ClaudeCodeProcessClient {
     this.rejectSessionWaiters(new Error("claudecode process closed"));
   }
 
+  async forceClose() {
+    const child = this.child;
+    if (child && child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    this.alive = false;
+    this.child = null;
+    this.stdin = null;
+    this.sessionId = "";
+    this.resumeSessionId = "";
+    this.activeThreadId = "";
+    this.pendingTurnId = "";
+    this.rejectSessionWaiters(new Error("claudecode process force-stopped"));
+  }
+
   resolveSessionWaiters(sessionId) {
     if (!this.sessionWaiters.size) {
       return;

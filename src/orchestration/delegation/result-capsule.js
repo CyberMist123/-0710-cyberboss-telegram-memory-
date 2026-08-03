@@ -25,7 +25,7 @@ const CAPSULE_FIELDS = [
   "recommended_action",
 ];
 
-const CAPSULE_STATUSES = ["completed", "failed", "timed_out", "cancelled", "rejected"];
+const CAPSULE_STATUSES = ["completed", "failed", "timed_out", "cancelled", "interrupted", "rejected"];
 
 const RECOMMENDED_ACTIONS = ["accept", "rework", "stop"];
 

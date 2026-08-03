@@ -157,6 +157,7 @@ function createClaudeCodeRuntimeAdapter(config) {
   const configuredModel = normalizeText(config.claudeModel);
   const configuredAgentCwd = normalizeText(config.agentCwd);
   let globalListener = null;
+  let route1DispatchListener = null;
   const ipcSocketPath = path.join(
     stateDir,
     "claudecode-runtime.sock",
@@ -167,12 +168,18 @@ function createClaudeCodeRuntimeAdapter(config) {
 
   hydrateRuntimeModelsFromClaudeProjects();
 
-  ipcServer.on("clientMessage", (msg) => {
+  ipcServer.on("clientMessage", (msg, socket) => {
     if (msg?.type === "sendUserMessage" && msg?.workspaceRoot) {
       void handleIpcSendUserMessage(msg);
     }
     if (msg?.type === "respondApproval" && msg?.workspaceRoot) {
       void handleIpcRespondApproval(msg);
+    }
+    if (msg?.type === "route1.dispatch" && route1RuntimeSeamEnabled()) {
+      void Promise.resolve()
+        .then(() => route1DispatchListener?.(msg.args || {}, msg.context || {}))
+        .then((result) => ipcServer.reply(socket, { type: "route1.dispatch.result", requestId: msg.requestId, result }))
+        .catch((error) => ipcServer.reply(socket, { type: "route1.dispatch.result", requestId: msg.requestId, error: error?.code || error?.message || "route1_dispatch_failed" }));
     }
   });
 
@@ -707,6 +714,7 @@ function createClaudeCodeRuntimeAdapter(config) {
 
   /** @type {Map<string, {turnToken: string, releaseWorkspace: Function}>} */
   const turnHolds = new Map();
+  const taskSessionClients = new Map();
 
   /**
    * Take the full-turn hold for a process: single-flight on the process key,
@@ -832,7 +840,7 @@ function createClaudeCodeRuntimeAdapter(config) {
   }
 
   function failureTaskCapsule(taskId, state, summary) {
-    const status = state === "timed_out" || state === "cancelled" ? state : "failed";
+    const status = ["timed_out", "cancelled", "interrupted"].includes(state) ? state : "failed";
     return assertValidResultCapsule({
       task_id: taskId,
       status,
@@ -871,6 +879,7 @@ function createClaudeCodeRuntimeAdapter(config) {
     let verification = null;
     try {
       client = await createTaskProcessClient(route);
+      taskSessionClients.set(taskId, client);
       unsubscribe = client.onMessage((event) => {
         if (event?.type === "session.id") {
           storeSlotThreadId(route, event.sessionId);
@@ -943,15 +952,18 @@ function createClaudeCodeRuntimeAdapter(config) {
       }
     } catch (error) {
       const timedOut = error?.code === "task_session_timed_out";
-      const nextState = timedOut ? "timed_out" : "failed";
       const current = taskSessionRegistry.get(taskId);
+      const hardInterrupted = current?.interrupt?.reason === "force_stop_now";
+      const nextState = hardInterrupted ? "cancelled" : (timedOut ? "timed_out" : "failed");
       if (current && !TERMINAL_TASK_SESSION_STATES.has(current.state)) {
         taskSessionRegistry.transition(taskId, nextState, timedOut ? "worker timed out" : "worker failed");
       }
       capsule = failureTaskCapsule(
         taskId,
-        nextState,
-        timedOut ? `worker exceeded timeout_ms=${spec.timeout_ms}` : `worker result rejected (${error?.code || "task_session_failed"})`,
+        hardInterrupted ? "interrupted" : nextState,
+        hardInterrupted
+          ? "worker process killed; current small round discarded"
+          : (timedOut ? `worker exceeded timeout_ms=${spec.timeout_ms}` : `worker result rejected (${error?.code || "task_session_failed"})`),
       );
       if (useRuntimeSeam) {
         try {
@@ -969,6 +981,7 @@ function createClaudeCodeRuntimeAdapter(config) {
     } finally {
       unsubscribe();
       workspaceHold?.release();
+      if (taskSessionClients.get(taskId) === client) taskSessionClients.delete(taskId);
       await client?.close().catch(() => {});
     }
 
@@ -1005,6 +1018,10 @@ function createClaudeCodeRuntimeAdapter(config) {
           globalListener = null;
         }
       };
+    },
+    onRoute1DispatchRequest(listener) {
+      route1DispatchListener = typeof listener === "function" ? listener : null;
+      return () => { if (route1DispatchListener === listener) route1DispatchListener = null; };
     },
     getSessionStore() {
       return sessionStore;
@@ -1188,7 +1205,10 @@ function createClaudeCodeRuntimeAdapter(config) {
         error.code = "route1_task_session_disabled";
         throw error;
       }
-      return taskSessionRegistry.requestCancel(taskId, "strong_interrupt");
+      const status = taskSessionRegistry.requestHardInterrupt(taskId);
+      const client = taskSessionClients.get(taskId);
+      if (client) void client.forceClose().catch(() => {});
+      return status;
     },
     async resumeTaskSession({ taskId, observedChangedPaths } = {}) {
       if (!route1TaskSessionEnabled()) {
@@ -1204,6 +1224,22 @@ function createClaudeCodeRuntimeAdapter(config) {
         throw error;
       }
       taskSessionRegistry.resume(taskId);
+      return executeTaskSession(taskId, { resume: true, observedChangedPaths, useRuntimeSeam });
+    },
+    async continueTaskSession({ taskId, observedChangedPaths } = {}) {
+      if (!route1TaskSessionEnabled()) {
+        const error = new Error("route1_task_session_disabled");
+        error.code = "route1_task_session_disabled";
+        throw error;
+      }
+      const input = taskSessionInputs.get(taskId);
+      const useRuntimeSeam = input?.useRuntimeSeam === true && route1RuntimeSeamEnabled();
+      if (!useRuntimeSeam && !Array.isArray(observedChangedPaths)) {
+        const error = new Error("task_session_observed_paths_required");
+        error.code = "task_session_observed_paths_required";
+        throw error;
+      }
+      taskSessionRegistry.resume(taskId, { clearInterrupt: true });
       return executeTaskSession(taskId, { resume: true, observedChangedPaths, useRuntimeSeam });
     },
     getTaskSessionStatus({ taskId } = {}) {

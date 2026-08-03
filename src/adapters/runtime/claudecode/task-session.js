@@ -127,6 +127,7 @@ class TaskSessionRegistry {
   addInstruction(taskId, instruction) {
     const record = this.require(taskId);
     if (record.state === "completed") throw taskSessionError("task_session_not_resumable");
+    if (record.latch.isRequested()) throw taskSessionError("task_session_interrupt_pending");
     const text = boundText(instruction, MAX_INSTRUCTION_CHARS);
     if (!text) throw taskSessionError("task_session_instruction_required");
     if (record.instructions.length >= MAX_INSTRUCTIONS) {
@@ -156,9 +157,19 @@ class TaskSessionRegistry {
     return this.snapshot(taskId);
   }
 
-  resume(taskId) {
+  requestHardInterrupt(taskId) {
+    const record = this.require(taskId);
+    record.latch.request("force_stop_now");
+    record.progress = "worker process killed; current small round discarded";
+    record.updatedAt = new Date().toISOString();
+    if (!TERMINAL_STATES.has(record.state)) this.transition(taskId, "cancelled", record.progress);
+    return this.snapshot(taskId);
+  }
+
+  resume(taskId, { clearInterrupt = false } = {}) {
     const record = this.require(taskId);
     if (!RESUMABLE_STATES.has(record.state)) throw taskSessionError("task_session_not_resumable");
+    if (record.latch.isRequested() && !clearInterrupt) throw taskSessionError("task_session_interrupt_pending");
     record.latch = new StrongInterruptLatch();
     return this.transition(taskId, "queued", "task queued for resume");
   }

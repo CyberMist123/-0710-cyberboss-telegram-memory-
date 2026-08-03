@@ -118,6 +118,16 @@ class ClaudeCodeIpcServer extends EventEmitter {
     }
   }
 
+  reply(socket, event) {
+    if (!this.authenticated.has(socket)) return false;
+    try {
+      socket.write(`${JSON.stringify(event)}\n`);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   ensureDirectory() {
     fs.mkdirSync(this.stateDir, { recursive: true });
   }
