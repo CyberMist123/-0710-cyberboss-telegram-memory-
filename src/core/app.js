@@ -170,6 +170,7 @@ class CyberbossApp {
     this.route1DispatchController = route1DispatchEnabled()
       ? new Route1DispatchController({
           runtimeAdapter: this.runtimeAdapter,
+          stateDir: config.stateDir,
           trace: (entry) => this.contextTraceRecorder.record({ route1_dispatch: entry }),
         })
       : null;
@@ -177,6 +178,10 @@ class CyberbossApp {
       this.route1DispatchController?.dispatch(args, context)
       || Promise.reject(Object.assign(new Error("route1_dispatch_disabled"), { code: "route1_dispatch_disabled" }))
     ));
+    this.runtimeAdapter.onRoute1TaskQueryRequest?.((action, args, context) => {
+      if (action === "status") return this.route1DispatchController?.taskStatus(args, context);
+      return this.route1DispatchController?.taskResult(args, context);
+    });
     this.handoffDeliveryByRunKey = new Map();
     this.handoffDispatcher = config.handoffDispatchEnabled === true
       ? new HandoffDispatcher({
@@ -903,6 +908,7 @@ class CyberbossApp {
     }).catch(() => {});
 
     let handoffTurn = null;
+    let route1Notice = null;
     try {
       const turnParams = this.runtimeAdapter.getSessionStore().getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
       const model = turnParams.model;
@@ -917,6 +923,27 @@ class CyberbossApp {
       } catch (error) {
         console.warn(`[continuity] handoff injection preparation failed: ${error?.message || String(error)}`);
         handoffTurn = null;
+      }
+      try {
+        const noticeRouteSession = resolveRouteSessionFor(this, {
+          bindingKey,
+          workspaceRoot,
+          lane: effectiveLane,
+          normalized: prepared,
+        });
+        const noticeRoute = buildCurrentSubjectRouteIdentity({
+          app: this,
+          bindingKey,
+          prepared,
+          lane: effectiveLane,
+          routeSession: noticeRouteSession,
+        });
+        route1Notice = this.route1DispatchController?.prepareRoute1CompletionNotice({ currentRoute: noticeRoute }) || null;
+        if (route1Notice?.block) runtimeTurn.text = `${route1Notice.block}\n\n${runtimeTurn.text}`;
+      } catch (error) {
+        this.route1DispatchController?.cancelRoute1CompletionNotice?.(route1Notice);
+        route1Notice = null;
+        console.warn(`[route1] completion notice skipped: ${error?.message || String(error)}`);
       }
       if (handoffTurn?.block) {
         try {
@@ -955,11 +982,46 @@ class CyberbossApp {
           channelSource: prepared.provider,
         },
       });
+      const route1TurnIdentity = this.route1DispatchController
+        ? buildCurrentSubjectRouteIdentity({
+          app: this,
+          bindingKey,
+          prepared,
+          lane: effectiveLane,
+          routeSession: {
+            laneKey: turn.laneKey || effectiveLane?.laneKey,
+            sessionSlotKey: turn.sessionSlotKey,
+            threadId: turn.threadId,
+            profileId: turn.profileId,
+            profileFingerprint: turn.profileFingerprint,
+            messageThreadId: effectiveLane?.messageThreadId ?? null,
+          },
+        })
+        : null;
+      let route1OriginRoute = null;
+      if (route1TurnIdentity) {
+        try {
+          route1OriginRoute = createSubjectRoute({
+            ...route1TurnIdentity,
+            author_turn_id: turn.turnId,
+            source_entry_ids: [normalizeText(prepared.subjectSourceEntryId) || turn.turnId],
+          });
+        } catch (error) {
+          console.warn(`[route1] origin snapshot skipped: ${error?.message || String(error)}`);
+        }
+      }
       this.route1DispatchController?.registerTurn({
         turnId: turn.turnId,
         workspaceRoot,
         launchProfile: this.telegramProfileRouter?.getProfile?.("work-engineering") || null,
+        routeIdentity: route1TurnIdentity,
+        originRoute: route1OriginRoute,
       });
+      const route1NoticeTrace = route1Notice?.block
+        ? { task_id: route1Notice.taskId, chars: route1Notice.block.length }
+        : undefined;
+      this.route1DispatchController?.completeRoute1CompletionNotice?.(route1Notice);
+      route1Notice = null;
       this.issueSubjectCapabilityForTurnFailOpen?.({
         bindingKey,
         workspaceRoot,
@@ -975,6 +1037,7 @@ class CyberbossApp {
           turn.continuity,
           runtimeTurn.memoryContext,
           handoffTurn?.trace,
+          route1NoticeTrace,
         );
       } catch (error) {
         console.warn(`[continuity] context trace failed: ${error?.message || String(error)}`);
@@ -1048,6 +1111,8 @@ class CyberbossApp {
       }
       return true;
     } catch (error) {
+      this.route1DispatchController?.cancelRoute1CompletionNotice?.(route1Notice);
+      route1Notice = null;
       if (handoffTurn) {
         this.failHandoffDeliveryFailOpen?.(handoffTurn, {
           reason: "runtime_turn_not_delivered",
@@ -3498,6 +3563,7 @@ class CyberbossApp {
     continuity = {},
     memoryContext = undefined,
     handoffTrace = undefined,
+    route1NoticeTrace = undefined,
   ) {
     const context = continuity && typeof continuity === "object" ? continuity : {};
     // Fold the turn's memory-context outcome into the trace row, so the trace
@@ -3533,6 +3599,17 @@ class CyberbossApp {
         route_match: normalizeText(handoffTrace.route_match),
         chars: Math.max(0, Number(handoffTrace.chars) || 0),
         result: normalizeText(handoffTrace.result) || "injected",
+      });
+    }
+    if (route1NoticeTrace && typeof route1NoticeTrace === "object") {
+      blocks = Array.isArray(blocks) ? [...blocks] : [];
+      blocks.push({
+        type: "route1_completion_notice",
+        loaded: true,
+        reason: "exact_route",
+        task_id: normalizeText(route1NoticeTrace.task_id),
+        chars: Math.max(0, Number(route1NoticeTrace.chars) || 0),
+        result: "injected",
       });
     }
     const ts = new Date().toISOString();

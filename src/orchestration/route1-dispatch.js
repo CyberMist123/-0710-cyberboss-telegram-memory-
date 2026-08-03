@@ -6,6 +6,12 @@ const net = require("net");
 const path = require("path");
 const { assertValidTaskSpec, MAX_TIMEOUT_MS } = require("./delegation/task-spec");
 const { lexicalPath } = require("../adapters/runtime/claudecode/route1-runtime-seam");
+const { buildRoute1Notice, createTaskStore } = require("./route1-task-store");
+const {
+  SUBJECT_ROUTE_MATCH_EXACT,
+  SUBJECT_ROUTE_MATCH_WINDOW_GONE,
+  matchSubjectRouteWindow,
+} = require("../continuity/subject-route");
 
 const SOFT_TIMEOUT_MS = 5 * 60 * 1000;
 const CONSULT_TIMEOUT_MS = 15 * 60 * 1000;
@@ -17,7 +23,7 @@ function route1DispatchEnabled(env = process.env) {
 }
 
 class Route1DispatchController {
-  constructor({ runtimeAdapter, trace = null, idFactory = () => crypto.randomUUID(), queueMicrotaskFn = queueMicrotask } = {}) {
+  constructor({ runtimeAdapter, trace = null, idFactory = () => crypto.randomUUID(), queueMicrotaskFn = queueMicrotask, stateDir = "", taskStore = null } = {}) {
     if (!runtimeAdapter) throw dispatchError("route1_runtime_required");
     this.runtime = runtimeAdapter;
     this.trace = typeof trace === "function" ? trace : null;
@@ -30,12 +36,21 @@ class Route1DispatchController {
     this.runningTaskId = "";
     this.halted = false;
     this.pumpScheduled = false;
+    this.taskStore = taskStore || createTaskStore({ stateDir });
+    this.noticeInFlight = new Set();
+    this.noticeDelivered = new Set((this.taskStore.listRows?.("notice") || []).map((row) => row.task_id));
   }
 
-  registerTurn({ turnId, workspaceRoot, launchProfile, released = false } = {}) {
+  registerTurn({ turnId, workspaceRoot, launchProfile, routeIdentity = null, originRoute = null, released = false } = {}) {
     const id = clean(turnId);
     if (!id) return false;
-    this.turns.set(id, { workspaceRoot: clean(workspaceRoot), launchProfile: launchProfile || null, released });
+    this.turns.set(id, {
+      workspaceRoot: clean(workspaceRoot),
+      launchProfile: launchProfile || null,
+      routeIdentity: cloneJson(routeIdentity) || null,
+      originRoute: cloneJson(originRoute) || cloneJson(routeIdentity) || null,
+      released,
+    });
     return true;
   }
 
@@ -109,6 +124,9 @@ class Route1DispatchController {
       started: false,
       capsule: null,
       shortStatus: null,
+      verification: null,
+      originRoute: cloneJson(this.turns.get(originTurnId)?.originRoute)
+        || cloneJson(this.turns.get(originTurnId)?.routeIdentity) || null,
       runPromise: null,
       resumeEligible: true,
     };
@@ -133,6 +151,9 @@ class Route1DispatchController {
       started: false,
       capsule: null,
       shortStatus: null,
+      verification: null,
+      originRoute: cloneJson(this.turns.get(originTurnId)?.originRoute)
+        || cloneJson(this.turns.get(originTurnId)?.routeIdentity) || null,
       runPromise: null,
       resumeEligible: false,
     });
@@ -173,13 +194,140 @@ class Route1DispatchController {
       task.started = true;
       task.capsule = result?.capsule || null;
       task.shortStatus = result?.shortStatus || null;
+      task.verification = result?.verification || null;
       task.state = clean(result?.shortStatus?.lifecycle) || clean(result?.capsule?.status) || "failed";
     } catch (error) {
       task.started = true;
       task.state = "failed";
       task.shortStatus = { task_id: task.taskId, lifecycle: "failed", decision: "stop", summary: clean(error?.code || error?.message) || "worker failed" };
     }
+    try {
+      this.taskStore.appendTerminal({
+        taskId: task.taskId,
+        capsule: task.capsule,
+        verification: task.verification || { decision: task.shortStatus?.decision || "stop" },
+        originRoute: task.originRoute,
+        shortStatus: task.shortStatus,
+      });
+    } catch (error) {
+      this.recordTrace("result_store_failed", { task_id: task.taskId, explanation: clean(error?.code || error?.message) || "append_failed" });
+    }
     return task;
+  }
+
+  prepareRoute1CompletionNotice({ currentRoute } = {}) {
+    if (!currentRoute) return null;
+    for (const task of this.tasks.values()) {
+      if (!task.capsule || this.noticeDelivered.has(task.taskId) || this.noticeInFlight.has(task.taskId)) continue;
+      const originState = this.getOriginState(task, currentRoute);
+      if (originState !== "origin_current") continue;
+      const block = buildRoute1Notice(task.shortStatus);
+      if (!block) continue;
+      this.noticeInFlight.add(task.taskId);
+      return { taskId: task.taskId, block, originState };
+    }
+    return null;
+  }
+
+  completeRoute1CompletionNotice(notice) {
+    const taskId = clean(notice?.taskId);
+    if (!taskId || !this.noticeInFlight.has(taskId)) return false;
+    this.noticeInFlight.delete(taskId);
+    this.noticeDelivered.add(taskId);
+    try {
+      this.taskStore.appendNotice({ taskId, originState: "origin_current", blockChars: notice.block.length });
+    } catch (error) {
+      this.recordTrace("result_store_failed", { task_id: taskId, explanation: clean(error?.code || error?.message) || "notice_append_failed" });
+    }
+    this.recordTrace("notice", { task_id: taskId, explanation: "origin_exact_notice_injected_once", chars: notice.block.length });
+    return true;
+  }
+
+  cancelRoute1CompletionNotice(notice) {
+    const taskId = clean(notice?.taskId);
+    if (taskId) this.noticeInFlight.delete(taskId);
+  }
+
+  taskStatus(args = {}, context = {}) {
+    const currentRoute = this.resolveCurrentRoute(context);
+    const requested = clean(args.task_id);
+    const tasks = [...this.tasks.values()]
+      .filter((task) => !requested || task.taskId === requested)
+      .filter((task) => !currentRoute || sameBindingLane(task.originRoute, currentRoute))
+      .map((task) => this.statusRow(task, currentRoute));
+    return { status: "ok", tasks };
+  }
+
+  taskResult(args = {}, context = {}) {
+    const taskId = clean(args.task_id);
+    if (!taskId) throw dispatchError("route1_task_id_required");
+    const task = this.tasks.get(taskId);
+    if (!task || !task.capsule) return { status: "not_ready", task_id: taskId };
+    const currentRoute = this.resolveCurrentRoute(context);
+    if (!currentRoute || !sameBindingLane(task.originRoute, currentRoute)) {
+      throw dispatchError("route1_task_route_mismatch");
+    }
+    const originState = this.getOriginState(task, currentRoute);
+    const fromFinishedWindow = originState === "origin_expired";
+    const source = fromFinishedWindow ? "from_finished_window" : "origin_window";
+    try {
+      this.taskStore.appendClaim({ taskId, originState, source });
+    } catch (error) {
+      this.recordTrace("result_store_failed", { task_id: taskId, explanation: clean(error?.code || error?.message) || "claim_append_failed" });
+    }
+    this.recordTrace("claim", { task_id: taskId, explanation: "explicit_route1_" + "task_result_claim", origin_state: originState, source });
+    return {
+      status: "claimed",
+      task_id: taskId,
+      origin_state: originState,
+      source,
+      source_label: fromFinishedWindow ? "来自已终结窗口" : "来自当前任务窗口",
+      capsule: cloneJson(task.capsule),
+    };
+  }
+
+  statusRow(task, currentRoute) {
+    return {
+      task_id: task.taskId,
+      lifecycle: task.state,
+      summary: clean(task.shortStatus?.summary),
+      decision: clean(task.shortStatus?.decision),
+      origin_state: currentRoute ? this.getOriginState(task, currentRoute) : "unknown",
+      result_available: Boolean(task.capsule),
+    };
+  }
+
+  resolveCurrentRoute(context = {}) {
+    return cloneJson(context.currentRoute || context.route_identity || this.turns.get(clean(context.turnId))?.routeIdentity) || null;
+  }
+
+  getOriginState(task, currentRoute) {
+    const originRoute = task?.originRoute;
+    if (!originRoute || !currentRoute) return "origin_expired";
+    let match;
+    try {
+      match = matchSubjectRouteWindow(originRoute, currentRoute);
+    } catch {
+      return "origin_expired";
+    }
+    if (match.status === SUBJECT_ROUTE_MATCH_EXACT) return "origin_current";
+    if (match.status === SUBJECT_ROUTE_MATCH_WINDOW_GONE) return "origin_expired";
+    const originThread = clean(originRoute.session?.runtime_thread_id);
+    const storedThread = this.resolveStoredThreadId(originRoute.session?.session_slot_key);
+    return storedThread && originThread && storedThread === originThread
+      ? "origin_pending"
+      : "origin_expired";
+  }
+
+  resolveStoredThreadId(sessionSlotKey) {
+    const key = clean(sessionSlotKey);
+    if (!key) return "";
+    try {
+      return clean(this.runtime.getRoute1StoredThreadId?.(key)
+        || this.runtime.__internals?.sessionSlotStore?.getThreadId?.(key));
+    } catch {
+      return "";
+    }
   }
 
   softInterrupt() {
@@ -269,6 +417,15 @@ class Route1DispatchIpcClient {
   }
 
   async dispatch(args, context) {
+    return this.request("route1.dispatch", "route1.dispatch.result", args, context);
+  }
+
+  async query(action, args, context) {
+    const type = action === "status" ? "route1.task.status" : "route1.task.result";
+    return this.request(type, `${type}.result`, args, context);
+  }
+
+  async request(type, responseType, args, context) {
     if (!this.stateDir) throw dispatchError("route1_ipc_state_dir_required");
     const endpoint = JSON.parse(fs.readFileSync(path.join(this.stateDir, "claudecode-runtime.json"), "utf8"));
     const token = fs.readFileSync(endpoint.tokenFile, "utf8").trim();
@@ -285,7 +442,7 @@ class Route1DispatchIpcClient {
       socket.setEncoding("utf8");
       socket.on("connect", () => {
         socket.write(`${JSON.stringify({ type: "auth", token })}\n`);
-        socket.write(`${JSON.stringify({ type: "route1.dispatch", requestId, args, context })}\n`);
+        socket.write(`${JSON.stringify({ type, requestId, args, context })}\n`);
       });
       socket.on("data", (chunk) => {
         buffer += chunk;
@@ -294,7 +451,7 @@ class Route1DispatchIpcClient {
         for (const line of lines) {
           let message;
           try { message = JSON.parse(line); } catch { continue; }
-          if (message?.type !== "route1.dispatch.result" || message.requestId !== requestId) continue;
+          if (message?.type !== responseType || message.requestId !== requestId) continue;
           if (message.error) return finish(dispatchError(message.error));
           return finish(null, message.result);
         }
@@ -331,6 +488,21 @@ function normalizeMaterials(value) { return Array.isArray(value) ? value : []; }
 function clean(value) { return typeof value === "string" ? value.trim() : ""; }
 function makeTaskId(value) { return `route1-${String(value || "task").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48)}`; }
 function dispatchError(code) { const error = new Error(code); error.code = code; return error; }
+function cloneJson(value) {
+  if (value === undefined) return undefined;
+  try { return JSON.parse(JSON.stringify(value)); } catch { return null; }
+}
+function sameBindingLane(left, right) {
+  if (!left || !right || left.provider !== right.provider) return false;
+  const leftBinding = left.continuity_binding || {};
+  const rightBinding = right.continuity_binding || {};
+  const leftLane = left.route_lane || {};
+  const rightLane = right.route_lane || {};
+  return leftBinding.binding_key && leftBinding.binding_key === rightBinding.binding_key
+    && leftLane.lane_key && leftLane.lane_key === rightLane.lane_key
+    && leftLane.chat_id === rightLane.chat_id
+    && leftLane.message_thread_id === rightLane.message_thread_id;
+}
 function formatInterruptStatus({ level, cancelled, running }) {
   const boundedCancelled = cancelled.slice(0, 20);
   return [
@@ -351,5 +523,6 @@ module.exports = {
   SOFT_TIMEOUT_MS,
   decideBand,
   formatInterruptStatus,
+  sameBindingLane,
   route1DispatchEnabled,
 };

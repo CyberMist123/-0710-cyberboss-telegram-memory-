@@ -82,6 +82,7 @@ Claude Code 子进程自己可以再起**子代理**。这条链路目前不由�
 
 Route 1 worker 的预防边界只保护真机活运行时数据根（memory、continuity、state、settings/secrets 与 profile configRoot），不按目录名封锁仓库源码；编排器供给独立 git worktree 以形成不同于前台 turn 的锁域，并在 worker 完成后自跑 git diff、先做越界检查再做验收。work profile 的 Write/Edit deny 只是纵深防线：v1 没有 OS 沙箱，Bash 绝对路径逃逸仍是明确接受的残余风险。
 Route 1 主 Chat 派活控制器在当前 turn 只建卡入队，待其锁释放后以并发 1 运行；5/15/60 三档与本窗口自确认控制规模，软停守小轮边界、硬停直接杀 worker 进程。
+Route 1 terminal 胶囊由独立 `state/route1/task-results.jsonl` 单 writer 留存；origin 按 current/pending/expired 三态处理，一次性通知只报可领取，正文仅经同 lane 的主动领取工具回呈，已终结窗口仍可带来源标记领取。
 
 未来方向：子代理运行时除 Claude Code 外也考虑接 Codex（`src/adapters/runtime/codex/` 已有完整的 rpc-client / session-store / model-catalog，目前用于主运行时切换，不用于子代理）。
 
