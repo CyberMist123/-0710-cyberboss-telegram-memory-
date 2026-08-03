@@ -2016,10 +2016,10 @@ class CyberbossApp {
       case "effort":
         await this.handleEffortCommand(normalized, command);
         return;
-      case "pause":
+      case "pause_heartbeat":
         await this.handleActivityPauseCommand(normalized, command, true);
         return;
-      case "continue":
+      case "continue_heartbeat":
         await this.handleActivityPauseCommand(normalized, command, false);
         return;
       case "star":
@@ -2502,17 +2502,9 @@ class CyberbossApp {
   }
 
   async handleActivityPauseCommand(normalized, command, paused) {
-    const expectedCommand = paused ? "pause" : "continue";
-    if (normalizeCommandArgument(command.args).toLowerCase() !== "activity") {
-      await this.channelAdapter.sendText({
-        userId: normalized.senderId,
-        text: `💡 Usage: /${expectedCommand} activity`,
-        contextToken: normalized.contextToken,
-        ...outboundThreadIdField(normalized),
-      });
-      return;
-    }
-
+    // Renamed to single-token /pause_heartbeat and /continue_heartbeat (Owner
+    // 2026-08-04): the command name now carries the meaning, so there is no
+    // "activity" argument to validate.
     try {
       writeActivityPauseState(this.config.activityPauseFile, paused);
     } catch (error) {
