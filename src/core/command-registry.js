@@ -298,6 +298,17 @@ const COMMAND_GROUPS = [
         weixin: ["/help"],
         status: "active",
       },
+      {
+        action: "app.ai_profile",
+        summary: "Read-only capability directory: MCP servers, tools, skills",
+        terminal: [],
+        weixin: ["/ai_profile"],
+        status: "active",
+        // Hidden per Owner 2026-08-04: routable by typing but kept out of the
+        // Telegram menu and /help (AI-Profile is a diagnostic surface, not a
+        // day-to-day command).
+        hidden: true,
+      },
     ],
   },
   {
