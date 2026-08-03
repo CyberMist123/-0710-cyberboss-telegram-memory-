@@ -166,10 +166,38 @@ test("claudecode adapter exposes image file read capability only for known image
     nativeImageInput: false,
     toolImageRead: false,
   });
+  // Precedence fix (fable item 5): an explicit per-turn model now wins over the
+  // deployment default. configuredModel is a *fallback*, not an override -- so a
+  // passed model drives capabilities, and only an empty passed model falls back
+  // to configuredModel.
   assert.deepEqual(configured.getTurnCapabilities({ model: "deepseek-chat" }), {
+    nativeImageInput: false,
+    toolImageRead: false,
+  });
+  assert.deepEqual(configured.getTurnCapabilities({ model: "" }), {
     nativeImageInput: false,
     toolImageRead: true,
   });
+});
+
+test("claudecode adapter describe exposes model provider and the chat model catalog", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cb-claude-describe-"));
+  const adapter = createClaudeCodeRuntimeAdapter({
+    stateDir: tempDir,
+    sessionsFile: path.join(tempDir, "sessions.json"),
+    claudeModel: "claude-fable-5",
+  });
+  const described = adapter.describe();
+  assert.equal(described.id, "claudecode");
+  assert.equal(described.model, "claude-fable-5");
+  // Fixes /status "provider: (default)" -- describe now carries a real provider.
+  assert.equal(described.modelProvider, "anthropic");
+  // Seeds the /model chat menu (Owner-confirmed 3 models).
+  assert.deepEqual(described.models.map((entry) => entry.model), [
+    "claude-opus-4-6",
+    "claude-fable-5",
+    "claude-sonnet-4-6",
+  ]);
 });
 
 test("claudecode adapter hydrates model from Claude project transcript", async () => {

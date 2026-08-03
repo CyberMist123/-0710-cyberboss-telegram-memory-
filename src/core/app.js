@@ -2647,11 +2647,14 @@ class CyberbossApp {
       : sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot).model;
 
     if (!query) {
+      // Prefer a populated session catalog (e.g. codex); otherwise fall back to
+      // the runtime's advertised models (claudecode surfaces its 3-model menu here).
+      const suggestedModels = (catalog?.models?.length ? catalog.models : (this.runtimeAdapter.describe().models || []));
       const lines = [
-        `Current model: ${currentModel || "(default)"}`,
+        `Current model: ${currentModel || this.runtimeAdapter.describe().model || "(default)"}`,
       ];
-      if (catalog?.models?.length) {
-        lines.push(`Available models: ${catalog.models.map((item) => item.model).join(", ")}`);
+      if (suggestedModels.length) {
+        lines.push(`Available models: ${suggestedModels.map((item) => item.model).join(", ")}`);
       } else {
         lines.push("Available models: (not available)");
       }
