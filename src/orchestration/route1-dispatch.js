@@ -275,7 +275,7 @@ class Route1DispatchController {
     } catch (error) {
       this.recordTrace("result_store_failed", { task_id: taskId, explanation: clean(error?.code || error?.message) || "claim_append_failed" });
     }
-    this.recordTrace("claim", { task_id: taskId, explanation: "explicit_route1_" + "task_result_claim", origin_state: originState, source });
+    this.recordTrace("claim", { task_id: taskId, explanation: "explicit_route1_task_result_claim", origin_state: originState, source });
     return {
       status: "claimed",
       task_id: taskId,
