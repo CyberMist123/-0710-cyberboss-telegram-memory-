@@ -268,9 +268,10 @@ test("T10-A A10 new flag off preserves T09 observedChangedPaths requirement and 
   }
 });
 
-test("T10-A A9 pins small-round intent without app commands or changed interrupt semantics", () => {
+test("T10-A A9 pins small-round intent while T10-B owns app commands and changed interrupt semantics", () => {
   const adapterSource = fs.readFileSync(path.join(__dirname, "..", "src", "adapters", "runtime", "claudecode", "index.js"), "utf8");
   const appSource = fs.readFileSync(path.join(__dirname, "..", "src", "core", "app.js"), "utf8");
   assert.match(adapterSource, /One atomic step is intentionally one small worker round/);
-  assert.doesNotMatch(appSource, /CYBERBOSS_ROUTE1_CHAT_DISPATCH_ENABLED|stop-tasks-and-answer-now|force-stop-now/);
+  assert.match(appSource, /Route1DispatchController/);
+  assert.match(appSource, /stop-tasks-and-answer-now|force-stop-now/);
 });

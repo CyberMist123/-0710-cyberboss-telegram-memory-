@@ -404,6 +404,10 @@ function createTelegramProfileRouter({
     listProfileIds() {
       return [...profiles.keys()].sort();
     },
+    getProfile(profileId) {
+      const id = typeof profileId === "string" ? profileId.trim() : "";
+      return profiles.get(id) || null;
+    },
   });
 }
 

@@ -88,6 +88,7 @@ const { parseMemoryCommand } = require("./memory-command-router");
 const { validateDraftAgainstMemory, rewriteDraftToMatchMemory } = require("./memory-validator");
 const { buildRecentStateMemoryLines } = require("../location/recent-state-memory");
 const { recordCanaryReceipt } = require("../orchestration/canary-receipt");
+const { Route1DispatchController, route1DispatchEnabled } = require("../orchestration/route1-dispatch");
 const DEFAULT_LONG_POLL_TIMEOUT_MS = 35_000;
 const MIN_LONG_POLL_TIMEOUT_MS = 2_000;
 const SESSION_EXPIRED_ERRCODE = -14;
@@ -166,6 +167,16 @@ class CyberbossApp {
     this.threadStateStore = new ThreadStateStore();
     this.contextTraceRecorder = new ContextTraceRecorder({ filePath: config.contextTraceFile });
     this.contextTraceRunState = new Map();
+    this.route1DispatchController = route1DispatchEnabled()
+      ? new Route1DispatchController({
+          runtimeAdapter: this.runtimeAdapter,
+          trace: (entry) => this.contextTraceRecorder.record({ route1_dispatch: entry }),
+        })
+      : null;
+    this.runtimeAdapter.onRoute1DispatchRequest?.((args, context) => (
+      this.route1DispatchController?.dispatch(args, context)
+      || Promise.reject(Object.assign(new Error("route1_dispatch_disabled"), { code: "route1_dispatch_disabled" }))
+    ));
     this.handoffDeliveryByRunKey = new Map();
     this.handoffDispatcher = config.handoffDispatchEnabled === true
       ? new HandoffDispatcher({
@@ -919,6 +930,7 @@ class CyberbossApp {
           handoffTurn = null;
         }
       }
+      const launchProfile = this.resolveLaunchProfileForLane?.(effectiveLane) || null;
       const sendTurn = typeof this.runtimeAdapter.sendTurn === "function"
         ? this.runtimeAdapter.sendTurn.bind(this.runtimeAdapter)
         : this.runtimeAdapter.sendTextTurn.bind(this.runtimeAdapter);
@@ -930,7 +942,7 @@ class CyberbossApp {
         model,
         effort: turnParams.effort,
         lane: effectiveLane,
-        launchProfile: this.resolveLaunchProfileForLane?.(effectiveLane) || null,
+        launchProfile,
         windowOverride: turnParams.windowOverride || null,
         senderId: prepared.senderId || "",
         metadata: {
@@ -942,6 +954,11 @@ class CyberbossApp {
           messageId: prepared.messageId || prepared.telegram?.messageId || "",
           channelSource: prepared.provider,
         },
+      });
+      this.route1DispatchController?.registerTurn({
+        turnId: turn.turnId,
+        workspaceRoot,
+        launchProfile: this.telegramProfileRouter?.getProfile?.("work-engineering") || null,
       });
       this.issueSubjectCapabilityForTurnFailOpen?.({
         bindingKey,
@@ -990,7 +1007,7 @@ class CyberbossApp {
         routeToken: turn.routeToken || turn.sessionSlotKey || "",
         laneKey: turn.laneKey || effectiveLane?.laneKey || "",
         processKey: turn.processKey || "",
-        ...(this.config.subjectSigningEnabled === true && turn.turnId
+        ...((this.config.subjectSigningEnabled === true || this.route1DispatchController) && turn.turnId
           ? { turnId: turn.turnId }
           : {}),
       });
@@ -1881,6 +1898,20 @@ class CyberbossApp {
   }
 
   async dispatchChannelCommand(normalized, command) {
+    if (this.route1DispatchController) {
+      if (command.name === "stop-tasks-and-answer-now") {
+        this.handleRoute1InterruptCommand(normalized, "soft");
+        return;
+      }
+      if (command.name === "force-stop-now") {
+        this.handleRoute1InterruptCommand(normalized, "hard");
+        return;
+      }
+      if (command.name === "continue-tasks") {
+        await this.handleRoute1ContinueCommand(normalized);
+        return;
+      }
+    }
     switch (command.name) {
       case "bind":
         await this.handleBindCommand(normalized, command);
@@ -2316,6 +2347,45 @@ class CyberbossApp {
       contextToken: normalized.contextToken,
       ...outboundThreadIdField(normalized),
     });
+  }
+
+  handleRoute1InterruptCommand(normalized, level) {
+    let interrupt;
+    try {
+      interrupt = level === "hard"
+        ? this.route1DispatchController.hardInterrupt()
+        : this.route1DispatchController.softInterrupt();
+    } catch (error) {
+      console.warn(`[route1] ${level} interrupt failed: ${error?.message || String(error)}`);
+      interrupt = { acknowledgement: "收到", formal: Promise.resolve("工程车急停状态暂时取不到；当前聊天不受影响。") };
+    }
+    const target = {
+      userId: normalized.senderId,
+      contextToken: normalized.contextToken,
+      ...outboundThreadIdField(normalized),
+    };
+    // D25-C acknowledgement is deliberately sent before observing the worker
+    // promise. The formal status is a later, independent delivery.
+    void this.channelAdapter.sendText({ ...target, text: interrupt.acknowledgement }).catch(() => {});
+    void Promise.resolve(interrupt.formal)
+      .then((text) => this.channelAdapter.sendText({ ...target, text }))
+      .catch(() => {});
+  }
+
+  async handleRoute1ContinueCommand(normalized) {
+    let result;
+    try {
+      result = this.route1DispatchController.continueTasks();
+    } catch (error) {
+      console.warn(`[route1] continue failed: ${error?.message || String(error)}`);
+      result = { resumed: [] };
+    }
+    await this.channelAdapter.sendText({
+      userId: normalized.senderId,
+      text: `已恢复工程派活。resumed=${result.resumed.join(",") || "none"}`,
+      contextToken: normalized.contextToken,
+      ...outboundThreadIdField(normalized),
+    }).catch(() => {});
   }
 
   async handleCheckinCommand(normalized, command) {
@@ -3034,6 +3104,12 @@ class CyberbossApp {
   }
 
   async handleRuntimeEvent(event) {
+    if (this.route1DispatchController
+      && (event?.type === "runtime.turn.completed" || event?.type === "runtime.turn.failed")) {
+      // The claudecode adapter releases the foreground process/workspace hold
+      // before emitting this event to app.js, so a queued worker can start now.
+      this.route1DispatchController.releaseTurn(event?.payload?.turnId);
+    }
     if (event?.type === "runtime.route2.cost") {
       await this.contextTraceRecorder.record({
         threadId: event.payload.threadId,

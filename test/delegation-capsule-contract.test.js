@@ -41,7 +41,7 @@ function makeValidTaskSpec(overrides = {}) {
 }
 
 test("capsule statuses are pinned and invalid statuses are rejected", () => {
-  assert.deepEqual(CAPSULE_STATUSES, ["completed", "failed", "timed_out", "cancelled", "rejected"]);
+  assert.deepEqual(CAPSULE_STATUSES, ["completed", "failed", "timed_out", "cancelled", "interrupted", "rejected"]);
   assert.equal(validateResultCapsule(makeValidCapsule()).ok, true);
 
   const invalid = validateResultCapsule(makeValidCapsule({ status: "accepted" }));

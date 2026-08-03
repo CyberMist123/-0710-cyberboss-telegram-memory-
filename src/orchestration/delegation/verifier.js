@@ -12,7 +12,7 @@ const { validateTaskSpec } = require("./task-spec");
 const { validateResultCapsule } = require("./result-capsule");
 const { evaluateChangedPaths } = require("./path-policy");
 
-const STOP_STATUSES = ["timed_out", "cancelled", "rejected"];
+const STOP_STATUSES = ["timed_out", "cancelled", "interrupted", "rejected"];
 
 function sortedUnique(values) {
   return Array.from(new Set(values)).sort();

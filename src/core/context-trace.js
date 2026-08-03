@@ -78,6 +78,7 @@ function sanitizeTraceEntry(entry = {}) {
   }
   const windowOverride = sanitizeWindowOverride(entry.window_override);
   const route2Cost = sanitizeRoute2Cost(entry.route2_cost);
+  const route1Dispatch = sanitizeRoute1Dispatch(entry.route1_dispatch);
   return {
     ts: normalizeText(entry.ts) || new Date().toISOString(),
     thread: hashThreadId(entry.threadId || entry.thread),
@@ -90,6 +91,26 @@ function sanitizeTraceEntry(entry = {}) {
     recall_calls: Array.isArray(entry.recall_calls) ? entry.recall_calls.map(sanitizeRecallCall) : [],
     ...(windowOverride ? { window_override: windowOverride } : {}),
     ...(route2Cost ? { route2_cost: route2Cost } : {}),
+    ...(route1Dispatch ? { route1_dispatch: route1Dispatch } : {}),
+  };
+}
+
+function sanitizeRoute1Dispatch(value) {
+  if (!value || typeof value !== "object") return null;
+  const action = normalizeText(value.action);
+  const explanation = normalizeText(value.explanation);
+  if (!action || !explanation) return null;
+  return {
+    action,
+    explanation,
+    task: normalizeText(value.task_id),
+    turn: normalizeText(value.turn_id),
+    level: normalizeText(value.level),
+    cancelled_count: Math.max(0, Number(value.cancelled_count) || 0),
+    waiting_count: Math.max(0, Number(value.waiting_count) || 0),
+    resumed_count: Math.max(0, Number(value.resumed_count) || 0),
+    ...(value.approval_required === false ? { approval_required: false } : {}),
+    ...(normalizeText(value.scope) ? { scope: normalizeText(value.scope) } : {}),
   };
 }
 
@@ -216,4 +237,5 @@ module.exports = {
   sanitizeTraceEntry,
   sanitizeWindowOverride,
   sanitizeRoute2Cost,
+  sanitizeRoute1Dispatch,
 };
