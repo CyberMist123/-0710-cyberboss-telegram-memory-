@@ -50,6 +50,12 @@ function readConfig() {
     reminderQueueFile: joinIfBase(stateDir, "reminder-queue.json"),
     systemMessageQueueFile: joinIfBase(stateDir, "system-message-queue.json"),
     activityPauseFile: joinIfBase(stateDir, "activity-pause.json"),
+    // Absolute path to the watchdog's health log (<watchdog_owner_dir>/watchdog.log),
+    // read-only, for the /status watchdog liveness field. Unset => /status reports
+    // "unconfigured" rather than guessing. Not derived from stateDir: the watchdog
+    // owner dir comes from the release descriptor / deployment, so it is supplied
+    // explicitly via env.
+    watchdogLogFile: resolveConfiguredPath(readTextEnv("CYBERBOSS_WATCHDOG_LOG")) || "",
     deferredSystemReplyQueueFile: joinIfBase(stateDir, "deferred-system-replies.json"),
     checkinConfigFile: joinIfBase(stateDir, "checkin-config.json"),
     sleepWindowFile: joinIfBase(stateDir, "sleep-window.json"),
