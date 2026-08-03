@@ -4,7 +4,7 @@
 Status: active
 Authority: current project status
 Last verified: 2026-08-03
-Verified against: PR #133 draft
+Verified against: d5418e2
 ```
 
 - `Status: active` —— 这份文件当前有效。
@@ -23,7 +23,7 @@ Verified against: PR #133 draft
 | Gate | 状态 | 中文含义 |
 |---|---|---|
 | G1 Telegram 核心读取路径 | `PARTIAL` | 代码通路与 Trace 验收结构已接通，缺真机执行证据 |
-| G2 后台记忆写入边界 | `PARTIAL` | 候选权限闸门、nightly 登记、#73 effective decision 与 G2-3 Review artifact 已闭环；G2-4/G2-6 已把 publication intent/outbox 与 candidate rewrite lineage 同步接入 Review→History：decision/candidate 两层 supersede 拆名，History 只消费唯一有效叶子的 accepted head，以 lineage publication key 保证 Review 重跑、History 崩溃、state 重放与 decision ID 变化后的整链 exactly-once；stale/digest/fork/cycle/已发布 predecessor 均 fail-closed，发布后 decision 翻转只记冲突、不改 canon（与 artifact 共用显式默认关闭开关，阻塞 CI 覆盖）。G2-5 已闭环 dispatcher/一次性注入/ack 回路（D26：严格实时、window_gone 作废不递继任者、补投一次即止、失败递送只读聚合视图、注入块确定性组装；独立开关默认关闭）。G2-2 主体签署已落地（一次性 turn 绑定 capability + 服务端固定 `subject_ai/high` + 后台只产确定性材料包，默认关），模型侧最小 handler `memory_candidate_submit` 已随 #115 接入（签署开关开启才注册）。离线主路径（签署→路由→打回→重写→唯一 accepted→单次发布）已全链闭环并有阻塞 E2E 留证。G2-7 已落离线只读分类器与 companion binding（零升级/零猜路由/可重跑，默认关、未接消费者、未在真实存量上运行）；剩余：真机留证、生产启用（开关默认 false）、G2-7 真实存量执行与只读 lookup 消费者（D28 已裁：只读封存 + 主体自拉 `memory_lookup`，尚未实现）、G2-8 睡眠兜底 |
+| G2 后台记忆写入边界 | `PARTIAL` | 候选权限闸门、nightly 登记、#73 effective decision 与 G2-3 Review artifact 已闭环；G2-4/G2-6 已把 publication intent/outbox 与 candidate rewrite lineage 同步接入 Review→History：decision/candidate 两层 supersede 拆名，History 只消费唯一有效叶子的 accepted head，以 lineage publication key 保证 Review 重跑、History 崩溃、state 重放与 decision ID 变化后的整链 exactly-once；stale/digest/fork/cycle/已发布 predecessor 均 fail-closed，发布后 decision 翻转只记冲突、不改 canon（与 artifact 共用显式默认关闭开关，阻塞 CI 覆盖）。G2-5 已闭环 dispatcher/一次性注入/ack 回路（D26：严格实时、window_gone 作废不递继任者、补投一次即止、失败递送只读聚合视图、注入块确定性组装；独立开关默认关闭）。G2-2 主体签署已落地（一次性 turn 绑定 capability + 服务端固定 `subject_ai/high` + 后台只产确定性材料包，默认关），模型侧最小 handler `memory_candidate_submit` 已随 #115 接入（签署开关开启才注册）。离线主路径（签署→路由→打回→重写→唯一 accepted→单次发布）已全链闭环并有阻塞 E2E 留证。G2-7 已落离线只读分类器与 companion binding（零升级/零猜路由/可重跑，默认关、未接消费者、未在真实存量上运行）；剩余：真机留证、生产启用（开关默认 false）、G2-7 真实存量执行、G2-8 睡眠兜底（D28 只读 lookup 消费者已随 #125 实施，旧候选按 route 作用域经 `memory_lookup` 只读可查——详见下方能力表 G2-7 行；本处此前误写"尚未实现"，2026-08-03 truth-reset 已更正） |
 | G3 Chat 成本与 profile 隔离 | `PARTIAL` | T03 preflight、T04 双 profile 身份/permission/MCP ceiling 与 T05 同窗口 mutable override/Context Trace 离线闭环已落地；T05 挂 `CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED` 且默认关闭，model/effort/effective toolset/effective MCP set 与非人格 overlay 不进入 slot 身份，persona/permission identity 变化仍换窗，chat 非成员工具自助升格不走审批且无硬 ceiling；真实机器本地 profile 资产、目标 lane 绑定与差分 canary 仍缺（T11） |
 | G4 Windows 生产验证 | `PARTIAL` | 2026-07-30 首次真机交付成功并已留证（`docs/audit/G4_PRODUCTION_DELIVERY_20260730.md`）；2026-07-31 监督链已修复并经真实停机事故验证（BOM 去除 + `deployed_sha` 改真话 + watchdog 判活恢复，留证 `docs/audit/G4_WATCHDOG_RECOVERY_20260731.md`）；2026-08-01 第二次交付成功（main `6fb078e` 上机，首次监督链在位热交付，留证 `docs/audit/G4_PRODUCTION_DELIVERY_20260801.md`）；部署身份其余两套真相与正规发布包机制仍未处理（#77） |
 | G5 备份与回滚验证 | `NOT_VERIFIED` | 缺少真实备份恢复演练证据 |
@@ -131,30 +131,28 @@ Verified against: PR #133 draft
 ## 四、优先级
 
 ```text
-NOW
-- G2 主体写权主路径实施：G2-2 主体签署 + G2-5 dispatcher/注入/ack（D26 三条裁定为 G2-5 的规格输入）
-- 工具/记忆目录化与 G3 隔离实施起步（D25 实施单：计量基线与 CLI preflight 先行）
-- Closeout 业务日与 no_output 终态修复（D18，#65/#68 的前置）
+（2026-08-03 truth-reset：原 NOW/NEXT/LATER 已严重滞后于执行链——所列多项已合入 main。
+ 下方按事实重列「已完成」与「剩余」；剩余项的前瞻排序（谁先谁后）待 fable 协调，本节不预设。）
 
-NEXT
-- #68 睡眠窗口面板化 → #65 兜底整理实施
-- 520 重构阶段 2 设计稿（与 NOW 并行，不互相阻塞）
+已完成（原 NOW/NEXT/LATER 中已落地并合入 main，默认关）
+- G2-2 主体签署 + G2-5 dispatcher/注入/ack：已闭环（离线全链 + 阻塞 CI）
+- 目录化 T01/T02 + G3 隔离 T03–T06 + Route 2 T07/T08 + Route 1 T09/T10-A/T10-B/T10-C：已实施合入
+- Closeout 业务日与 no_output 终态（D18）；#68 睡眠窗口 520 面板化（#122）
+- D28 存量候选只读 lookup 消费者（#125）
 
-LATER
-- Chat Profile A/B
-- 最小 Chat Profile
-- Route 1 / Route 2（D25 已收敛设计并切实施单，依赖目录化与 G3 前置链）
-- Windows 最终 canary（含 runtime 单一 descriptor 真相重建）
+剩余（切生产前需闭合的门与工程活；排序待 fable 协调）
+- G2 生产启用与真机留证；G2-7 真实存量执行；G2-8 睡眠兜底  —— 让 G2 从 PARTIAL 走向 PASS
+- Route 1/2 真机差分 canary + 生产绑定（T11）；G1 真机取证（memory_context 真机执行留证）
+- G5 真实备份恢复演练（硬门，D20）
+- #65 兜底整理（先按 D26「退稿严格实时、window_gone 作废不递继任」重新收窄范围，再动工）
+- #77 发布真相收尾（runtime 单一 descriptor / 正规 release 包 / 启动入口——整理成「剩余项」，不照旧事故正文推进）
+- 520 重构阶段 2 设计稿
 
-PARALLEL GATE
-- R4 真 Windows 留证
-- CI 缺口接线（p0-closeout-liveness / memory-note-service / weekly-reflect 等孤儿测试）
-- 备份恢复演练（G5，硬门，见 D20）
+PARALLEL GATE（可与上并行，但不能替代 G1 / G2 本体）
+- R4 真 Windows 留证；备份恢复演练（G5，硬门，D20）
 
 DEFERRED
-- Soft Retrieval
-- 多 Bot
-- Apple Watch
+- Soft Retrieval / 多 Bot / Apple Watch
 ```
 
 **PARALLEL GATE 可以与 NEXT 并行推进，但不能替代 G1 / G2。** 直接去做 CI 接线和 Windows 留证、跳过 G1 真机留证与 G2 主体写权本体，是本文件明确要防止的走法。
@@ -170,7 +168,7 @@ DEFERRED
 同时满足下列全部条件才允许切生产，缺一不可：
 
 0. **G1 通过**：Telegram 上 memory_context 实际执行，且 Context Trace 能证明它执行了。当前 `PARTIAL`（缺真机证据）；
-1. **G2 通过**：Closeout 后的 owner、Review、History 与 nightly 边界闭环。当前 `FAIL`；
+1. **G2 通过**：Closeout 后的 owner、Review、History 与 nightly 边界闭环。当前 `PARTIAL`（离线全链已闭环并有阻塞 E2E，缺生产启用与真机证据，**未达 PASS**）—— 与第一节 Gate 表统一；此前本行写 `FAIL` 属旧口径（G2-2/G2-5/G2-4/G2-6/G2-7 落地前）。**⚠️ G2 是否已从 FAIL 升到 PARTIAL 属 gate 判定，待 fable 复核确认。**；
 2. R4 翻盘清单第 3 条已补：真 Windows 生产机的 release/cutover 测试完整输出已归档进 `docs/audit/`；
 3. 生产机启动项已固化 `CYBERLINK_ROOT`（否则 `start-dashboard.ps1` / `start-telegram.ps1` fail-closed）；
 4. 启动 watchdog 的入口显式传 `--descriptor`；

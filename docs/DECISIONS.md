@@ -184,6 +184,8 @@ Decision date: 2026-07-27
 
 Route 1 / Route 2 的实现仍为 `DEFERRED`。
 
+> **更正（2026-08-03 truth-reset）**：上句"Route 1 / Route 2 仍为 `DEFERRED`"已由 **D25** 解冻——D25 批准 Route 1 派活（软硬双上限 + Owner 强中断）与 Route 2 gate/lease，并切实施单；T07/T08（Route 2）、T09/T10-A/T10-B/T10-C（Route 1）已实施合入 `main`（默认关）。本条其余裁定（普通 Chat 不采用零工具/零 MCP、profile 隔离）仍 `ACTIVE`。
+
 ## D14 · 子代理输出必须经结果胶囊回主上下文；委派边界 fail-closed
 
 ```text
@@ -205,6 +207,8 @@ Decision date: 2026-07-28
 这里的 fail-closed 与不变量 5「记忆链 fail-open」**不冲突**：那条讲的是记忆链宁可失忆不可失联；委派是授权边界，授权边界只能 fail-closed。
 
 **尚未批准**：把子代理接进主 Chat 的任何自动路径。本条只批准"胶囊契约 + 有界离线闭环 + 人工发起的 canary"。主 Chat 集成仍属 Candidate C5。
+
+> **更正（2026-08-03 truth-reset）**：上段"尚未批准把子代理接进主 Chat 的任何自动路径 / 主 Chat 集成仍属 Candidate C5"已由 **D25** 实质取代——D25 批准 Route 1 主 Chat 自主派活（软硬双上限 + Owner 强中断）；T09/T10-A/T10-B/T10-C 已把 `runTaskSession` 派活控制器接进主 Chat 并合入 `main`（默认关，真机 canary 归 T11）。**本条的胶囊契约、越界检查先于验收、编排者不信任胶囊、fail-closed 终局仍全部 `ACTIVE`**，且 T09–T10-C 的实现正是复用并遵守本条胶囊契约（D14 v1 未新增变体）。仅"主 Chat 集成未批准"这一句被 D25 取代。
 
 ## D15 · memory_context 拼在 Telegram 信封外侧上方
 
