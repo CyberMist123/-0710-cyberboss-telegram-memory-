@@ -80,6 +80,8 @@ Claude Code 子进程自己可以再起**子代理**。这条链路目前不由�
 
 `route-lane.js` 的系统 lane 隔离解决的是**后台任务**不串进用户 transcript；它不解决**子代理输出**回流。两者不要混为一谈。
 
+Route 1 worker 的预防边界只保护真机活运行时数据根（memory、continuity、state、settings/secrets 与 profile configRoot），不按目录名封锁仓库源码；编排器供给独立 git worktree 以形成不同于前台 turn 的锁域，并在 worker 完成后自跑 git diff、先做越界检查再做验收。work profile 的 Write/Edit deny 只是纵深防线：v1 没有 OS 沙箱，Bash 绝对路径逃逸仍是明确接受的残余风险。
+
 未来方向：子代理运行时除 Claude Code 外也考虑接 Codex（`src/adapters/runtime/codex/` 已有完整的 rpc-client / session-store / model-catalog，目前用于主运行时切换，不用于子代理）。
 
 ## 二、三种身份，永远不许混

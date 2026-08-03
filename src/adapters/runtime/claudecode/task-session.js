@@ -78,8 +78,8 @@ class TaskSessionRegistry {
     this.tasks = new Map();
   }
 
-  create({ spec, sessionSlotKey, profileId }) {
-    assertValidTaskSpec(spec);
+  create({ spec, sessionSlotKey, profileId, allowAbsoluteForbiddenPaths = false }) {
+    assertValidTaskSpec(spec, { allowAbsoluteForbiddenPaths });
     if (this.tasks.has(spec.task_id)) {
       throw taskSessionError("task_session_already_exists");
     }
@@ -231,11 +231,16 @@ function normalizeTaskMaterials(materials) {
   });
 }
 
-function buildTaskSessionPrompt({ spec, taskMaterials = [] } = {}) {
-  assertValidTaskSpec(spec);
+function buildTaskSessionPrompt({
+  spec, taskMaterials = [], allowAbsoluteForbiddenPaths = false, smallRounds = false,
+} = {}) {
+  assertValidTaskSpec(spec, { allowAbsoluteForbiddenPaths });
   const materials = normalizeTaskMaterials(taskMaterials);
   return [
     "Execute the bounded task described by this D14 task spec.",
+    ...(smallRounds
+      ? ["Work incrementally in small rounds (target 1-3 minutes) and yield a fresh capsule at each round boundary."]
+      : []),
     "Return exactly one JSON object conforming to the existing D14 v1 result-capsule contract.",
     "Do not return transcript, messages, stdout, stderr, logs, history, or extra fields.",
     `task_spec=${JSON.stringify(spec)}`,

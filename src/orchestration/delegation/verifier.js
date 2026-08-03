@@ -18,10 +18,10 @@ function sortedUnique(values) {
   return Array.from(new Set(values)).sort();
 }
 
-function verifyCapsule({ spec, capsule, observedChangedPaths } = {}) {
+function verifyCapsule({ spec, capsule, observedChangedPaths, allowAbsoluteForbiddenPaths = false } = {}) {
   const reasons = [];
 
-  const specValidation = validateTaskSpec(spec);
+  const specValidation = validateTaskSpec(spec, { allowAbsoluteForbiddenPaths });
   if (!specValidation.ok) {
     return { decision: "stop", reasons: specValidation.errors.map((error) => `spec: ${error}`) };
   }

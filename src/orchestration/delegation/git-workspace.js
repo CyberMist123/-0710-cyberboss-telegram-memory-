@@ -23,12 +23,16 @@ function toLines(output) {
     .filter(Boolean);
 }
 
-function createDelegationWorktree({ repoRoot, branch, baseSha, worktreePath } = {}) {
-  if (!repoRoot || !branch || !baseSha || !worktreePath) {
-    throw new Error("repoRoot, branch, baseSha and worktreePath are all required");
+function createDelegationWorktree({ repoRoot, branch = "", baseSha, worktreePath } = {}) {
+  if (!repoRoot || !baseSha || !worktreePath) {
+    throw new Error("repoRoot, baseSha and worktreePath are all required");
   }
   const target = path.resolve(worktreePath);
-  git(repoRoot, ["worktree", "add", "-b", branch, target, baseSha]);
+  const args = ["worktree", "add"];
+  if (branch) args.push("-b", branch);
+  else args.push("--detach");
+  args.push(target, baseSha);
+  git(repoRoot, args);
   return { branch, worktreePath: target, baseSha };
 }
 
@@ -36,12 +40,22 @@ function removeDelegationWorktree({ repoRoot, worktreePath, force = true } = {})
   if (!repoRoot || !worktreePath) {
     throw new Error("repoRoot and worktreePath are required");
   }
+  const target = path.resolve(worktreePath);
+  if (!require("fs").existsSync(target)) return false;
   const args = ["worktree", "remove"];
   if (force) {
     args.push("--force");
   }
-  args.push(path.resolve(worktreePath));
-  git(repoRoot, args);
+  args.push(target);
+  try {
+    git(repoRoot, args);
+    return true;
+  } catch (error) {
+    // Cleanup is deliberately idempotent. A prior successful removal is not a
+    // second failure, while every other git error remains visible to callers.
+    if (!require("fs").existsSync(target)) return false;
+    throw error;
+  }
 }
 
 function changedPaths({ workspace, baseSha } = {}) {
