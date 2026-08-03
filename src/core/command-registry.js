@@ -121,9 +121,9 @@ const COMMAND_GROUPS = [
       },
       {
         action: "thread.switch",
-        summary: "Switch to a specific thread",
+        summary: "Switch to a specific thread, or /switch back to return to the previous one",
         terminal: [],
-        weixin: ["/switch <threadId>"],
+        weixin: ["/switch <threadId>", "/switch back"],
         status: "active",
       },
       {

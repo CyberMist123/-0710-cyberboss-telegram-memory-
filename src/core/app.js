@@ -2286,16 +2286,7 @@ class CyberbossApp {
   }
 
   async handleSwitchCommand(normalized, command) {
-    const targetThreadId = normalizeThreadId(command.args);
-    if (!targetThreadId) {
-      await this.channelAdapter.sendText({
-        userId: normalized.senderId,
-        text: "💡 Usage: /switch <threadId>",
-        contextToken: normalized.contextToken,
-        ...outboundThreadIdField(normalized),
-      });
-      return;
-    }
+    const isBack = normalizeCommandArgument(command.args).toLowerCase() === "back";
 
     const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
       workspaceId: normalized.workspaceId,
@@ -2304,6 +2295,36 @@ class CyberbossApp {
     });
     const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
     const sessionStore = this.runtimeAdapter.getSessionStore();
+
+    let targetThreadId;
+    if (isBack) {
+      // /switch back: return to the thread that was active before the current one
+      // (the undo for /new and /switch). The store records that pointer whenever
+      // the active thread changes; resuming it re-records the outgoing thread, so
+      // repeated /switch back toggles between the two.
+      targetThreadId = sessionStore.getPreviousThreadIdForWorkspace(bindingKey, workspaceRoot);
+      if (!targetThreadId) {
+        await this.channelAdapter.sendText({
+          userId: normalized.senderId,
+          text: "💡 No previous thread to return to.",
+          contextToken: normalized.contextToken,
+          ...outboundThreadIdField(normalized),
+        });
+        return;
+      }
+    } else {
+      targetThreadId = normalizeThreadId(command.args);
+      if (!targetThreadId) {
+        await this.channelAdapter.sendText({
+          userId: normalized.senderId,
+          text: "💡 Usage: /switch <threadId>  (or /switch back to return to the previous thread)",
+          contextToken: normalized.contextToken,
+          ...outboundThreadIdField(normalized),
+        });
+        return;
+      }
+    }
+
     const runtimeParams = sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
     let resumed;
     try {
