@@ -58,6 +58,10 @@ const COMMAND_GROUPS = [
         terminal: ["memory review --limit 10", "memory suggest <pendingId>", "memory apply-suggestion <pendingId>", "memory pending --json"],
         weixin: ["/memory pending", "/memory approve <pendingId> [rewrite text]"],
         status: "active",
+        // Front-end (Telegram menu + /help) hidden per Owner 2026-08-04: the old
+        // /memory admin suite is no longer surfaced, but the handler is retained so
+        // the pending-memory human-review path stays reachable by typing.
+        hidden: true,
       },
       {
         action: "system.send",
@@ -83,7 +87,7 @@ const COMMAND_GROUPS = [
         action: "workspace.bind",
         summary: "Bind the current chat to a workspace directory",
         terminal: [],
-        weixin: ["/bind"],
+        weixin: ["/bind <path>"],
         status: "active",
       },
       {
@@ -113,6 +117,7 @@ const COMMAND_GROUPS = [
         terminal: [],
         weixin: ["/compact"],
         status: "active",
+        hidden: true,
       },
       {
         action: "thread.switch",
@@ -134,6 +139,7 @@ const COMMAND_GROUPS = [
         terminal: [],
         weixin: ["/checkin <min>-<max>"],
         status: "active",
+        hidden: true,
       },
       {
         action: "channel.chunk_min",
@@ -141,6 +147,7 @@ const COMMAND_GROUPS = [
         terminal: [],
         weixin: ["/chunk <number>"],
         status: "active",
+        hidden: true,
       },
     ],
   },
@@ -167,20 +174,6 @@ const COMMAND_GROUPS = [
         summary: "Deny the current approval request",
         terminal: [],
         weixin: ["/no"],
-        status: "active",
-      },
-      {
-        action: "activity.pause",
-        summary: "Pause autonomous heartbeats outside window chat and user reminders",
-        terminal: [],
-        weixin: ["/pause activity"],
-        status: "active",
-      },
-      {
-        action: "activity.continue",
-        summary: "Resume autonomous heartbeats and their queued proactive messages",
-        terminal: [],
-        weixin: ["/continue activity"],
         status: "active",
       },
       {
@@ -296,12 +289,33 @@ const COMMAND_GROUPS = [
         terminal: [],
         weixin: ["/star"],
         status: "active",
+        hidden: true,
       },
       {
         action: "app.help",
         summary: "Show currently available commands for this channel",
         terminal: ["help"],
         weixin: ["/help"],
+        status: "active",
+      },
+    ],
+  },
+  {
+    id: "autonomy",
+    label: "Autonomy",
+    actions: [
+      {
+        action: "activity.pause",
+        summary: "Pause autonomous heartbeats outside window chat and user reminders",
+        terminal: [],
+        weixin: ["/pause_heartbeat"],
+        status: "active",
+      },
+      {
+        action: "activity.continue",
+        summary: "Resume autonomous heartbeats and their queued proactive messages",
+        terminal: [],
+        weixin: ["/continue_heartbeat"],
         status: "active",
       },
     ],
@@ -348,7 +362,7 @@ function buildTerminalHelpText() {
 function buildWeixinHelpText() {
   const lines = ["💡 Available commands:"];
   for (const group of COMMAND_GROUPS) {
-    const activeActions = group.actions.filter((action) => isActionEnabled(action) && action.status === "active" && action.weixin.length);
+    const activeActions = group.actions.filter((action) => isActionEnabled(action) && action.status === "active" && !action.hidden && action.weixin.length);
     if (!activeActions.length) {
       continue;
     }
@@ -371,7 +385,7 @@ function buildTelegramBotCommands() {
   const commands = [];
   for (const group of COMMAND_GROUPS) {
     for (const action of group.actions) {
-      if (!isActionEnabled(action) || action.status !== "active" || !action.weixin.length) {
+      if (!isActionEnabled(action) || action.status !== "active" || action.hidden || !action.weixin.length) {
         continue;
       }
       for (const form of action.weixin) {
@@ -410,6 +424,7 @@ function groupEmoji(groupId) {
     case "workspace": return "📁";
     case "approval": return "🔐";
     case "capabilities": return "⚡️";
+    case "autonomy": return "🤖";
     default: return "•";
   }
 }

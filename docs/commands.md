@@ -108,15 +108,16 @@ Notes:
 
 ## Current Telegram Commands
 
-- `/bind`
+The visible surface (Telegram menu via `setMyCommands` + `/help`) is generated from
+the single source of truth in `src/core/command-registry.js`. Roster last set by
+Owner 2026-08-04.
+
+- `/bind <path>`
 - `/status`
 - `/new`
 - `/reread`
-- `/compact`
 - `/stop`
 - `/switch <threadId>`
-- `/checkin <min>-<max>`
-- `/chunk <number>`
 - `/yes`
 - `/always`
 - `/no`
@@ -124,11 +125,18 @@ Notes:
 - `/model <id>`
 - `/effort` / `/effort <low|medium|high|xhigh|max>`
 - `/profile` / `/profile <profileId>`（仅 `CYBERBOSS_CLAUDE_G3_PROFILE_CONTRACT_ENABLED` 开启时）
-- `/pause activity`
-- `/continue activity`
-- `/memory <subcommand>`（pending / approve / reject / list / review / search / add / update / delete / prune / cleanup / undo / suggest / apply-suggestion）
-- `/star`
+- `/pause_heartbeat`
+- `/continue_heartbeat`
 - `/help`
+
+Hidden but still typeable (front-end invisible per the 2026-08-04 roster — removed
+from the menu and `/help`, handler retained so they keep working when typed):
+
+- `/compact` — compact the current thread context
+- `/checkin <min>-<max>` — reset the proactive check-in range
+- `/chunk <number>` — adjust WeChat short-chunk merge size
+- `/star` — star the project on GitHub
+- `/memory <subcommand>`（pending / approve / reject / list / review / search / add / update / delete / prune / cleanup / undo / suggest / apply-suggestion）— the old admin suite; the pending-memory human-review path stays reachable by typing
 
 Notes:
 
@@ -136,7 +144,6 @@ Notes:
 - there is no separate `/context` command; use `/status` and read the `📦 context` line
 - `/effort` with no argument reports the level in force and where it came from: this chat's own choice, `CYBERBOSS_CLAUDE_EFFORT`, or the `medium` default. Setting a level relaunches the workspace's Claude child and resumes the same thread
 - `/profile` reports the lane's effective profile/source/scope; `/profile <profileId>` moves that lane to the selected full-profile window, and switching back resumes only that profile's own session slot
-- `/compact` asks the current thread to compact its context and reports start / finish back to Telegram
-- `/pause activity` pauses Desire hourly ticks, scheduled check-ins, closeout/liveness scheduling, and delivery of proactive messages queued by those sources; window chat and user-set reminders stay active
-- `/continue activity` resumes those ticks and delivers retained proactive messages using the existing queue order
+- `/pause_heartbeat` pauses Desire hourly ticks, scheduled check-ins, closeout/liveness scheduling, and delivery of proactive messages queued by those sources; window chat and user-set reminders stay active
+- `/continue_heartbeat` resumes those ticks and delivers retained proactive messages using the existing queue order
 - file sending is still available, but no longer exposed as a Telegram command

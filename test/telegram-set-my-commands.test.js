@@ -27,9 +27,16 @@ test("core commands present; arg/subcommand forms fold to the base name", () => 
   for (const expected of ["status", "new", "help", "model", "effort", "yes", "no", "always", "bind", "reread", "stop"]) {
     assert.ok(names.has(expected), `expected /${expected} in the menu`);
   }
-  // "/model" and "/model <id>" both fold to "model"; "/pause activity" folds to "pause".
-  assert.ok(names.has("pause"), "expected /pause folded from /pause activity");
-  assert.ok(names.has("continue"), "expected /continue folded from /continue activity");
+  // "/model" and "/model <id>" both fold to "model".
+  assert.ok(names.has("pause_heartbeat"), "expected /pause_heartbeat in the menu");
+  assert.ok(names.has("continue_heartbeat"), "expected /continue_heartbeat in the menu");
+});
+
+test("hidden commands never reach the Telegram menu (front-end invisible, handler retained)", () => {
+  const names = new Set(buildTelegramBotCommands().map((c) => c.command));
+  for (const hidden of ["star", "checkin", "chunk", "compact", "memory"]) {
+    assert.ok(!names.has(hidden), `expected /${hidden} to be hidden from the menu`);
+  }
 });
 
 test("names with characters Telegram forbids (spaces, angle-args, hyphens) never leak in", () => {

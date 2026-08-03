@@ -68,12 +68,12 @@ const INBOUND = {
   attachments: [],
 };
 
-test("/pause activity and /continue activity use the real parser/dispatcher and leave chat running", async () => {
+test("/pause_heartbeat and /continue_heartbeat use the real parser/dispatcher and leave chat running", async () => {
   const root = tempRoot();
   try {
     const { app, sent, chats } = makeCommandApp(root);
 
-    await app.handlePreparedMessage({ ...INBOUND, text: "/pause activity" }, { allowCommands: true });
+    await app.handlePreparedMessage({ ...INBOUND, text: "/pause_heartbeat" }, { allowCommands: true });
     assert.equal(readActivityPauseState(app.config.activityPauseFile).paused, true);
     assert.match(sent[0].text, /Desire hourly ticks/);
     assert.match(sent[0].text, /window chat and user-set reminders/);
@@ -81,7 +81,7 @@ test("/pause activity and /continue activity use the real parser/dispatcher and 
     await app.handlePreparedMessage({ ...INBOUND, messageId: "message-2", text: "hello through the window" }, { allowCommands: true });
     assert.deepEqual(chats, ["hello through the window"]);
 
-    await app.handlePreparedMessage({ ...INBOUND, messageId: "message-3", text: "/continue activity" }, { allowCommands: true });
+    await app.handlePreparedMessage({ ...INBOUND, messageId: "message-3", text: "/continue_heartbeat" }, { allowCommands: true });
     assert.equal(readActivityPauseState(app.config.activityPauseFile).paused, false);
     assert.match(sent[1].text, /Autonomous activity resumed/);
   } finally {
@@ -89,19 +89,25 @@ test("/pause activity and /continue activity use the real parser/dispatcher and 
   }
 });
 
-test("activity commands are registered in Telegram help and reject other arguments", async () => {
+test("heartbeat commands are registered under the Autonomy group in Telegram help", async () => {
   const root = tempRoot();
   try {
     const { app, sent } = makeCommandApp(root);
     const actions = listCommandGroups().flatMap((group) => group.actions);
-    assert.deepEqual(actions.find((action) => action.action === "activity.pause").weixin, ["/pause activity"]);
-    assert.deepEqual(actions.find((action) => action.action === "activity.continue").weixin, ["/continue activity"]);
-    assert.match(buildWeixinHelpText(), /\/pause activity/);
-    assert.match(buildWeixinHelpText(), /\/continue activity/);
+    assert.deepEqual(actions.find((action) => action.action === "activity.pause").weixin, ["/pause_heartbeat"]);
+    assert.deepEqual(actions.find((action) => action.action === "activity.continue").weixin, ["/continue_heartbeat"]);
+    const autonomy = listCommandGroups().find((group) => group.id === "autonomy");
+    assert.ok(autonomy, "expected an Autonomy command group");
+    assert.deepEqual(autonomy.actions.map((a) => a.action), ["activity.pause", "activity.continue"]);
+    assert.match(buildWeixinHelpText(), /\/pause_heartbeat/);
+    assert.match(buildWeixinHelpText(), /\/continue_heartbeat/);
+    // The old two-word forms are gone from the front-end surface.
+    assert.doesNotMatch(buildWeixinHelpText(), /\/pause activity/);
 
-    await app.handlePreparedMessage({ ...INBOUND, text: "/pause reminders" }, { allowCommands: true });
-    assert.equal(fs.existsSync(app.config.activityPauseFile), false);
-    assert.match(sent[0].text, /Usage: \/pause activity/);
+    // The single-token form carries the meaning: no "activity" arg required.
+    await app.handlePreparedMessage({ ...INBOUND, text: "/pause_heartbeat" }, { allowCommands: true });
+    assert.equal(readActivityPauseState(app.config.activityPauseFile).paused, true);
+    assert.match(sent[0].text, /Autonomous activity paused/);
   } finally {
     cleanup(root);
   }

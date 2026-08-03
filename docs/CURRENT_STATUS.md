@@ -95,7 +95,7 @@ Verified against: d5418e2
 | nightly closeout | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | **`PARTIAL`** —— D18 业务日、时区统一及空结果重试/封存语义已实现，五类边界测试进入 `test:phase3`；仓库默认关闭，生产机实际状态未核 |
 | Reflect / 低频重读（rereadings） | `ORPHAN` | `UNIT_ONLY` | `BLOCKING` | `NOT_WIRED` | **`FAIL`** —— 无调度器调它，`runtime.reflect()` 无实现方。`test:reflect` 已接主 CI，但按第二节纪律 1，那只是给这个孤儿模块提供回归信号，**不代表目标通路有 CI 覆盖**；代码仍 `ORPHAN` |
 | `/effort` | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | — |
-| `/pause activity` / `/continue activity` | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 单 writer 持久态、三类 poller/tick 与来源定向队列暂停均已接主链；窗口聊天和用户 reminder 明确不受影响。已随 `6fb078e` 上生产（2026-08-01），暂停态经文件预置生效；`/pause` `/continue` 的命令级真机证据仍缺 |
+| `/pause_heartbeat` / `/continue_heartbeat` | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 单 writer 持久态、三类 poller/tick 与来源定向队列暂停均已接主链；窗口聊天和用户 reminder 明确不受影响。已随 `6fb078e` 上生产（2026-08-01），暂停态经文件预置生效。2026-08-04 前端 token 由 `/pause activity` `/continue activity` 改名为单 token `/pause_heartbeat` `/continue_heartbeat`（归入 Autonomy 组）；生产仍跑旧两词形态，改名形态待部署。`/pause` `/continue` 的命令级真机证据仍缺 |
 | Desire（八维状态 + hourly poller） | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | 最小闭环代码与生产落盘形态集成测试已进仓库；挂 `CYBERBOSS_DESIRE_LOOP_MINIMAL_ENABLED`，默认关闭，生产机实际开关状态由不入库的 secrets 决定 |
 | 520 · 只读视图与健康度 | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | 面板由独立计划任务拉起，真机状态未核 |
 | 520 · 活跃写端点（提示词 / 分层 / 门控 / 调度） | `WIRED` | `PARTIAL` | `BLOCKING` | `UNKNOWN` | 改生产行为的端点覆盖仍不全（故测试记 `PARTIAL`）；`test:520-endpoints` 已接主 CI，覆盖提示词写路径的保存/恢复、50 路由总账、18 个黑盒读端点契约、sleep-window 读写与 Node 同进程即时重读、DeepSeek 密钥处理；`reentry` 保存分支已与 Node History writer 共用同一把跨语言 writer lease，撞锁显式返回 409 |
