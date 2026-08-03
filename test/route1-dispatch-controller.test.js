@@ -254,17 +254,23 @@ test("A4 self-confirm reuses recordSelfEscalation and never enters the Owner app
   }
 });
 
-test("A11/A12/A14 flag-off preserves tool and command surfaces while scope guards keep T10-C absent", async () => {
+test("A11/A12/A14 flag-off preserves tool and command surfaces while scope guards hold the post-T10-C boundary", async () => {
   assert.equal(route1DispatchEnabled({ CYBERBOSS_ROUTE1_CHAT_DISPATCH_ENABLED: "false", CYBERBOSS_CLAUDE_ROUTE1_TASK_SESSION_ENABLED: "true" }), false);
   const controllerSource = fs.readFileSync(path.join(ROOT, "src/orchestration/route1-dispatch.js"), "utf8");
   assert.doesNotMatch(controllerSource, /memory_note|memory_candidate_submit|episodes\.jsonl|candidate-authority/i);
-  assert.doesNotMatch(controllerSource, /Route1TaskStore|route1_task_status|route1_task_result|route1_task_notice|HandoffDispatcher/);
+  // T10-C 之后 controller 合法持有 task store：守卫改为守真实边界，不再守「T10-C absent」。
+  // 1) store 必须是委托，不许把账本内联进 controller（单 writer：只有 route1-task-store.js 写 task-results）
+  assert.match(controllerSource, /require\("\.\/route1-task-store"\)/);
+  assert.doesNotMatch(controllerSource, /task-results|appendFileSync|writeFileSync/);
+  // 2) P0-5：只用 matchSubjectRouteWindow 纯函数，不复用 handoff 账本 / lease / payload_type
+  assert.doesNotMatch(controllerSource, /HandoffDispatcher|handoff-dispatcher|writer-lease/);
   const capsuleSource = fs.readFileSync(path.join(ROOT, "src/orchestration/delegation/result-capsule.js"), "utf8");
   assert.match(capsuleSource, /recommended_action/);
   assert.doesNotMatch(controllerSource, /recommended_action\s*[.:[=]/);
   const appSource = fs.readFileSync(path.join(ROOT, "src/core/app.js"), "utf8");
   assert.match(appSource, /route1DispatchEnabled\(\)/);
-  assert.doesNotMatch(appSource, /route1_task_notice/);
+  // app.js 只调 controller 方法：notice 正文组装与 tag 留在 route1-task-store.js，不许在 app.js 里再拼一份
+  assert.doesNotMatch(appSource, /buildRoute1Notice|<route1_task_notice>/);
 
   const priorDispatch = process.env.CYBERBOSS_ROUTE1_CHAT_DISPATCH_ENABLED;
   const priorTask = process.env.CYBERBOSS_CLAUDE_ROUTE1_TASK_SESSION_ENABLED;
