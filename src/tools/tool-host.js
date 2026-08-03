@@ -229,7 +229,7 @@ function listProjectToolNames() {
 function registeredProjectTools(env = process.env) {
   return PROJECT_TOOLS.filter((tool) => {
     if (tool.name === "memory_candidate_submit") return subjectSigningEnabled(env);
-    if (tool.name === "route1_dispatch") return route1DispatchEnabled(env);
+    if (["route1_dispatch", "route1_task_status", "route1_task_result"].includes(tool.name)) return route1DispatchEnabled(env);
     return true;
   });
 }
@@ -305,6 +305,39 @@ const PROJECT_TOOLS = [
       if (!services.route1Dispatch) throw new Error("route1_dispatch_unavailable");
       const result = await services.route1Dispatch.dispatch(args, context);
       return { text: result.text || result.status, data: result };
+    },
+  },
+  {
+    name: "route1_task_status",
+    description: "Read Route 1 task status and bounded availability for the current binding and lane.",
+    shortHint: "查工程车状态；结果正文仍需她主动领取。",
+    topics: ["engineering", "dispatch"],
+    inputSchema: {
+      type: "object",
+      properties: { task_id: { type: "string" } },
+      additionalProperties: false,
+    },
+    async handler({ services, args, context }) {
+      if (!services.route1TaskQuery) throw new Error("route1_task_query_unavailable");
+      const result = await services.route1TaskQuery.query("status", args, context);
+      return { text: result.status || "ok", data: result };
+    },
+  },
+  {
+    name: "route1_task_result",
+    description: "Explicitly claim one completed Route 1 result capsule for the current binding and lane.",
+    shortHint: "她主动领取工程结果胶囊；正文永不自动注入。",
+    topics: ["engineering", "dispatch"],
+    inputSchema: {
+      type: "object",
+      properties: { task_id: { type: "string" } },
+      required: ["task_id"],
+      additionalProperties: false,
+    },
+    async handler({ services, args, context }) {
+      if (!services.route1TaskQuery) throw new Error("route1_task_query_unavailable");
+      const result = await services.route1TaskQuery.query("result", args, context);
+      return { text: result.status || "claimed", data: result };
     },
   },
   {

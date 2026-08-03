@@ -48,8 +48,11 @@ function createProjectTooling(config, options = {}) {
   const subjectCapabilityRegistry = options.subjectCapabilityRegistry || new SubjectCapabilityRegistry({
     enabled: config.subjectSigningEnabled === true,
   });
+  const route1Client = route1DispatchEnabled()
+    ? new Route1DispatchIpcClient({ stateDir: config.stateDir })
+    : null;
   const services = {
-    ...(route1DispatchEnabled() ? { route1Dispatch: new Route1DispatchIpcClient({ stateDir: config.stateDir }) } : {}),
+    ...(route1Client ? { route1Dispatch: route1Client, route1TaskQuery: route1Client } : {}),
     diary: new DiaryService({ config }),
     reminder: new ReminderService({ config, sessionStore }),
     system: new SystemMessageService({ config, sessionStore }),

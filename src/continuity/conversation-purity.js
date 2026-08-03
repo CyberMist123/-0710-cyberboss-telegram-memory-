@@ -13,6 +13,7 @@ function stripConversationArtifacts(value) {
   text = text.replace(/<<<CB_CTX:[\s\S]*?<<<END_CB_CTX>>>\s*/g, "");
   text = text.replace(/<subject_memory_handoff\b[^>]*>[\s\S]*?<\/subject_memory_handoff>\s*/giu, "");
   text = text.replace(/<subject_memory_handoff_ack\b[^>]*>[\s\S]*?<\/subject_memory_handoff_ack>\s*/giu, "");
+  text = text.replace(/<route1_task_notice\b[^>]*>[\s\S]*?<\/route1_task_notice>\s*/giu, "");
   text = text.replace(/<attachment_vision_context\b[^>]*>[\s\S]*?<\/attachment_vision_context>\s*/giu, "");
   text = stripSessionInstructions(text);
   text = text.replace(/^\[[^\]\n]{4,80}\]\s*\n?/u, "");

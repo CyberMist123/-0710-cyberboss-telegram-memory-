@@ -158,6 +158,7 @@ function createClaudeCodeRuntimeAdapter(config) {
   const configuredAgentCwd = normalizeText(config.agentCwd);
   let globalListener = null;
   let route1DispatchListener = null;
+  let route1TaskQueryListener = null;
   const ipcSocketPath = path.join(
     stateDir,
     "claudecode-runtime.sock",
@@ -180,6 +181,12 @@ function createClaudeCodeRuntimeAdapter(config) {
         .then(() => route1DispatchListener?.(msg.args || {}, msg.context || {}))
         .then((result) => ipcServer.reply(socket, { type: "route1.dispatch.result", requestId: msg.requestId, result }))
         .catch((error) => ipcServer.reply(socket, { type: "route1.dispatch.result", requestId: msg.requestId, error: error?.code || error?.message || "route1_dispatch_failed" }));
+    }
+    if ((msg?.type === "route1.task.status" || msg?.type === "route1.task.result") && route1RuntimeSeamEnabled()) {
+      void Promise.resolve()
+        .then(() => route1TaskQueryListener?.(msg.type === "route1.task.status" ? "status" : "result", msg.args || {}, msg.context || {}))
+        .then((result) => ipcServer.reply(socket, { type: `${msg.type}.result`, requestId: msg.requestId, result }))
+        .catch((error) => ipcServer.reply(socket, { type: `${msg.type}.result`, requestId: msg.requestId, error: error?.code || error?.message || "route1_task_query_failed" }));
     }
   });
 
@@ -1022,6 +1029,10 @@ function createClaudeCodeRuntimeAdapter(config) {
     onRoute1DispatchRequest(listener) {
       route1DispatchListener = typeof listener === "function" ? listener : null;
       return () => { if (route1DispatchListener === listener) route1DispatchListener = null; };
+    },
+    onRoute1TaskQueryRequest(listener) {
+      route1TaskQueryListener = typeof listener === "function" ? listener : null;
+      return () => { if (route1TaskQueryListener === listener) route1TaskQueryListener = null; };
     },
     getSessionStore() {
       return sessionStore;
