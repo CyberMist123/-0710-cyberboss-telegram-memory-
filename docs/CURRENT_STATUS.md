@@ -140,16 +140,22 @@ Verified against: d5418e2
 - Closeout 业务日与 no_output 终态（D18）；#68 睡眠窗口 520 面板化（#122）
 - D28 存量候选只读 lookup 消费者（#125）
 
-剩余（切生产前需闭合的门与工程活；排序待 fable 协调）
-- G2 生产启用与真机留证；G2-7 真实存量执行；G2-8 睡眠兜底  —— 让 G2 从 PARTIAL 走向 PASS
-- Route 1/2 真机差分 canary + 生产绑定（T11）；G1 真机取证（memory_context 真机执行留证）
-- G5 真实备份恢复演练（硬门，D20）
-- #65 兜底整理（先按 D26「退稿严格实时、window_gone 作废不递继任」重新收窄范围，再动工）
-- #77 发布真相收尾（runtime 单一 descriptor / 正规 release 包 / 启动入口——整理成「剩余项」，不照旧事故正文推进）
-- 520 重构阶段 2 设计稿
+剩余——分三栏（栏内排序待 fable 协调；Agent 不得把维护/重构自动升级成上线门）：
 
-PARALLEL GATE（可与上并行，但不能替代 G1 / G2 本体）
-- R4 真 Windows 留证；备份恢复演练（G5，硬门，D20）
+RELEASE BLOCKERS（第五节切生产判据直接对应，缺一不可）
+- G1 真机取证：Telegram 实际加载 memory_context 并留 Trace
+- G2 生产闭环：打开开关跑完整 签署→Review→History→递送，并真机留证（让 G2 从 PARTIAL 走向 PASS）
+- G3 / T11：真实 fable-chat / work-engineering 隔离 + Route 1/2 真机差分 canary + 生产绑定
+- G5：真实备份→破坏副本→恢复→核对数据（硬门，D20）
+- #77 中对应「启动入口 / descriptor 单一真相 / 正规 release 包」的剩余项（整理成剩余项，不照旧事故正文推进）
+
+PRODUCT-COMPLETE DECISION REQUIRED（是否属本次正式上线范围，由 Owner 明确裁，不由 Agent 自动算上线门）
+- G2-7 真实存量迁移执行
+- G2-8 睡眠兜底 / #65（#65 先按 D26 退稿严格实时、window_gone 作废不递继任重新收窄，再决定是否施工）
+
+POST-RELEASE / PARALLEL
+- 520 重构阶段 2 设计稿
+- R4 真 Windows 留证等其他增强项
 
 DEFERRED
 - Soft Retrieval / 多 Bot / Apple Watch
@@ -168,7 +174,7 @@ DEFERRED
 同时满足下列全部条件才允许切生产，缺一不可：
 
 0. **G1 通过**：Telegram 上 memory_context 实际执行，且 Context Trace 能证明它执行了。当前 `PARTIAL`（缺真机证据）；
-1. **G2 通过**：Closeout 后的 owner、Review、History 与 nightly 边界闭环。当前 `PARTIAL`（离线全链已闭环并有阻塞 E2E，缺生产启用与真机证据，**未达 PASS**）—— 与第一节 Gate 表统一；此前本行写 `FAIL` 属旧口径（G2-2/G2-5/G2-4/G2-6/G2-7 落地前）。**⚠️ G2 是否已从 FAIL 升到 PARTIAL 属 gate 判定，待 fable 复核确认。**；
+1. **G2 通过**：Closeout 后的 owner、Review、History 与 nightly 边界闭环。当前 `PARTIAL`（离线全链已闭环并有阻塞 E2E，缺生产启用与真机证据，**未达 PASS**）—— 与第一节 Gate 表统一；此前本行写 `FAIL` 属 G2-2/G2-5/G2-4/G2-6/G2-7 落地前的旧口径；
 2. R4 翻盘清单第 3 条已补：真 Windows 生产机的 release/cutover 测试完整输出已归档进 `docs/audit/`；
 3. 生产机启动项已固化 `CYBERLINK_ROOT`（否则 `start-dashboard.ps1` / `start-telegram.ps1` fail-closed）；
 4. 启动 watchdog 的入口显式传 `--descriptor`；
