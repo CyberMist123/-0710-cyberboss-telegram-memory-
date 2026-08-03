@@ -52,6 +52,7 @@ const { DeferredSystemReplyStore } = require("./deferred-system-reply-store");
 const { SystemMessageQueueStore } = require("./system-message-queue-store");
 const { SystemMessageDispatcher } = require("./system-message-dispatcher");
 const { writeActivityPauseState } = require("./activity-pause-state");
+const { readWatchdogHealth, formatWatchdogStatusLine } = require("./watchdog-health");
 const { TimelineScreenshotQueueStore } = require("./timeline-screenshot-queue-store");
 const { TurnGateStore } = require("./turn-gate-store");
 const { ReminderQueueStore } = require("../adapters/channel/weixin/reminder-queue-store");
@@ -2128,8 +2129,10 @@ class CyberbossApp {
 
     const lines = [
       `📍 workspace: ${workspaceRoot}`,
-      `🧵 thread: ${threadId || "(none)"}`,
-      `📊 status: ${threadState?.status || "idle"}`,
+      // Empty thread/status are honest cold-start values, not bugs: render them as
+      // plain language while leaving the underlying value tokens intact.
+      `🧵 thread: ${threadId || "(none · 尚未绑定线程)"}`,
+      `📊 status: ${threadState?.status || "idle · 空闲，无待办"}`,
       `🤖 runtime: ${runtimeName}`,
       `🤖 model: ${effectiveModel || "(default)"}`,
       `🤖 provider: ${storedModelProvider || "(default)"}`,
@@ -2140,6 +2143,10 @@ class CyberbossApp {
       claudeContextWindow: this.config.claudeContextWindow,
       claudeMaxOutputTokens: this.config.claudeMaxOutputTokens,
     }));
+    // Watchdog liveness (read-only, fail-open). Surfaces the battery-policy silent
+    // stop; shows "unknown · log not configured" until CYBERBOSS_WATCHDOG_LOG points
+    // at the real health log on the production machine.
+    lines.push(formatWatchdogStatusLine(readWatchdogHealth(this.config?.watchdogLogFile || "")));
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
       text: lines.join("\n"),

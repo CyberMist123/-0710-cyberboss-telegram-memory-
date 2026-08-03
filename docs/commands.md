@@ -141,7 +141,7 @@ from the menu and `/help`, handler retained so they keep working when typed):
 
 Notes:
 
-- `/status` covers thread, workspace, and context details
+- `/status` covers thread, workspace, context details, and a read-only watchdog liveness line (`🐕 watchdog: ...`). Liveness is derived from the freshness of the last `healthy` heartbeat in the log at `CYBERBOSS_WATCHDOG_LOG`; `>180s` with no heartbeat reads `LOST`. When the env is unset it reads `unknown · log not configured` (fail-open — never a false "alive"). Empty thread/status render as plain language (`(none · 尚未绑定线程)`, `idle · 空闲，无待办`) without changing the underlying values
 - `/switch back` returns to the thread that was active before the current one (the undo for `/new` and `/switch`); repeated `/switch back` toggles between the two. Says "no previous thread to return to" when there is none. The pointer is per workspace/runtime, persisted in the session store
 - there is no separate `/context` command; use `/status` and read the `📦 context` line
 - there is no separate `/context` command; use `/status` and read the `📦 context` line
