@@ -155,6 +155,14 @@ function createClaudeCodeRuntimeAdapter(config) {
     return snapshot;
   }
   const configuredModel = normalizeText(config.claudeModel);
+  const configuredModelProvider = normalizeText(config.claudeModelProvider) || "anthropic";
+  // Chat-selectable Claude models surfaced by /model (Owner-confirmed 2026-08-03).
+  // Advisory only: /model <id> still accepts any string; this just seeds the menu.
+  const CLAUDE_MODEL_CATALOG = [
+    { model: "claude-opus-4-6" },
+    { model: "claude-fable-5" },
+    { model: "claude-sonnet-4-6" },
+  ];
   const configuredAgentCwd = normalizeText(config.agentCwd);
   let globalListener = null;
   let route1DispatchListener = null;
@@ -191,7 +199,11 @@ function createClaudeCodeRuntimeAdapter(config) {
   });
 
   function resolveModel(model = "") {
-    return configuredModel || normalizeText(model);
+    // Chat/command override wins over the deployment default, mirroring
+    // resolveEffortLevel (override -> env -> default). An empty override falls
+    // back to configuredModel, so system/background launches (model="") are
+    // unchanged; only an explicit chat /model choice now takes effect.
+    return normalizeText(model) || configuredModel;
   }
 
   /**
@@ -1013,6 +1025,8 @@ function createClaudeCodeRuntimeAdapter(config) {
         sessionsFile: config.sessionsFile,
         ipcSocketPath,
         model: configuredModel,
+        modelProvider: configuredModelProvider,
+        models: CLAUDE_MODEL_CATALOG.map((entry) => ({ ...entry })),
       };
     },
     onEvent(listener) {
