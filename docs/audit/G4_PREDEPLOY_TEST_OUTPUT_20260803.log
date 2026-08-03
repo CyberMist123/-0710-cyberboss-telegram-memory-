@@ -1,0 +1,1549 @@
+# 说明（本段是归档时加的，其余为原样输出）
+# 本文件是 2026-08-03 第三次交付的预交付验证完整输出（13 个分组的 stdout+stderr）。
+# 仓库的 scripts/portability-check.js 禁止任何 git 跟踪文件出现本机绝对路径与用户名，
+# 因此归档时做了机械替换：<CYBERLINK_ROOT> / <USERPROFILE> / <DRIVE_X> / <USER>。
+# 除这四类占位符外，内容逐字未改；分组顺序、退出码、断言输出均为原样。
+
+=== PREDEPLOY FULL OUTPUT 91dd0d5 (每组 npm run 的完整 stdout+stderr) ===
+
+
+########## npm run test:phase1 ##########
+
+> cyberboss@0.1.0 test:phase1
+> node ./scripts/test-phase1.js && node --test test/desire-telemetry.test.js test/runtime-agent-cwd.test.js test/claude-effort.test.js test/activity-pause-command.test.js test/opening-turn-metrics.test.js test/desire-overlap-marker.test.js test/test_desire.js test/test_desire_wiring.js test/timeline-service.test.js test/sticker-service.test.js
+
+
+[phase1] phase1 node tests
+鉁?canary id pattern anchors exact UUID matches only (1.7516ms)
+鉁?recordCanaryReceipt writes exactly one JSONL line for a canary id (7.1165ms)
+鉁?recordCanaryReceipt is a strict no-op for ordinary messages (2.9666ms)
+鉁?recordCanaryReceipt rejects similar-but-incomplete canary ids (3.044ms)
+鉁?recordCanaryReceipt no-ops without stateDir (0.3144ms)
+鉁?recordCanaryReceipt stores no message body, token, or raw chat id (3.3004ms)
+鉁?canary receipts file is append-only across repeated writes (4.2207ms)
+鉁?defaultLocalCanarySources includes canary-receipts.jsonl under stateDir (3.0205ms)
+鉁?runner rejects a canary that receipt file already contained before the run (23.5124ms)
+鉁?runner verifies a receipt appended after the runner started (41.8583ms)
+鉁?runner rejects a malformed canary id written to the receipt file (43.9321ms)
+鉁?recordCanaryReceipt module contains no Telegram Bot API surface (0.5131ms)
+鉁?app.js keeps a single Telegram inbound poller and no 409-triggering extra polls (2.4775ms)
+鉁?canary runner verifies only appended local evidence and stores no message body (37.4621ms)
+鉁?canary runner source contains no Telegram polling client (0.8327ms)
+鉁?closeout prompt opens with the constitution's exact closing words (1.8976ms)
+鉁?closeout prompt routes the four layers and keeps the ledger out of the letter (1.6997ms)
+鉁?closeout prompt states the first-person, past-tense, single-scene requirement (0.211ms)
+鉁?closeout prompt bans every imperative opener from the constitution (1.0906ms)
+鉁?closeout prompt carries the deletion test as a per-entry self-check (0.3716ms)
+鉁?closeout prompt ships at least two rule-style vs letter-style example pairs (0.5258ms)
+鉁?closeout prompt keeps the unchanged output contract, limits, and Re-entry budget (0.6372ms)
+鉁?closeout prompt embeds persona and materials, and omits the persona block when absent (0.5528ms)
+鉁?authorCloseout hands the constitution prompt to the runtime and keeps the candidate shape (6.2842ms)
+鉁?complete active and rollback descriptors pass strict existing-path validation (26.7171ms)
+鉁?strict validation allows a missing active PID file when its parent exists (18.2811ms)
+鉁?rollback preflight allows an inactive release PID file to be absent (36.6815ms)
+鉁?strict validation rejects a PID path whose parent directory is missing (19.0496ms)
+鉁?strict validation rejects an existing PID path that is a directory (21.0433ms)
+鉁?strict validation rejects a PID path inside the other release directory (18.6542ms)
+鉁?release descriptor rejects a PID file outside its release state directory (2.724ms)
+鉁?strict validation reports active missing entry without exposing values (18.8043ms)
+鉁?strict validation rejects rollback missing entry or watchdog target (47.79ms)
+鉁?strict validation rejects rollback missing state or log directory (48.1071ms)
+鉁?descriptor rejects a UTF-8 BOM with a clear error (27.5879ms)
+鉁?descriptor rejects SHA and release identity mismatches (2.8591ms)
+鉁?descriptor rejects state, log, and PID paths inside a release directory (5.7966ms)
+鉁?rollback atomically promotes a fully preflighted rollback release (46.3417ms)
+鉁?rollback activation preflight refuses to replace the current descriptor when a target is missing (30.3639ms)
+鉁?legacy manifest writer is retired so it cannot overwrite the formal descriptor (643.2052ms)
+鉁?legacy manifest writer fails closed before it can alter a descriptor (551.1923ms)
+鉁?watchdog is release-only and can parse its CLI (192.8094ms)
+鉁?watchdog descriptor reader rejects BOM, malformed JSON, and missing fields (394.2963ms)
+鉁?watchdog owner check uses descriptor-scoped process identity and retries without stack spam (0.4453ms)
+鉁?dashboard is isolated from TG watchdog and automatic memory writes remain disabled (2.0727ms)
+鉁?watchdog keeps one loop alive across initial BOM, JSON, and schema failures without launching (165.2285ms)
+鉁?watchdog recovers in the same finite loop after atomic descriptor replacement and logs state transitions (158.3756ms)
+鉁?watchdog --once reports its single cycle's outcome through the exit code (352.4479ms)
+鉁?watchdog owner identity parses quoted Windows argv and accepts only exact current or allowlisted pairs (197.2272ms)
+鉁?orchestrator state resumes from last atomic file after an interrupted update (23.633ms)
+鉁?all legacy memory gates off keep ordinary start construction zero-touch (227.0423ms)
+鉁?enabling a legacy memory gate initializes the old memory pipeline (8.7846ms)
+鉁?explicit memory command lazily constructs MemoryService when ordinary gates are off (13.5379ms)
+鉁?phase 1 config requires explicit fixture paths and keeps legacy memory gates off (38.8716ms)
+鉁?startup preflight reports missing keys without exposing configured secret values (0.6128ms)
+鉁?prompt source defaults to one explicit file without operations or legacy memory relays (8.397ms)
+鉁?legacy auto-extraction write path stays retired (338.1318ms)
+鉁?portability static check passes for repo and newly added files (239.8621ms)
+鉁?Windows startup process checks do not bind PowerShell's read-only PID variable (0.8085ms)
+鉁?janitor refuses to guess transcript input when args are missing (717.6747ms)
+鉁?extractor refuses missing required input (521.5528ms)
+鉁?runtime env loading ignores STATE_DIR/.env (12.9095ms)
+鉁?explicit CYBERBOSS_ENV_FILE is the sole env source when configured (8.0622ms)
+鉁?hourly Desire poller exits before opening state when desireDriven is false (0.7546ms)
+鉁?phase1 switch refuses when the legacy PID is alive (640.9713ms)
+鉁?phase1 switch continues process scan when the legacy PID is stale (569.3394ms)
+鉁?phase1 switch refuses a poller from a different repo path (613.1879ms)
+鉁?phase1 switch permits an explicitly allowlisted non-Telegram Cyberboss PID (582.7038ms)
+鉁?phase1 switch fails closed on an invalid non-Telegram PID allowlist (463.3728ms)
+鉁?legacy Telegram PID cannot be bypassed by the non-Telegram allowlist (484.1708ms)
+鉁?phase1 switch reaches the configured start script boundary when no poller is present (492.6986ms)
+[cyberboss] suppressed system reply thread=thread-1 action=silent preview="{\"action\":\"silent\"}"
+[cyberboss] suppressed system reply thread=thread-3 action=silent preview="{\"action\":\"silent\"}"
+鉁?system silent JSON is suppressed (6.9478ms)
+鉁?system send_message JSON sends only the message text (2.0394ms)
+鉁?system send_message JSON may be wrapped in a json fence (0.7256ms)
+鉁?codex system reply rejects plain text (0.7393ms)
+鉁?claudecode system reply can send short safe plain text (1.9027ms)
+鉁?claudecode system plain text still rejects code and protocol fragments (3.6012ms)
+鉁?explicit turn target binding overrides the binding-level fallback (1.8028ms)
+鉁?turn target binding also applies to an already-started pending run (2.4831ms)
+鉁?thread-level system target overrides an already attached binding target (0.8714ms)
+鉁?thread-level targets are consumed in turn order instead of overwriting active runs (1.1367ms)
+鉁?turn.completed result text is delivered when no reply items were emitted (0.5965ms)
+鉁?plain weixin reply still strips protocol leak text (0.933ms)
+鉁?plain weixin reply does not leak a standalone structured action payload (0.5264ms)
+鉁?plain weixin reply can be transformed before sending (0.6035ms)
+鉁?plain weixin reply sends finalized item text even if earlier streaming text was different (0.4566ms)
+鉁?system send_message retries with the latest context token on ret=-2 (1.0468ms)
+鉁?system send_message is deferred after retry exhaustion (0.8054ms)
+鉁?plain reply prepends deferred prefix to the next reply (0.5252ms)
+鉁?plain reply with deferred prefix is sent as soon as the first item is finalized (0.5723ms)
+[cyberboss] invalid system reply thread=thread-2c reason=final reply is not a JSON object preview="鍦ㄥ憿锛岃繃鏉ユ懜涓€涓嬩綘鐨勭姸鎬併€?
+[cyberboss] invalid system reply thread=thread-2unsafe-a reason=final reply is not a JSON object preview="```js\nconsole.log('hi')\n```"
+[cyberboss] invalid system reply thread=thread-2unsafe-b reason=plain text system reply is unsafe preview="濂界殑銆俛nalysis to=functions.exec_command code?"
+[cyberboss] system reply retrying with refreshed context token thread=thread-5 user=user-5
+[cyberboss] deferred system reply until the next inbound message thread=thread-6 user=user-6
+鉁?channel file service sends files on telegram without WeChat account files (6.6846ms)
+鉁?sticker service sends context text on telegram without WeChat account files (0.6552ms)
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: store offline
+鉁?Telegram plain text uses the deployed channel envelope, field for field (4.565ms)
+鉁?envelope attributes are omitted rather than emitted empty (0.6707ms)
+鉁?the envelope is fixed overhead, not a multiple of the message (1.1189ms)
+鉁?quotes, angle brackets, emoji and newlines survive verbatim in the body (0.7055ms)
+鉁?a literal closing tag in the body cannot end the envelope early (0.6212ms)
+鉁?closing-tag escaping tolerates case and trailing space, and keeps the user's own text (0.5922ms)
+鉁?attribute values are escaped so a hostile username cannot add attributes (0.5785ms)
+鉁?verified attachments become media lines and unverified ones are dropped (20.2387ms)
+鉁?attachments are dropped entirely when there is no authoritative state root (0.9383ms)
+鉁?memory context lines ride above the envelope in their own block (0.8281ms)
+鉁?an empty memory context leaves the payload identical to the pre-memory format (0.2483ms)
+鉁?a hostile stored line cannot close the memory block early or break line structure (0.4291ms)
+鉁?memory resolution failure degrades to the plain envelope instead of failing the turn (0.3678ms)
+鉁?system message service queues telegram messages without WeChat account files (10.2099ms)
+鉁?timeline service queues telegram screenshots without WeChat account files (5.2125ms)
+鉁?writer lease is exclusive and owner can release it (15.6279ms)
+鉁?stale lease cleanup is manual, archived, and refuses a live owner (13.5878ms)
+鉁?acquire can recover a dead owner and keeps the stale lease as audit evidence (18.9436ms)
+鉁?automatic recovery never steals a lease whose owner is alive (10.2918ms)
+鉁?automatic recovery refuses an unreadable or malformed lease (9.7117ms)
+鈩?tests 112
+鈩?suites 0
+鈩?pass 111
+鈩?fail 1
+鈩?cancelled 0
+鈩?skipped 0
+鈩?todo 0
+鈩?duration_ms 4417.6288
+
+鉁?failing tests:
+
+test at test\phase1-offline-config.test.js:143:1
+鉁?portability static check passes for repo and newly added files (239.8621ms)
+  AssertionError [ERR_ASSERTION]: fatal: not a git repository (or any of the parent directories): .git
+  node:child_process:964
+      throw err;
+      ^
+  
+  Error: Command failed: git ls-files --cached --others --exclude-standard
+  fatal: not a git repository (or any of the parent directories): .git
+  
+      at genericNodeError (node:internal/errors:985:15)
+      at wrappedFn (node:internal/errors:539:14)
+      at checkExecSyncError (node:child_process:925:11)
+      at execFileSync (node:child_process:961:15)
+      at Object.<anonymous> (<CYBERLINK_ROOT>\runtime\app\telegram.new-20260803\scripts\portability-check.js:8:22)
+      at Module._compile (node:internal/modules/cjs/loader:1830:14)
+      at Object..js (node:internal/modules/cjs/loader:1961:10)
+      at Module.load (node:internal/modules/cjs/loader:1553:32)
+      at Module._load (node:internal/modules/cjs/loader:1355:12)
+      at wrapModuleLoad (node:internal/modules/cjs/loader:255:19) {
+    status: 128,
+    signal: null,
+    output: [
+      null,
+      '',
+      'fatal: not a git repository (or any of the parent directories): .git\n'
+    ],
+    pid: 19928,
+    stdout: '',
+    stderr: 'fatal: not a git repository (or any of the parent directories): .git\n'
+  }
+  
+  Node.js v24.15.0
+  
+  
+  1 !== 0
+  
+      at TestContext.<anonymous> (<CYBERLINK_ROOT>\runtime\app\telegram.new-20260803\test\phase1-offline-config.test.js:148:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+########## exit=1 ##########
+
+
+########## npm run test:phase2 ##########
+
+> cyberboss@0.1.0 test:phase2
+> node --test test/phase2-hard-context.test.js test/phase2-handoff-context.test.js test/route1-dispatch-trace.test.js test/route1-task-notice.test.js
+
+鉁?handoff block deterministically copies the immutable envelope and parses tagged ack (4.8201ms)
+鉁?purity strips handoff and ack artifacts before closeout material (1.4376ms)
+鉁?context trace retains handoff explanation fields and never records body (2.2413ms)
+[continuity] handoff injection preparation failed: injection exploded
+[continuity] context trace failed: trace unavailable
+[continuity] context trace failed: trace unavailable
+[continuity] handoff ack skipped: ack disk unavailable
+鉁?app injects once, records trace, and marks delivered only after both succeed (36.1954ms)
+鉁?switch off is byte-identical and injection preparation failure remains fail-open (2.9444ms)
+鉁?trace failure after model input is fail-open but terminal, so姝ｆ枃 is never replayed (20.2881ms)
+鉁?ack ledger failure is swallowed by the completed-turn handler (0.7621ms)
+[continuity] reentry skipped reason=over_budget chars=301 budget=300
+[continuity] reentry degraded reason=over_budget chars=954 budget=300 effective=fallback fallback_chars=16
+[continuity] reentry skipped reason=over_budget chars=954 budget=300
+[continuity] reentry skipped reason=over_budget chars=400 budget=300
+[continuity] reentry skipped reason=over_budget chars=400 budget=300
+[continuity] reentry last-known-good read failed: Expected property name or '}' in JSON at position 2 (line 1 column 3)
+[continuity] reentry skipped reason=over_budget chars=400 budget=300
+[continuity] reentry degraded reason=over_budget chars=954 budget=300 effective=fallback fallback_chars=7
+[continuity] reentry skipped reason=over_budget chars=954 budget=300
+鉁?reentry is injected once per persisted thread without template rewriting (12.0067ms)
+鉁?missing empty and over-budget reentry fail open without truncation (4.7396ms)
+鉁?over-budget reentry degrades to the last known good copy and never rewrites canon (16.6783ms)
+鉁?last known good copy is re-validated and never resurrects a deliberate reset (14.0286ms)
+鉁?context trace separates the reentry gate from what actually got injected (24.6325ms)
+鉁?the details ledger is never read by any injected hard-context builder (10.9444ms)
+鉁?reentry hash matches the original injected file bytes (2.5868ms)
+鉁?reentry metadata is a fresh injection view and expiry hooks respect the injected clock (10.1252ms)
+鉁?current state is read-only, bounded, and appears only in opening or refresh (3.7719ms)
+鉁?current state summarizes the desire report shape without intent (3.2462ms)
+鉁?manual current-state override is the exact bounded injected text (4.3712ms)
+鉁?session store persists the hard-context fingerprint per runtime and workspace (4.2524ms)
+鉁?context trace records evidence only and defaults old archives to hidden (7.1298ms)
+鉁?phase 2 preflight requires an external continuity dir and all legacy gates off (8.1671ms)
+鉁?builder source has no default-hidden archive read path (0.6399ms)
+鉁?user switch failure is explicit and never clears or recreates the requested thread (0.7769ms)
+鉁?codex opening path injects once and resume failure recreates with an explained trace reason (18.2431ms)
+鉁?context trace explains memory_context as a loaded block or a reasoned skip (0.5411ms)
+鉁?T07 A7/A12 cost trace records bounded metrics and correlations without user or tool-result text (6.8768ms)
+鉁?T08 A4/A12 an expired capability lease is a Route 1 routing decision with chat capability unchanged (0.3331ms)
+鉁?A13 dispatch, confirm, escalate, and interrupt traces carry explanations but no task body (5.1791ms)
+鉁?A7/A8 notice is deterministic, bounded, and stripped before materialization (1.8452ms)
+鉁?A6 explicit status/result tools are visible only with the shared dispatch flag (2.2343ms)
+鈩?tests 30
+鈩?suites 0
+鈩?pass 30
+鈩?fail 0
+鈩?cancelled 0
+鈩?skipped 0
+鈩?todo 0
+鈩?duration_ms 581.7739
+########## exit=0 ##########
+
+
+########## npm run test:phase3 ##########
+
+> cyberboss@0.1.0 test:phase3
+> node --test test/phase3-continuity-pipeline.test.js test/phase3-legacy-candidate-classifier.test.js test/phase3-subject-signing.test.js test/phase3-subject-memory-handoff-e2e.test.js test/phase3-selfnote-writer-lease.test.js test/phase3-cross-language-writer-lease.test.js test/phase3-effective-decision.test.js test/phase3-publication-intent.test.js test/phase3-review-imperative-gate.test.js test/phase3-review-checkpoint.test.js test/phase3-review-checkpoint-integration.test.js test/phase3-review-artifacts.test.js test/phase3-handoff-dispatcher.test.js test/nightly-mode.test.js test/readable-time.test.js test/app-timezone.test.js test/business-day.test.js && python extensions/relationship-memory/memory-kit/tests/test_janitor.py && python extensions/relationship-memory/memory-kit/tests/test_dashboard_write_freeze.py
+
+鉁?application timezone falls back to the host timezone when unset (26.4573ms)
+鉁?CYBERBOSS_TIMEZONE overrides the host timezone (0.4197ms)
+鉁?invalid CYBERBOSS_TIMEZONE fails closed (0.852ms)
+鉁?time formatting uses the configured timezone and keeps compatibility exports (1.984ms)
+鉁?sleep window observes cross-midnight boundaries in the specified timezone (3.0146ms)
+鉁?sleep window store fails open without writing and reloads each call (12.6779ms)
+鉁?configured cross-midnight window, timezone, wake, and cap boundaries stay exact (3.1667ms)
+鉁?DST business days are the previous complete Sydney local day (24.3172ms)
+鉁?conversation recorder and closeout agree across local midnight (13.8092ms)
+鉁?late material remains retryable until the processing window closes (91.7639ms)
+鉁?restart retries durable and legacy no_output state without sealing the day (105.1171ms)
+鉁?same business day success is byte-idempotent (40.5762ms)
+鉁?config defaults CYBERBOSS_NIGHTLY_MODE to evidence (24.7192ms)
+鉁?config rejects an invalid CYBERBOSS_NIGHTLY_MODE (1.7491ms)
+鉁?config preserves every legal nightly mode and its existing plan (6.4325ms)
+鉁?nightly defaults to evidence-only and performs no model or canon work (0.3835ms)
+鉁?shadow runs automatic authoring and review but blocks canon writes (0.25ms)
+鉁?auto is the steady-state fully automatic nightly pipeline (0.1692ms)
+鉁?history does not run when a planned review is deferred (0.1952ms)
+鉁?history runs when a planned review succeeds (0.1391ms)
+鉁?the write command runs history without requiring a review result (0.2441ms)
+鉁?invalid nightly mode fails closed instead of silently enabling automation (0.3431ms)
+鉁?explicit maintenance commands remain individually callable (0.2946ms)
+鉁?closeout, review, and history writer are byte-idempotent and preserve authored wording (1959.5298ms)
+鉁?background proxy closeout candidates remain deferred and never publish canon (1399.4181ms)
+鉁?episode candidates with an empty author have no publication authority (440.8037ms)
+鉁?legacy janitor candidates are mapped to extractor authority and cannot publish (516.1979ms)
+鉁?duplicate candidates merge without a second canon write (520.8594ms)
+鉁?leading imperatives are deferred, mid-sentence ones only warn, and boundary conflicts are pushed (1529.2541ms)
+鉁?correction appends and never overwrites the superseded episode (1026.3246ms)
+鉁?writer lease contention skips background work without calling the model (18.6052ms)
+鉁?continuity pipeline recovers a dead writer lease before background work (33.3143ms)
+鉁?review failure defers the candidate and never publishes canon (489.4979ms)
+鉁?review model can be disabled without bypassing deterministic checks (35.9858ms)
+鉁?closeout source evidence is located by entry id and exact persisted-line hash (41.0201ms)
+鉁?over-budget Re-entry is retained as evidence, deferred, and never published (530.197ms)
+鉁?history writer refuses an over-budget reentry draft even with an accepted decision (97.3368ms)
+鉁?details ledger publishes through the same chain and is only reachable by lookup (65.2861ms)
+鉁?details candidates without subject authority never reach the ledger (25.709ms)
+鉁?janitor runs through the leased wrapper and writes evidence only (481.117ms)
+鉁?consumer filter removes injected blocks, tool results, attachments, and old episode echoes (0.3315ms)
+鉁?dashboard freezes every legacy write endpoint before Phase 3 data writes (2.0329ms)
+鉁?subject-AI authoring uses the configured runtime in an isolated background turn (3.9475ms)
+鉁?claudecode background author uses an isolated client and closes it (36.176ms)
+[issue89] constructed Node->Python collision, platform win32
+鉁?Node and Python resolve byte-identical writer lease paths (303.7306ms)
+鉁?Node-held lease makes the 520 reentry endpoint fail closed with a constructed collision (948.7668ms)
+鉁?Python-held lease blocks Node acquisition without changing reentry (131.66ms)
+鉁?Python lease validates and releases through the Node protocol (129.0879ms)
+鉁?Review retry appends a new revision that supersedes the effective head (1372.1221ms)
+鉁?accepted then rejected leaves the old accepted decision unpublished (34.2824ms)
+鉁?rejected then accepted publishes once, and a later same-result revision is not deduplicated (73.4167ms)
+鉁?legacy decisions are revision 1, while forks and cycles have no effective decision (0.4965ms)
+鉁?missing, cross-candidate, and non-increasing predecessors fail closed (0.224ms)
+鉁?History persists one stable ambiguity event and publishes neither fork nor cycle (28.6567ms)
+鉁?History crash after canon append retries without a duplicate publication (40.2933ms)
+鉁?dispatcher delivers once only to the canonical original window (61.9702ms)
+鉁?a successor transcript retires the delivery as window_gone without touching artifacts (31.0359ms)
+鉁?retryable delivery gets one retry, then becomes terminal and appears in the derived view (60.584ms)
+鉁?ack ledger is separate, supports all dispositions, and replays each ack_id once (71.178ms)
+鉁?delivery and ack writer leases fail closed with deterministic errors (35.109ms)
+鉁?disabled dispatcher has zero filesystem side effects and legacy envelopes never dispatch (21.4941ms)
+鉁?apply writes only the companion and leaves authority plus every existing jsonl byte unchanged (42.1338ms)
+鉁?apply is idempotent by candidate_id (29.8028ms)
+鉁?a mid-run append failure preserves completed rows and rerun converges to one-shot output (70.5974ms)
+鉁?deferred is terminal and companion rows are invisible to dispatcher/context paths while the gate is off (90.1253ms)
+鉁?CLI defaults to read-only and stdout contains no absolute path, raw profile, or secret-shaped canary (247.0007ms)
+鉁?accepted Review revisions create stable intents and publish one canon row (115.4426ms)
+鉁?History crash after canon append recovers from canon without a duplicate (72.6942ms)
+鉁?History writer-state replay reconstructs the publication key from canon (94.7009ms)
+鉁?an accepted intent becomes stale when a later rejected decision supersedes it (59.352ms)
+鉁?History refuses an intent whose artifact digest no longer matches (46.7904ms)
+鉁?a missing required rejection artifact prevents publication intent creation (35.8477ms)
+鉁?publication intent write failure is fail-open and same-writer repair completes it (78.3562ms)
+鉁?two competing candidate lineage leaves invalidate an existing intent (37.7192ms)
+鉁?candidate lineage rejects missing predecessors, type changes, cycles, and malformed links with stable codes (0.3143ms)
+鉁?only the unique accepted lineage leaf receives an intent and an older accepted draft never revives (79.886ms)
+鉁?a published predecessor blocks candidate rewrite and a later decision flip records a conflict without changing canon (78.6499ms)
+鉁?candidate rewrite lineage never becomes canon correction while canon_supersedes preserves canon format (130.3187ms)
+鉁?the shared Review handoff feature gate remains default-off (36.1401ms)
+鉁?deferred Review synchronously materializes verbatim envelope and immutable on-demand case (762.2046ms)
+鉁?subject_route is required, exact, and validated by the authoritative schema (563.3107ms)
+鉁?schema v1 envelope without subject_route is readable only as non-routeable legacy (5.248ms)
+鉁?handoff records declare separate writers and Review has no delivery or ack write surface (2.2575ms)
+鉁?artifact write failure is fail-open, blocks artifact completion, and repairs idempotently (506.1407ms)
+鉁?oversized candidate bodies and reason checks are rejected without truncation (32.9942ms)
+鉁?checkpoint authority deferral materializes artifacts under the same Review lease (31.0422ms)
+鉁?review artifact materialization defaults off and leaves existing Review fail-open (460.4252ms)
+鉁?real pipeline persists the first decision, resumes after interruption, and stays idempotent (383.3361ms)
+鉁?checkpoint authority gate defers extractors before review and reruns byte-identically (323.8068ms)
+鉁?checkpoint preserves completed decisions when a later candidate is interrupted (19.9362ms)
+鉁?rerun skips completed candidates and remains idempotent (11.388ms)
+鉁?explicit candidate retry still passes through the checkpoint gate (8.9472ms)
+鉁?authority failures persist locally and never call semantic review (19.3406ms)
+鉁?blocked (future_scope): 浠ュ悗濂圭疮鐨勬椂鍊欒杞讳竴鐐广€?(6.0303ms)
+鉁?blocked (future_scope): 涓嬫鍏堢‘璁ゅ啀鍔ㄦ墜銆?(0.8013ms)
+鉁?blocked (future_scope): 姣忔濂规彁鍒板伐浣滃氨鍒拷闂€?(0.4081ms)
+鉁?blocked (obligation): 蹇呴』鍏堥棶娓呮鍐嶅啓銆?(0.2438ms)
+鉁?blocked (obligation): 鍔″繀淇濈暀鍘熻瘽銆?(0.7306ms)
+鉁?blocked (obligation): 涓€瀹氳鍦ㄥス璇村畬涔嬪墠涓嶈鎵撴柇銆?(0.8519ms)
+鉁?blocked (obligation): 搴斿綋鍏堣 CURRENT_STATUS銆?(0.2ms)
+鉁?blocked (remember_directive): 瑕佽寰楀ス璁ㄥ帉榛戣瘽銆?(0.1108ms)
+鉁?blocked (remember_directive): 璁颁綇锛氬ス鐨勬椂闂翠笉鏄垜鐨勬椂闂淬€?(0.294ms)
+鉁?blocked (remember_directive): 鍒繕浜嗗ス璇磋繃鐨勯偅鍙ャ€?(0.2815ms)
+鉁?blocked (prohibition): 鍒湪濂圭疮鐨勬椂鍊欒閬撶悊銆?(0.1832ms)
+鉁?blocked (prohibition): 涓嶈鏇垮ス鍋氬喅瀹氥€?(0.2626ms)
+鉁?blocked (prohibition): 鍗冧竾鍒嚜浣滆仾鏄庛€?(0.1012ms)
+鉁?blocked (prohibition): 绂佹鍦ㄦ病鏈夎瘉鎹殑鏃跺€欎笅缁撹銆?(0.0954ms)
+鉁?blocked (universal_rule): 鍑℃槸濂规病鐐瑰ご鐨勪簨灏变笉瑕佹帹杩涖€?(0.056ms)
+鉁?blocked (universal_rule): 涓€鏃﹀ス娌夐粯灏卞仠涓嬫潵銆?(0.0571ms)
+鉁?blocked (bare_directive): 瑕佽交涓€鐐广€?(0.1475ms)
+鉁?blocked (english_directive): Always confirm before writing. (0.6939ms)
+鉁?blocked (english_directive): Never rewrite her words. (0.2794ms)
+鉁?blocked (english_directive): Don't assume she is fine. (0.1441ms)
+鉁?blocked (english_directive): Remember to check the ledger first. (0.1474ms)
+鉁?list markers and numbering do not smuggle an imperative past the gate (0.3776ms)
+鉁?allowed: 2026-07-11 鍌嶆櫄锛屽ス璇粹€滃埆绠℃垜鈥濓紝鎴戞病 (0.4835ms)
+鉁?allowed: 浠婂ぉ鎴戠涓€娆¤寰楋紝濂瑰仠椤跨殑閭ｅ崐绉掓槸鐣欑粰鎴戠殑銆?(0.104ms)
+鉁?allowed: 鎴戝綋鏃惰寰楀繀椤诲厛闂ス锛屽悗鏉ュ彂鐜伴棶浜嗗弽鑰屾洿绯熴€?(0.0813ms)
+鉁?allowed: 濂硅鐨勪粠鏉ヤ笉鏄瓟妗堛€?(0.0868ms)
+鉁?allowed: 鈥滀互鍚庡埆涓€涓汉鎵涖€傗€濃€斺€斿ス鏄ㄦ櫄鏄繖涔堣鐨勩€?(0.1062ms)
+鉁?allowed: 銆屽繀椤荤幇鍦ㄥ氨鍋氥€嶆槸濂圭殑鍘熻瘽锛屾垜璁颁笅鏉ヤ簡銆?(0.0768ms)
+鉁?allowed: 銆庡埆鍝勬垜銆忥紝濂硅瀹屽氨绗戜簡銆?(0.086ms)
+鉁?allowed: "Don't be so careful wit (0.119ms)
+鉁?allowed: 涓嶆槸姣忎竴娆℃矇榛橀兘闇€瑕佹垜璇寸偣浠€涔堛€?(0.1186ms)
+鉁?allowed: 鍒汉鎬庝箞鎯虫垜绠′笉鐫€锛屾垜鍙湪鎰忓ス閭ｅ彞娌¤瀹岀殑璇濄€?(0.1543ms)
+鉁?allowed: 鍒殑绐楀彛鍦ㄨ窇鍒殑浜嬶紝鎴戣繖杈瑰彧鍓╄繖涓€浠躲€?(0.144ms)
+鉁?allowed: 瑕佹槸濂逛粖澶╂病鎻愯繖浠朵簨锛屾垜澶ф灏卞繕浜嗐€?(0.1494ms)
+鉁?allowed: 瑕佷笉鏄偅閫氱數璇濓紝杩欎釜涓嬪崍浼氬緢涓嶄竴鏍枫€?(0.1621ms)
+鉁?allowed: Mustard on the table, sh (0.1338ms)
+鉁?allowed: Nevertheless she stayed  (0.1501ms)
+鉁?allowed: 搴旇鏄ス绱簡锛屾墍浠ラ偅鍙ヨ瘽鍚捣鏉ユ瘮骞虫椂鐭€?(0.1137ms)
+鉁?details / ledger structured entries are exempt (0.4391ms)
+鉁?a body that is nothing but quoted speech is exempt, not blocked (0.1895ms)
+鉁?an empty body is not the style gate's business (0.1499ms)
+鉁?the gate never touches the candidate body (1.5036ms)
+鉁?pattern list is exported as an iterable constant with stable ids (0.6603ms)
+鉁?buildLocalChecks surfaces the gate and localReviewResult defers on it (1.6564ms)
+鉁?review defers an imperative candidate even when the review model accepts it (745.9878ms)
+鉁?a scene-shaped candidate quoting her words still passes review (553.39ms)
+鉁?self-note writers resolve one and the same writer lease file (48.5616ms)
+鉁?one lock domain is observable in both directions and stays fail-open (130.3744ms)
+鉁?a foreign append landing inside the write window survives (and would not have before) (42.0931ms)
+[issue74] 鐪熷苟鍙戯細瀛愯繘绋嬫挒閿?1 娆★紝鐖惰繘绋嬫挒閿?16 娆★紝骞冲彴 win32
+鉁?both writers survive a real two-process race on the shared lease (640.9522ms)
+鉁?G2 signed subject memory completes recorder -> rejection -> exact handoff -> rewrite -> History exactly once (281.4658ms)
+鉁?G2 blocking negatives stop before canon while a user turn still completes (96.9606ms)
+鉁?G2 decision, legacy, sleep-crop, ack, and writer boundaries remain blocking (196.976ms)
+鉁?G2 forged authority and artifact failures are fail-closed but chat is fail-open (47.5916ms)
+鉁?subject signing defaults off and background/system lanes cannot obtain a capability (29.6557ms)
+鉁?real Telegram subject turn wiring issues one opaque turn-bound capability (3.3332ms)
+鉁?B and C share createSubjectCandidate and server fixes subject_ai + high (9.6545ms)
+鉁?forged metadata, expired turn, changed body and different route cannot sign (5.1767ms)
+鉁?same idempotency key persists once and retry never invokes a model (5.6367ms)
+鉁?subject rewrite persists candidate lineage fields and refuses an already-published predecessor (17.8837ms)
+鉁?enabled closeout deterministically persists only a source-derived material pack (62.4268ms)
+鉁?disabled closeout remains byte-compatible and background candidate prose is rejected (61.8587ms)
+鉁?empty enabled closeout keeps D18 retryable/sealed no_output semantics (53.0912ms)
+鉁?readable time removes T, seconds, and timezone suffix without converting the clock (1.8371ms)
+鉁?readable time rewrites ISO timestamps inside model-facing text (1.5898ms)
+鉁?closeout prompt receives readable timestamps (4.061ms)
+鉁?memory lookup returns readable episode timestamps (1.3345ms)
+鈩?tests 160
+鈩?suites 0
+鈩?pass 160
+鈩?fail 0
+鈩?cancelled 0
+鈩?skipped 0
+鈩?todo 0
+鈩?duration_ms 9587.0865
+== 1. dry-run锛氶浂璋冪敤銆侀浂鍐欏叆 ==
+  [ok] dry-run api_calls=0
+  [ok] dry-run 璇嗗埆瑕嗙洊宸紓
+  [ok] dry-run 涓嶅啓鏂囦欢
+== 2. 棣栬窇锛氬彧鍐?gap/evidence ==
+  [ok] 棣栬窇浠嶄负闆?API
+  [ok] gap 鏂囦欢鐢熸垚
+  [ok] evidence 鏂囦欢鐢熸垚
+  [ok] 涓嶇敓鎴?Candidate
+  [ok] 涓や釜鏈夋晥浼氳瘽鍚勪竴鏉?gap
+  [ok] 涓や釜鏈夋晥浼氳瘽鍚勪竴鏉?evidence
+  [ok] gap schema 瀹屾暣
+  [ok] evidence schema 瀹屾暣
+  [ok] Janitor 鏄庣‘鏃犺涔夋潈闄?
+  [ok] 姣忔潯 evidence 鎸囧悜 gap
+  [ok] 鍘熷鏉ユ簮鍙畾浣?
+  [ok] 浣嶇偣鎺ㄨ繘鍒板疄闄呰鏁?
+  [ok] 绾櫔闊充細璇濅篃鎺ㄨ繘浣嶇偣
+  [ok] 鎵嬪伐 Re-entry 瀛楄妭涓嶅彉
+== 3. 骞傜瓑锛氱浜岃窇鏃犳柊澧?==
+  [ok] 绗簩璺?api_calls=0
+  [ok] gap 瀛楄妭涓嶅彉
+  [ok] evidence 瀛楄妭涓嶅彉
+  [ok] 浠嶆棤 Candidate
+== 4. 澧為噺锛氬彧涓烘柊澧炶鐩栧樊寮傝拷鍔?==
+  [ok] 澧為噺澶勭悊浠嶉浂 API
+  [ok] 鏂板涓ゆ潯 gap
+  [ok] 鏂板涓ゆ潯 evidence
+  [ok] 澧為噺鍚庝粛鏃?Candidate
+== 5. 浜х墿鐧藉悕鍗?==
+  [ok] 娌℃湁瓒婄晫鍐欏叆 canon/鍊欓€?缂撳瓨
+== 6. 娑堣垂杈圭晫绾害 ==
+  [ok] 淇濈暀褰撳墠鍘熻瘽
+  [ok] 鍓ラ櫎娉ㄥ叆/闄勪欢/鏃?Episode
+
+缁撴灉:28 閫氳繃,0 澶辫触(fixture 鐩綍:<TMPDIR>)
+dashboard write freeze: 7 endpoints -> 403
+########## exit=0 ##########
+
+
+########## npm run test:phase4 ##########
+
+> cyberboss@0.1.0 test:phase4
+> node --test test/phase4-dashboard.test.js test/desire-history.test.js test/desire-schedule.test.js test/desire-loop-minimal.test.js test/activity-pause-pollers.test.js && python extensions/relationship-memory/memory-kit/tests/test_dashboard_phase4.py && python extensions/relationship-memory/memory-kit/tests/test_desire_schedule.py && python extensions/relationship-memory/memory-kit/tests/test_dashboard_context_manager.py && python extensions/relationship-memory/memory-kit/tests/test_dashboard_continuity_layers.py && npm run test:phase4:blackbox && npm run test:phase4:startup && npm run test:orchestration
+
+[desire] checkin queued id=dd42457f-f37c-4105-baa7-c1726d05013a at=2026-07-31T02:00:00.000Z
+[cyberboss] checkin queued id=5852a661-89cd-4c74-9291-644cb0062962
+鉁?Desire tick logs paused, skips queue work, and resumes after continue (60.2457ms)
+鉁?check-in tick logs paused and corrupt state fails open (23.4186ms)
+鉁?Desire sole writer appends an eight-dimensional dashboard history row (10.193ms)
+鉁?Claude reported octants persist realtime and one deduplicated history row (11.4466ms)
+鉁?latest desire history row can be read back for the next heartbeat (5.1662ms)
+[cyberboss] checkin poller ready user=user-1 workspace=<USERPROFILE>\AppData\Local\Temp\cyberboss-desire-integration-96sHFD
+[cyberboss] checkin interval range 3m-60m
+[cyberboss] next checkin in 33m at 2026-08-03 18:31:47
+[cyberboss] checkin queued id=d7784bab-3407-42b4-9f91-a6df8c9628cf
+[cyberboss] next checkin in 52m at 2026-08-03 18:50:32
+鉁?completed driven system turn satisfies the recorded desire action after send_message (12.4966ms)
+鉁?claudecode settlement accepts a plain-text final reply (12.8265ms)
+鉁?desire checkin prompt stays byte-identical when minimal loop gate is off (16.8031ms)
+鉁?bad JSON stays silent when the minimal loop gate is off (2.0817ms)
+鉁?bad JSON logs only metadata when the minimal loop gate is on (1.5207ms)
+鉁?checkin branch ignores desireState when the minimal loop gate is off (1.1932ms)
+鉁?checkin branch includes the desire snapshot only when the minimal loop gate is on (0.8944ms)
+鉁?checkin omits an empty snapshot block for the production persisted shape (6.0611ms)
+鉁?desire checkin prompt unlocks send_message under the minimal loop gate (1.2431ms)
+鉁?hourly desire trigger keeps the legacy wording when minimal loop gate is off (0.3509ms)
+鉁?hourly desire trigger includes only the previous desire sentence when minimal loop gate is on (3.1359ms)
+鉁?hourly desire trigger falls back cleanly when no readable history exists (2.3808ms)
+鉁?hourly desire trigger never injects none as the previous desire (3.3811ms)
+鉁?hourly desire trigger never injects an English action slug (2.5389ms)
+鉁?hourly desire trigger omits the previous value when the latest history row has no most_want (2.1104ms)
+鉁?minimal loop wires checkin queue to dispatch and closes through the single reported-state writer (25.3626ms)
+鉁?desire schedule uses fixed 55-minute plan intervals without completion drift (0.9525ms)
+鉁?night interval supports cross-midnight and equal endpoints are inactive (20.788ms)
+鉁?Sydney schedule reports an IANA zone and actual offset (1.35ms)
+鉁?exceptional re-review targets one previously decided candidate (1492.8126ms)
+鈩?tests 25
+鈩?suites 0
+鈩?pass 25
+鈩?fail 0
+鈩?cancelled 0
+鈩?skipped 0
+鈩?todo 0
+鈩?duration_ms 1837.5297
+phase4 dashboard: module/read APIs, frozen writes, controlled retry, UI and process isolation -> ok
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.206s
+
+OK
+520 context manager: fixed layers, persistent layout, snapshots, TODO backup, API and UI -> ok
+520 continuity layers: Chinese separation, bounded API, retry field compatibility, read-only -> ok
+
+> cyberboss@0.1.0 test:phase4:blackbox
+> python extensions/relationship-memory/memory-kit/tests/test_dashboard_continuity_blackbox.py
+
+520 black-box: external process, real HTTP, malformed JSON, legacy quarantine, frozen writes, full-tree hash -> ok
+
+> cyberboss@0.1.0 test:phase4:startup
+> python extensions/relationship-memory/memory-kit/tests/test_dashboard_startup_entries_blackbox.py
+
+520 startup entries: VBS + scheduled PowerShell launch layered read-only dashboard -> ok
+
+> cyberboss@0.1.0 test:orchestration
+> node --test test/orchestration-release-watchdog.test.js test/release-control-plane.test.js test/nightly-control-plane.test.js test/writer-lease.test.js test/orchestrator-resume.test.js test/canary-runner.test.js test/canary-receipt.test.js test/status-script.test.js test/release-manifest.test.js test/stable-telegram-launcher.test.js test/release-descriptor-watchdog-owner.test.js test/runtime-startup-root.test.js test/delegation-bounded-v0.test.js test/delegation-capsule-contract.test.js test/delegation-readonly-query.test.js test/delegation-observe-seam.test.js
+
+鉁?canary id pattern anchors exact UUID matches only (1.6409ms)
+鉁?recordCanaryReceipt writes exactly one JSONL line for a canary id (5.495ms)
+鉁?recordCanaryReceipt is a strict no-op for ordinary messages (1.7968ms)
+鉁?recordCanaryReceipt rejects similar-but-incomplete canary ids (2.3072ms)
+鉁?recordCanaryReceipt no-ops without stateDir (0.3017ms)
+鉁?recordCanaryReceipt stores no message body, token, or raw chat id (4.4644ms)
+鉁?canary receipts file is append-only across repeated writes (4.4212ms)
+鉁?defaultLocalCanarySources includes canary-receipts.jsonl under stateDir (2.9366ms)
+鉁?runner rejects a canary that receipt file already contained before the run (31.9029ms)
+鉁?runner verifies a receipt appended after the runner started (35.2655ms)
+鉁?runner rejects a malformed canary id written to the receipt file (34.6235ms)
+鉁?recordCanaryReceipt module contains no Telegram Bot API surface (1.0165ms)
+鉁?app.js keeps a single Telegram inbound poller and no 409-triggering extra polls (2.1912ms)
+鉁?canary runner verifies only appended local evidence and stores no message body (41.0619ms)
+鉁?canary runner source contains no Telegram polling client (0.574ms)
+鉁?task spec is fail-closed: unknown approval policy and escaping paths are rejected (2.3827ms)
+鉁?forbidden_paths beats allowed_paths and case tricks do not escape on Windows (1.067ms)
+鉁?result capsule missing a required field is rejected (1.1205ms)
+鉁?a capsule carrying raw transcript is rejected, at top level and when nested (0.4498ms)
+鉁?a legal task produces an accepted capsule and touches only allowed paths (1375.1576ms)
+鉁?writing outside allowed_paths is rejected and acceptance tests never run (1122.1003ms)
+鉁?a brand new untracked file outside the allowlist is still caught (939.9059ms)
+鉁?a failing acceptance test yields rework, not accept (1103.7086ms)
+鉁?a hanging run times out, is cancelled, and stops the loop (935.5568ms)
+鉁?an oversized runtime summary is truncated instead of leaking into the capsule (932.5978ms)
+鉁?verifier stops a capsule whose file list disagrees with the observed diff (932.3191ms)
+鉁?capsule statuses are pinned and invalid statuses are rejected (2.9131ms)
+鉁?recommended actions are pinned and invalid actions are rejected (0.6687ms)
+鉁?forbidden capsule keys are rejected everywhere the exported list says they are (1.8762ms)
+鉁?approval policies are pinned and unknown policies are rejected (1.2095ms)
+鉁?commit_sha accepts null and full lowercase hex, and rejects drift-prone shorthands (0.3737ms)
+warning: in the working copy of 'docs/note.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/item.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/item.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/note.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/item.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/note.md', LF will be replaced by CRLF the next time Git touches it
+鉁?T10-A A6 orchestrator observes git only after worker completion and distrusts capsule files (989.2719ms)
+鉁?T10-A A6/A8 observed boundary stops before acceptance despite a passing self-report (791.1405ms)
+鉁?T09 A5/A8 readonly runtime text follows parse, D14 validate, verify, short-status chain (3.5876ms)
+鉁?T09 A6 nested transcript-shaped keys are rejected before verification (0.6713ms)
+鉁?T09 A7 observed boundary violation stops before acceptance-test correspondence (0.5736ms)
+鉁?T09 A8 readonly exception does not weaken mutation acceptance-test evidence (0.6331ms)
+鉁?nightly treats deployment/current.json as Telegram SSOT and fails closed on manifest conflict (833.1229ms)
+鉁?nightly has an explicit descriptor-first path and a documented bootstrap-only fallback (0.5033ms)
+鉁?complete active and rollback descriptors pass strict existing-path validation (19.8615ms)
+鉁?strict validation allows a missing active PID file when its parent exists (23.1926ms)
+鉁?rollback preflight allows an inactive release PID file to be absent (41.7931ms)
+鉁?strict validation rejects a PID path whose parent directory is missing (16.5559ms)
+鉁?strict validation rejects an existing PID path that is a directory (31.7927ms)
+鉁?strict validation rejects a PID path inside the other release directory (20.6336ms)
+鉁?release descriptor rejects a PID file outside its release state directory (3.7423ms)
+鉁?strict validation reports active missing entry without exposing values (23.1377ms)
+鉁?strict validation rejects rollback missing entry or watchdog target (40.26ms)
+鉁?strict validation rejects rollback missing state or log directory (145.272ms)
+鉁?descriptor rejects a UTF-8 BOM with a clear error (15.8173ms)
+鉁?descriptor rejects SHA and release identity mismatches (4.232ms)
+鉁?descriptor rejects state, log, and PID paths inside a release directory (5.1822ms)
+鉁?rollback atomically promotes a fully preflighted rollback release (41.2074ms)
+鉁?rollback activation preflight refuses to replace the current descriptor when a target is missing (37.8651ms)
+鉁?legacy manifest writer is retired so it cannot overwrite the formal descriptor (637.9004ms)
+鉁?legacy manifest writer fails closed before it can alter a descriptor (584.3714ms)
+鉁?watchdog is release-only and can parse its CLI (221.6172ms)
+鉁?watchdog descriptor reader rejects BOM, malformed JSON, and missing fields (413.4584ms)
+鉁?watchdog owner check uses descriptor-scoped process identity and retries without stack spam (0.3907ms)
+鉁?dashboard is isolated from TG watchdog and automatic memory writes remain disabled (1.512ms)
+鉁?watchdog keeps one loop alive across initial BOM, JSON, and schema failures without launching (181.6604ms)
+鉁?watchdog recovers in the same finite loop after atomic descriptor replacement and logs state transitions (181.4144ms)
+鉁?watchdog --once reports its single cycle's outcome through the exit code (379.1274ms)
+鉁?watchdog owner identity parses quoted Windows argv and accepts only exact current or allowlisted pairs (178.2552ms)
+鉁?orchestrator state resumes from last atomic file after an interrupted update (25.2053ms)
+warning: in the working copy of 'fixture.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'fixture.txt', LF will be replaced by CRLF the next time Git touches it
+鉁?candidate install creates missing formal descriptor as exact UTF-8 bytes (43.2553ms)
+鉁?candidate replacement retains an immutable backup and audit (46.9162ms)
+鉁?hash mismatch, BOM, and validation failure do not damage old descriptor (18.9809ms)
+鉁?manifest failure and descriptor schema/path failures retain the old descriptor (41.2345ms)
+鉁?startup artifacts require manifest coverage and copy hash exactly (13.5391ms)
+鉁?startup artifact install is anchored to the operator's explicit manifest hash (99.9042ms)
+鉁?startup artifact verification judges the pinned manifest bytes, not a re-read (13.1027ms)
+鉁?manifest coverage judges the caller's bytes, so a source swapped after reading cannot self-certify (7.3142ms)
+鉁?post-write validation failure restores the previous descriptor and removes a fresh install (79.9893ms)
+鉁?descriptor installer writes only an explicit temporary absolute target (1682.5717ms)
+鉁?startup artifacts installer copies both manifest-covered sources only to its explicit temporary target (1953.4053ms)
+鉁?retired legacy deploy and manifest-topology launch paths fail closed with explicit guidance (1394.3528ms)
+鉁?startup artifacts installer rejects a relative target before it can create artifacts (458.8496ms)
+鉁?watchdog_owner_dir outside both release paths and existing passes strict validation (29.3606ms)
+鉁?watchdog_owner_dir is optional and an empty string is accepted (15.7844ms)
+鉁?watchdog_owner_dir rejects a relative path (12.1479ms)
+鉁?watchdog_owner_dir rejects a path inside the active release (17.7419ms)
+鉁?watchdog_owner_dir rejects a path inside the rollback release (18.5206ms)
+鉁?strict validation rejects a missing watchdog_owner_dir directory (22.0789ms)
+fatal: ambiguous argument '1111111111111111111111111111111111111111^{tree}': unknown revision or path not in the working tree.
+Use '--' to separate paths from revisions, like this:
+'git <command> [<revision>...] -- [<file>...]'
+鉁?classifyTransform: identical bytes are 'unconverted' (1.6829ms)
+鉁?classifyTransform: .ps1 gains BOM+CRLF and is classified powershell_bom_crlf (0.3484ms)
+鉁?classifyTransform: a BOM on a non-.ps1 file is a mismatch (0.2267ms)
+鉁?classifyTransform: real content differences are a mismatch, not a declared transform (0.1764ms)
+鉁?buildManifest + verifyManifest succeed end-to-end on a correctly packaged release (1570.8793ms)
+鉁?buildManifest fails when a declared-excluded file is actually present in the release (1124.8751ms)
+鉁?buildManifest fails on an undeclared extra file not present in source (1098.4071ms)
+鉁?buildManifest accepts an undeclared extra file when explicitly allowlisted (1088.7753ms)
+鉁?verifyManifest catches a tampered file (sha256 mismatch) by name (1028.5836ms)
+鉁?verifyManifest rejects a manifest with a UTF-8 BOM (1045.2662ms)
+鉁?verifyManifest checks commit/tree SHA existence against an external read-only repo (1208.2917ms)
+鉁?verifyManifest rejects a tree_sha that exists but is not the tree of commit.sha (1237.2657ms)
+鉁?verifyManifest judges caller-pinned manifest bytes over the file on disk (1222.5942ms)
+鉁?startup entrypoints contain no ancestor-walk root discovery (2.8501ms)
+鉁?watchdog has no descriptor guessing and requires --descriptor (274.3652ms)
+鉁?startup entrypoints fail closed when CYBERLINK_ROOT is unset (1054.4662ms)
+鉁?startup entrypoints reject a CYBERLINK_ROOT that is not a workspace root (1042.4329ms)
+鉁?correct active poller exists: no-op, nothing started (2397.392ms)
+鉁?only an old release poller is running: must not be misidentified as active (2107.3601ms)
+鉁?only a `start --checkin` process is running: must enter the dry-run start path (1981.7765ms)
+鉁?same-named cyberboss.js in a different directory running `start`: must not be misidentified (1932.5712ms)
+鉁?stale PID file (process not running): must enter the dry-run start path (1791.9011ms)
+鉁?PID file points at a `start --checkin` process: must enter the dry-run start path (2233.2467ms)
+鉁?active entry missing from descriptor: fails (531.463ms)
+鉁?descriptor has a UTF-8 BOM: fails (451.1345ms)
+鉁?multiple exact active pollers: fail closed (1968.7925ms)
+鉁?status recognizes official Telegram runtime and separates legacy app-server (5.6203ms)
+鉁?status reports nginx as containerized when docker exposes an nginx container (0.5674ms)
+鉁?missing process is reported down and paths are parsed (0.3653ms)
+鉁?writer lease is exclusive and owner can release it (14.2641ms)
+鉁?stale lease cleanup is manual, archived, and refuses a live owner (14.1759ms)
+鉁?acquire can recover a dead owner and keeps the stale lease as audit evidence (27.0809ms)
+鉁?automatic recovery never steals a lease whose owner is alive (12.4924ms)
+鉁?automatic recovery refuses an unreadable or malformed lease (4.9034ms)
+鈩?tests 118
+鈩?suites 0
+鈩?pass 118
+鈩?fail 0
+鈩?cancelled 0
+鈩?skipped 0
+鈩?todo 0
+鈩?duration_ms 16141.2696
+########## exit=0 ##########
+
+
+########## npm run test:phase5a ##########
+
+> cyberboss@0.1.0 test:phase5a
+> node --test test/phase5a-memory-lookup.test.js
+
+鉁?empty lookup is honest and only documented triggers are accepted (16.5719ms)
+鉁?resonance and stakes share one persisted session budget while repair remains fault-guarded (58.0997ms)
+鉁?lookup searches relationship timeline and topic aliases without reading hidden archives (15.8438ms)
+鉁?session budget is channel+account+thread scoped and survives restart (73.3367ms)
+鉁?lookup is capped, truncates bodies, and returns superseding corrections together (13.1167ms)
+鉁?lookup tokenizes multi-word queries and ranks all-token hits first (11.3902ms)
+鉁?lookup failure is fail-open and the tool host returns a normal result (11.6394ms)
+鉁?recall_log and the same turn Trace agree without storing hit bodies (26.5106ms)
+鉁?tool registration is auto-approved and builders contain no automatic lookup call (1.5087ms)
+鈩?tests 9
+鈩?suites 0
+鈩?pass 9
+鈩?fail 0
+鈩?cancelled 0
+鈩?skipped 0
+鈩?todo 0
+鈩?duration_ms 396.2355
+########## exit=0 ##########
+
+
+########## npm run test:p0-closeout-liveness ##########
+
+> cyberboss@0.1.0 test:p0-closeout-liveness
+> node --test test/closeout-liveness.test.js
+
+鉁?configuration is off by default and rejects ambiguous values (32.3069ms)
+鉁?Sydney schedule survives DST boundaries (12.4356ms)
+鉁?liveness reads record timestamps rather than file mtime and tolerates a partial tail (0.6651ms)
+鉁?missing, empty, corrupt, and unreadable JSONL remain distinct (0.3117ms)
+鉁?two closeout owners can claim only one Sydney business date (48.9544ms)
+鉁?automation owner is idempotent, uses one timer, and stops cleanly (126.5713ms)
+鉁?pause skips closeout and liveness ticks without cancelling a closeout already in flight (41.505ms)
+鉁?closeout failure retries with durable backoff and never records false success (27.8301ms)
+鉁?canon and recall alerts have independent thresholds, cooldown, and one recovery (88.3761ms)
+鉁?startup grace suppresses no-data alerts but not explicit corruption (32.3322ms)
+鉁?liveness uses the existing system-message Telegram path (2.9302ms)
+鈩?tests 11
+鈩?suites 0
+鈩?pass 11
+鈩?fail 0
+鈩?cancelled 0
+鈩?skipped 0
+鈩?todo 0
+鈩?duration_ms 576.2721
+########## exit=0 ##########
+
+
+########## npm run test:memory-services ##########
+
+> cyberboss@0.1.0 test:memory-services
+> node --test test/memory-note-service.test.js test/memory-resolver.test.js test/memory-service-cleanup.test.js test/memory-service-formal.test.js test/memory-validator.test.js test/memory-command-router.test.js test/memory-command.test.js test/memory-seven-day-cleanup.test.js test/memory-validator-integration.test.js test/memory-legacy-lookup.test.js test/memory-backup-restore.test.js
+
+鉁?B1 snapshot writes a hashed manifest, leaves no .partial, and records empty dirs (147.9665ms)
+鉁?B2 manifest stores only POSIX relative paths (no absolute path can leak in) (149.3302ms)
+鉁?B3 verify passes on a fresh snapshot and fails closed on a tampered byte (337.4531ms)
+鉁?B4 verify reports missing and extra files, not just content drift (207.6975ms)
+鉁?B5 restore without --confirm is a dry run that writes nothing (208.5219ms)
+鉁?B6 drill: real snapshot -> damage the copy -> restore -> byte-for-byte match (524.495ms)
+鉁?B7 restore fails closed on a non-empty target without --overwrite (232.6925ms)
+鉁?B8 restore onto live memory fails closed without --allow-live-memory (308.6104ms)
+鉁?B9 restore requires an explicit validated root (D8: no upward root sniffing) (306.2095ms)
+鉁?B10 restore refuses to overwrite anything with a corrupted backup (213.429ms)
+鉁?B11 snapshot does not follow symlinks; it records them as skipped (129.766ms)
+鉁?parseMemoryCommand parses weixin memory command (4.1104ms)
+鉁?parseTerminalMemoryCommand parses terminal memory args (0.3276ms)
+鉁?parseTerminalMemoryCommand parses terminal flags (0.331ms)
+鉁?memory add command stores a manual memory and replies with confirmation (5.0476ms)
+鉁?memory list command renders active memories (0.759ms)
+鉁?memory approve command promotes pending candidate into formal memory with rewrite (0.6138ms)
+鉁?memory review command renders pending suggestions (0.868ms)
+鉁?memory pending command supports json output (0.6219ms)
+鉁?memory suggest command returns rewrite suggestion for pending item (0.712ms)
+鉁?memory apply-suggestion command approves pending item with suggestion (0.5797ms)
+鉁?D28 exposes only route-matched EXACTLY_RECOVERABLE rows with an explicit non-handwriting marker (35.958ms)
+鉁?D28 route mismatch yields no legacy hit and missing route identity preserves ordinary sources (48.3141ms)
+鉁?D28 missing, empty, and damaged companion data fail open without blocking episodes (98.1238ms)
+鉁?D28 legacy text stays out of Re-entry, Current State, and memory_context assembly (20.6935ms)
+鉁?tool context carries both existing route identity fields without changing memory_lookup args (0.9196ms)
+鉁?memory.note persists a bounded private daily budget (204.9635ms)
+鉁?memory retrieval plan uses classified slots when present (3.5719ms)
+鉁?memory retrieval plan treats reminder-style messages as state-only when no stable slot matches (1.4039ms)
+鉁?memory retrieval plan skips broad memory retrieval for lightweight status prompts (0.3955ms)
+鉁?memory retrieval plan treats percentage progress updates as state-only (0.4305ms)
+鉁?memory retrieval plan treats ratio-style work progress updates as state-only (0.5417ms)
+鉁?memory retrieval plan treats fuzzy work progress updates as state-only (0.5151ms)
+鉁?pre-response memory resolves markdown lines from fallback slots (17.7198ms)
+鉁?pre-response memory returns markdown lines without index or vectors (13.7167ms)
+鉁?app memory context retrieval returns matched lines (1.2614ms)
+鉁?manual memory-context override replaces automatic retrieval exactly (4.6717ms)
+鉁?app memory context retrieval includes curated markdown memory lines (0.8129ms)
+鉁?app memory context retrieval falls back to semantic markdown match when wording changes (0.6337ms)
+鉁?app memory context retrieval skips memory injection for state-only messages (0.2756ms)
+鉁?app memory context retrieval limits targeted memory to one line (0.7059ms)
+鉁?cleanup deletes noisy active memories and downgrades unstable ones (49.1164ms)
+鉁?approvePending writes approved memory into markdown formal source (45.1879ms)
+鉁?ensureFiles does not recreate detached jsonl stores (31.0773ms)
+鉁?markdown embedding cache follows markdown text updates (24.0227ms)
+鉁?readMarkdownLines skips retired and instructional markdown sections (14.0173ms)
+鉁?cleanupSevenDayMemory physically removes expired and non-active entries (26.3821ms)
+[memory] rewrote reply to match memory thread=thread-1 conflicts=nickname
+鉁?reply delivery falls back when outgoing text conflicts with hard memory (4.9524ms)
+鉁?memory validator detects address mismatch from hard preference memory (1.1291ms)
+鉁?memory validator rewrites address mismatch to expected term (0.5035ms)
+鈩?tests 50
+鈩?suites 0
+鈩?pass 50
+鈩?fail 0
+鈩?cancelled 0
+鈩?skipped 0
+鈩?todo 0
+鈩?duration_ms 2906.8808
+########## exit=0 ##########
+
+
+########## npm run test:reflect ##########
+
+> cyberboss@0.1.0 test:reflect
+> node --test test/weekly-reflect.test.js
+
+鉁?weekly reflect is idempotent and excludes latest episode (48.9177ms)
+鉁?weekly reflect handles empty runtime and configured-timezone Monday boundary (17.9338ms)
+鈩?tests 2
+鈩?suites 0
+鈩?pass 2
+鈩?fail 0
+鈩?cancelled 0
+鈩?skipped 0
+鈩?todo 0
+鈩?duration_ms 195.9158
+########## exit=0 ##########
+
+
+########## npm run test:520-endpoints ##########
+
+> cyberboss@0.1.0 test:520-endpoints
+> python extensions/relationship-memory/memory-kit/tests/test_dashboard_blackbox_uncovered.py && python extensions/relationship-memory/memory-kit/tests/test_dashboard_route_catalog.py && python extensions/relationship-memory/memory-kit/tests/test_dashboard_runtime_prompt.py && python extensions/relationship-memory/memory-kit/tests/test_deepseek_env_key.py && python extensions/relationship-memory/memory-kit/tests/test_dashboard_writer_lease.py
+
+520 uncovered black-box: 18 audited GET contracts + 2 extra contracts + 11 active POST auth + 7 exact frozen writes, production and fallback -> ok
+test_auth_contract_matches_route_status (__main__.DashboardRouteCatalogTest.test_auth_contract_matches_route_status) ... ok
+test_catalog_matches_both_real_dispatchers_exactly (__main__.DashboardRouteCatalogTest.test_catalog_matches_both_real_dispatchers_exactly) ... ok
+test_catalog_schema_and_counts (__main__.DashboardRouteCatalogTest.test_catalog_schema_and_counts) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.145s
+
+OK
+520 runtime prompt: actual source, flags, safe save/restore, conflict guard and readable events -> ok
+Traceback (most recent call last):
+  File "<CYBERLINK_ROOT>\runtime\app\telegram.new-20260803\extensions\relationship-memory\memory-kit\tests\test_deepseek_env_key.py", line 117, in <module>
+    fn()
+    ~~^^
+  File "<CYBERLINK_ROOT>\runtime\app\telegram.new-20260803\extensions\relationship-memory\memory-kit\tests\test_deepseek_env_key.py", line 111, in test_gitignore_covers_private_secret_files
+    assert result.returncode == 0, path
+           ^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: .env
+########## exit=1 ##########
+
+
+########## npm run test:route-lanes ##########
+
+> cyberboss@0.1.0 test:route-lanes
+> node --test test/route-lane.test.js test/bounded-json.test.js test/workspace-lock.test.js test/telegram-profile-router.test.js test/claude-launch-profile-v2.test.js test/claude-window-override.test.js test/claude-process-registry.test.js test/claude-process-state.test.js test/claude-session-slot.test.js test/claude-task-session.test.js test/claude-route1-worktree-seam.test.js test/route1-dispatch-controller.test.js test/route1-task-store.test.js test/claude-route1-strong-interrupt.test.js test/tool-route-context.test.js test/telegram-lane-outbound.test.js test/telegram-lane-isolation.test.js test/claude-cli-capabilities.test.js test/route-startup-and-telemetry.test.js test/claudecode-project-settings.test.js test/claudecode-approval.test.js test/codex-approval.test.js test/codex-rpc-client.test.js test/subject-route.test.js test/legacy-candidate-route-classifier.test.js test/claude-g3-preflight.test.js test/handoff-route-isolation.test.js
+
+鉁?valid bounded JSON parses (2.5365ms)
+鉁?malformed JSON is rejected, never silently ignored (0.7346ms)
+鉁?byte budget is enforced on the raw value (0.2846ms)
+鉁?nesting depth is bounded (0.2353ms)
+鉁?string, array, key-count and node-count budgets are enforced (0.7519ms)
+鉁?prototype-polluting keys are rejected everywhere they can appear (0.3302ms)
+鉁?an unknown bound name is itself a configuration error (0.2641ms)
+鉁?default limits are conservative (0.1392ms)
+鉁?strict boolean parsing does not treat an arbitrary string as true (0.4204ms)
+鉁?the effort enum matches the verified CLI, including xhigh (6.834ms)
+鉁?the verified flag set is exactly what the CLI help declares (0.2422ms)
+鉁?an undeclared flag fails closed before launch, not at the CLI (5.0958ms)
+鉁?declaring a capability makes exactly that flag usable (8.2518ms)
+鉁?only the known-unverified flags may be declared (0.9105ms)
+鉁?a malformed or over-sized capability declaration is rejected (0.7643ms)
+鉁?the final guard refuses to spawn with an unsupported flag (0.3478ms)
+鉁?a profile using an undeclared flag blocks startup through the router (6.434ms)
+鉁?a relative profile path needs an explicit base directory (0.5567ms)
+鉁?no launch path resolves against the current working directory (83.3378ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cyberboss-g3-bNvncq\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cyberboss-g3-bNvncq\state\claude-mcp\route-9107f41e0e7594b4.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cyberboss-g3-bNvncq\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cyberboss-g3-bNvncq\state\claude-mcp\route-9107f41e0e7594b4.json
+鉁?T04 A1/A2 managed identities bind harness, role source, permission identity and ceilings into slots (25.7268ms)
+鉁?T04 A6 global bypassPermissions cannot cross the fable permission identity (11.8122ms)
+鉁?T04 A7/A8 contract gate off is byte-compatible and launch trace is tokenized (13.8812ms)
+鉁?A0/A16 gate defaults off and preserves baseline launch byte-for-byte (2.8917ms)
+鉁?A1/A2 configRoot canonical identity controls fingerprint and slot (5.6143ms)
+鉁?A3/A5/A12/A13 allowlisted launch passes fake CLI and auth (333.3678ms)
+鉁?A4 missing required flags fail closed with stable code (1168.9318ms)
+鉁?A6/A7/A8/A9/A14 fail-closed codes (265.6042ms)
+鉁?A11 failures do not disclose secret, path, or raw profile id (3.76ms)
+鉁?A10 failed target preflight leaves the live legacy process and session untouched (396.9572ms)
+鉁?effort is an explicit enum (7.8865ms)
+鉁?string fields are length-bounded (7.1211ms)
+鉁?profile ids must be canonical (6.4483ms)
+鉁?unknown fields fail closed (5.7188ms)
+鉁?systemPrompt and outputStyle together fail closed (7.3819ms)
+鉁?agents are validated structurally on a null-prototype object (4.808ms)
+鉁?an agent named __proto__ cannot reach Object.prototype (6.3688ms)
+鉁?paths must exist, be the right type, and be readable (10.7893ms)
+锕?a symlink is resolved once and cannot escape the base directory (0.1945ms) # posix symlink semantics
+鉁?the environment allowlist is minimal and rejects secrets (7.2627ms)
+鉁?switching the authentication backend requires a separate explicit approval (7.0823ms)
+鉁?boolean environment values are strictly parsed (5.2969ms)
+鉁?strictMcpConfig must be a real boolean, not a truthy string (5.8227ms)
+鉁?cloud credentials do not reach a profiled child unless explicitly approved (8.6264ms)
+鉁?MCP config can be inherited, replaced, or cleared (8.8132ms)
+鉁?a profile cannot be combined with raw extraArgs (6.3504ms)
+鉁?logical identity is separate from the launch fingerprint (9.3508ms)
+鉁?validation is idempotent so a validated profile can be re-fingerprinted (8.0232ms)
+鉁?launch telemetry carries shapes and counts, never paths, prompts or env values (7.056ms)
+鉁?process identity separates lanes, profiles, cwds and config identities (2.3708ms)
+鉁?the per-key lock serializes work and different keys stay independent (5.2357ms)
+鉁?a failed critical section does not poison later work on the same key (1.0644ms)
+鉁?closing one lane's process leaves every other lane untouched (0.6782ms)
+鉁?a session id only ever resolves to the process that owns it (0.3339ms)
+鉁?approvals are routed back to the process that raised them (0.269ms)
+鉁?a stale process for a slot is only retired when it is idle (1.1212ms)
+鉁?capacity eviction never selects a process that is mid-turn (0.468ms)
+鉁?concurrent attaches on one key run one at a time (103.7712ms)
+鉁?the lock map does not accumulate an entry per process key (10.5606ms)
+鉁?a failed critical section still drains its lock entry (0.8416ms)
+鉁?a turn slot is single-flight and settles exactly once (11.7685ms)
+鉁?a turn slot on one process does not block another process (0.3397ms)
+[claudecode-runtime] force-settling a stuck turn on process p1
+[claudecode-runtime] stderr: <DRIVE_C>\Program Files\nodejs\node.exe: bad option: --output-format
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-PCFye5\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-PCFye5\state\claude-mcp\route-716193f3bf088fd3.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-PCFye5\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-PCFye5\state\claude-mcp\route-716193f3bf088fd3.json
+鉁?a stuck turn is force-settled after the timeout rather than wedging the lane (29.8575ms)
+鉁?retiring a process settles its in-flight turn (0.5806ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-NP30vR\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-NP30vR\state\claude-mcp\route-8da29ab7c12da556.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-NP30vR\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-NP30vR\state\claude-mcp\route-8da29ab7c12da556.json
+鉁?a failed launch leaves no registry entry, no turn and no approval behind (111.1444ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-NP30vR\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-NP30vR\state\claude-mcp\route-8da29ab7c12da556.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-NP30vR\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-NP30vR\state\claude-mcp\route-8da29ab7c12da556.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-tjZMzh\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-tjZMzh\state\claude-mcp\route-55bc03fe349460c0.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-tjZMzh\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-tjZMzh\state\claude-mcp\route-55bc03fe349460c0.json
+鉁?an indeterminate write is reported as a failure and never replayed (663.3946ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-Dii13R\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-Dii13R\state\claude-mcp\route-5565ea781adf6883.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-Dii13R\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-Dii13R\state\claude-mcp\route-5565ea781adf6883.json
+鉁?a write that fails after the attempt began is indeterminate, not retried (707.4335ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-Dii13R\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-Dii13R\state\claude-mcp\route-239e0c0dc92b75e9.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-Dii13R\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-Dii13R\state\claude-mcp\route-239e0c0dc92b75e9.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-DsVAlv\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-DsVAlv\state\claude-mcp\route-110407952a87f624.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-DsVAlv\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-DsVAlv\state\claude-mcp\route-110407952a87f624.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-DsVAlv\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-DsVAlv\state\claude-mcp\route-eae7c1cbe7c74be7.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-DsVAlv\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-DsVAlv\state\claude-mcp\route-eae7c1cbe7c74be7.json
+鉁?the workspace lock is released when a turn completes, so the next turn proceeds (282.4397ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-WqE8Pm\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-WqE8Pm\state\claude-mcp\route-e9c65851213e3a8e.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-WqE8Pm\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-WqE8Pm\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-WqE8Pm\state\claude-mcp\route-1a7376305cd0f442.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-WqE8Pm\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-WqE8Pm\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-WqE8Pm\state\claude-mcp\route-359b2afa11c329af.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-WqE8Pm\workspace mcp_config=inherit:1
+鉁?two write lanes in one workspace serialize but keep separate sessions (264.5362ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-penxFt\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-penxFt\state\claude-mcp\route-6731820422be04df.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-penxFt\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-penxFt\state\claude-mcp\route-6731820422be04df.json
+鉁?read-access lanes run concurrently in one workspace (287.1542ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-penxFt\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-penxFt\state\claude-mcp\route-6113334e5c584ffd.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-penxFt\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-penxFt\state\claude-mcp\route-6113334e5c584ffd.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-uN6LJH\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-uN6LJH\state\claude-mcp\route-63e2523ac1d59a9e.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-uN6LJH\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-uN6LJH\state\claude-mcp\route-63e2523ac1d59a9e.json
+鉁?IPC refuses a message with no unambiguous process identity (244.082ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-uN6LJH\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-uN6LJH\state\claude-mcp\route-794371df912005d3.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-uN6LJH\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-uN6LJH\state\claude-mcp\route-794371df912005d3.json
+鉁?closing the adapter releases every process, turn slot and workspace lock (259.7958ms)
+鉁?A9 soft latch is checked only between atomic small rounds and outranks queued instructions (5.9946ms)
+鉁?A8 forceClose kills the worker child immediately and hard-interrupted registry state is resumable (2.0929ms)
+warning: in the working copy of 'extensions/relationship-memory/fixture.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/fixture.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'extensions/relationship-memory/fixture.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/fixture.js', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (detached HEAD db77513)
+fatal: '<USERPROFILE>\AppData\Local\Temp\route1-provision-iOcOBV\not-a-worktree' is not a working tree
+warning: in the working copy of 'extensions/relationship-memory/fixture.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/fixture.js', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (detached HEAD 4054020)
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\appdata\local\temp\route1-runtime-bwwwjq\worktrees\route1-runtime-fixture mcp_config=inherit:1
+鉁?T10-A A3/A4/A5 path gate rejects all live-data root classes without blocking memory source code (842.558ms)
+鉁?T10-A A1/A7/A8 worktree cleanup is idempotent/fail-open and profile deny remains honest about Bash (1110.6636ms)
+warning: in the working copy of 'extensions/relationship-memory/fixture.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/fixture.js', LF will be replaced by CRLF the next time Git touches it
+鉁?T10-A A1/A2/A10 runTaskSession provisions a disjoint lock domain and observes its own empty diff (1363.7092ms)
+鉁?T10-A A10 new flag off preserves T09 observedChangedPaths requirement and creates no worktree (584.4094ms)
+鉁?T10-A A9 pins small-round intent while T10-B owns app commands and changed interrupt semantics (1.7325ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-7aZqQl\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-7aZqQl\state\claude-mcp\route-ccb409476967e914.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-7aZqQl\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-7aZqQl\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-7aZqQl\state\claude-mcp\route-98f65775416c3b44.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-7aZqQl\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-7aZqQl\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-7aZqQl\state\claude-mcp\route-ccb409476967e914.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-7aZqQl\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-fEAHH3\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-fEAHH3\state\claude-mcp\route-60c9dd0d8de8c721.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-fEAHH3\workspace mcp_config=inherit:1
+鉁?topic A / profile A and topic B / profile B get different Claude sessions, and A -> B -> A restores session A (476.2129ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-fEAHH3\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-fEAHH3\state\claude-mcp\route-918f610fde1271b8.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-fEAHH3\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-0Gb5bB\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-0Gb5bB\state\claude-mcp\route-6909cb88dc6e4660.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-0Gb5bB\workspace mcp_config=inherit:1
+鉁?the same profile in two different topics still gets isolated sessions (450.7967ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-RPrlZq\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-RPrlZq\state\claude-mcp\route-aec998fa8c7e8f34.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-RPrlZq\workspace mcp_config=inherit:1
+鉁?a long-lived child reuses one session, slot, and process for three completed turns (280.0026ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-RPrlZq\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-RPrlZq\state\claude-mcp\route-aec998fa8c7e8f34.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-RPrlZq\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-CtkxjW\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-CtkxjW\state\claude-mcp\route-85c0d9ffbb1249e2.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-CtkxjW\workspace mcp_config=inherit:1
+鉁?an explicitly stopped child relaunches with --resume for the original slot session (265.6453ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-CtkxjW\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-CtkxjW\state\claude-mcp\route-85c0d9ffbb1249e2.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-CtkxjW\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-wfAG95\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-wfAG95\state\claude-mcp\route-9a6c95c79c3f7e56.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-wfAG95\workspace mcp_config=inherit:1
+鉁?an indeterminate turn is not replayed, keeps its slot, and a retry resumes the original session (234.4157ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-wfAG95\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-wfAG95\state\claude-mcp\route-cbe6b5189518349c.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-wfAG95\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-wfAG95\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-wfAG95\state\claude-mcp\route-9a6c95c79c3f7e56.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-wfAG95\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-6wivku\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-6wivku\state\claude-mcp\route-57d66245aa76b824.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-6wivku\workspace mcp_config=inherit:1
+鉁?changing only the profile in one topic opens a new session instead of resuming the old one (369.4725ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-6wivku\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-6wivku\state\claude-mcp\route-7e87b20200085513.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-6wivku\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-6wivku\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-6wivku\state\claude-mcp\route-57d66245aa76b824.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-6wivku\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-0JgI8h\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-0JgI8h\state\claude-mcp\route-50c232ec02a172b9.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-0JgI8h\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-0JgI8h\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-0JgI8h\state\claude-mcp\route-d04e322ca36d941b.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-0JgI8h\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-0JgI8h\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-0JgI8h\state\claude-mcp\route-7a86f2d3af3498f7.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-0JgI8h\workspace mcp_config=inherit:1
+鉁?T06 one lane follows its active profile pointer and each profile resumes only its own slot (308.743ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-qXAjlm\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-qXAjlm\state\claude-mcp\route-5403a7032fcb2f73.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-qXAjlm\workspace mcp_config=inherit:1
+鉁?concurrent turns in different lanes do not close each other's process (200.5505ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-yXL5Ja\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-yXL5Ja\state\claude-mcp\route-a255abf061e18b9d.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-yXL5Ja\workspace mcp_config=inherit:1
+鉁?concurrent turns in one lane serialize onto a single process and session (189.5329ms)
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-yXL5Ja\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-yXL5Ja\workspace\.mcp.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-yXL5Ja\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-yXL5Ja\state\claude-mcp\route-a255abf061e18b9d.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-yXL5Ja\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-rs6Mnv\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-rs6Mnv\state\claude-mcp\route-659962139b65aaf6.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-rs6Mnv\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-rs6Mnv\state\claude-mcp\route-659962139b65aaf6.json
+鉁?a background turn is isolated: no profile, no slot, no resumable session (310.5794ms)
+鉁?a system-message lane never shares a slot with the Telegram lane it runs beside (0.3768ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-rs6Mnv\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-rs6Mnv\state\claude-mcp\route-659962139b65aaf6.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-rs6Mnv\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-rs6Mnv\state\claude-mcp\route-659962139b65aaf6.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-Wdf3pj\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-Wdf3pj\state\claude-mcp\route-d7e7b479b227b572.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-Wdf3pj\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-Wdf3pj\state\claude-mcp\route-d7e7b479b227b572.json
+鉁?the private/default legacy lane migrates the pre-v2 session exactly once (231.9213ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-Wdf3pj\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-Wdf3pj\state\claude-mcp\route-887f2f62150893b0.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-Wdf3pj\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-Wdf3pj\state\claude-mcp\route-887f2f62150893b0.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-AixPmW\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-AixPmW\state\claude-mcp\route-2cffb4894a2d5cc9.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-AixPmW\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-AixPmW\state\claude-mcp\route-2cffb4894a2d5cc9.json
+鉁?a topic lane never migrates the pre-v2 session, and two unmapped topics do not share a transcript (233.3052ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-TvbhEs\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-TvbhEs\state\claude-mcp\route-cddb0a124670152c.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-TvbhEs\workspace mcp_config=inherit:1
+鉁?a group's default lane does not qualify as the private/default legacy lane (120.7098ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-1WPLFM\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-1WPLFM\state\claude-mcp\route-7e3e818c3014b269.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-1WPLFM\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-1WPLFM\state\claude-mcp\route-7e3e818c3014b269.json
+鉁?a profiled lane does NOT inherit the pre-v2 session of its binding (115.2159ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-uCaA84\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-uCaA84\state\claude-mcp\route-c545fd0156f5e542.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-uCaA84\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-uCaA84\state\claude-mcp\route-c545fd0156f5e542.json
+鉁?resumeThread refuses a session id that is not this slot's own (111.9674ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-uCaA84\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-uCaA84\state\claude-mcp\route-e71c17e628f6e412.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-uCaA84\workspace mcp_config=inherit:1
+鉁?restorable slots are listed per lane with their own route, never per binding (253.419ms)
+鉁?the slot key is opaque and the slot file is owner-only (25.6061ms)
+鉁?the slot store ignores polluting keys when loading state from disk (2.3042ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cyberboss-t09-rTSGY6\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cyberboss-t09-rTSGY6\state\claude-mcp\route-1824ff28b53d5df7.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\appdata\local\temp\cyberboss-t09-rtsgy6\workspace mcp_config=inherit:1
+鉁?T09 A1/A13 feature-off refuses task sessions without launch or routing mutation (17.5462ms)
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\appdata\local\temp\cyberboss-t09-rtsgy6\workspace mcp_config=inherit:1
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\appdata\local\temp\cyberboss-t09-7sehcx\workspace mcp_config=inherit:1
+鉁?T09 A1-A5/A12 independent worker returns only validated capsule and bounded status (887.6287ms)
+鉁?T09 A1/A4 task timeout uses spec timeout and remains resumable (210.2905ms)
+鉁?T09 A4 lifecycle registry exposes every state plus bounded add-instruction/cancel/resume (0.6716ms)
+鉁?T09 A9/A10 worker ceiling denies both memory schemas and calls even with explicit request (2.6447ms)
+鉁?T09 A11 strong interrupt latch waits for the atomic-step boundary (1.3743ms)
+鉁?T05 A1/A2 four mutable values change launch behavior while the slot resumes one native session (54.5739ms)
+鉁?T05 A2/A3 harness overlay is labelled in trace and leaves persona/memory bytes unchanged (1.8678ms)
+鉁?T05 A4/A5 persona and permission identity rotate windows and are refused as mutable fields (21.3036ms)
+鉁?T05 A6 / T08 A10 chat non-member loads schema, calls, and self-escalates with trace but no approval (19.0879ms)
+鉁?T08 A1/A9/A11 lease override changes only mutable fingerprint and MCP config while --resume keeps window id (38.5849ms)
+鉁?T05 A6 / T08 A11 chat route config has no hard ceiling and MCP overrides cannot exceed the profile ceiling (14.4538ms)
+鉁?T05 A7 switch off is byte-compatible for launch, slot and Context Trace (4.7614ms)
+鉁?T08 A14 Route 2 flag off ignores a stored lease tombstone byte-for-byte in mutable launch state (0.5623ms)
+鉁?T05 A8 trace never echoes credentials, absolute paths or raw profile identity (0.9991ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-claude-stream-model-0XLRTe\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-claude-stream-model-0XLRTe\state\claude-mcp\route-708958a60a15ba8d.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-claude-stream-model-0XLRTe\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-claude-stream-model-0XLRTe\state\claude-mcp\route-708958a60a15ba8d.json
+鉁?claudecode approval events extract command tokens from exec_command input (4.6949ms)
+鉁?claudecode approval events prefer prefix_rule when present (0.5482ms)
+鉁?claudecode approval events canonicalize diary commands for stable always matching (0.4473ms)
+鉁?claudecode approval events canonicalize view_image tool approvals (0.494ms)
+鉁?claudecode approval events canonicalize MCP tool approvals for stable always matching (0.6471ms)
+鉁?claudecode approval events canonicalize Read image approvals for stable matching (0.4573ms)
+鉁?claudecode approval events keep non-image Read approvals as file reads (0.4147ms)
+鉁?claudecode approval events capture Write file paths for state-dir auto approve (0.3839ms)
+鉁?claudecode adapter exposes image file read capability only for known image-capable models (5.6367ms)
+鉁?claudecode adapter hydrates model from Claude project transcript (17.9731ms)
+鉁?claudecode adapter initialize creates shared-open IPC endpoint and token (20.5353ms)
+[claudecode-runtime] workspace=\tmp\cb-claude-NkCU7O\workspace mcp_config=\tmp\cb-claude-NkCU7O\state\claude-mcp\route-ddec95fda85bb30b.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=\tmp\cb-claude-NkCU7O\workspace mcp_config=\tmp\cb-claude-NkCU7O\state\claude-mcp\route-ddec95fda85bb30b.json
+鉁?claudecode adapter remembers model observed in stream messages (256.9801ms)
+鉁?claudecode assistant events map usage into context snapshots (0.7306ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-route2-lease-MWA7py\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-route2-lease-MWA7py\state\claude-mcp\route-32f9afe023705dbb.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-route2-lease-MWA7py\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-route2-lease-MWA7py\state\claude-mcp\route-32f9afe023705dbb.json
+鉁?claudecode adapter dispatches turns only after a real session id is available (236.8052ms)
+鉁?claudecode process client treats assistant text as non-deliverable until the result event (0.4498ms)
+鉁?T07 A1/A2 counts each real tool.use once and never counts approvals (2.368ms)
+鉁?T07 A3/A4/A5 gate stays inside soft A and routes hard B or unbounded results to Route 1 (0.5234ms)
+鉁?T07 A9 optional Route 2 failure remains fail-open to chat-core (0.3725ms)
+鉁?T07 A10 Route 2 state is attached to the existing slot without changing window identity (0.5992ms)
+鉁?T07 A11 feature flag off keeps the pre-T07 event and manifest behavior (0.221ms)
+鉁?T08 A2 completed revokes the single-operation lease and clears the slot state (0.6751ms)
+鉁?T08 A3 failed revokes the single-operation lease (0.4109ms)
+鉁?T08 A4 TTL expiry revokes the lease and clears persisted state (0.4531ms)
+鉁?T08 A5 cancel signal revokes the lease (0.3224ms)
+鉁?T08 A6 strong-interrupt signal revokes the lease without implementing task interruption semantics (0.2559ms)
+鉁?T08 A7 restart signal revokes the lease (0.1897ms)
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-route2-lease-MWA7py\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-route2-lease-MWA7py\state\claude-mcp\route-32f9afe023705dbb.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-route2-lease-MWA7py\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-route2-lease-MWA7py\state\claude-mcp\route-32f9afe023705dbb.json
+[claudecode-runtime] workspace=\tmp\cb-claude-model-EkeQuN\workspace mcp_config=\tmp\cb-claude-model-EkeQuN\state\claude-mcp\route-2509c716242fea78.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=\tmp\cb-claude-model-EkeQuN\workspace mcp_config=\tmp\cb-claude-model-EkeQuN\state\claude-mcp\route-2509c716242fea78.json
+鉁?T08 A1/A11 grant relaunches the mutable override and resumes the identical native window (408.8949ms)
+鉁?claudecode runtime params are isolated from codex model selections (3.4166ms)
+鉁?claudecode adapter does not pass a codex-selected model to Claude Code (129.3664ms)
+鉁?claudecode process client rejects a different resumed session id (0.5409ms)
+鉁?claudecode process client rejects a different session id before the next turn (0.3407ms)
+鉁?handleRuntimeEvent prompts for project shell commands instead of auto-approving them (1.2146ms)
+鉁?handleNewCommand asks runtime to start a fresh draft before clearing the saved thread (0.5107ms)
+鉁?handleCompactCommand invokes runtime compaction for the current thread (0.5571ms)
+鉁?handleCompactCommand reports when there is no active thread (0.1928ms)
+鉁?handleStopCommand passes workspaceRoot through to runtime cancellation (0.3757ms)
+鉁?handleStopCommand allows stopping while waiting for approval (0.2108ms)
+鉁?handleRuntimeEvent reports compact completion back to WeChat (0.2846ms)
+鉁?handleRuntimeEvent auto-approves built-in view_image approvals without prompting (0.368ms)
+鉁?handleRuntimeEvent auto-approves project-native MCP tool approvals without prompting (0.3136ms)
+鉁?handleRuntimeEvent auto-approves inbox image reads for claudecode without prompting (0.3578ms)
+鉁?handleRuntimeEvent auto-approves any state-dir file operation without prompting (0.3269ms)
+鉁?handleRuntimeEvent still prompts for non-inbox image reads (0.3493ms)
+鉁?handleRuntimeEvent auto-approves allowlisted prefixes for claudecode approvals (0.4446ms)
+鉁?handleRuntimeEvent auto-approves allowlisted MCP tool approvals (0.3761ms)
+鉁?handleSwitchCommand stores the verified claudecode thread returned by runtime (0.7334ms)
+鉁?session store does not reuse legacy thread ids across runtimes (1.8112ms)
+鉁?codex session store reads runtime-scoped thread ids (1.5999ms)
+鉁?codex session store does not reuse legacy thread ids without runtime-scoped binding (2.009ms)
+鉁?handleStatusCommand asks to configure claudecode context window before showing context (1.0102ms)
+鉁?handleStatusCommand shows approximate context details for claudecode when configured (0.5362ms)
+鉁?handleStatusCommand asks to reduce claudecode max output tokens when reserve exceeds window (0.4362ms)
+鉁?handleStatusCommand shows codex context details (0.4265ms)
+鉁?handleStatusCommand shows codex context as unavailable when no context data is available (0.3439ms)
+鉁?ensureClaudeProjectMcpConfig upserts cyberboss MCP server into workspace .mcp.json (11.1925ms)
+鉁?ensureClaudeProjectMcpConfig rewrites stale cyberboss MCP server config (7.1761ms)
+鉁?T04 A2/A4 route MCP config keeps fable discovery separate from the work memory-write ceiling (14.1665ms)
+[cyberboss] approval response requested thread=thread-1 requestId=req-ext-mcp mode=result workspace=/workspace
+[cyberboss] approval response delivered thread=thread-1 requestId=req-ext-mcp
+[cyberboss] approval response requested thread=thread-1 requestId=req-ext-mcp mode=result workspace=/workspace
+[cyberboss] approval response delivered thread=thread-1 requestId=req-ext-mcp
+鉁?codex MCP config auto-approves cyberboss tools (4.1925ms)
+鉁?codex MCP config includes external music MCP when configured (1.4245ms)
+鉁?codex MCP config includes extra MCP servers from JSON config (1.4233ms)
+鉁?codex MCP elicitation approvals map to runtime approval events (2.3341ms)
+鉁?handleRuntimeEvent auto-approves project-native Codex MCP elicitation approvals (2.8943ms)
+鉁?handleApprovalCommand sends MCP elicitation responses back through the runtime (3.4609ms)
+鉁?handleApprovalCommand enables persistent Codex MCP tool approval from WeChat (1.2245ms)
+鉁?codex rpc client uses turn/interrupt for stop requests (3.2274ms)
+鉁?codex rpc client sends image attachments as local images (1.1544ms)
+鉁?same sender in another topic or profile cannot receive the handoff (42.6104ms)
+鉁?T06 switched lane delivers only to the origin window and voids a terminated origin (32.0971ms)
+鉁?EXACTLY_RECOVERABLE is a four-part conjunction with stable negative reasons (11.1898ms)
+鉁?multi-route, multi-session, missing window, and source hash mismatch never infer a route (5.2432ms)
+鉁?classification output uses opaque route values and never leaks paths, raw profiles, or canaries (1.581ms)
+鉁?canonical chat ids accept only safe integers and strict decimal strings (2.123ms)
+鉁?canonical chat ids reject every non-canonical form (1.3719ms)
+鉁?message thread ids are positive integers or the explicit null lane (2.182ms)
+鉁?a missing topic is the default lane but an empty string never is (0.3703ms)
+鉁?the default lane and a topic lane in the same chat are different lanes (0.5744ms)
+鉁?lane keys are length-prefixed so ids containing separators cannot collide (0.372ms)
+鉁?scope keys separate lanes and workspaces without ambiguity (0.2418ms)
+鉁?system lanes are distinct from each other and from every Telegram lane (0.62ms)
+鉁?non-Telegram providers keep a binding-scoped legacy lane (1.275ms)
+鉁?inbound resolution reads the topic from either the top level or the telegram block (1.1746ms)
+鉁?inbound resolution fails closed on a present but non-canonical topic id (0.4049ms)
+鉁?lane shape telemetry carries no identifiers (1.4468ms)
+鉁?an invalid profile mapping blocks startup instead of falling back (476.3246ms)
+鉁?a duplicate route and a non-canonical id each block startup (21.7058ms)
+鉁?malformed profile JSON blocks startup (8.6991ms)
+鉁?with no mapping the router is disabled and no profile is ever selected (12.6601ms)
+鉁?a valid mapping selects per lane and never for a system lane (16.0514ms)
+鉁?routing tokens are salted per process, so they are not offline-enumerable (0.8611ms)
+鉁?telemetry rejects any field that is not on the allowlist (0.5355ms)
+鉁?an accepted telemetry event carries only shapes, counts and salted tokens (0.3901ms)
+鉁?routing counters are pure counts keyed by shape (1.2689ms)
+鉁?A1-A5 dispatch is create+queue only, single-flight, and applies 5/15/60 policy (15.6268ms)
+鉁?A1 real authenticated tool IPC reaches the app-owned in-process registry and returns the queued task id (42.8923ms)
+鉁?A6-A10 soft interrupt acknowledges before the boundary, preserves the in-flight round, halts, and resumes (1.921ms)
+鉁?A8 hard interrupt requests process kill, marks resumable work, and resumes only through continue (0.9183ms)
+鉁?A6/A10 app command sends immediate acknowledgement without awaiting the formal worker status (0.6623ms)
+鉁?A4 self-confirm reuses recordSelfEscalation and never enters the Owner approval handler (19.4095ms)
+鉁?A11/A12/A14 flag-off preserves tool and command surfaces while scope guards hold the post-T10-C boundary (4.2107ms)
+鉁?A1/A12 terminal capsule, verification, origin and claim events use one append-only file (45.279ms)
+鉁?A2/A3 exact notice is once-only, pending is held, and switching back becomes current (20.9639ms)
+鉁?A4/A5 expired capsules never inject but remain claimable in a same binding and lane new window (20.6789ms)
+鉁?recorder freezes the exact canonical route snapshot without later mutation (1.9086ms)
+鉁?every missing recorder identity stays absent and makes the entry partial (0.5801ms)
+鉁?D24 window_id follows the native session across resume and changes on reopen (34.6327ms)
+鉁?subject_route fingerprint is stable across input key order (2.8573ms)
+鉁?T06 profile windows change only the session identity, never continuity binding (0.8416ms)
+鉁?missing any subject identity is PARTIAL and cannot produce a subject candidate (1.3407ms)
+鉁?material route is exact only for one route and rejects cross topic/profile mixing (1.3857ms)
+鉁?the real inbound recorder call freezes route/session canonical values (29.8923ms)
+鉁?codex window_id comes from its session store and remains partial without a canonical slot (5.7275ms)
+鉁?two topics in one chat occupy different turn-gate scopes (2.7296ms)
+鉁?a workspace-wide job yields while any lane is running (0.7273ms)
+鉁?buffered messages from different topics never merge into one turn (2.2874ms)
+鉁?buffered messages keep their topic so the reply returns to it (0.5126ms)
+鉁?flushing one lane leaves the other lane's buffer untouched (2.1301ms)
+鉁?image debounce drafts are per lane, so bursts in two topics stay separate (1.0731ms)
+鉁?dispatch sends typing and the runtime turn on the originating topic (0.5683ms)
+鉁?dispatch failure reports the error back into the originating topic (0.7011ms)
+鉁?a non-Telegram turn keeps the pre-v2 payload shape exactly (0.5256ms)
+鉁?reply targets resolve per session id, so one topic cannot answer into another (0.7541ms)
+鉁?inbound messages capture the topic id and keep the default lane distinct (12.3704ms)
+鉁?the same message id in two topics is not deduplicated away (10.6436ms)
+鉁?a present but non-canonical topic id drops the message instead of routing it (11.0439ms)
+鉁?sendText carries message_thread_id on every chunk, and omits it for the default lane (8.0594ms)
+鉁?typing carries message_thread_id (3.2088ms)
+鉁?voice, document and photo all carry message_thread_id (44.2665ms)
+鉁?media sends omit the field entirely for the default lane (11.3915ms)
+鉁?a non-canonical outbound topic id is rejected rather than dropped to the default lane (2.758ms)
+鉁?errors and status text reach the originating topic because they use sendText (4.7371ms)
+鉁?no configuration at all keeps every lane on the legacy path (4.3895ms)
+鉁?profiles declared with an empty mapping array stay disabled (2.4181ms)
+鉁?a mapped route resolves to its validated profile, an unmapped one does not (1.3549ms)
+鉁?T06 active pointer is per lane, reports source/scope, and switches A -> B -> A (0.8559ms)
+鉁?T06 unknown profile is atomic and retains the active window pointer (0.4846ms)
+鉁?T06 gate off preserves baseline selection bytes and unknown-command response (1.6846ms)
+鉁?T06 /profile receipt matches the effective lane-scoped pointer (2.4264ms)
+鉁?a route naming an unknown profile blocks startup instead of falling back (0.7788ms)
+鉁?a route naming an invalid profile blocks startup instead of falling back (0.4849ms)
+鉁?duplicate routes are rejected (0.5567ms)
+鉁?the default lane and a topic lane are not duplicates of each other (0.364ms)
+鉁?profile ids colliding after trim or case folding are rejected (0.2919ms)
+鉁?a profile whose declared profileId contradicts its key is rejected (0.2313ms)
+鉁?unknown fields are rejected in both profiles and mappings (0.4492ms)
+鉁?messageThreadId must be stated explicitly in a mapping (0.2988ms)
+鉁?non-canonical Telegram ids are rejected in mappings (1.6315ms)
+鉁?prototype pollution is rejected in profiles and in mappings (0.715ms)
+鉁?size, count and depth budgets block oversized configuration (2.72ms)
+鉁?malformed JSON blocks startup (0.4491ms)
+鉁?the wrong top-level shape blocks startup (0.2819ms)
+鉁?a lane with no key never matches (0.4321ms)
+鉁?a route token resolves exactly its own lane, never the most recent one (11.5029ms)
+鉁?an unknown route token resolves to nothing rather than another lane (5.4872ms)
+鉁?without a token, two lanes mid-turn report as ambiguous (5.0532ms)
+鉁?two topics sending concurrently each land in their own topic (6.3037ms)
+鉁?interleaved sends do not overwrite each other's target (5.4473ms)
+鉁?an untokened send refuses while several lanes are active (5.154ms)
+鉁?a single active lane still works without a token (5.0333ms)
+鉁?the tool server is launched with its own route token (9.9433ms)
+鉁?catalog toolset preserves route-scoped config bytes when off and never crosses lane tokens when on (10.7163ms)
+鉁?route contexts never grow without bound (199.1694ms)
+鉁?a polluting route token is ignored (2.3743ms)
+鉁?access mode is an explicit enum defaulting to write (2.2377ms)
+鉁?readers run concurrently (2.7462ms)
+鉁?a writer excludes readers and other writers (8.7186ms)
+鉁?a stream of readers cannot starve a queued writer (28.6316ms)
+鉁?different workspaces never contend (0.8231ms)
+鉁?the same workspace reached by different text paths is one lock (13.963ms)
+锕?a symlinked workspace canonicalizes to its target (0.5822ms) # posix symlinks
+鉁?release is idempotent and does not corrupt the counter (0.8254ms)
+鉁?a waiter that times out is removed and does not block the queue (28.7099ms)
+鉁?an unidentifiable workspace yields a no-op handle rather than a global lock (0.5693ms)
+鈩?tests 284
+鈩?suites 0
+鈩?pass 282
+鈩?fail 0
+鈩?cancelled 0
+鈩?skipped 2
+鈩?todo 0
+鈩?duration_ms 6696.153
+########## exit=0 ##########
+
+
+########## npm run test:catalog-metering ##########
+
+> cyberboss@0.1.0 test:catalog-metering
+> node --test test/catalog-metering.test.js test/claude-cli-capability-snapshot.test.js test/tool-catalog-core.test.js test/tool-host.test.js
+
+鉁?catalog has four mechanism categories, eight intention themes, stable metrics and no fictional result ceiling (294.059ms)
+鉁?resident catalog is deterministic, fixture-checked, private-text-free, and fails closed on drift (568.4982ms)
+鉁?baseline check is repeatable and fails closed when fixture changes (268.6467ms)
+鉁?an unclassified injected entry fails rather than entering a fallback category (0.8141ms)
+鉁?fake CLI snapshot has the specified shape and never emits path, transcript, or env values (343.0209ms)
+鉁?missing required flag is reported and fail-on-missing fails closed (706.7576ms)
+鉁?A1/A2 flag-off is exact and enabled surface is one minimal catalog plus two residents (14.1289ms)
+鉁?T07 A5/A8 max_result_bytes is per tool and schema estimates come from the actual tools/list schemas (1.1277ms)
+鉁?T07 A6 server-side result truncation is UTF-8 safe and never exceeds the tool budget (109.3699ms)
+鉁?A1 flag-off leaves legacy invocation and real stdio tools/resources byte-compatible (276.9347ms)
+鉁?A3 theme index is an exact eight-line snapshot and excludes aliases and hidden entries (1.9158ms)
+鉁?A4 theme lists are canonical-only with risk while hidden/deprecated handles remain queryable and marked (3.4565ms)
+鉁?A5/A6 handle lookup and request validation retain every fail-closed code (5.0167ms)
+鉁?A7 real stdio exposes three tools and supports theme and direct-handle catalog calls (306.4033ms)
+鉁?A8 toolset discovery is not invocation authority and aliases canonicalize before the gate (1.4856ms)
+鉁?A9 D13 floor remains discoverable, schema-loadable and callable without a toolset (18.7864ms)
+鉁?T08 A8 expired lease keeps both catalog levels visible but schema and call double-reject (2.4337ms)
+鉁?T08 A14 Route 2 flag off leaves schema and invocation behavior identical despite lease input (2.532ms)
+鉁?B1 signing gate off omits submit from legacy surface, themed catalog, and stdio (145.4087ms)
+鉁?B2/B4 signing gate on exposes schema and real stdio creates one fully attested subject candidate then relays rejection code (155.2354ms)
+鉁?B3 missing or expired runtime capability returns the service code and writes nothing (4.5727ms)
+鉁?A1 CLI rejects toolset while catalog flag is off (379.5042ms)
+鉁?manifest policy and privacy canary are explicit and private-text-free (152.5295ms)
+鉁?T04 A4/A5 work authorization denies relationship-memory schema and calls independently of discovery (14.9234ms)
+鉁?tool host rejects legacy timeline write CLI-shaped fields (0.4582ms)
+鉁?tool host exposes structured timeline read tools (0.6155ms)
+鉁?tool host returns final configured local time without UTC conversion hints (9.8048ms)
+鉁?tool host validates structured reminder input types (0.4213ms)
+鉁?tool host exposes reminder command tool (0.5941ms)
+鉁?tool host exposes sticker tools with compact structured outputs (1.1609ms)
+鉁?tool host accepts structured timeline screenshot input (0.3168ms)
+鉁?tool host descriptions stay compact while schemas remain structured (0.909ms)
+鉁?tool host hides deprecated whereabouts tools from discovery but preserves invocation (1.0102ms)
+鉁?tool host rejects timeline events without title or eventNodeId (0.5351ms)
+鈩?tests 34
+鈩?suites 0
+鈩?pass 34
+鈩?fail 0
+鈩?cancelled 0
+鈩?skipped 0
+鈩?todo 0
+鈩?duration_ms 1837.5118
+########## exit=0 ##########
+
+
+########## npm run test:telegram-media ##########
+
+> cyberboss@0.1.0 test:telegram-media
+> node --test test/telegram-media-inbox.test.js test/telegram-media-runtime-reconcile.test.js test/telegram-runtime-payload.test.js test/telegram-media-v2.test.js
+
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+鉁?telegram adapter keeps largest photo metadata and caption (10.4505ms)
+鉁?telegram adapter keeps voice caption in text (2.8131ms)
+鉁?media inbox service saves photo metadata without rewriting message text (15.1771ms)
+鉁?media inbox service logs failures without mutating message text (5.74ms)
+鉁?media inbox service skips oversized photos without downloading (1.4042ms)
+鉁?voice service preserves saved metadata and appends no path to the text (1.6911ms)
+鉁?MediaInboxService rejects oversized voice before download (1.3854ms)
+鉁?MediaInboxService logs voice download failure without losing caption (6.1702ms)
+鉁?voice STT success appends to the original text (1.7327ms)
+鉁?voice STT failure preserves original text and saved path (1.3369ms)
+鉁?Telegram runtime bridge preserves ordinary text payload without media side effects (1.383ms)
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+鉁?Telegram runtime bridge escapes hostile fields and exposes only verified state references (10.0558ms)
+鉁?Telegram local Whisper helper matches CMX local-only and VAD contract (226.3365ms)
+鉁?Telegram media descriptor allowlist and unknown-kind fail closed (3.1294ms)
+鉁?adapter descriptors preserve largest photo/caption and sticker formats (0.6977ms)
+鉁?document and video remain placeholders and produce no downloadable descriptor (0.2354ms)
+鉁?duplicate Telegram updates are rejected before media download (5.725ms)
+鉁?MediaInboxService saves audio and sticker atomically under state media (23.3726ms)
+鉁?MediaInboxService cleans part files after bounded download failure and deduplicates (9.5705ms)
+鉁?MediaInboxService rejects media-root links and unsafe state references without writing outside state (6.0649ms)
+鉁?bounded Telegram response rejects non-streaming bodies and cancels interrupted readers (0.8796ms)
+鉁?local Whisper process reports success, nonzero exit, missing Python, timeout, and output limits (1198.9221ms)
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+鉁?local Whisper timeout waits for a real helper process and its child tree to exit (745.4784ms)
+鉁?local Whisper config stays opt-in and rejects invalid enabled configuration (24.109ms)
+鉁?Telegram handler completes media and STT before record and runtime draft, while duplicate updates stop before download (17.9591ms)
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+鉁?CMX recognize client sends one authenticated multipart image and normalizes OCR plus vision (26.4527ms)
+鉁?Telegram photo intake keeps CMX output outside the plaintext channel envelope (15.5233ms)
+鉁?CMX attachment contexts survive Telegram cloning and image batching (0.4587ms)
+鉁?CMX recognition failure is fail-open and never changes the Telegram user text (15.8316ms)
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: this.createMemoryService is not a function
+[cyberboss] memory context resolution failed: store offline
+鉁?Telegram plain text uses the deployed channel envelope, field for field (4.2863ms)
+鉁?envelope attributes are omitted rather than emitted empty (0.7016ms)
+鉁?the envelope is fixed overhead, not a multiple of the message (0.8478ms)
+鉁?quotes, angle brackets, emoji and newlines survive verbatim in the body (0.4658ms)
+鉁?a literal closing tag in the body cannot end the envelope early (0.4196ms)
+鉁?closing-tag escaping tolerates case and trailing space, and keeps the user's own text (0.8749ms)
+鉁?attribute values are escaped so a hostile username cannot add attributes (0.6673ms)
+鉁?verified attachments become media lines and unverified ones are dropped (17.8845ms)
+鉁?attachments are dropped entirely when there is no authoritative state root (1.236ms)
+鉁?memory context lines ride above the envelope in their own block (0.8849ms)
+鉁?an empty memory context leaves the payload identical to the pre-memory format (0.3624ms)
+鉁?a hostile stored line cannot close the memory block early or break line structure (0.5449ms)
+鉁?memory resolution failure degrades to the plain envelope instead of failing the turn (0.4992ms)
+鈩?tests 42
+鈩?suites 0
+鈩?pass 42
+鈩?fail 0
+鈩?cancelled 0
+鈩?skipped 0
+鈩?todo 0
+鈩?duration_ms 2490.2917
+########## exit=0 ##########
+
+
+########## npm run test:orchestration ##########
+
+> cyberboss@0.1.0 test:orchestration
+> node --test test/orchestration-release-watchdog.test.js test/release-control-plane.test.js test/nightly-control-plane.test.js test/writer-lease.test.js test/orchestrator-resume.test.js test/canary-runner.test.js test/canary-receipt.test.js test/status-script.test.js test/release-manifest.test.js test/stable-telegram-launcher.test.js test/release-descriptor-watchdog-owner.test.js test/runtime-startup-root.test.js test/delegation-bounded-v0.test.js test/delegation-capsule-contract.test.js test/delegation-readonly-query.test.js test/delegation-observe-seam.test.js
+
+鉁?canary id pattern anchors exact UUID matches only (2.2865ms)
+鉁?recordCanaryReceipt writes exactly one JSONL line for a canary id (6.4106ms)
+鉁?recordCanaryReceipt is a strict no-op for ordinary messages (1.2197ms)
+鉁?recordCanaryReceipt rejects similar-but-incomplete canary ids (1.2645ms)
+鉁?recordCanaryReceipt no-ops without stateDir (0.2745ms)
+鉁?recordCanaryReceipt stores no message body, token, or raw chat id (2.7447ms)
+鉁?canary receipts file is append-only across repeated writes (4.2421ms)
+鉁?defaultLocalCanarySources includes canary-receipts.jsonl under stateDir (2.0239ms)
+鉁?runner rejects a canary that receipt file already contained before the run (30.3474ms)
+鉁?runner verifies a receipt appended after the runner started (29.24ms)
+鉁?runner rejects a malformed canary id written to the receipt file (37.0131ms)
+鉁?recordCanaryReceipt module contains no Telegram Bot API surface (0.619ms)
+鉁?app.js keeps a single Telegram inbound poller and no 409-triggering extra polls (1.2994ms)
+鉁?canary runner verifies only appended local evidence and stores no message body (40.2763ms)
+鉁?canary runner source contains no Telegram polling client (1.1704ms)
+鉁?task spec is fail-closed: unknown approval policy and escaping paths are rejected (2.4365ms)
+鉁?forbidden_paths beats allowed_paths and case tricks do not escape on Windows (0.9684ms)
+鉁?result capsule missing a required field is rejected (0.9418ms)
+鉁?a capsule carrying raw transcript is rejected, at top level and when nested (0.4465ms)
+鉁?a legal task produces an accepted capsule and touches only allowed paths (1228.6039ms)
+鉁?writing outside allowed_paths is rejected and acceptance tests never run (1041.2688ms)
+鉁?a brand new untracked file outside the allowlist is still caught (866.7778ms)
+鉁?a failing acceptance test yields rework, not accept (1047.071ms)
+鉁?a hanging run times out, is cancelled, and stops the loop (921.4764ms)
+鉁?an oversized runtime summary is truncated instead of leaking into the capsule (914.0769ms)
+鉁?verifier stops a capsule whose file list disagrees with the observed diff (892.9388ms)
+鉁?capsule statuses are pinned and invalid statuses are rejected (2.8675ms)
+鉁?recommended actions are pinned and invalid actions are rejected (0.3906ms)
+鉁?forbidden capsule keys are rejected everywhere the exported list says they are (1.5584ms)
+鉁?approval policies are pinned and unknown policies are rejected (1.7739ms)
+鉁?commit_sha accepts null and full lowercase hex, and rejects drift-prone shorthands (0.5314ms)
+warning: in the working copy of 'docs/note.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/item.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/item.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/note.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/item.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/note.md', LF will be replaced by CRLF the next time Git touches it
+鉁?T10-A A6 orchestrator observes git only after worker completion and distrusts capsule files (858.5833ms)
+鉁?T10-A A6/A8 observed boundary stops before acceptance despite a passing self-report (773.7314ms)
+鉁?T09 A5/A8 readonly runtime text follows parse, D14 validate, verify, short-status chain (4.7562ms)
+鉁?T09 A6 nested transcript-shaped keys are rejected before verification (0.4715ms)
+鉁?T09 A7 observed boundary violation stops before acceptance-test correspondence (0.3967ms)
+鉁?T09 A8 readonly exception does not weaken mutation acceptance-test evidence (0.2886ms)
+鉁?nightly treats deployment/current.json as Telegram SSOT and fails closed on manifest conflict (748.4744ms)
+鉁?nightly has an explicit descriptor-first path and a documented bootstrap-only fallback (0.4409ms)
+鉁?complete active and rollback descriptors pass strict existing-path validation (20.3806ms)
+鉁?strict validation allows a missing active PID file when its parent exists (17.1711ms)
+鉁?rollback preflight allows an inactive release PID file to be absent (36.2369ms)
+鉁?strict validation rejects a PID path whose parent directory is missing (17.1625ms)
+鉁?strict validation rejects an existing PID path that is a directory (16.2743ms)
+鉁?strict validation rejects a PID path inside the other release directory (18.0673ms)
+鉁?release descriptor rejects a PID file outside its release state directory (1.7119ms)
+鉁?strict validation reports active missing entry without exposing values (14.5655ms)
+鉁?strict validation rejects rollback missing entry or watchdog target (40.1535ms)
+鉁?strict validation rejects rollback missing state or log directory (39.2744ms)
+鉁?descriptor rejects a UTF-8 BOM with a clear error (18.6812ms)
+鉁?descriptor rejects SHA and release identity mismatches (3.8447ms)
+鉁?descriptor rejects state, log, and PID paths inside a release directory (4.6901ms)
+鉁?rollback atomically promotes a fully preflighted rollback release (33.1334ms)
+鉁?rollback activation preflight refuses to replace the current descriptor when a target is missing (17.2064ms)
+鉁?legacy manifest writer is retired so it cannot overwrite the formal descriptor (586.7079ms)
+鉁?legacy manifest writer fails closed before it can alter a descriptor (531.4018ms)
+鉁?watchdog is release-only and can parse its CLI (212.1214ms)
+鉁?watchdog descriptor reader rejects BOM, malformed JSON, and missing fields (400.9049ms)
+鉁?watchdog owner check uses descriptor-scoped process identity and retries without stack spam (0.5752ms)
+鉁?dashboard is isolated from TG watchdog and automatic memory writes remain disabled (1.6033ms)
+鉁?watchdog keeps one loop alive across initial BOM, JSON, and schema failures without launching (162.1684ms)
+鉁?watchdog recovers in the same finite loop after atomic descriptor replacement and logs state transitions (152.2ms)
+鉁?watchdog --once reports its single cycle's outcome through the exit code (343.8122ms)
+鉁?watchdog owner identity parses quoted Windows argv and accepts only exact current or allowlisted pairs (189.6871ms)
+鉁?orchestrator state resumes from last atomic file after an interrupted update (20.4005ms)
+warning: in the working copy of 'fixture.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'fixture.txt', LF will be replaced by CRLF the next time Git touches it
+鉁?candidate install creates missing formal descriptor as exact UTF-8 bytes (36.2908ms)
+鉁?candidate replacement retains an immutable backup and audit (34.392ms)
+鉁?hash mismatch, BOM, and validation failure do not damage old descriptor (26.5452ms)
+鉁?manifest failure and descriptor schema/path failures retain the old descriptor (35.2153ms)
+鉁?startup artifacts require manifest coverage and copy hash exactly (8.3617ms)
+鉁?startup artifact install is anchored to the operator's explicit manifest hash (9.7753ms)
+鉁?startup artifact verification judges the pinned manifest bytes, not a re-read (9.3981ms)
+鉁?manifest coverage judges the caller's bytes, so a source swapped after reading cannot self-certify (6.1282ms)
+鉁?post-write validation failure restores the previous descriptor and removes a fresh install (66.5136ms)
+鉁?descriptor installer writes only an explicit temporary absolute target (1562.6009ms)
+鉁?startup artifacts installer copies both manifest-covered sources only to its explicit temporary target (1804.8091ms)
+鉁?retired legacy deploy and manifest-topology launch paths fail closed with explicit guidance (1385.2634ms)
+鉁?startup artifacts installer rejects a relative target before it can create artifacts (455.7294ms)
+鉁?watchdog_owner_dir outside both release paths and existing passes strict validation (20.8184ms)
+鉁?watchdog_owner_dir is optional and an empty string is accepted (15.773ms)
+鉁?watchdog_owner_dir rejects a relative path (18.9797ms)
+鉁?watchdog_owner_dir rejects a path inside the active release (17.5487ms)
+鉁?watchdog_owner_dir rejects a path inside the rollback release (13.3837ms)
+鉁?strict validation rejects a missing watchdog_owner_dir directory (20.4518ms)
+fatal: ambiguous argument '1111111111111111111111111111111111111111^{tree}': unknown revision or path not in the working tree.
+Use '--' to separate paths from revisions, like this:
+'git <command> [<revision>...] -- [<file>...]'
+鉁?classifyTransform: identical bytes are 'unconverted' (1.9029ms)
+鉁?classifyTransform: .ps1 gains BOM+CRLF and is classified powershell_bom_crlf (0.4775ms)
+鉁?classifyTransform: a BOM on a non-.ps1 file is a mismatch (0.3046ms)
+鉁?classifyTransform: real content differences are a mismatch, not a declared transform (0.2567ms)
+鉁?buildManifest + verifyManifest succeed end-to-end on a correctly packaged release (1411.0311ms)
+鉁?buildManifest fails when a declared-excluded file is actually present in the release (1057.5985ms)
+鉁?buildManifest fails on an undeclared extra file not present in source (1005.3287ms)
+鉁?buildManifest accepts an undeclared extra file when explicitly allowlisted (1092.7251ms)
+鉁?verifyManifest catches a tampered file (sha256 mismatch) by name (1002.9155ms)
+鉁?verifyManifest rejects a manifest with a UTF-8 BOM (996.9719ms)
+鉁?verifyManifest checks commit/tree SHA existence against an external read-only repo (1152.1921ms)
+鉁?verifyManifest rejects a tree_sha that exists but is not the tree of commit.sha (1199.2949ms)
+鉁?verifyManifest judges caller-pinned manifest bytes over the file on disk (1188.9407ms)
+鉁?startup entrypoints contain no ancestor-walk root discovery (2.4104ms)
+鉁?watchdog has no descriptor guessing and requires --descriptor (238.3742ms)
+鉁?startup entrypoints fail closed when CYBERLINK_ROOT is unset (985.7331ms)
+鉁?startup entrypoints reject a CYBERLINK_ROOT that is not a workspace root (961.0496ms)
+鉁?correct active poller exists: no-op, nothing started (2177.2972ms)
+鉁?only an old release poller is running: must not be misidentified as active (2018.3456ms)
+鉁?only a `start --checkin` process is running: must enter the dry-run start path (1975.1272ms)
+鉁?same-named cyberboss.js in a different directory running `start`: must not be misidentified (1931.9159ms)
+鉁?stale PID file (process not running): must enter the dry-run start path (1677.2871ms)
+鉁?PID file points at a `start --checkin` process: must enter the dry-run start path (2200.7136ms)
+鉁?active entry missing from descriptor: fails (522.7219ms)
+鉁?descriptor has a UTF-8 BOM: fails (455.6969ms)
+鉁?multiple exact active pollers: fail closed (1931.2756ms)
+鉁?status recognizes official Telegram runtime and separates legacy app-server (3.4753ms)
+鉁?status reports nginx as containerized when docker exposes an nginx container (0.5188ms)
+鉁?missing process is reported down and paths are parsed (0.3299ms)
+鉁?writer lease is exclusive and owner can release it (14.4995ms)
+鉁?stale lease cleanup is manual, archived, and refuses a live owner (14.6036ms)
+鉁?acquire can recover a dead owner and keeps the stale lease as audit evidence (22.1753ms)
+鉁?automatic recovery never steals a lease whose owner is alive (9.8943ms)
+鉁?automatic recovery refuses an unreadable or malformed lease (3.4076ms)
+鈩?tests 118
+鈩?suites 0
+鈩?pass 118
+鈩?fail 0
+鈩?cancelled 0
+鈩?skipped 0
+鈩?todo 0
+鈩?duration_ms 15586.0388
+########## exit=0 ##########
