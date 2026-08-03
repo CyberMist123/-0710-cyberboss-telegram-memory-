@@ -2348,6 +2348,18 @@ class CyberbossApp {
       });
       return;
     }
+    if (resumed?.resumed === false) {
+      // The adapter refused the requested thread (only this lane's own stored
+      // session is resumable). Do NOT change the stored thread and do NOT claim
+      // success -- report the refusal honestly.
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: `⚠️ Switch refused: the requested thread can't be adopted in this lane (only the current session is resumable). Current thread unchanged.`,
+        contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
+      }).catch(() => {});
+      return;
+    }
     sessionStore.setThreadIdForWorkspace(
       bindingKey,
       workspaceRoot,

@@ -1472,6 +1472,59 @@ test("handleSwitchCommand stores the verified claudecode thread returned by runt
   ]);
 });
 
+test("handleSwitchCommand reports refusal and does not claim success on a slot mismatch", async () => {
+  const calls = [];
+  const appLike = {
+    resolveWorkspaceRoot() {
+      return "/workspace";
+    },
+    runtimeAdapter: {
+      describe() {
+        return { id: "claudecode" };
+      },
+      async resumeThread({ threadId, workspaceRoot }) {
+        calls.push(["resume", threadId, workspaceRoot]);
+        // Adapter refuses a caller-supplied id that is not this slot's stored session.
+        return { threadId: "current-thread", resumed: false, empty: false, refused: "slot_mismatch" };
+      },
+      getSessionStore() {
+        return {
+          buildBindingKey() {
+            return "binding-1";
+          },
+          getRuntimeParamsForWorkspace() {
+            return { model: "claude-sonnet", modelProvider: "" };
+          },
+          setThreadIdForWorkspace(bindingKey, workspaceRoot, threadId) {
+            calls.push(["set", bindingKey, workspaceRoot, threadId]);
+          },
+        };
+      },
+    },
+    channelAdapter: {
+      async sendText(payload) {
+        calls.push(["send", payload.text]);
+      },
+    },
+  };
+
+  await CyberbossApp.prototype.handleSwitchCommand.call(appLike, {
+    workspaceId: "default",
+    accountId: "account-1",
+    senderId: "user-1",
+    contextToken: "ctx-1",
+  }, {
+    args: "target-thread",
+  });
+
+  // The stored thread must NOT change on refusal, and the reply must not claim success.
+  assert.ok(!calls.some((entry) => entry[0] === "set"), "must not change the stored thread on refusal");
+  const sends = calls.filter((entry) => entry[0] === "send").map((entry) => entry[1]);
+  assert.equal(sends.length, 1);
+  assert.match(sends[0], /Switch refused/);
+  assert.ok(!sends[0].includes("Thread switched"), "must not claim the switch succeeded");
+});
+
 test("session store does not reuse legacy thread ids across runtimes", () => {
   const sessionsFile = path.join(
     os.tmpdir(),
