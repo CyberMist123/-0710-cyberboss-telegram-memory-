@@ -1,3 +1,9 @@
+# 说明（本段是归档时加的，其余为原样输出）
+# 本文件是 2026-08-03 第三次交付的预交付验证完整输出（13 个分组的 stdout+stderr）。
+# 仓库的 scripts/portability-check.js 禁止任何 git 跟踪文件出现本机绝对路径与用户名，
+# 因此归档时做了机械替换：<CYBERLINK_ROOT> / <USERPROFILE> / <DRIVE_X> / <USER>。
+# 除这四类占位符外，内容逐字未改；分组顺序、退出码、断言输出均为原样。
+
 === PREDEPLOY FULL OUTPUT 91dd0d5 (每组 npm run 的完整 stdout+stderr) ===
 
 
@@ -163,7 +169,7 @@ test at test\phase1-offline-config.test.js:143:1
       at wrappedFn (node:internal/errors:539:14)
       at checkExecSyncError (node:child_process:925:11)
       at execFileSync (node:child_process:961:15)
-      at Object.<anonymous> (C:\Users\18717\Documents\cyberlink\runtime\app\telegram.new-20260803\scripts\portability-check.js:8:22)
+      at Object.<anonymous> (<CYBERLINK_ROOT>\runtime\app\telegram.new-20260803\scripts\portability-check.js:8:22)
       at Module._compile (node:internal/modules/cjs/loader:1830:14)
       at Object..js (node:internal/modules/cjs/loader:1961:10)
       at Module.load (node:internal/modules/cjs/loader:1553:32)
@@ -186,7 +192,7 @@ test at test\phase1-offline-config.test.js:143:1
   
   1 !== 0
   
-      at TestContext.<anonymous> (C:\Users\18717\Documents\cyberlink\runtime\app\telegram.new-20260803\test\phase1-offline-config.test.js:148:10)
+      at TestContext.<anonymous> (<CYBERLINK_ROOT>\runtime\app\telegram.new-20260803\test\phase1-offline-config.test.js:148:10)
       at Test.runInAsyncScope (node:async_hooks:227:14)
       at Test.run (node:internal/test_runner/test:1201:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
@@ -489,7 +495,7 @@ dashboard write freeze: 7 endpoints -> 403
 鉁?Desire sole writer appends an eight-dimensional dashboard history row (10.193ms)
 鉁?Claude reported octants persist realtime and one deduplicated history row (11.4466ms)
 鉁?latest desire history row can be read back for the next heartbeat (5.1662ms)
-[cyberboss] checkin poller ready user=user-1 workspace=C:\Users\18717\AppData\Local\Temp\cyberboss-desire-integration-96sHFD
+[cyberboss] checkin poller ready user=user-1 workspace=<USERPROFILE>\AppData\Local\Temp\cyberboss-desire-integration-96sHFD
 [cyberboss] checkin interval range 3m-60m
 [cyberboss] next checkin in 33m at 2026-08-03 18:31:47
 [cyberboss] checkin queued id=d7784bab-3407-42b4-9f91-a6df8c9628cf
@@ -837,10 +843,10 @@ Ran 3 tests in 0.145s
 OK
 520 runtime prompt: actual source, flags, safe save/restore, conflict guard and readable events -> ok
 Traceback (most recent call last):
-  File "C:\Users\18717\Documents\cyberlink\runtime\app\telegram.new-20260803\extensions\relationship-memory\memory-kit\tests\test_deepseek_env_key.py", line 117, in <module>
+  File "<CYBERLINK_ROOT>\runtime\app\telegram.new-20260803\extensions\relationship-memory\memory-kit\tests\test_deepseek_env_key.py", line 117, in <module>
     fn()
     ~~^^
-  File "C:\Users\18717\Documents\cyberlink\runtime\app\telegram.new-20260803\extensions\relationship-memory\memory-kit\tests\test_deepseek_env_key.py", line 111, in test_gitignore_covers_private_secret_files
+  File "<CYBERLINK_ROOT>\runtime\app\telegram.new-20260803\extensions\relationship-memory\memory-kit\tests\test_deepseek_env_key.py", line 111, in test_gitignore_covers_private_secret_files
     assert result.returncode == 0, path
            ^^^^^^^^^^^^^^^^^^^^^^
 AssertionError: .env
@@ -871,8 +877,8 @@ AssertionError: .env
 鉁?a profile using an undeclared flag blocks startup through the router (6.434ms)
 鉁?a relative profile path needs an explicit base directory (0.5567ms)
 鉁?no launch path resolves against the current working directory (83.3378ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cyberboss-g3-bNvncq\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cyberboss-g3-bNvncq\state\claude-mcp\route-9107f41e0e7594b4.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cyberboss-g3-bNvncq\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cyberboss-g3-bNvncq\state\claude-mcp\route-9107f41e0e7594b4.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cyberboss-g3-bNvncq\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cyberboss-g3-bNvncq\state\claude-mcp\route-9107f41e0e7594b4.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cyberboss-g3-bNvncq\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cyberboss-g3-bNvncq\state\claude-mcp\route-9107f41e0e7594b4.json
 鉁?T04 A1/A2 managed identities bind harness, role source, permission identity and ceilings into slots (25.7268ms)
 鉁?T04 A6 global bypassPermissions cannot cross the fable permission identity (11.8122ms)
 鉁?T04 A7/A8 contract gate off is byte-compatible and launch trace is tokenized (13.8812ms)
@@ -916,46 +922,46 @@ AssertionError: .env
 鉁?a turn slot is single-flight and settles exactly once (11.7685ms)
 鉁?a turn slot on one process does not block another process (0.3397ms)
 [claudecode-runtime] force-settling a stuck turn on process p1
-[claudecode-runtime] stderr: C:\Program Files\nodejs\node.exe: bad option: --output-format
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-pstate-PCFye5\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-PCFye5\state\claude-mcp\route-716193f3bf088fd3.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-pstate-PCFye5\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-PCFye5\state\claude-mcp\route-716193f3bf088fd3.json
+[claudecode-runtime] stderr: <DRIVE_C>\Program Files\nodejs\node.exe: bad option: --output-format
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-PCFye5\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-PCFye5\state\claude-mcp\route-716193f3bf088fd3.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-PCFye5\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-PCFye5\state\claude-mcp\route-716193f3bf088fd3.json
 鉁?a stuck turn is force-settled after the timeout rather than wedging the lane (29.8575ms)
 鉁?retiring a process settles its in-flight turn (0.5806ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-pstate-NP30vR\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-NP30vR\state\claude-mcp\route-8da29ab7c12da556.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-pstate-NP30vR\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-NP30vR\state\claude-mcp\route-8da29ab7c12da556.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-NP30vR\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-NP30vR\state\claude-mcp\route-8da29ab7c12da556.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-NP30vR\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-NP30vR\state\claude-mcp\route-8da29ab7c12da556.json
 鉁?a failed launch leaves no registry entry, no turn and no approval behind (111.1444ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-pstate-NP30vR\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-NP30vR\state\claude-mcp\route-8da29ab7c12da556.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-pstate-NP30vR\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-NP30vR\state\claude-mcp\route-8da29ab7c12da556.json
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-pstate-tjZMzh\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-tjZMzh\state\claude-mcp\route-55bc03fe349460c0.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-pstate-tjZMzh\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-tjZMzh\state\claude-mcp\route-55bc03fe349460c0.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-NP30vR\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-NP30vR\state\claude-mcp\route-8da29ab7c12da556.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-NP30vR\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-NP30vR\state\claude-mcp\route-8da29ab7c12da556.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-tjZMzh\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-tjZMzh\state\claude-mcp\route-55bc03fe349460c0.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-tjZMzh\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-tjZMzh\state\claude-mcp\route-55bc03fe349460c0.json
 鉁?an indeterminate write is reported as a failure and never replayed (663.3946ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-pstate-Dii13R\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-Dii13R\state\claude-mcp\route-5565ea781adf6883.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-pstate-Dii13R\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-Dii13R\state\claude-mcp\route-5565ea781adf6883.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-Dii13R\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-Dii13R\state\claude-mcp\route-5565ea781adf6883.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-Dii13R\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-Dii13R\state\claude-mcp\route-5565ea781adf6883.json
 鉁?a write that fails after the attempt began is indeterminate, not retried (707.4335ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-pstate-Dii13R\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-Dii13R\state\claude-mcp\route-239e0c0dc92b75e9.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-pstate-Dii13R\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-Dii13R\state\claude-mcp\route-239e0c0dc92b75e9.json
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-pstate-DsVAlv\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-DsVAlv\state\claude-mcp\route-110407952a87f624.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-pstate-DsVAlv\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-DsVAlv\state\claude-mcp\route-110407952a87f624.json
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-pstate-DsVAlv\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-DsVAlv\state\claude-mcp\route-eae7c1cbe7c74be7.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-pstate-DsVAlv\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-DsVAlv\state\claude-mcp\route-eae7c1cbe7c74be7.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-Dii13R\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-Dii13R\state\claude-mcp\route-239e0c0dc92b75e9.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-Dii13R\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-Dii13R\state\claude-mcp\route-239e0c0dc92b75e9.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-DsVAlv\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-DsVAlv\state\claude-mcp\route-110407952a87f624.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-DsVAlv\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-DsVAlv\state\claude-mcp\route-110407952a87f624.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-DsVAlv\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-DsVAlv\state\claude-mcp\route-eae7c1cbe7c74be7.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-DsVAlv\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-DsVAlv\state\claude-mcp\route-eae7c1cbe7c74be7.json
 鉁?the workspace lock is released when a turn completes, so the next turn proceeds (282.4397ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-pstate-WqE8Pm\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-WqE8Pm\state\claude-mcp\route-e9c65851213e3a8e.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-pstate-WqE8Pm\workspace mcp_config=inherit:1
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-pstate-WqE8Pm\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-WqE8Pm\state\claude-mcp\route-1a7376305cd0f442.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-pstate-WqE8Pm\workspace mcp_config=inherit:1
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-pstate-WqE8Pm\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-WqE8Pm\state\claude-mcp\route-359b2afa11c329af.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-pstate-WqE8Pm\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-WqE8Pm\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-WqE8Pm\state\claude-mcp\route-e9c65851213e3a8e.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-WqE8Pm\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-WqE8Pm\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-WqE8Pm\state\claude-mcp\route-1a7376305cd0f442.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-WqE8Pm\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-WqE8Pm\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-WqE8Pm\state\claude-mcp\route-359b2afa11c329af.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-WqE8Pm\workspace mcp_config=inherit:1
 鉁?two write lanes in one workspace serialize but keep separate sessions (264.5362ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-pstate-penxFt\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-penxFt\state\claude-mcp\route-6731820422be04df.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-pstate-penxFt\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-penxFt\state\claude-mcp\route-6731820422be04df.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-penxFt\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-penxFt\state\claude-mcp\route-6731820422be04df.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-penxFt\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-penxFt\state\claude-mcp\route-6731820422be04df.json
 鉁?read-access lanes run concurrently in one workspace (287.1542ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-pstate-penxFt\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-penxFt\state\claude-mcp\route-6113334e5c584ffd.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-pstate-penxFt\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-penxFt\state\claude-mcp\route-6113334e5c584ffd.json
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-pstate-uN6LJH\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-uN6LJH\state\claude-mcp\route-63e2523ac1d59a9e.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-pstate-uN6LJH\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-uN6LJH\state\claude-mcp\route-63e2523ac1d59a9e.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-penxFt\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-penxFt\state\claude-mcp\route-6113334e5c584ffd.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-penxFt\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-penxFt\state\claude-mcp\route-6113334e5c584ffd.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-uN6LJH\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-uN6LJH\state\claude-mcp\route-63e2523ac1d59a9e.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-uN6LJH\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-uN6LJH\state\claude-mcp\route-63e2523ac1d59a9e.json
 鉁?IPC refuses a message with no unambiguous process identity (244.082ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-pstate-uN6LJH\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-uN6LJH\state\claude-mcp\route-794371df912005d3.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-pstate-uN6LJH\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-pstate-uN6LJH\state\claude-mcp\route-794371df912005d3.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-pstate-uN6LJH\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-uN6LJH\state\claude-mcp\route-794371df912005d3.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-pstate-uN6LJH\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-pstate-uN6LJH\state\claude-mcp\route-794371df912005d3.json
 鉁?closing the adapter releases every process, turn slot and workspace lock (259.7958ms)
 鉁?A9 soft latch is checked only between atomic small rounds and outranks queued instructions (5.9946ms)
 鉁?A8 forceClose kills the worker child immediately and hard-interrupted registry state is resumable (2.0929ms)
@@ -964,11 +970,11 @@ warning: in the working copy of 'src/fixture.js', LF will be replaced by CRLF th
 warning: in the working copy of 'extensions/relationship-memory/fixture.js', LF will be replaced by CRLF the next time Git touches it
 warning: in the working copy of 'src/fixture.js', LF will be replaced by CRLF the next time Git touches it
 Preparing worktree (detached HEAD db77513)
-fatal: 'C:\Users\18717\AppData\Local\Temp\route1-provision-iOcOBV\not-a-worktree' is not a working tree
+fatal: '<USERPROFILE>\AppData\Local\Temp\route1-provision-iOcOBV\not-a-worktree' is not a working tree
 warning: in the working copy of 'extensions/relationship-memory/fixture.js', LF will be replaced by CRLF the next time Git touches it
 warning: in the working copy of 'src/fixture.js', LF will be replaced by CRLF the next time Git touches it
 Preparing worktree (detached HEAD 4054020)
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=c:\users\18717\appdata\local\temp\route1-runtime-bwwwjq\worktrees\route1-runtime-fixture mcp_config=inherit:1
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\appdata\local\temp\route1-runtime-bwwwjq\worktrees\route1-runtime-fixture mcp_config=inherit:1
 鉁?T10-A A3/A4/A5 path gate rejects all live-data root classes without blocking memory source code (842.558ms)
 鉁?T10-A A1/A7/A8 worktree cleanup is idempotent/fail-open and profile deny remains honest about Bash (1110.6636ms)
 warning: in the working copy of 'extensions/relationship-memory/fixture.js', LF will be replaced by CRLF the next time Git touches it
@@ -976,93 +982,93 @@ warning: in the working copy of 'src/fixture.js', LF will be replaced by CRLF th
 鉁?T10-A A1/A2/A10 runTaskSession provisions a disjoint lock domain and observes its own empty diff (1363.7092ms)
 鉁?T10-A A10 new flag off preserves T09 observedChangedPaths requirement and creates no worktree (584.4094ms)
 鉁?T10-A A9 pins small-round intent while T10-B owns app commands and changed interrupt semantics (1.7325ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-7aZqQl\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-7aZqQl\state\claude-mcp\route-ccb409476967e914.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-7aZqQl\workspace mcp_config=inherit:1
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-7aZqQl\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-7aZqQl\state\claude-mcp\route-98f65775416c3b44.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-7aZqQl\workspace mcp_config=inherit:1
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-7aZqQl\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-7aZqQl\state\claude-mcp\route-ccb409476967e914.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-7aZqQl\workspace mcp_config=inherit:1
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-fEAHH3\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-fEAHH3\state\claude-mcp\route-60c9dd0d8de8c721.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-fEAHH3\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-7aZqQl\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-7aZqQl\state\claude-mcp\route-ccb409476967e914.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-7aZqQl\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-7aZqQl\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-7aZqQl\state\claude-mcp\route-98f65775416c3b44.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-7aZqQl\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-7aZqQl\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-7aZqQl\state\claude-mcp\route-ccb409476967e914.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-7aZqQl\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-fEAHH3\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-fEAHH3\state\claude-mcp\route-60c9dd0d8de8c721.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-fEAHH3\workspace mcp_config=inherit:1
 鉁?topic A / profile A and topic B / profile B get different Claude sessions, and A -> B -> A restores session A (476.2129ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-fEAHH3\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-fEAHH3\state\claude-mcp\route-918f610fde1271b8.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-fEAHH3\workspace mcp_config=inherit:1
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-0Gb5bB\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-0Gb5bB\state\claude-mcp\route-6909cb88dc6e4660.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-0Gb5bB\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-fEAHH3\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-fEAHH3\state\claude-mcp\route-918f610fde1271b8.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-fEAHH3\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-0Gb5bB\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-0Gb5bB\state\claude-mcp\route-6909cb88dc6e4660.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-0Gb5bB\workspace mcp_config=inherit:1
 鉁?the same profile in two different topics still gets isolated sessions (450.7967ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-RPrlZq\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-RPrlZq\state\claude-mcp\route-aec998fa8c7e8f34.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-RPrlZq\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-RPrlZq\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-RPrlZq\state\claude-mcp\route-aec998fa8c7e8f34.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-RPrlZq\workspace mcp_config=inherit:1
 鉁?a long-lived child reuses one session, slot, and process for three completed turns (280.0026ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-RPrlZq\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-RPrlZq\state\claude-mcp\route-aec998fa8c7e8f34.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-RPrlZq\workspace mcp_config=inherit:1
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-CtkxjW\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-CtkxjW\state\claude-mcp\route-85c0d9ffbb1249e2.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-CtkxjW\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-RPrlZq\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-RPrlZq\state\claude-mcp\route-aec998fa8c7e8f34.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-RPrlZq\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-CtkxjW\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-CtkxjW\state\claude-mcp\route-85c0d9ffbb1249e2.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-CtkxjW\workspace mcp_config=inherit:1
 鉁?an explicitly stopped child relaunches with --resume for the original slot session (265.6453ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-CtkxjW\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-CtkxjW\state\claude-mcp\route-85c0d9ffbb1249e2.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-CtkxjW\workspace mcp_config=inherit:1
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-wfAG95\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-wfAG95\state\claude-mcp\route-9a6c95c79c3f7e56.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-wfAG95\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-CtkxjW\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-CtkxjW\state\claude-mcp\route-85c0d9ffbb1249e2.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-CtkxjW\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-wfAG95\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-wfAG95\state\claude-mcp\route-9a6c95c79c3f7e56.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-wfAG95\workspace mcp_config=inherit:1
 鉁?an indeterminate turn is not replayed, keeps its slot, and a retry resumes the original session (234.4157ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-wfAG95\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-wfAG95\state\claude-mcp\route-cbe6b5189518349c.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-wfAG95\workspace mcp_config=inherit:1
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-wfAG95\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-wfAG95\state\claude-mcp\route-9a6c95c79c3f7e56.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-wfAG95\workspace mcp_config=inherit:1
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-6wivku\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-6wivku\state\claude-mcp\route-57d66245aa76b824.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-6wivku\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-wfAG95\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-wfAG95\state\claude-mcp\route-cbe6b5189518349c.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-wfAG95\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-wfAG95\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-wfAG95\state\claude-mcp\route-9a6c95c79c3f7e56.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-wfAG95\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-6wivku\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-6wivku\state\claude-mcp\route-57d66245aa76b824.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-6wivku\workspace mcp_config=inherit:1
 鉁?changing only the profile in one topic opens a new session instead of resuming the old one (369.4725ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-6wivku\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-6wivku\state\claude-mcp\route-7e87b20200085513.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-6wivku\workspace mcp_config=inherit:1
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-6wivku\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-6wivku\state\claude-mcp\route-57d66245aa76b824.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-6wivku\workspace mcp_config=inherit:1
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-0JgI8h\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-0JgI8h\state\claude-mcp\route-50c232ec02a172b9.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-0JgI8h\workspace mcp_config=inherit:1
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-0JgI8h\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-0JgI8h\state\claude-mcp\route-d04e322ca36d941b.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-0JgI8h\workspace mcp_config=inherit:1
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-0JgI8h\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-0JgI8h\state\claude-mcp\route-7a86f2d3af3498f7.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-0JgI8h\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-6wivku\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-6wivku\state\claude-mcp\route-7e87b20200085513.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-6wivku\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-6wivku\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-6wivku\state\claude-mcp\route-57d66245aa76b824.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-6wivku\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-0JgI8h\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-0JgI8h\state\claude-mcp\route-50c232ec02a172b9.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-0JgI8h\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-0JgI8h\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-0JgI8h\state\claude-mcp\route-d04e322ca36d941b.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-0JgI8h\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-0JgI8h\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-0JgI8h\state\claude-mcp\route-7a86f2d3af3498f7.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-0JgI8h\workspace mcp_config=inherit:1
 鉁?T06 one lane follows its active profile pointer and each profile resumes only its own slot (308.743ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-qXAjlm\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-qXAjlm\state\claude-mcp\route-5403a7032fcb2f73.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-qXAjlm\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-qXAjlm\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-qXAjlm\state\claude-mcp\route-5403a7032fcb2f73.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-qXAjlm\workspace mcp_config=inherit:1
 鉁?concurrent turns in different lanes do not close each other's process (200.5505ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-yXL5Ja\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-yXL5Ja\state\claude-mcp\route-a255abf061e18b9d.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-yXL5Ja\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-yXL5Ja\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-yXL5Ja\state\claude-mcp\route-a255abf061e18b9d.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-yXL5Ja\workspace mcp_config=inherit:1
 鉁?concurrent turns in one lane serialize onto a single process and session (189.5329ms)
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-yXL5Ja\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-yXL5Ja\workspace\.mcp.json
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-yXL5Ja\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-yXL5Ja\state\claude-mcp\route-a255abf061e18b9d.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-yXL5Ja\workspace mcp_config=inherit:1
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-rs6Mnv\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-rs6Mnv\state\claude-mcp\route-659962139b65aaf6.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-rs6Mnv\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-rs6Mnv\state\claude-mcp\route-659962139b65aaf6.json
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-yXL5Ja\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-yXL5Ja\workspace\.mcp.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-yXL5Ja\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-yXL5Ja\state\claude-mcp\route-a255abf061e18b9d.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-yXL5Ja\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-rs6Mnv\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-rs6Mnv\state\claude-mcp\route-659962139b65aaf6.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-rs6Mnv\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-rs6Mnv\state\claude-mcp\route-659962139b65aaf6.json
 鉁?a background turn is isolated: no profile, no slot, no resumable session (310.5794ms)
 鉁?a system-message lane never shares a slot with the Telegram lane it runs beside (0.3768ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-rs6Mnv\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-rs6Mnv\state\claude-mcp\route-659962139b65aaf6.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-rs6Mnv\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-rs6Mnv\state\claude-mcp\route-659962139b65aaf6.json
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-Wdf3pj\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-Wdf3pj\state\claude-mcp\route-d7e7b479b227b572.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-Wdf3pj\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-Wdf3pj\state\claude-mcp\route-d7e7b479b227b572.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-rs6Mnv\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-rs6Mnv\state\claude-mcp\route-659962139b65aaf6.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-rs6Mnv\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-rs6Mnv\state\claude-mcp\route-659962139b65aaf6.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-Wdf3pj\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-Wdf3pj\state\claude-mcp\route-d7e7b479b227b572.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-Wdf3pj\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-Wdf3pj\state\claude-mcp\route-d7e7b479b227b572.json
 鉁?the private/default legacy lane migrates the pre-v2 session exactly once (231.9213ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-Wdf3pj\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-Wdf3pj\state\claude-mcp\route-887f2f62150893b0.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-Wdf3pj\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-Wdf3pj\state\claude-mcp\route-887f2f62150893b0.json
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-AixPmW\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-AixPmW\state\claude-mcp\route-2cffb4894a2d5cc9.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-AixPmW\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-AixPmW\state\claude-mcp\route-2cffb4894a2d5cc9.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-Wdf3pj\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-Wdf3pj\state\claude-mcp\route-887f2f62150893b0.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-Wdf3pj\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-Wdf3pj\state\claude-mcp\route-887f2f62150893b0.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-AixPmW\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-AixPmW\state\claude-mcp\route-2cffb4894a2d5cc9.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-AixPmW\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-AixPmW\state\claude-mcp\route-2cffb4894a2d5cc9.json
 鉁?a topic lane never migrates the pre-v2 session, and two unmapped topics do not share a transcript (233.3052ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-TvbhEs\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-TvbhEs\state\claude-mcp\route-cddb0a124670152c.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-TvbhEs\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-TvbhEs\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-TvbhEs\state\claude-mcp\route-cddb0a124670152c.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-TvbhEs\workspace mcp_config=inherit:1
 鉁?a group's default lane does not qualify as the private/default legacy lane (120.7098ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-1WPLFM\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-1WPLFM\state\claude-mcp\route-7e3e818c3014b269.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-1WPLFM\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-1WPLFM\state\claude-mcp\route-7e3e818c3014b269.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-1WPLFM\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-1WPLFM\state\claude-mcp\route-7e3e818c3014b269.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-1WPLFM\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-1WPLFM\state\claude-mcp\route-7e3e818c3014b269.json
 鉁?a profiled lane does NOT inherit the pre-v2 session of its binding (115.2159ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-uCaA84\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-uCaA84\state\claude-mcp\route-c545fd0156f5e542.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-uCaA84\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-uCaA84\state\claude-mcp\route-c545fd0156f5e542.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-uCaA84\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-uCaA84\state\claude-mcp\route-c545fd0156f5e542.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-uCaA84\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-uCaA84\state\claude-mcp\route-c545fd0156f5e542.json
 鉁?resumeThread refuses a session id that is not this slot's own (111.9674ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-slot-uCaA84\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-slot-uCaA84\state\claude-mcp\route-e71c17e628f6e412.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-slot-uCaA84\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-slot-uCaA84\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-slot-uCaA84\state\claude-mcp\route-e71c17e628f6e412.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-slot-uCaA84\workspace mcp_config=inherit:1
 鉁?restorable slots are listed per lane with their own route, never per binding (253.419ms)
 鉁?the slot key is opaque and the slot file is owner-only (25.6061ms)
 鉁?the slot store ignores polluting keys when loading state from disk (2.3042ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cyberboss-t09-rTSGY6\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cyberboss-t09-rTSGY6\state\claude-mcp\route-1824ff28b53d5df7.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=c:\users\18717\appdata\local\temp\cyberboss-t09-rtsgy6\workspace mcp_config=inherit:1
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cyberboss-t09-rTSGY6\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cyberboss-t09-rTSGY6\state\claude-mcp\route-1824ff28b53d5df7.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\appdata\local\temp\cyberboss-t09-rtsgy6\workspace mcp_config=inherit:1
 鉁?T09 A1/A13 feature-off refuses task sessions without launch or routing mutation (17.5462ms)
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=c:\users\18717\appdata\local\temp\cyberboss-t09-rtsgy6\workspace mcp_config=inherit:1
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=c:\users\18717\appdata\local\temp\cyberboss-t09-7sehcx\workspace mcp_config=inherit:1
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\appdata\local\temp\cyberboss-t09-rtsgy6\workspace mcp_config=inherit:1
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\appdata\local\temp\cyberboss-t09-7sehcx\workspace mcp_config=inherit:1
 鉁?T09 A1-A5/A12 independent worker returns only validated capsule and bounded status (887.6287ms)
 鉁?T09 A1/A4 task timeout uses spec timeout and remains resumable (210.2905ms)
 鉁?T09 A4 lifecycle registry exposes every state plus bounded add-instruction/cancel/resume (0.6716ms)
@@ -1077,8 +1083,8 @@ warning: in the working copy of 'src/fixture.js', LF will be replaced by CRLF th
 鉁?T05 A7 switch off is byte-compatible for launch, slot and Context Trace (4.7614ms)
 鉁?T08 A14 Route 2 flag off ignores a stored lease tombstone byte-for-byte in mutable launch state (0.5623ms)
 鉁?T05 A8 trace never echoes credentials, absolute paths or raw profile identity (0.9991ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-claude-stream-model-0XLRTe\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-claude-stream-model-0XLRTe\state\claude-mcp\route-708958a60a15ba8d.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-claude-stream-model-0XLRTe\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-claude-stream-model-0XLRTe\state\claude-mcp\route-708958a60a15ba8d.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-claude-stream-model-0XLRTe\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-claude-stream-model-0XLRTe\state\claude-mcp\route-708958a60a15ba8d.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-claude-stream-model-0XLRTe\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-claude-stream-model-0XLRTe\state\claude-mcp\route-708958a60a15ba8d.json
 鉁?claudecode approval events extract command tokens from exec_command input (4.6949ms)
 鉁?claudecode approval events prefer prefix_rule when present (0.5482ms)
 鉁?claudecode approval events canonicalize diary commands for stable always matching (0.4473ms)
@@ -1091,11 +1097,11 @@ warning: in the working copy of 'src/fixture.js', LF will be replaced by CRLF th
 鉁?claudecode adapter hydrates model from Claude project transcript (17.9731ms)
 鉁?claudecode adapter initialize creates shared-open IPC endpoint and token (20.5353ms)
 [claudecode-runtime] workspace=\tmp\cb-claude-NkCU7O\workspace mcp_config=\tmp\cb-claude-NkCU7O\state\claude-mcp\route-ddec95fda85bb30b.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=\tmp\cb-claude-NkCU7O\workspace mcp_config=\tmp\cb-claude-NkCU7O\state\claude-mcp\route-ddec95fda85bb30b.json
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=\tmp\cb-claude-NkCU7O\workspace mcp_config=\tmp\cb-claude-NkCU7O\state\claude-mcp\route-ddec95fda85bb30b.json
 鉁?claudecode adapter remembers model observed in stream messages (256.9801ms)
 鉁?claudecode assistant events map usage into context snapshots (0.7306ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-route2-lease-MWA7py\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-route2-lease-MWA7py\state\claude-mcp\route-32f9afe023705dbb.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-route2-lease-MWA7py\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-route2-lease-MWA7py\state\claude-mcp\route-32f9afe023705dbb.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-route2-lease-MWA7py\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-route2-lease-MWA7py\state\claude-mcp\route-32f9afe023705dbb.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-route2-lease-MWA7py\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-route2-lease-MWA7py\state\claude-mcp\route-32f9afe023705dbb.json
 鉁?claudecode adapter dispatches turns only after a real session id is available (236.8052ms)
 鉁?claudecode process client treats assistant text as non-deliverable until the result event (0.4498ms)
 鉁?T07 A1/A2 counts each real tool.use once and never counts approvals (2.368ms)
@@ -1109,10 +1115,10 @@ warning: in the working copy of 'src/fixture.js', LF will be replaced by CRLF th
 鉁?T08 A5 cancel signal revokes the lease (0.3224ms)
 鉁?T08 A6 strong-interrupt signal revokes the lease without implementing task interruption semantics (0.2559ms)
 鉁?T08 A7 restart signal revokes the lease (0.1897ms)
-[claudecode-runtime] workspace=C:\Users\18717\AppData\Local\Temp\cb-route2-lease-MWA7py\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-route2-lease-MWA7py\state\claude-mcp\route-32f9afe023705dbb.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=C:\Users\18717\AppData\Local\Temp\cb-route2-lease-MWA7py\workspace mcp_config=C:\Users\18717\AppData\Local\Temp\cb-route2-lease-MWA7py\state\claude-mcp\route-32f9afe023705dbb.json
+[claudecode-runtime] workspace=<USERPROFILE>\AppData\Local\Temp\cb-route2-lease-MWA7py\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-route2-lease-MWA7py\state\claude-mcp\route-32f9afe023705dbb.json server=cyberboss_tools
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=<USERPROFILE>\AppData\Local\Temp\cb-route2-lease-MWA7py\workspace mcp_config=<USERPROFILE>\AppData\Local\Temp\cb-route2-lease-MWA7py\state\claude-mcp\route-32f9afe023705dbb.json
 [claudecode-runtime] workspace=\tmp\cb-claude-model-EkeQuN\workspace mcp_config=\tmp\cb-claude-model-EkeQuN\state\claude-mcp\route-2509c716242fea78.json server=cyberboss_tools
-[claudecode-runtime] launching command=C:\Program Files\nodejs\node.exe cwd=\tmp\cb-claude-model-EkeQuN\workspace mcp_config=\tmp\cb-claude-model-EkeQuN\state\claude-mcp\route-2509c716242fea78.json
+[claudecode-runtime] launching command=<DRIVE_C>\Program Files\nodejs\node.exe cwd=\tmp\cb-claude-model-EkeQuN\workspace mcp_config=\tmp\cb-claude-model-EkeQuN\state\claude-mcp\route-2509c716242fea78.json
 鉁?T08 A1/A11 grant relaunches the mutable override and resumes the identical native window (408.8949ms)
 鉁?claudecode runtime params are isolated from codex model selections (3.4166ms)
 鉁?claudecode adapter does not pass a codex-selected model to Claude Code (129.3664ms)

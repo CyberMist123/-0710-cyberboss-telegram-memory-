@@ -27,7 +27,9 @@ Current authority: docs/CURRENT_STATUS.md
 
 从 `origin/main` 用 `git archive` 导出干净树（不带 `.git`，按 7-30 决定）到 `runtime\app\telegram.new-20260803`，`npm ci`（exit=0）+ `npm install`（exit=0）后跑 `phase1-offline.yml` 列出的**全部 13 个分组**。
 
-**完整输出已归档：`docs/audit/G4_PREDEPLOY_TEST_OUTPUT_20260803.log`（1478 行，含每组 `npm run` 的完整 stdout+stderr）。** 这份归档即第五节判据 2 所要求的「真 Windows 生产机的 release/cutover 测试完整输出」。
+**完整输出已归档：`docs/audit/G4_PREDEPLOY_TEST_OUTPUT_20260803.log`（含每组 `npm run` 的完整 stdout+stderr）。** 这份归档即第五节判据 2 所要求的「真 Windows 生产机的 release/cutover 测试完整输出」。
+
+> **归档时做过一次机械脱敏，必须说明**：`scripts/portability-check.js` 的 `windows-user-path` / `windows-drive-path` / `current-username` 三条规则禁止任何 git 跟踪文件出现本机绝对路径与用户名（首次提交时 CI 正是因此而红：`docs/audit/G4_PREDEPLOY_TEST_OUTPUT_20260803.log:166 [windows-user-path]`）。归档版把绝对路径与用户名替换成 `<CYBERLINK_ROOT>` / `<USERPROFILE>` / `<DRIVE_X>` / `<USER>` 四类占位符，**除此之外逐字未改**——分组顺序、退出码、断言文本、失败堆栈均为原样。未脱敏的原始文件留在 `workdesk\20260803-predeploy-full-output.log`（会话中转，不入库）。选择脱敏而不是给 portability 检查开例外，是因为那条规则本身是仓库的正当纪律，不该为归档让路。
 
 | 分组 | exit | tests / pass / fail / skipped |
 |---|---|---|
