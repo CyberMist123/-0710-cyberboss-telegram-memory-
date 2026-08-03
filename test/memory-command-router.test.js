@@ -21,3 +21,10 @@ test("parseTerminalMemoryCommand parses terminal flags", () => {
   assert.deepEqual(parsed.args, []);
   assert.deepEqual(parsed.options, { category: "preferences", limit: "5", json: true });
 });
+
+test("parseMemoryCommand honours telegram /memory review flags (not dropped into args)", () => {
+  const parsed = parseMemoryCommand("/memory review --category preferences --limit 5 --json");
+  assert.equal(parsed.action, "review");
+  assert.deepEqual(parsed.args, []);
+  assert.deepEqual(parsed.options, { category: "preferences", limit: "5", json: true });
+});

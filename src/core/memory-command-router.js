@@ -1,8 +1,10 @@
 function parseMemoryCommand(text = '') {
   const t = String(text || '').trim();
   if (!t.startsWith('/memory')) return null;
-  const parts = t.split(/\s+/);
-  return { action: (parts[1] || 'help').toLowerCase(), args: parts.slice(2) };
+  // Delegate to the same option-aware parser as the terminal path so Telegram
+  // `/memory review --category X --limit N --json` (advertised in the help) are
+  // honoured instead of dropped into positional args and ignored.
+  return parseTerminalMemoryCommand(t.split(/\s+/).slice(1));
 }
 
 function parseTerminalMemoryCommand(args = []) {
