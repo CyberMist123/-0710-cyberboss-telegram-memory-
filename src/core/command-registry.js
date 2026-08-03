@@ -361,6 +361,49 @@ function buildWeixinHelpText() {
   return lines.join("\n");
 }
 
+// Build the Telegram Bot API setMyCommands payload from the same COMMAND_GROUPS
+// that generate /help — single source of truth. Telegram command names allow only
+// lowercase a-z, 0-9 and underscore, 1-32 chars; any weixin form that does not
+// reduce to a valid name (multi-word args, hyphens) is skipped so the whole
+// setMyCommands call never fails on one bad entry. Deduped by command name.
+function buildTelegramBotCommands() {
+  const seen = new Set();
+  const commands = [];
+  for (const group of COMMAND_GROUPS) {
+    for (const action of group.actions) {
+      if (!isActionEnabled(action) || action.status !== "active" || !action.weixin.length) {
+        continue;
+      }
+      for (const form of action.weixin) {
+        const command = toTelegramCommandName(form);
+        if (!command || seen.has(command)) {
+          continue;
+        }
+        seen.add(command);
+        commands.push({ command, description: toTelegramCommandDescription(action.summary) });
+      }
+    }
+  }
+  return commands;
+}
+
+function toTelegramCommandName(weixinForm) {
+  const raw = typeof weixinForm === "string" ? weixinForm.trim() : "";
+  if (!raw.startsWith("/")) {
+    return "";
+  }
+  const firstToken = raw.slice(1).split(/[\s<]/)[0].toLowerCase();
+  return /^[a-z0-9_]{1,32}$/.test(firstToken) ? firstToken : "";
+}
+
+function toTelegramCommandDescription(summary) {
+  const text = typeof summary === "string" ? summary.trim() : "";
+  if (!text) {
+    return "";
+  }
+  return text.length > 256 ? `${text.slice(0, 253)}...` : text;
+}
+
 function groupEmoji(groupId) {
   switch (groupId) {
     case "lifecycle": return "🔄";
@@ -407,6 +450,7 @@ function isActionEnabled(action, env = process.env) {
 module.exports = {
   buildTerminalHelpText,
   buildWeixinHelpText,
+  buildTelegramBotCommands,
   listCommandGroups,
 };
 

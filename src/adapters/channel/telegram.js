@@ -24,6 +24,7 @@ const {
   canonicalTelegramMessageThreadId,
   normalizeInboundMessageThreadId,
 } = require("../../core/route-lane");
+const { buildTelegramBotCommands } = require("../../core/command-registry");
 
 try {
   if (typeof dns.setDefaultResultOrder === "function") {
@@ -47,6 +48,13 @@ function createTelegramChannelAdapter(config) {
   };
 
   let deleteWebhookCalled = false;
+  let setMyCommandsCalled = false;
+  // Publish the Telegram command menu from the command-registry once per process.
+  // Default ON (a menu-sync fix, idempotent + fail-open); set
+  // CYBERBOSS_TELEGRAM_SET_COMMANDS_DISABLED=1 to turn off.
+  const setMyCommandsEnabled = !/^(?:1|true|yes|on)$/i.test(
+    String(process.env.CYBERBOSS_TELEGRAM_SET_COMMANDS_DISABLED || "").trim()
+  );
 
   return {
     describe() {
@@ -81,6 +89,24 @@ function createTelegramChannelAdapter(config) {
         try {
           await fetch(`https://api.telegram.org/bot${token}/deleteWebhook`);
         } catch {}
+      }
+      // Publish the command menu once, from the same registry that builds /help.
+      // Fail-open: a failed setMyCommands never blocks polling.
+      if (!setMyCommandsCalled) {
+        setMyCommandsCalled = true;
+        if (setMyCommandsEnabled) {
+          try {
+            const commands = buildTelegramBotCommands();
+            await fetchJsonWithRetry(`https://api.telegram.org/bot${token}/setMyCommands`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ commands }),
+            }, TELEGRAM_REQUEST_TIMEOUT_MS, { allowEmptyJson: true });
+            writeTelegramLog(config, `setMyCommands ok count=${commands.length}`);
+          } catch (error) {
+            writeTelegramLog(config, `setMyCommands failed (non-fatal): ${formatTelegramError(error)}`);
+          }
+        }
       }
       const url = new URL(`https://api.telegram.org/bot${token}/getUpdates`);
       url.searchParams.set("timeout", String(Math.max(0, Math.floor(timeoutMs / 1000))));
