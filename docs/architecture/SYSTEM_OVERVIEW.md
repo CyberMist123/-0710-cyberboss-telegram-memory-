@@ -34,8 +34,10 @@ src/core/app.js                       中枢：命令分流、投递
   │     │     ├── resolveMemoryContextFailOpen()
   │     │     └── plaintext <channel> envelope，<memory_context> 块排在信封上方（外侧）
   │     │           （formatTelegramRuntimeText()）
-  │     │        注：这条分支不走 resolveVisionContext() —— Telegram 媒体
-  │     │        以 <media> 引用进 envelope，是刻意设计（DECISIONS.md D15）
+  │     │        注：这条分支仍不走通用 resolveVisionContext()。Telegram 媒体
+  │     │        默认只以 <media> 引用进 envelope；显式开启 cmx-recognize 时，
+  │     │        MediaInboxService 在 photo 原子落盘后调用 CMX /files/recognize，
+  │     │        将有界、untrusted 的识别块放在明文 <channel> 信封外（D30）
   │     └── 其他 provider
   │           ├── resolveVisionContext()
   │           └── resolveMemoryContextForPrepared()
@@ -164,6 +166,8 @@ accepted decision 的旧路径。
 | **完全按需** | 上下文里连目录都没有，模型靠工具自己翻 | Episodes 正文、Timeline 正文、旧对话、天气、健康、Todo 原文、日记、账本（`details.jsonl`，见 [`MEMORY.md`](./MEMORY.md) 2.5） |
 
 第三档靠 `src/tools/tool-host.js` 注册的工具实现，经 `src/tools/mcp-stdio-server.js` 以 MCP 暴露给子进程。相关工具：`memory_lookup`、`cyberboss_timeline_read` / `_categories` / `_proposals`、`weather`、`cyberboss_diary_append`、`cyberboss_reminder`、`cyberboss_sticker_*`、`location_*`。
+
+**Telegram CMX 图片上下文**属于该次 turn 的临时附件数据，不进入三档长期记忆：默认关闭；开启时随 photo 生成，位于明文 channel 信封外，标为 untrusted，并在 conversation purity 阶段剥除。它不是常驻注入或 memory 目录；运行时 transcript 的正常保留不等于记忆晋升。
 
 **这个分档就是"积木"的接缝。** 加一个新能力时先决定它落在哪一档；把第三档的东西提到第一档，是上下文膨胀最常见的来路。
 

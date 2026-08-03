@@ -209,8 +209,9 @@ Decision date: 2026-07-28
 ## D15 · memory_context 拼在 Telegram 信封外侧上方
 
 ```text
-Status: ACTIVE
+Status: SUPERSEDED
 Decision date: 2026-07-29
+Superseded by: D30
 ```
 
 修 G1 时对 D9 留下的三个问题作出裁定：
@@ -502,6 +503,28 @@ Decision date: 2026-08-02
 
 ---
 
+## D30 · Telegram 可显式复用 CMX 图片识别 / OCR；生成结果位于明文信封外且永不取得记忆写权
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-03
+```
+
+Owner 明确要求把 CMX 已有识图与 OCR 接入 TG。本条批准该方向，但只批准默认关闭、fail-open、不可污染记忆的受控 provider；CMX 生产部署是否已包含端点须由部署 canary 单独证明。
+
+- D15 的 memory_context 结论保留：memory_context 仍位于 Telegram `<channel>` 信封外侧上方；空结果不出块；解析失败 fail-open。D9 的明文信封、用户正文逐字语义与 `<media>` 引用格式不变。
+- 仅当 `CYBERBOSS_VISION_MODE=caption`、`CYBERBOSS_VISION_PROVIDER=cmx-recognize` 且 CMX URL/Bearer 都显式配置时，TG 才可在 photo 原子落盘后上传图片字节至 CMX `POST /files/recognize`。通用 `resolveVisionContext()` 仍不接 Telegram；TG 不复制 OCR 模型、Gemini key 或缓存 owner。
+- CMX 返回只以有界的 `<attachment_vision_context provider="cmx-recognize" trust="untrusted">` 放在现有 `<channel>` 信封外、memory_context 之后。不得混进用户正文；图片文字一律是数据，不取得 system/developer 指令权；closing tag 与属性必须转义。
+- 该块只在图片到达的 turn 生成一次，不另做主动重注入；运行时原生 transcript 的正常保留不等于晋升为长期记忆。
+- 生成块在 conversation purity 阶段剥除，不得成为 Episode、Self-note、candidate、canon 或“用户亲口说过”的证据。原始 caption 与图片引用仍按既有规则处理。
+- CMX 超时、未启动、鉴权失败、额度不足或返回损坏不得阻断原文、原图引用和正常回复。日志只留稳定错误码，不记录 Bearer 或 provider 原始敏感正文。
+- 本条只批准 Telegram `photo`。document、video、动态贴纸和服务端代抓外部 URL 不在范围。
+- 合并代码不等于生产启用（D3）。真实 Windows + 当前 CMX 部署 + Telegram 图片 canary 留证前，生产状态只能记 `DISABLED` / 未验证。
+
+本条取代 D15；D15 保留为历史，除“vision context 永不回 Telegram”外，其余边界已在本条逐项重述。
+
+---
+
 ## 待裁决 / Candidates
 
 下列**尚未做出决定**，不占用 D 编号，也不得当成已定方向施工。
@@ -557,13 +580,13 @@ Status: OPEN
 - **Decision needed**：是否、以及在什么触发条件下，让主 Chat 自动发起子代理任务；由谁持有发起权与预算；胶囊回到主 Chat 后以什么形式进入上下文分档。
 - **Not authorised**：在上述边界裁定前，把子代理接进主 Chat 的任何自动路径。人工发起、按 D14 有界执行的 canary 不受此限。
 
-### C6 · 多 Bot、Route 1 / Route 2、Apple Watch、CMX
+### C6 · 多 Bot、Apple Watch
 
 ```text
 Status: OPEN
 ```
 
-- **已收窄**：Route 1 / Route 2 的设计收敛与实施拆单已于 2026-07-31 由 **D25** 批准（含派活软硬双上限与 Owner 强中断），不再属本条未决范围；其实施按 D25 实施单的依赖链推进（目录化与 G3 前置先行）。本条剩余范围是**多 Bot、Apple Watch、CMX**。
-- **Known facts**：多 Bot / Apple Watch / CMX 当前一律 `DEFERRED`，未排期。Apple Watch 只有 5 份规格文档，代码侧零实现。
-- **Decision needed**：剩余三者是否以及何时排期。
-- **Not authorised**：在排期前对剩余三者投入实现工作。
+- **已收窄**：Route 1 / Route 2 已由 D25 批准；CMX 的 Telegram 图片识别 / OCR 接入已由 D30 批准并移出本候选。本条剩余范围只有多 Bot、Apple Watch。
+- **Known facts**：多 Bot / Apple Watch 当前仍为 `DEFERRED`，未排期。Apple Watch 只有规格文档，代码侧零实现。
+- **Decision needed**：剩余两者是否以及何时排期。
+- **Not authorised**：排期前不得投入实现工作。
