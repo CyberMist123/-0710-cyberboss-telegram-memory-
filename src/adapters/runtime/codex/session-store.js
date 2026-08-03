@@ -80,6 +80,19 @@ class SessionStore {
     return "";
   }
 
+  // The thread that was active before the current one for this workspace/runtime,
+  // recorded whenever the active thread changes. Empty when there is no prior
+  // thread to return to. Read by /switch back.
+  getPreviousThreadIdForWorkspace(bindingKey, workspaceRoot, runtimeId = this.runtimeId) {
+    const normalizedWorkspaceRoot = normalizeValue(workspaceRoot);
+    if (!normalizedWorkspaceRoot) {
+      return "";
+    }
+    const binding = this.getBinding(bindingKey) || {};
+    const scoped = getPreviousThreadMapForRuntime(binding, runtimeId);
+    return scoped[normalizedWorkspaceRoot] || "";
+  }
+
   setThreadIdForWorkspace(bindingKey, workspaceRoot, threadId, extra = {}, runtimeId = this.runtimeId) {
     const normalizedWorkspaceRoot = normalizeValue(workspaceRoot);
     if (!normalizedWorkspaceRoot) {
@@ -88,10 +101,11 @@ class SessionStore {
 
     const current = this.getBinding(bindingKey) || {};
     const normalizedRuntimeId = normalizeValue(runtimeId);
+    const effectiveRuntimeId = normalizedRuntimeId || "default";
     const normalizedThreadId = normalizeThreadValue(threadId);
     const threadIdByWorkspaceRootByRuntime = {
       ...getThreadRuntimeMap(current),
-      [normalizedRuntimeId || "default"]: {
+      [effectiveRuntimeId]: {
         ...getThreadMapForRuntime(current, normalizedRuntimeId),
         [normalizedWorkspaceRoot]: normalizedThreadId,
       },
@@ -101,6 +115,12 @@ class SessionStore {
       ...extra,
       activeWorkspaceRoot: normalizedWorkspaceRoot,
       threadIdByWorkspaceRootByRuntime,
+      previousThreadIdByWorkspaceRootByRuntime: capturePreviousThreadRuntimeMap(
+        current,
+        effectiveRuntimeId,
+        normalizedWorkspaceRoot,
+        normalizedThreadId,
+      ),
     };
 
     if (normalizedRuntimeId === "codex") {
@@ -232,9 +252,10 @@ class SessionStore {
     }
     const current = this.getBinding(bindingKey) || {};
     const normalizedRuntimeId = normalizeValue(runtimeId);
+    const effectiveRuntimeId = normalizedRuntimeId || "default";
     const threadIdByWorkspaceRootByRuntime = {
       ...getThreadRuntimeMap(current),
-      [normalizedRuntimeId || "default"]: {
+      [effectiveRuntimeId]: {
         ...getThreadMapForRuntime(current, normalizedRuntimeId),
         [normalizedWorkspaceRoot]: "",
       },
@@ -242,6 +263,14 @@ class SessionStore {
     const nextBinding = {
       ...current,
       threadIdByWorkspaceRootByRuntime,
+      // Clearing (e.g. /new) records the outgoing thread as previous, so
+      // /switch back can undo it.
+      previousThreadIdByWorkspaceRootByRuntime: capturePreviousThreadRuntimeMap(
+        current,
+        effectiveRuntimeId,
+        normalizedWorkspaceRoot,
+        "",
+      ),
     };
     if (normalizedRuntimeId === "codex") {
       nextBinding.threadIdByWorkspaceRoot = {
@@ -464,6 +493,44 @@ function getThreadMapForRuntime(binding, runtimeId) {
   }
   const scoped = runtimeMap[normalizedRuntimeId];
   return scoped && typeof scoped === "object" ? scoped : {};
+}
+
+// Previous-thread pointer: mirrors the thread map so /switch back can return to
+// the thread that was active before the current one (the "undo" for /new and
+// /switch). Populated by setThreadIdForWorkspace / clearThreadIdForWorkspace,
+// which record the outgoing thread here right before overwriting it.
+function getPreviousThreadRuntimeMap(binding) {
+  return binding?.previousThreadIdByWorkspaceRootByRuntime && typeof binding.previousThreadIdByWorkspaceRootByRuntime === "object"
+    ? binding.previousThreadIdByWorkspaceRootByRuntime
+    : {};
+}
+
+function getPreviousThreadMapForRuntime(binding, runtimeId) {
+  const normalizedRuntimeId = normalizeValue(runtimeId);
+  const runtimeMap = getPreviousThreadRuntimeMap(binding);
+  if (!normalizedRuntimeId) {
+    return {};
+  }
+  const scoped = runtimeMap[normalizedRuntimeId];
+  return scoped && typeof scoped === "object" ? scoped : {};
+}
+
+// Build the next previous-thread runtime map when the active thread changes.
+// Only records a pointer when the outgoing thread is real and actually differs
+// from the incoming one: same-value writes and empty outgoing leave it untouched,
+// so /switch back never points at the thread you are already on.
+function capturePreviousThreadRuntimeMap(current, effectiveRuntimeId, normalizedWorkspaceRoot, incomingThreadId) {
+  const outgoing = getThreadMapForRuntime(current, effectiveRuntimeId)[normalizedWorkspaceRoot] || "";
+  if (!outgoing || outgoing === incomingThreadId) {
+    return getPreviousThreadRuntimeMap(current);
+  }
+  return {
+    ...getPreviousThreadRuntimeMap(current),
+    [effectiveRuntimeId]: {
+      ...getPreviousThreadMapForRuntime(current, effectiveRuntimeId),
+      [normalizedWorkspaceRoot]: outgoing,
+    },
+  };
 }
 
 function getCodexParamsMap(binding) {

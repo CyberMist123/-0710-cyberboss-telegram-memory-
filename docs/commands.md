@@ -118,6 +118,7 @@ Owner 2026-08-04.
 - `/reread`
 - `/stop`
 - `/switch <threadId>`
+- `/switch back`
 - `/yes`
 - `/always`
 - `/no`
@@ -141,6 +142,8 @@ from the menu and `/help`, handler retained so they keep working when typed):
 Notes:
 
 - `/status` covers thread, workspace, and context details
+- `/switch back` returns to the thread that was active before the current one (the undo for `/new` and `/switch`); repeated `/switch back` toggles between the two. Says "no previous thread to return to" when there is none. The pointer is per workspace/runtime, persisted in the session store
+- there is no separate `/context` command; use `/status` and read the `📦 context` line
 - there is no separate `/context` command; use `/status` and read the `📦 context` line
 - `/effort` with no argument reports the level in force and where it came from: this chat's own choice, `CYBERBOSS_CLAUDE_EFFORT`, or the `medium` default. Setting a level relaunches the workspace's Claude child and resumes the same thread
 - `/profile` reports the lane's effective profile/source/scope; `/profile <profileId>` moves that lane to the selected full-profile window, and switching back resumes only that profile's own session slot
