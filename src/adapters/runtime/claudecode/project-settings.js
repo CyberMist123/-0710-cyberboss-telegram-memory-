@@ -124,11 +124,24 @@ function buildClaudeProjectMcpServerConfig({
     args.push("--route2-lease", Buffer.from(JSON.stringify(mutableOverride.capabilityLease), "utf8").toString("base64url"));
     entry.env = { ...(entry.env || {}), CYBERBOSS_ROUTE2_GATE_ENABLED: "true" };
   }
+  // The tool-mcp-server child runs with an isolated env (only what we forward
+  // here). memory_candidate_submit registers when the child sees signing on
+  // (tool-host `registeredProjectTools` -> subjectSigningEnabled(child env)),
+  // so the flag must be forwarded explicitly or the subject tool never
+  // registers even with the bridge-side switch on. Scoped to the fable-chat
+  // subject profile so work-engineering's child never registers it (G3).
+  if (subjectSigningEnabled() && launchProfile?.schemaVersion === 3 && launchProfile.profileId === "fable-chat") {
+    entry.env = { ...(entry.env || {}), CYBERBOSS_SUBJECT_SIGNING_ENABLED: "true" };
+  }
   return entry;
 }
 
 function route2GateEnabled(env = process.env) {
   return /^(?:1|true|yes|on)$/i.test(String(env.CYBERBOSS_ROUTE2_GATE_ENABLED || "").trim());
+}
+
+function subjectSigningEnabled(env = process.env) {
+  return /^(?:1|true|yes|on)$/i.test(String(env.CYBERBOSS_SUBJECT_SIGNING_ENABLED || "").trim());
 }
 
 function resolveAllowedExternalMcpServerConfigs(launchProfile, mutableOverride = null) {
