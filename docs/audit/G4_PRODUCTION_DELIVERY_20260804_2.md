@@ -21,7 +21,7 @@ Current authority: docs/CURRENT_STATUS.md
 | 交付动机 | 把 #154 的 **G2 签署 IPC 修复**送上活体，为后续 Owner 在场的 G2 真机 canary 铺路；顺产 G4 第五次交付证据 |
 | 备份方式 | 重命名 `runtime\app\telegram` → `runtime\app\telegram.bak-20260804-d5`（瞬时，回滚也瞬时） |
 | 行为面变化 | 无新开行为开关；`telegram.env` **全程未动**（Owner 已配的本地 whisper 语音 env 原样保留）；生产 secrets 最终状态与交付前一致 |
-| **停机窗口** | **约 02:36:39… 记法同前——本次为 14:45:46 – 14:50:59，约 5 分钟**（含一次因手动 shell 未设 `CYBERLINK_ROOT` 的失败启动，见第三节） |
+| **停机窗口** | **14:45:46 – 14:50:59，约 5 分钟**（含一次因手动 shell 未设 `CYBERLINK_ROOT` 的失败启动，见第三节） |
 
 ## 二、预交付验证（源真相仓库 a4c5b54，13/13 全绿）
 
@@ -45,7 +45,7 @@ Current authority: docs/CURRENT_STATUS.md
 | 14:46:06 | D4 **坑 3 第四次原样复现**：改名后 `require.resolve('whereabouts-mcp')` = MODULE_NOT_FOUND（暂存树 junction 目标绝对路径随改名失效）；确认 reparse point 后 .NET `Directory.Delete`（只删链）→ `npm install` → **从树内 cwd 复核** resolve = `runtime\app\telegram\vendor\whereabouts-mcp\src\index.js`，junction target 已指向新树。（记一坑：`require.resolve` 是 cwd 相对，验证必须在树内跑，否则会误判 FAIL） |
 | 14:47:04 | D5 descriptor：备份 `.bak-20260804-d5-predeploy` 后**只改** `deployed_sha`：`bf31e622…`→`a4c5b54b4bc8…`；`last_verified_sha`（`993d57f…`）/ `verification_mode` 未动；写回前 3 字节 = `123,13,10`（`{` CR LF 无 BOM）、JSON 可解析、回读逐字段核对通过 |
 | 14:47:20 | D6 第一次启动**失败**：`start-telegram.ps1` exit=1，报 `CYBERLINK_ROOT is not set. Refusing to guess the workspace root (R4 F4)`。根因：手动 shell 未设 `CYBERLINK_ROOT`（生产由 watchdog 拉起时设置；手动交付需自行设）。**这是护栏按设计工作，不是 bug** |
-| 14:48–14:50 | D6 重试：设 `CYBERLINK_ROOT=C:\Users\18717\Documents\cyberlink`（有 runtime+settings 的工作区根）后 `start-telegram.ps1` 启动成功 |
+| 14:48–14:50 | D6 重试：设 `CYBERLINK_ROOT=<工作区根>`（即 cyberlink 根目录，有 runtime+settings 的那一层）后 `start-telegram.ps1` 启动成功 |
 | 14:50:59 | D7 核对：pid file=45344，命令行匹配新树；`bootstrap ok` / `bridge loop started; waiting for Telegram messages` / desire poller 起；err.log mtime 停在 03:18:47（启动前=启动后）——**零新增错误**；进程链 `45344 ← 39316(node)`，无 powershell，**已脱离启动器**（后续 kill 启动器管道 bot 仍存活，实证脱离） |
 | 14:51:53 | D8 恢复监督：`BatteryStatus=2`（接电源，避开电池策略坑）；`schtasks /Run` SUCCESS → watchdog 进程数=1，watchdog.log `healthy active release cyberlink-unified-runtime-221a2c: pid 45344 matches …runtime\app\telegram\bin\cyberboss.js` —— **监督链闭环** |
 
