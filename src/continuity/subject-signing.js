@@ -193,9 +193,9 @@ class SubjectCandidateService {
         ...(normalizeText(input.source_ref?.window) ? { window: normalizeText(input.source_ref.window) } : {}),
       },
       author_attestation: {
-        version: 1,
+        version: 2,
         subject_turn_id: subjectTurnId,
-        capability_id: requireText(input.capability_id, "capability_id"),
+        route_fingerprint: subjectRoute.route_fingerprint,
         body_sha256: bodySha256,
         source_entry_ids_sha256: sourceEntryIdsSha256,
         issued_at: capability.issued_at,

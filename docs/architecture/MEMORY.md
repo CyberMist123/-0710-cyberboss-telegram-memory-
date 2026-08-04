@@ -333,7 +333,7 @@ Desire 属于 Cyberboss runtime，不属于关系正史。
 ## 7. 写入权与防重复
 
 - 原始会话：系统自动写，唯一事实来源。
-- candidates：Closeout / Janitor 等自动流程写。
+- candidates：Closeout / Janitor 等自动流程写；主体签署候选的唯一可写进程 owner 是主 bridge 内的 `SubjectCandidateService`。`tool-mcp-server` child 只经窄鉴权 IPC 请求主进程复核并落候选，不持有 registry 或可写 service。原始一次性 capability 只在主进程内存中存在，不进 IPC、argv、env、runtime-context、磁盘或日志（D31）。
 - `candidates/legacy-candidate-route-bindings.jsonl`：仅离线 `classify-legacy-candidates.js --apply` migration writer 追加；现有 Review / History / dispatcher / closeout 均不写、不读，未来读者还必须受默认关闭的 `CYBERBOSS_LEGACY_CANDIDATE_BINDING_ENABLED` 门控。
 - Episode canon：唯一 History writer 按已验证的 publication intent 写。
 - 账本 `details.jsonl`：唯一 History writer 按已验证的 publication intent 写（内容仍由主体 AI 执笔）。

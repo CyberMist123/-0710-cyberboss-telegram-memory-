@@ -8,8 +8,6 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { buildCatalog } = require("../scripts/audit/catalog-metering");
-const { createSubjectRoute } = require("../src/continuity/subject-route");
-const { SubjectCapabilityRegistry, SubjectCandidateService } = require("../src/continuity/subject-signing");
 const {
   ProjectToolHost, PROJECT_TOOLS, TOOL_ALIASES, DEPRECATED_HIDDEN_TOOL_NAMES,
   createExtraToolHosts, registeredProjectTools,
@@ -63,15 +61,10 @@ function assertFailedClosed(result, message) { assert.equal(result.error, undefi
 const serverProgram = String.raw`
 const { ProjectToolHost } = require("./src/tools/tool-host");
 const { runToolMcpServer } = require("./src/tools/mcp-stdio-server");
-const { createSubjectRoute } = require("./src/continuity/subject-route");
-const { SubjectCapabilityRegistry, SubjectCandidateService } = require("./src/continuity/subject-signing");
 const base = { memoryLookup:{lookup:()=>({hits:[],empty:true})}, memoryNote:{note:()=>({id:"note-test"})}, reminder:{create:async(args)=>({id:"reminder-test",command:args.command})}, diary:{append:async()=>({filePath:"diary-test"})}, system:{queueMessage:(args,context)=>({id:"system-test",routeToken:context.routeToken})}, whereabouts:{} };
 if (process.env.CYBERBOSS_SUBJECT_SIGNING_ENABLED === "true") {
-  const registry = new SubjectCapabilityRegistry({enabled:true});
-  const route = createSubjectRoute({provider:"telegram",continuity_binding:{workspace_id:"workspace-a",account_id:"telegram",sender_id:"42",binding_key:"binding-a"},route_lane:{lane_key:"lane:-100:7",chat_id:"-100",message_thread_id:"7"},session:{runtime_id:"claudecode",session_slot_key:"slot-a",runtime_thread_id:"native-a",profile_id:"profile-a",profile_fingerprint:"fingerprint-a",window_id:"native-a"},author_turn_id:"turn-subject",source_entry_ids:["entry-subject"]});
-  const capability = registry.issue({subjectTurnId:"turn-subject",subjectRoute:route});
-  base.subjectCandidate = new SubjectCandidateService({continuityDir:process.env.TEST_CONTINUITY_DIR,registry,enabled:true});
-  base.subjectSigningContext = {resolve:()=>({capability,subject_route:route})};
+  let calls = 0;
+  base.subjectSigningBroker = {submit:async()=>{calls++; if(calls > 1){const error=new Error("capability_expired");error.code="capability_expired";throw error;} return {status:"created",candidate_id:"component-only",idempotency_key:"component-only"};}};
 }
 const toolHost = new ProjectToolHost({ services:base, runtimeContextStore:{load(){},resolveActiveContext(){return {threadId:"thread-subject",turnId:"turn-subject"}}}, toolset:process.env.TEST_TOOLSET||"" });
 runToolMcpServer({toolHost,runtimeId:"test",workspaceRoot:"workspace-test",routeToken:process.env.TEST_ROUTE_TOKEN||""});`;
@@ -258,34 +251,25 @@ test("B1 signing gate off omits submit from legacy surface, themed catalog, and 
   assert.equal(mcp([{ id: 1, method: "tools/list" }], { CYBERBOSS_TOOL_CATALOG_ENABLED: "false" })[0].result.tools.some((tool) => tool.name === "memory_candidate_submit"), false);
 }));
 
-test("B2/B4 signing gate on exposes schema and real stdio creates one fully attested subject candidate then relays rejection code", async () => signingEnabled(async () => {
+test("B2/B4 signing gate on keeps the model schema narrow; synthetic stdio only proves broker result/error relay", async () => signingEnabled(async () => {
   assert.equal(host().catalogState().entries.find((entry) => entry.id === "memory_candidate_submit")?.theme, "记忆");
   const loaded = await host().invokeTool("cyberboss_catalog", { handle: "memory/memory_candidate_submit" });
   assert.deepEqual(loaded.data.inputSchema, PROJECT_TOOLS.find((tool) => tool.name === "memory_candidate_submit").inputSchema);
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "catalog-subject-stdio-"));
   const args = { type: "episode", body: "这一刻由我自己留下。", origin: "live_subject", source_ref: { content_sha256: crypto.createHash("sha256").update("source fixture").digest("hex") } };
   const rpc = mcp([
     { id: 1, method: "tools/call", params: { name: "memory_candidate_submit", arguments: args } },
     { id: 2, method: "tools/call", params: { name: "memory_candidate_submit", arguments: { ...args, body: "第二次不该通过。" } } },
-  ], { CYBERBOSS_TOOL_CATALOG_ENABLED: "true", CYBERBOSS_SUBJECT_SIGNING_ENABLED: "true", TEST_CONTINUITY_DIR: temp });
+  ], { CYBERBOSS_TOOL_CATALOG_ENABLED: "true", CYBERBOSS_SUBJECT_SIGNING_ENABLED: "true" });
   assert.equal(rpc[0].result.isError, undefined); assert.match(rpc[0].result.content[0].text, /Memory candidate created/);
   assert.equal(rpc[1].result.isError, true); assert.match(rpc[1].result.content[0].text, /^capability_expired:/);
-  const rows = fs.readFileSync(path.join(temp, "candidates", "episodes.candidates.jsonl"), "utf8").trim().split(/\r?\n/).map(JSON.parse);
-  assert.equal(rows.length, 1); assert.equal(rows[0].author_role, "subject_ai"); assert.equal(rows[0].author_attestation.subject_turn_id, "turn-subject"); assert.equal(rows[0].subject_route.author_turn_id, "turn-subject");
+  assert.deepEqual(Object.keys(PROJECT_TOOLS.find((tool) => tool.name === "memory_candidate_submit").inputSchema.properties).sort(), ["body", "material_pack", "material_pack_id", "origin", "source_ref", "type"]);
+  assert.equal(PROJECT_TOOLS.find((tool) => tool.name === "memory_candidate_submit").inputSchema.additionalProperties, false);
 }));
-
-test("B3 missing or expired runtime capability returns the service code and writes nothing", async () => signingEnabled(async () => {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "catalog-subject-handler-"));
-  const registry = new SubjectCapabilityRegistry({ enabled: true }); const route = exactRoute();
-  const capability = registry.issue({ subjectTurnId: "turn-subject", subjectRoute: route });
-  const subjectCandidate = new SubjectCandidateService({ continuityDir: temp, registry, enabled: true });
+test("B3 handler has no local writable fallback and relays the broker's explicit code", async () => signingEnabled(async () => {
   const args = { type: "episode", body: "候选正文", origin: "live_subject", source_ref: { content_sha256: crypto.createHash("sha256").update("source").digest("hex") } };
-  const missing = host("", { services: { subjectCandidate, subjectSigningContext: { resolve: () => null } } });
-  await assert.rejects(() => missing.invokeTool("memory_candidate_submit", args), (error) => assertCode(error, "subject_turn_id_missing"));
-  registry.expireTurn("turn-subject");
-  const expired = host("", { services: { subjectCandidate, subjectSigningContext: { resolve: () => ({ capability, subject_route: route }) } } });
+  await assert.rejects(() => host().invokeTool("memory_candidate_submit", args), (error) => assertCode(error, "subject_signing_broker_unavailable"));
+  const expired = host("", { services: { subjectSigningBroker: { submit: async () => { const error = new Error("capability_expired"); error.code = "capability_expired"; throw error; } } } });
   await assert.rejects(() => expired.invokeTool("memory_candidate_submit", args), (error) => assertCode(error, "capability_expired"));
-  assert.equal(fs.existsSync(path.join(temp, "candidates", "episodes.candidates.jsonl")), false);
 }));
 
 test("A1 CLI rejects toolset while catalog flag is off", () => {
@@ -308,12 +292,3 @@ test("manifest policy and privacy canary are explicit and private-text-free", ()
   const values = [entries, mcp([{ id: 1, method: "tools/list" }, { id: 2, method: "resources/list" }], { CYBERBOSS_TOOL_CATALOG_ENABLED: "true", CATALOG_TEST_SECRET: plantedValue }), buildCatalog(), fs.readFileSync(path.join(__dirname, "fixtures/catalog-metering-resident.json"), "utf8")];
   for (const value of values) assertNoPrivateText(value);
 }));
-
-function exactRoute() {
-  return createSubjectRoute({
-    provider: "telegram", continuity_binding: { workspace_id: "workspace-a", account_id: "telegram", sender_id: "42", binding_key: "binding-a" },
-    route_lane: { lane_key: "lane:-100:7", chat_id: "-100", message_thread_id: "7" },
-    session: { runtime_id: "claudecode", session_slot_key: "slot-a", runtime_thread_id: "native-a", profile_id: "profile-a", profile_fingerprint: "fingerprint-a", window_id: "native-a" },
-    author_turn_id: "turn-subject", source_entry_ids: ["entry-subject"],
-  });
-}

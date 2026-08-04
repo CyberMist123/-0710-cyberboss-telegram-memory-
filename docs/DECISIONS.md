@@ -529,6 +529,22 @@ Owner 明确要求把 CMX 已有识图与 OCR 接入 TG。本条批准该方向�
 
 ---
 
+## D31 · 主体签署 capability 圈禁主进程；候选服务唯一进程 owner 是主 bridge
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-04
+```
+
+来源：fable 裁定二（2026-08-04）。
+
+- 原始一次性主体签署 capability 只存在于主 bridge 进程的内存 registry。它不得进入 IPC payload、argv、env、runtime-context JSON、磁盘或日志；持久化 attestation 只保留 turn、route fingerprint、body hash、source-entry hash 与签发时间，不保存 capability 本体。
+- `SubjectCandidateService` 的唯一可写进程 owner 是主 bridge。`tool-mcp-server` child 不得构造或持有 registry / 可写 service，只能在既有 schema、hard ceiling、lease 与 self-escalation 执法之后，把模型字段与非 capability 的 turn/route 坐标交给窄鉴权 IPC broker。
+- 主进程不信任 child 自报的 profile、授权结论或 route 断言；它以自己的 active runtime context、session/profile/route snapshot 与 `subjectCapabilityByRunKey` 独立复核，随后才调用唯一 owner 落候选。broker 只回有界结果或稳定错误码，不回 capability 或 attestation secret。
+- broker 缺失、超时、身份不符、turn 已终结或请求重放均拒绝写，但只令该工具调用失败；聊天 turn 继续。单 owner 拓扑不新增 candidate writer lease。
+
+---
+
 ## 待裁决 / Candidates
 
 下列**尚未做出决定**，不占用 D 编号，也不得当成已定方向施工。
