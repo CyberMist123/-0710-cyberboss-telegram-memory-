@@ -15,7 +15,11 @@ const {
   validateLaunchProfile,
 } = require("../src/adapters/runtime/claudecode/launch-profile");
 const { buildArgs, resolveEffectivePermissionMode } = require("../src/adapters/runtime/claudecode/process-client");
-const { buildOpeningTurnText, loadInstructionFile } = require("../src/adapters/runtime/shared-instructions");
+const {
+  buildInstructionRefreshText,
+  buildOpeningTurnText,
+  loadInstructionFile,
+} = require("../src/adapters/runtime/shared-instructions");
 const {
   clearCliProbeCache,
   runG3LaunchPreflight,
@@ -57,12 +61,12 @@ function managedProfile(root, id) {
     settings: [settings],
     personaSource,
     residentToolSchemas: fable ? ["cyberboss_system_send", "cyberboss_time"] : ["engineering-tools"],
-    mcpServerCeiling: fable ? "chat-ceiling@1" : "work-ceiling@1",
+    mcpServerCeiling: fable ? "chat-ceiling@2" : "work-ceiling@1",
     toolsetCeiling: fable ? "chat-ceiling@1" : "work-ceiling@1",
     defaultMcpServerSet: fable ? "chat-base@1" : "work-base@1",
     defaultToolset: fable ? "chat-core@1" : "work-full@1",
     strictMcpConfig: true,
-    permissionMode: fable ? "profile-local-least-privilege" : "work-engineering-full",
+    permissionMode: fable ? "chat-native-bypass" : "work-engineering-full",
     envPolicy: fable ? "chat-minimal" : "work-engineering",
   };
 }
@@ -85,22 +89,27 @@ test("T04 A1/A2 managed identities bind harness, role source, permission identit
   try {
     withManagedProfileGate(() => {
       assert.equal(resolveG3ProfileContractEnabled(), true);
-      const fable = validateLaunchProfile(managedProfile(root, "fable-chat"), { baseDir: root });
+      const fableInput = managedProfile(root, "fable-chat");
+      fs.writeFileSync(fableInput.personaSource, "\r\n  FABLE_ROLE_SENTINEL  \n", "utf8");
+      const fable = validateLaunchProfile(fableInput, { baseDir: root });
       const work = validateLaunchProfile(managedProfile(root, "work-engineering"), { baseDir: root });
       const fableLaunch = buildProfileLaunch({ profile: fable, baseEnv: {}, baseCwd: root, baseDir: root });
       const workLaunch = buildProfileLaunch({ profile: work, baseEnv: {}, baseCwd: root, baseDir: root });
-      assert.deepEqual(fableLaunch.args.slice(0, 5), ["--bare", "--disable-slash-commands", "--setting-sources", "user", "--settings"]);
+      assert.deepEqual(fableLaunch.args.slice(0, 5), ["--bare", "--disable-slash-commands", "--setting-sources", "user", "--system-prompt"]);
+      assert.equal(fableLaunch.args[fableLaunch.args.indexOf("--system-prompt") + 1], "FABLE_ROLE_SENTINEL");
+      assert.equal(fableLaunch.args.includes("--tools"), false);
+      assert.equal(fableLaunch.permissionMode, "bypassPermissions");
       assert.equal(workLaunch.args.includes("--bare"), false);
       assert.equal(workLaunch.args.includes("--disable-slash-commands"), false);
+      assert.equal(workLaunch.args.includes("--system-prompt"), false);
+      assert.equal(workLaunch.permissionMode, "inherit");
       assert.equal(loadInstructionFile(fable.personaSource).includes("WORK_ENGINEERING_SENTINEL"), false);
       assert.equal(loadInstructionFile(work.personaSource).includes("WORK_ENGINEERING_SENTINEL"), true);
-      const opening = buildOpeningTurnText(
-        { channel: "telegram", weixinInstructionsFile: work.personaSource },
-        "hello",
-        { roleCard: loadInstructionFile(fable.personaSource) },
-      );
-      assert.equal(opening.includes("FABLE_ROLE_SENTINEL"), true);
-      assert.equal(opening.includes("WORK_ENGINEERING_SENTINEL"), false);
+      assert.equal(fableLaunch.telemetry.persona_prompt_chars, "FABLE_ROLE_SENTINEL".length);
+      assert.equal(fableLaunch.telemetry.instruction_source, "persona_system_prompt");
+      assert.equal(workLaunch.telemetry.persona_prompt_chars, 0);
+      assert.equal(workLaunch.telemetry.instruction_source, "role_card");
+      assert.equal(JSON.stringify(fableLaunch.telemetry).includes("FABLE_ROLE_SENTINEL"), false);
 
       const base = fingerprintG3ProfileIdentity(fable);
       const variants = [
@@ -124,16 +133,95 @@ test("T04 A1/A2 managed identities bind harness, role source, permission identit
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test("T04 A6 global bypassPermissions cannot cross the fable permission identity", () => {
+test("fable-chat resolves its native bypass permission through the process client", () => {
   const root = tempRoot();
   try {
     withManagedProfileGate(() => {
       const launch = buildProfileLaunch({ profile: managedProfile(root, "fable-chat"), baseEnv: {}, baseCwd: root, baseDir: root });
-      const effective = resolveEffectivePermissionMode(launch.permissionMode, "bypassPermissions");
+      const effective = resolveEffectivePermissionMode(launch.permissionMode, "default");
       const args = buildArgs({ permissionMode: effective, disableVerbose: true, extraArgs: [], mcpConfigPaths: [], emitEffort: false });
-      assert.equal(effective, "default");
-      assert.equal(args.includes("bypassPermissions"), false);
+      assert.equal(effective, "bypassPermissions");
+      assert.deepEqual(args.slice(args.indexOf("--permission-mode"), args.indexOf("--permission-mode") + 2), [
+        "--permission-mode", "bypassPermissions",
+      ]);
     });
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("managed persona is the sole bounded system-prompt source and fails closed at launch", () => {
+  const root = tempRoot();
+  try {
+    withManagedProfileGate(() => {
+      for (const field of ["systemPrompt", "outputStyle"]) {
+        assert.throws(
+          () => validateLaunchProfile({ ...managedProfile(root, "fable-chat"), [field]: "duplicate" }, { baseDir: root }),
+          (error) => error.code === "g3_persona_owns_system_prompt",
+        );
+      }
+
+      assert.throws(
+        () => validateLaunchProfile({ ...managedProfile(root, "fable-chat"), mcpServerCeiling: "chat-ceiling@1" }, { baseDir: root }),
+        (error) => error.code === "invalid_enum",
+      );
+      assert.throws(
+        () => validateLaunchProfile({ ...managedProfile(root, "fable-chat"), permissionMode: "profile-local-least-privilege" }, { baseDir: root }),
+        (error) => error.code === "invalid_enum",
+      );
+
+      const blank = managedProfile(root, "fable-chat");
+      fs.writeFileSync(blank.personaSource, " \r\n\t", "utf8");
+      assert.throws(
+        () => buildProfileLaunch({ profile: blank, baseEnv: {}, baseCwd: root, baseDir: root }),
+        (error) => error.code === "persona_prompt_empty",
+      );
+
+      const oversized = managedProfile(root, "fable-chat");
+      fs.writeFileSync(oversized.personaSource, "x".repeat(24577), "utf8");
+      assert.throws(
+        () => buildProfileLaunch({ profile: oversized, baseEnv: {}, baseCwd: root, baseDir: root }),
+        (error) => error.code === "persona_prompt_too_long",
+      );
+
+      const removed = validateLaunchProfile(managedProfile(root, "fable-chat"), { baseDir: root });
+      fs.unlinkSync(removed.personaSource);
+      assert.throws(
+        () => buildProfileLaunch({ profile: removed, baseEnv: {}, baseCwd: root, baseDir: root }),
+        (error) => error.code === "persona_source_unreadable",
+      );
+    });
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("bare opening and refresh keep hard context while suppressing role and ambient instructions", () => {
+  const root = tempRoot();
+  try {
+    const ambientInstructions = path.join(root, "ambient-instructions.md");
+    fs.writeFileSync(ambientInstructions, "AMBIENT_WECHAT_SENTINEL", "utf8");
+    const config = { channel: "telegram", weixinInstructionsFile: ambientInstructions };
+    const currentState = { text: "CURRENT_STATE_SENTINEL", hash: "b".repeat(64), chars: 22 };
+    const opening = buildOpeningTurnText(config, "USER_MESSAGE_SENTINEL", {
+      personaInSystemPrompt: true,
+      reentry: { text: "REENTRY_SENTINEL", hash: "a".repeat(64), chars: 16 },
+      currentState,
+    });
+    assert.equal(opening.includes("PROFILE ROLE"), false);
+    assert.equal(opening.includes("SESSION INSTRUCTIONS"), false);
+    assert.equal(opening.includes("AMBIENT_WECHAT_SENTINEL"), false);
+    assert.equal(opening.includes("REENTRY_SENTINEL"), true);
+    assert.equal(opening.includes("CURRENT_STATE_SENTINEL"), true);
+    assert.equal(opening.endsWith("Current user message:\nUSER_MESSAGE_SENTINEL"), true);
+
+    const workOpening = buildOpeningTurnText(config, "WORK_USER_SENTINEL", {
+      roleCard: "WORK_ROLE_SENTINEL",
+    });
+    assert.equal(workOpening.includes("PROFILE ROLE"), true);
+    assert.equal(workOpening.includes("WORK_ROLE_SENTINEL"), true);
+    assert.equal(workOpening.includes("AMBIENT_WECHAT_SENTINEL"), false);
+
+    const refresh = buildInstructionRefreshText(config, { personaInSystemPrompt: true, currentState });
+    assert.equal(refresh.includes("AMBIENT_WECHAT_SENTINEL"), false);
+    assert.equal(refresh.includes("CURRENT_STATE_SENTINEL"), true);
+    assert.equal(refresh.includes("Reply in one short Chinese sentence"), true);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -167,7 +255,7 @@ test("T04 A7/A8 contract gate off is byte-compatible and launch trace is tokeniz
       assert.equal(trace.includes("fable-chat"), false);
       assert.equal(trace.includes("FABLE_ROLE_SENTINEL"), false);
       assert.equal(managed.telemetry.profile_schema_version, 3);
-      assert.equal(managed.telemetry.permission_mode, "profile-local-least-privilege");
+      assert.equal(managed.telemetry.permission_mode, "chat-native-bypass");
       let caught;
       try {
         createTelegramProfileRouter({

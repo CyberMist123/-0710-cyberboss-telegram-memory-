@@ -1381,6 +1381,9 @@ function createClaudeCodeRuntimeAdapter(config) {
       });
       const { client, threadId: activeThreadId } = attached;
       const continuity = prepareRefreshContext({ config, reason });
+      if (route.launchProfile?.schemaVersion === 3 && route.launchProfile.harnessMode === "bare") {
+        continuity.personaInSystemPrompt = true;
+      }
       const refreshText = buildInstructionRefreshText(config, continuity);
       await beginTurnHold(route, attached.processKey);
       try {
@@ -1556,7 +1559,9 @@ function createClaudeCodeRuntimeAdapter(config) {
           threadId: outboundThreadId,
           reason: openingReason,
         });
-        if (route.launchProfile?.schemaVersion === 3 && route.launchProfile.personaSource) {
+        if (route.launchProfile?.schemaVersion === 3 && route.launchProfile.harnessMode === "bare") {
+          openingContext.personaInSystemPrompt = true;
+        } else if (route.launchProfile?.schemaVersion === 3 && route.launchProfile.personaSource) {
           openingContext.roleCard = loadInstructionFile(route.launchProfile.personaSource, config);
         }
         let fallback = false;

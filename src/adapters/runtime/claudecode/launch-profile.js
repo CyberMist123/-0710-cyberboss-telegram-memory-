@@ -77,10 +77,10 @@ const G3_PROFILE_FIELDS = Object.freeze(new Set([
 
 const G3_PROFILE_SCHEMA_VERSION = 3;
 const G3_PROFILE_IDS = Object.freeze(["fable-chat", "work-engineering"]);
-const G3_MCP_SERVER_CEILINGS = Object.freeze(["chat-ceiling@1", "work-ceiling@1"]);
+const G3_MCP_SERVER_CEILINGS = Object.freeze(["chat-ceiling@2", "work-ceiling@1"]);
 const G3_TOOLSET_CEILINGS = Object.freeze(["chat-ceiling@1", "work-ceiling@1"]);
 const G3_PERMISSION_MODES = Object.freeze([
-  "profile-local-least-privilege",
+  "chat-native-bypass",
   "work-engineering-full",
 ]);
 const G3_ENV_POLICIES = Object.freeze(["chat-minimal", "work-engineering"]);
@@ -149,6 +149,7 @@ const LIMITS = Object.freeze({
   model: 128,
   outputStyle: 64,
   systemPrompt: 8192,
+  personaSystemPrompt: 24576,
   pathLength: 4096,
   envValue: 256,
   builtInTools: 64,
@@ -797,6 +798,7 @@ function buildProfileLaunch({
   }
 
   const args = [];
+  let personaPromptChars = 0;
   // NOTE: workspaceAccess is deliberately absent here. It schedules turns; it is
   // not a CLI flag and must never be passed to the child.
   const effectiveModel = mutableOverride?.model || normalized.model || "";
@@ -807,6 +809,22 @@ function buildProfileLaunch({
     if (normalized.harnessMode === "bare") args.push("--bare");
     if (normalized.skillsMode === "disabled") args.push("--disable-slash-commands");
     args.push("--setting-sources", normalized.settingSources.join(","));
+    if (normalized.harnessMode === "bare") {
+      let personaText;
+      try {
+        personaText = fs.readFileSync(normalized.personaSource, "utf8").trim();
+      } catch {
+        throw new LaunchProfileError("personaSource could not be read at launch", "persona_source_unreadable");
+      }
+      if (!personaText) {
+        throw new LaunchProfileError("personaSource is empty", "persona_prompt_empty");
+      }
+      if (personaText.length > LIMITS.personaSystemPrompt) {
+        throw new LaunchProfileError("personaSource exceeds the system prompt limit", "persona_prompt_too_long");
+      }
+      personaPromptChars = personaText.length;
+      args.push("--system-prompt", personaText);
+    }
   }
   if (normalized.configDir) args.push("--config-dir", normalized.configDir);
   for (const settingsPath of normalized.settings || []) {
@@ -877,6 +895,7 @@ function buildProfileLaunch({
       mcpConfigMode,
       g3Enabled,
       mutableOverride,
+      personaPromptChars,
     }),
   });
 }
@@ -937,6 +956,7 @@ function isCloudCredentialEnvKey(key) {
  */
 function buildLaunchTelemetry(profile, {
   mcpConfigPaths = [], mcpConfigMode = "inherit", g3Enabled = false, mutableOverride = null,
+  personaPromptChars = 0,
 } = {}) {
   if (g3Enabled) {
     const telemetry = {
@@ -977,6 +997,8 @@ function buildLaunchTelemetry(profile, {
             .map((item) => item.effective_token)
           : [],
         permission_mode: profile.permissionMode,
+        persona_prompt_chars: profile.harnessMode === "bare" ? personaPromptChars : 0,
+        instruction_source: profile.harnessMode === "bare" ? "persona_system_prompt" : "role_card",
       });
     }
     return Object.freeze(telemetry);
@@ -1056,6 +1078,13 @@ function validateG3ProfileContract(profile, normalized, { baseDir, fs = fsApi } 
   if (!G3_PROFILE_IDS.includes(normalized.profileId)) {
     throw new LaunchProfileError("profileId is not a managed G3 identity", "g3_profile_identity_unknown");
   }
+  if (Object.prototype.hasOwnProperty.call(profile, "systemPrompt")
+    || Object.prototype.hasOwnProperty.call(profile, "outputStyle")) {
+    throw new LaunchProfileError(
+      "personaSource is the only system prompt source for managed profiles",
+      "g3_persona_owns_system_prompt",
+    );
+  }
   for (const field of ["cwd", "configRoot", "settings", "personaSource"]) {
     if (profile[field] === undefined) {
       throw new LaunchProfileError(`${field} is required by the managed profile contract`, "g3_profile_field_required");
@@ -1092,8 +1121,8 @@ function validateG3ProfileContract(profile, normalized, { baseDir, fs = fsApi } 
   const fable = normalized.profileId === "fable-chat";
   const expected = fable ? {
     harnessMode: "bare", skillsMode: "disabled", settingSources: ["user"],
-    residentToolSchemas: G3_RESIDENT_TOOL_SCHEMAS, mcpServerCeiling: "chat-ceiling@1",
-    toolsetCeiling: "chat-ceiling@1", permissionMode: "profile-local-least-privilege",
+    residentToolSchemas: G3_RESIDENT_TOOL_SCHEMAS, mcpServerCeiling: "chat-ceiling@2",
+    toolsetCeiling: "chat-ceiling@1", permissionMode: "chat-native-bypass",
     envPolicy: "chat-minimal",
   } : {
     harnessMode: "engineering", skillsMode: "enabled", settingSources: ["user", "project", "local"],
@@ -1141,7 +1170,7 @@ function fingerprintG3ProfileIdentity(profile, { fs = fsApi } = {}) {
 
 function resolveProfileCliPermissionMode(profile) {
   if (!profileContractEnabledFor(profile)) return "";
-  return profile.permissionMode === "profile-local-least-privilege" ? "default" : "inherit";
+  return profile.permissionMode === "chat-native-bypass" ? "bypassPermissions" : "inherit";
 }
 
 module.exports = {
