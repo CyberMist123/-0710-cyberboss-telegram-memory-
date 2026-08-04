@@ -6,7 +6,7 @@ function buildOpeningTurnText(config, userText, context = {}) {
   // A managed profile owns its persona source. Layering the ambient project
   // instructions beside it would reintroduce exactly the work->fable leak the
   // isolated config root and --bare launch are intended to prevent.
-  const instructions = roleCard ? "" : loadWechatInstructions(config);
+  const instructions = (roleCard || context.personaInSystemPrompt === true) ? "" : loadWechatInstructions(config);
   const normalizedText = String(userText || "").trim();
   const contextBlocks = buildHardContextBlocks(context);
   if (!instructions && !roleCard && !contextBlocks.length) {
@@ -38,7 +38,7 @@ function buildOpeningTurnText(config, userText, context = {}) {
 }
 
 function buildInstructionRefreshText(config, context = {}) {
-  const instructions = loadWechatInstructions(config);
+  const instructions = context.personaInSystemPrompt === true ? "" : loadWechatInstructions(config);
   const channelLabel = resolveSessionLabel(config);
   const currentStateBlock = buildCurrentStateBlock(context.currentState);
   if (!instructions && !currentStateBlock) {

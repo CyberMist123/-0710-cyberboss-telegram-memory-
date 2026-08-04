@@ -148,7 +148,7 @@ function resolveAllowedExternalMcpServerConfigs(launchProfile, mutableOverride =
   const available = resolveClaudeExternalMcpServerConfigs();
   let allowed;
   if (launchProfile?.schemaVersion !== 3) allowed = available;
-  else if (launchProfile.mcpServerCeiling === "chat-ceiling@1") allowed = [];
+  else if (launchProfile.mcpServerCeiling === "chat-ceiling@2") allowed = available;
   else if (launchProfile.mcpServerCeiling === "work-ceiling@1") allowed = available;
   else {
     const error = new Error("g3_mcp_server_ceiling_unknown");

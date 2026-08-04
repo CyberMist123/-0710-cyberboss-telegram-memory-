@@ -69,7 +69,7 @@ test("ensureClaudeProjectMcpConfig rewrites stale cyberboss MCP server config", 
   }));
 });
 
-test("T04 A2/A4 route MCP config keeps fable discovery separate from the work memory-write ceiling", () => {
+test("fable route MCP config admits configured external servers and enforces override subsets", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-g3-route-settings-"));
   const workspaceRoot = path.join(root, "workspace");
   const cyberbossHome = path.join(root, "cyberboss-home");
@@ -81,21 +81,26 @@ test("T04 A2/A4 route MCP config keeps fable discovery separate from the work me
     name: process.env.CYBERBOSS_MUSIC_MCP_NAME,
     command: process.env.CYBERBOSS_MUSIC_MCP_COMMAND,
     args: process.env.CYBERBOSS_MUSIC_MCP_ARGS,
+    extra: process.env.CYBERBOSS_EXTRA_MCP_SERVERS,
   };
-  process.env.CYBERBOSS_MUSIC_MCP_NAME = "engineering_sentinel";
-  process.env.CYBERBOSS_MUSIC_MCP_COMMAND = "fixture-command";
-  process.env.CYBERBOSS_MUSIC_MCP_ARGS = "[]";
+  delete process.env.CYBERBOSS_MUSIC_MCP_NAME;
+  delete process.env.CYBERBOSS_MUSIC_MCP_COMMAND;
+  delete process.env.CYBERBOSS_MUSIC_MCP_ARGS;
+  process.env.CYBERBOSS_EXTRA_MCP_SERVERS = JSON.stringify([
+    { name: "fixture_alpha", command: "alpha-command", args: ["--alpha"] },
+    { name: "fixture_beta", command: "beta-command", args: ["--beta"] },
+  ]);
   try {
     const fable = ensureRouteScopedMcpConfig({
       workspaceRoot, cyberbossHome, configDir, routeToken: "a".repeat(64),
-      launchProfile: { schemaVersion: 3, profileId: "fable-chat", mcpServerCeiling: "chat-ceiling@1" },
+      launchProfile: { schemaVersion: 3, profileId: "fable-chat", mcpServerCeiling: "chat-ceiling@2" },
     });
     const work = ensureRouteScopedMcpConfig({
       workspaceRoot, cyberbossHome, configDir, routeToken: "b".repeat(64),
       launchProfile: { schemaVersion: 3, profileId: "work-engineering", mcpServerCeiling: "work-ceiling@1" },
     });
-    assert.deepEqual(Object.keys(fable.config.mcpServers), ["cyberboss_tools"]);
-    assert.equal(Object.hasOwn(work.config.mcpServers, "engineering_sentinel"), true);
+    assert.deepEqual(Object.keys(fable.config.mcpServers), ["cyberboss_tools", "fixture_alpha", "fixture_beta"]);
+    assert.equal(Object.hasOwn(work.config.mcpServers, "fixture_alpha"), true);
     assert.equal(fable.config.mcpServers.cyberboss_tools.args.includes("--authorization-ceiling"), false,
       "chat lane never receives a hard tool ceiling");
     assert.equal(fable.config.mcpServers.cyberboss_tools.env.CYBERBOSS_TOOL_CATALOG_ENABLED, "true");
@@ -103,8 +108,23 @@ test("T04 A2/A4 route MCP config keeps fable discovery separate from the work me
     assert.deepEqual(workArgs.slice(workArgs.indexOf("--authorization-ceiling")), [
       "--authorization-ceiling", "work-memory-readonly@1",
     ]);
+
+    const subset = ensureRouteScopedMcpConfig({
+      workspaceRoot, cyberbossHome, configDir, routeToken: "c".repeat(64),
+      launchProfile: { schemaVersion: 3, profileId: "fable-chat", mcpServerCeiling: "chat-ceiling@2" },
+      mutableOverride: { effectiveMcpSet: ["cyberboss_tools", "fixture_beta"] },
+    });
+    assert.deepEqual(Object.keys(subset.config.mcpServers), ["cyberboss_tools", "fixture_beta"]);
+    assert.throws(
+      () => ensureRouteScopedMcpConfig({
+        workspaceRoot, cyberbossHome, configDir, routeToken: "d".repeat(64),
+        launchProfile: { schemaVersion: 3, profileId: "fable-chat", mcpServerCeiling: "chat-ceiling@2" },
+        mutableOverride: { effectiveMcpSet: ["outside_ceiling"] },
+      }),
+      (error) => error.code === "window_override_mcp_outside_ceiling",
+    );
   } finally {
-    for (const [key, envKey] of [["name", "CYBERBOSS_MUSIC_MCP_NAME"], ["command", "CYBERBOSS_MUSIC_MCP_COMMAND"], ["args", "CYBERBOSS_MUSIC_MCP_ARGS"]]) {
+    for (const [key, envKey] of [["name", "CYBERBOSS_MUSIC_MCP_NAME"], ["command", "CYBERBOSS_MUSIC_MCP_COMMAND"], ["args", "CYBERBOSS_MUSIC_MCP_ARGS"], ["extra", "CYBERBOSS_EXTRA_MCP_SERVERS"]]) {
       if (previous[key] === undefined) delete process.env[envKey];
       else process.env[envKey] = previous[key];
     }

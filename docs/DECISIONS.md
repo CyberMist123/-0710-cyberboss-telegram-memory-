@@ -545,6 +545,22 @@ Decision date: 2026-08-04
 
 ---
 
+## D32 · fable-chat 契约语义纠偏：隔离归隔离，权限归权限
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-05
+```
+
+裁定背景：G3 profile 契约把 `fable-chat` 实现成了"受限聊天沙盒"（外部 MCP 空集、CLI 权限 default、人格只在首轮当 user message 注入），与 D27-1「Chat 主体全权不减」冲突。Owner 裁定 Chat Profile 的语义是**上下文与配置隔离 + 完整 Claude Code 原生权限 + Profile 配置的一组 MCP + 工具信息按需暴露**——隔离的是上下文和来源，不是能力。
+
+- **人格成为真正的系统层**：`personaSource` 文件内容在 launch 时整体经 `--system-prompt` 下发（bare 档；上限 24576 字符，空/超限/不可读均 fail-closed）。首轮 role card 注入退役，wechat instructions 不回流（opening 与 refresh 两路都封）。契约 profile 显式携带 `systemPrompt`/`outputStyle` 字段被拒（`g3_persona_owns_system_prompt`）——人格文件是唯一 system prompt 来源。
+- **权限对齐本机 Claude Code**：fable-chat `permissionMode` 由 `profile-local-least-privilege`（→CLI default）改为 `chat-native-bypass`（→CLI `bypassPermissions`）；不发 `--tools` 限制，原生工具全量。枚举删旧值，旧配置 fail-closed 报错而非静默降级。原 T04 A6「全局 bypassPermissions 不穿透 fable」判据随之反转：隔离改由 configRoot / session slot / env allowlist / strict MCP 承担，不再由权限降级承担。
+- **外部 MCP 从"禁"改"配"**：`mcpServerCeiling` 由 `chat-ceiling@1`（空集）换 `chat-ceiling@2`（= 部署经 `CYBERBOSS_EXTRA_MCP_SERVERS`/legacy env 配置的外部 MCP 全集）。route-scoped mcp_config、`--strict-mcp-config`、窗口 override 子集校验不变——Profile 来源隔离保留，只是基集不再为空。
+- **不变的**：toolsetCeiling `chat-ceiling@1`（cyberboss_tools 初始装载面，见 D27-1）、residentToolSchemas 三项常驻、configRoot/session slot/fingerprint 隔离、signing/catalog env 按 fable-chat 作用域转发（D31、#154/#156）。work-engineering 契约与 role card 路径不动。
+
+---
+
 ## 待裁决 / Candidates
 
 下列**尚未做出决定**，不占用 D 编号，也不得当成已定方向施工。
