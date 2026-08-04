@@ -45,6 +45,10 @@ class ClaudeCodeIpcServer extends EventEmitter {
             if (!this.authenticated.has(socket)) {
               if (msg?.type === "auth" && msg?.token === this.authToken) {
                 this.authenticated.add(socket);
+              } else if (msg?.type === "auth") {
+                try {
+                  socket.write(`${JSON.stringify({ type: "auth.result", error: "ipc_auth_failed" })}\n`);
+                } catch {}
               }
               continue;
             }

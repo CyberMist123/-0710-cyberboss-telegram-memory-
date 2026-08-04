@@ -22,6 +22,7 @@ const { createLocationStateEngine, LocationStateStore } = require("../location/s
 const { RuntimeContextStore } = require("./runtime-context-store");
 const { ProjectToolHost } = require("./tool-host");
 const { SubjectCapabilityRegistry, SubjectCandidateService } = require("../continuity/subject-signing");
+const { SubjectSigningIpcClient } = require("../continuity/subject-signing-ipc");
 const { WhereaboutsService } = require("whereabouts-mcp");
 const { Route1DispatchIpcClient, route1DispatchEnabled } = require("../orchestration/route1-dispatch");
 
@@ -45,9 +46,12 @@ function createProjectTooling(config, options = {}) {
     filePath: config.locationStateFile,
   });
   const channelFile = new ChannelFileService({ config, channelAdapter, sessionStore });
-  const subjectCapabilityRegistry = options.subjectCapabilityRegistry || new SubjectCapabilityRegistry({
-    enabled: config.subjectSigningEnabled === true,
-  });
+  const subjectCandidateOwner = options.subjectCandidateOwner === true;
+  const subjectCapabilityRegistry = subjectCandidateOwner
+    ? (options.subjectCapabilityRegistry || new SubjectCapabilityRegistry({
+        enabled: config.subjectSigningEnabled === true,
+      }))
+    : null;
   const route1Client = route1DispatchEnabled()
     ? new Route1DispatchIpcClient({ stateDir: config.stateDir })
     : null;
@@ -71,11 +75,18 @@ function createProjectTooling(config, options = {}) {
       continuityDir: config.continuityDir,
       writerLeaseFile: config.writerLeaseFile,
     }),
-    subjectCandidate: options.subjectCandidate || new SubjectCandidateService({
-      continuityDir: config.continuityDir,
-      registry: subjectCapabilityRegistry,
-      enabled: config.subjectSigningEnabled === true,
-    }),
+    ...(subjectCandidateOwner ? {
+      subjectCandidate: options.subjectCandidate || new SubjectCandidateService({
+        continuityDir: config.continuityDir,
+        registry: subjectCapabilityRegistry,
+        enabled: config.subjectSigningEnabled === true,
+      }),
+    } : {}),
+    ...(!subjectCandidateOwner && config.subjectSigningEnabled === true ? {
+      subjectSigningBroker: options.subjectSigningBroker || new SubjectSigningIpcClient({
+        stateDir: config.stateDir,
+      }),
+    } : {}),
     subjectSigningContext: options.subjectSigningContext || { resolve() { return null; } },
     github: new GithubService({ ghPath: config.ghPath }),
     locationConfig: {

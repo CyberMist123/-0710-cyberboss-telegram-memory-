@@ -62,6 +62,7 @@ const { createSubjectRoute, windowIdFromNativeSessionId } = require("../continui
 const {
   SubjectCapabilityRegistry,
 } = require("../continuity/subject-signing");
+const { SubjectSigningBroker } = require("../continuity/subject-signing-ipc");
 const { HandoffDispatcher } = require("../continuity/handoff-dispatcher");
 const { HandoffAckLedger } = require("../continuity/handoff-ack");
 const {
@@ -133,6 +134,7 @@ class CyberbossApp {
     const projectTooling = createProjectTooling(config, {
       channelAdapter: this.channelAdapter,
       timelineIntegration: this.timelineIntegration,
+      subjectCandidateOwner: true,
       subjectCapabilityRegistry: this.subjectCapabilityRegistry,
       subjectSigningContext: {
         resolve: ({ threadId, turnId } = {}) => this.subjectCapabilityByRunKey.get(
@@ -143,6 +145,12 @@ class CyberbossApp {
     this.projectServices = projectTooling.services;
     this.projectToolHost = projectTooling.toolHost;
     this.runtimeContextStore = projectTooling.runtimeContextStore;
+    this.subjectSigningBroker = new SubjectSigningBroker({
+      enabled: config.subjectSigningEnabled === true,
+      subjectCandidateService: this.projectServices.subjectCandidate,
+      subjectCapabilityByRunKey: this.subjectCapabilityByRunKey,
+      runtimeContextStore: this.runtimeContextStore,
+    });
     this.runtimeAdapter = createRuntimeAdapter(config);
     // Fail-closed: a malformed profile mapping throws here and startup stops.
     // There is deliberately no fallback to a more permissive legacy profile.
@@ -184,6 +192,9 @@ class CyberbossApp {
       if (action === "status") return this.route1DispatchController?.taskStatus(args, context);
       return this.route1DispatchController?.taskResult(args, context);
     });
+    this.runtimeAdapter.onSubjectSigningRequest?.((request) => (
+      this.subjectSigningBroker.submit(request)
+    ));
     this.handoffDeliveryByRunKey = new Map();
     this.handoffDispatcher = config.handoffDispatchEnabled === true
       ? new HandoffDispatcher({

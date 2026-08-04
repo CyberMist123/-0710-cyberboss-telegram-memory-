@@ -487,20 +487,12 @@ const PROJECT_TOOLS = [
       additionalProperties: false,
     },
     async handler({ services, args, context }) {
-      const signing = services.subjectSigningContext?.resolve?.(context) || null;
-      const subjectRoute = signing?.subject_route;
-      const result = services.subjectCandidate.createSubjectCandidate({
-        ...args,
-        capability_id: signing?.capability?.capability_id,
-        subject_turn_id: signing?.capability?.subject_turn_id || subjectRoute?.author_turn_id,
-        subject_route: subjectRoute,
-        source_ref: {
-          ...args.source_ref,
-          source_entry_ids: Array.isArray(subjectRoute?.source_entry_ids)
-            ? subjectRoute.source_entry_ids
-            : [],
-        },
-      });
+      if (!services.subjectSigningBroker?.submit) {
+        const error = new Error("subject_signing_broker_unavailable");
+        error.code = "subject_signing_broker_unavailable";
+        throw error;
+      }
+      const result = await services.subjectSigningBroker.submit(args, context);
       return { text: `Memory candidate ${result.status}.`, data: result };
     },
   },
