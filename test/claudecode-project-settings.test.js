@@ -111,3 +111,42 @@ test("T04 A2/A4 route MCP config keeps fable discovery separate from the work me
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("buildClaudeProjectMcpServerConfig forwards CYBERBOSS_SUBJECT_SIGNING_ENABLED to the tool-mcp-server child only for the fable-chat subject", () => {
+  // Regression guard for the second cross-process wiring gap: the child env is
+  // isolated, so memory_candidate_submit (gated on subjectSigningEnabled of the
+  // child's own env in tool-host `registeredProjectTools`) never registers
+  // unless the flag is forwarded here. Offline fixtures that hand-build the
+  // child env could not catch this; this asserts the real generation path.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-signing-env-"));
+  const cyberbossHome = path.join(root, "home");
+  fs.mkdirSync(path.join(cyberbossHome, "bin"), { recursive: true });
+  fs.writeFileSync(path.join(cyberbossHome, "bin", "cyberboss.js"), "");
+  const prev = process.env.CYBERBOSS_SUBJECT_SIGNING_ENABLED;
+  try {
+    process.env.CYBERBOSS_SUBJECT_SIGNING_ENABLED = "1"; // 1/true/yes/on all equivalent
+    const fable = buildClaudeProjectMcpServerConfig({
+      workspaceRoot: root, cyberbossHome, routeToken: "a".repeat(64),
+      launchProfile: { schemaVersion: 3, profileId: "fable-chat" },
+    });
+    assert.equal(fable.env.CYBERBOSS_SUBJECT_SIGNING_ENABLED, "true",
+      "fable-chat child must see signing on so memory_candidate_submit registers");
+    const work = buildClaudeProjectMcpServerConfig({
+      workspaceRoot: root, cyberbossHome, routeToken: "b".repeat(64),
+      launchProfile: { schemaVersion: 3, profileId: "work-engineering" },
+    });
+    assert.equal(work.env?.CYBERBOSS_SUBJECT_SIGNING_ENABLED, undefined,
+      "work-engineering child must never see signing (G3 isolation)");
+    process.env.CYBERBOSS_SUBJECT_SIGNING_ENABLED = "0";
+    const off = buildClaudeProjectMcpServerConfig({
+      workspaceRoot: root, cyberbossHome, routeToken: "c".repeat(64),
+      launchProfile: { schemaVersion: 3, profileId: "fable-chat" },
+    });
+    assert.equal(off.env?.CYBERBOSS_SUBJECT_SIGNING_ENABLED, undefined,
+      "signing off must not forward the flag");
+  } finally {
+    if (prev === undefined) delete process.env.CYBERBOSS_SUBJECT_SIGNING_ENABLED;
+    else process.env.CYBERBOSS_SUBJECT_SIGNING_ENABLED = prev;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
