@@ -594,3 +594,14 @@ Status: OPEN
 - **Known facts**：多 Bot / Apple Watch 当前仍为 `DEFERRED`，未排期。Apple Watch 只有规格文档，代码侧零实现。
 - **Decision needed**：剩余两者是否以及何时排期。
 - **Not authorised**：排期前不得投入实现工作。
+
+### C7 · G1 真机取证解锁路径
+
+```text
+Status: OPEN
+```
+
+- **Known facts**：Telegram 侧 `memory_context` 注入需两闸同开——外闸 `context-gates.json.memory_context`（`src/core/app.js:1161` false → `gated_off`）+ 内闸 env `CYBERBOSS_MEMORY_RETRIEVAL`（`src/core/app.js:1177` `legacyMemoryRetrieval === false` → `:1181` `mode: "disabled"`）。而 `src/core/startup-preflight.js` 的 `validateLegacyMemoryGates`（`:53`，四个 legacy 记忆开关 `:55-58` 任一为 true → `:61` throw）在 Phase 2-5A 期间对 env=1 直接拒绝启动、无配置绕过（2026-08-04 真机实证：pid 42172 秒死）。故第五节判据 0「Telegram 上 `memory_context` 实际执行且 Context Trace 证明」在现行阶段姿态下证据永远取不到。（合并 `docs/audit/G4_PRODUCTION_DELIVERY_20260803.md` 第六节 `NEEDS_FABLE`：能力表曾把该行记 `WIRED`，但默认关闭下无法取证——同一待裁问题。）
+- **Decision needed**：三选一——(a) 项目推进出 Phase 2-5A 后按现行判据取证；(b) 给启动预检开受控例外放行 env=1（**不推荐**——削弱阶段安全不变量，且例外本身就是 G2 要防的口子）；(c) 重定义 G1 判据对准现行真实核心读取路径（`memory_lookup` 按需翻档 + Context Trace）。
+- **Not authorised**：裁决前不得改 `startup-preflight.js` 放行 legacy 开关，也不得把 G1 状态词从 `PARTIAL` 改动。
+- **背景**：fable W9 审计裁定一.4「批 env=1 取 G1 真机 Trace 证据」已由 fable W11 裁定一撤回（superseded）——作出时未核 `startup-preflight.js` 的 Phase 2-5A 硬闸，属基于不完整代码事实的裁定；该裁定非 D 编号决定，本处不占 D 号、只登记待裁。
