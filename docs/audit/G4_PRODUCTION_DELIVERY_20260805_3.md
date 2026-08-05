@@ -1,7 +1,7 @@
 # G4 第八次真机交付：catalog invoke 上机 + 目录开关首次在生产打开
 
 ```text
-Status: audit
+Status: active
 Date: 2026-08-05
 Base SHA: 3447ffd（full 3447ffd3a2d253c4dbca42c78119564c442e88ce）
 Audited SHA: 3447ffd
