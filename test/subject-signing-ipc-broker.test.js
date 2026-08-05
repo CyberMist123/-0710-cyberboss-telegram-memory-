@@ -300,9 +300,24 @@ class SigningFixture {
     });
     this.registry = new SubjectCapabilityRegistry({ enabled: true });
     this.capability = this.registry.issue({ subjectTurnId: TURN_ID, subjectRoute: this.route });
+    // Shaped exactly like what `issueSubjectCapabilityForTurnFailOpen` stores:
+    // the recorded inbound line, its file, and its digest. The file is real and
+    // the digest is over its actual bytes, so Review's `locateSourceEntriesById`
+    // would resolve this candidate rather than defer it.
+    const conversationDir = path.join(this.stateDir, "conversations");
+    fs.mkdirSync(conversationDir, { recursive: true });
+    const conversationFile = path.join(conversationDir, "2026-08-06.jsonl");
+    const sourceLine = JSON.stringify({ id: ENTRY_ID, type: "user", text: "source fixture" });
+    fs.writeFileSync(conversationFile, `${sourceLine}\n`, "utf8");
     this.byRunKey = new Map([[`${THREAD_ID}:${TURN_ID}`, {
       capability: this.capability,
       subject_route: this.route,
+      source_ref: {
+        file: conversationFile,
+        source_entry_ids: [ENTRY_ID],
+        source_entry_hashes: [{ entry_id: ENTRY_ID, sha256: sha256(sourceLine) }],
+        content_sha256: sha256(sourceLine),
+      },
     }]]);
     this.service = new SubjectCandidateService({
       continuityDir: this.continuityDir,
@@ -461,12 +476,14 @@ class McpChild {
   }
 }
 
+// No source_ref: the child cannot express provenance any more, and the tool
+// schema rejects it as an unknown property. The broker supplies it from the
+// capability record instead.
 function candidateArgs() {
   return {
     type: "episode",
     body: BODY,
     origin: "live_subject",
-    source_ref: { content_sha256: sha256("source fixture") },
   };
 }
 
