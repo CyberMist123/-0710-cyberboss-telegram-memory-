@@ -44,7 +44,7 @@ function ensureRouteScopedMcpConfig({
         launchProfile,
         mutableOverride,
       }),
-      ...Object.fromEntries(resolveAllowedExternalMcpServerConfigs(launchProfile, mutableOverride).map((config) => [config.name, config])),
+      ...Object.fromEntries(resolveAllowedExternalMcpServerConfigs(mutableOverride).map((config) => [config.name, config])),
     },
   };
   if (!jsonEquals(readJsonObject(configPath), next)) {
@@ -156,17 +156,11 @@ function subjectSigningEnabled(env = process.env) {
   return envFlagEnabled("CYBERBOSS_SUBJECT_SIGNING_ENABLED", env);
 }
 
-function resolveAllowedExternalMcpServerConfigs(launchProfile, mutableOverride = null) {
-  const available = resolveClaudeExternalMcpServerConfigs();
-  let allowed;
-  if (launchProfile?.schemaVersion !== 3) allowed = available;
-  else if (launchProfile.mcpServerCeiling === "chat-ceiling@2") allowed = available;
-  else if (launchProfile.mcpServerCeiling === "work-ceiling@1") allowed = available;
-  else {
-    const error = new Error("g3_mcp_server_ceiling_unknown");
-    error.code = "g3_mcp_server_ceiling_unknown";
-    throw error;
-  }
+// Every managed profile's ceiling resolved to the deployment's full configured
+// set, so the ceiling no longer selects anything; the base set is the base set.
+// What still binds is the window override's subset check below.
+function resolveAllowedExternalMcpServerConfigs(mutableOverride = null) {
+  const allowed = resolveClaudeExternalMcpServerConfigs();
   if (!Array.isArray(mutableOverride?.effectiveMcpSet)) return allowed;
   const requested = new Set(mutableOverride.effectiveMcpSet.filter((name) => name !== "cyberboss_tools"));
   const known = new Set(allowed.map((config) => config.name));

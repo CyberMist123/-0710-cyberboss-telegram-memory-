@@ -3,6 +3,7 @@
 const crypto = require("node:crypto");
 const { envFlagEnabled } = require("../../../core/env-flag");
 const { normalizeEffort, resolveEffortLevel } = require("./process-client");
+const { g3ContractDefaults } = require("./launch-profile");
 
 const WINDOW_OVERRIDE_FLAG = "CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED";
 const SOURCE_VALUES = new Set(["default", "profile_default", "command", "overlay", "self_escalation"]);
@@ -43,20 +44,23 @@ function resolveWindowOverride(input = {}, { profile = null, env = process.env }
   const model = safeId(launchModel || "default", "model");
   const effort = normalizeEffort(raw.effort || profile?.effort)
     || resolveEffortLevel("", env);
-  const effectiveToolset = safeId(raw.effectiveToolset || profile?.defaultToolset || "full", "effectiveToolset");
+  const g3Defaults = profile?.schemaVersion === 3 ? g3ContractDefaults(profile.profileId) : null;
+  const profileDefaultToolset = g3Defaults?.defaultToolset || profile?.defaultToolset || "";
+  const profileDefaultMcpSet = g3Defaults?.defaultMcpServerSet || profile?.defaultMcpServerSet || "";
+  const effectiveToolset = safeId(raw.effectiveToolset || profileDefaultToolset || "full", "effectiveToolset");
   const mcpNames = normalizeMcpNames(raw.effectiveMcpSet);
-  const defaultMcpSet = safeId(profile?.defaultMcpServerSet || "runtime-default", "defaultMcpServerSet");
+  const defaultMcpSet = safeId(profileDefaultMcpSet || "runtime-default", "defaultMcpServerSet");
   const overlays = normalizeOverlays(raw.harnessOverlay);
   const capabilityLease = route2GateEnabled(env) ? normalizeCapabilityLease(raw.capabilityLease) : null;
 
   const entries = [
     traceEntry("model", model, raw.modelSource || (raw.model ? "command" : (profile?.model ? "profile_default" : "default")), raw.modelScope),
     traceEntry("effort", effort, raw.effortSource || (raw.effort ? "command" : (profile?.effort ? "profile_default" : "default")), raw.effortScope),
-    traceEntry("effective_toolset", effectiveToolset, raw.toolsetSource || (raw.effectiveToolset ? "overlay" : (profile?.defaultToolset ? "profile_default" : "default")), raw.toolsetScope),
+    traceEntry("effective_toolset", effectiveToolset, raw.toolsetSource || (raw.effectiveToolset ? "overlay" : (profileDefaultToolset ? "profile_default" : "default")), raw.toolsetScope),
     traceEntry(
       "effective_mcp_set",
       mcpNames === null ? defaultMcpSet : `set:${mcpNames.length}`,
-      raw.mcpSource || (mcpNames === null ? (profile?.defaultMcpServerSet ? "profile_default" : "default") : "overlay"),
+      raw.mcpSource || (mcpNames === null ? (profileDefaultMcpSet ? "profile_default" : "default") : "overlay"),
       raw.mcpScope,
       mcpNames === null ? defaultMcpSet : mcpNames.join("\u0000"),
     ),

@@ -146,11 +146,11 @@ test("fable route MCP config admits configured external servers and enforces ove
   try {
     const fable = ensureRouteScopedMcpConfig({
       workspaceRoot, cyberbossHome, configDir, routeToken: "a".repeat(64),
-      launchProfile: { schemaVersion: 3, profileId: "fable-chat", mcpServerCeiling: "chat-ceiling@2" },
+      launchProfile: { schemaVersion: 3, profileId: "fable-chat" },
     });
     const work = ensureRouteScopedMcpConfig({
       workspaceRoot, cyberbossHome, configDir, routeToken: "b".repeat(64),
-      launchProfile: { schemaVersion: 3, profileId: "work-engineering", mcpServerCeiling: "work-ceiling@1" },
+      launchProfile: { schemaVersion: 3, profileId: "work-engineering" },
     });
     assert.deepEqual(Object.keys(fable.config.mcpServers), ["cyberboss_tools", "fixture_alpha", "fixture_beta"]);
     assert.equal(Object.hasOwn(work.config.mcpServers, "fixture_alpha"), true);
@@ -164,14 +164,14 @@ test("fable route MCP config admits configured external servers and enforces ove
 
     const subset = ensureRouteScopedMcpConfig({
       workspaceRoot, cyberbossHome, configDir, routeToken: "c".repeat(64),
-      launchProfile: { schemaVersion: 3, profileId: "fable-chat", mcpServerCeiling: "chat-ceiling@2" },
+      launchProfile: { schemaVersion: 3, profileId: "fable-chat" },
       mutableOverride: { effectiveMcpSet: ["cyberboss_tools", "fixture_beta"] },
     });
     assert.deepEqual(Object.keys(subset.config.mcpServers), ["cyberboss_tools", "fixture_beta"]);
     assert.throws(
       () => ensureRouteScopedMcpConfig({
         workspaceRoot, cyberbossHome, configDir, routeToken: "d".repeat(64),
-        launchProfile: { schemaVersion: 3, profileId: "fable-chat", mcpServerCeiling: "chat-ceiling@2" },
+        launchProfile: { schemaVersion: 3, profileId: "fable-chat" },
         mutableOverride: { effectiveMcpSet: ["outside_ceiling"] },
       }),
       (error) => error.code === "window_override_mcp_outside_ceiling",

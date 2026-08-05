@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -10,8 +11,10 @@ const {
   buildProfileLaunch,
   fingerprintG3ProfileIdentity,
   fingerprintLaunchProfile,
+  g3ContractDefaults,
   resolveG3PreflightEnabled,
   resolveG3ProfileContractEnabled,
+  stableStringify,
   validateLaunchProfile,
 } = require("../src/adapters/runtime/claudecode/launch-profile");
 const {
@@ -68,14 +71,8 @@ function managedProfile(root, id) {
     settings: [settings],
     personaSource,
     ...(fable ? { builtInTools: ["Read", "WebFetch"], escalatedBuiltInTools: ["default"] } : {}),
-    residentToolSchemas: fable ? ["cyberboss_system_send", "cyberboss_time"] : ["engineering-tools"],
-    mcpServerCeiling: fable ? "chat-ceiling@2" : "work-ceiling@1",
-    toolsetCeiling: fable ? "chat-ceiling@1" : "work-ceiling@1",
-    defaultMcpServerSet: fable ? "chat-base@1" : "work-base@1",
-    defaultToolset: fable ? "chat-core@1" : "work-full@1",
     strictMcpConfig: true,
     permissionMode: fable ? "chat-native-bypass" : "work-engineering-full",
-    envPolicy: fable ? "chat-minimal" : "work-engineering",
   };
 }
 
@@ -97,6 +94,10 @@ test("T04 A1/A2 managed identities bind harness, role source, permission identit
   try {
     withManagedProfileGate(() => {
       assert.equal(resolveG3ProfileContractEnabled(), true);
+      assert.throws(
+        () => g3ContractDefaults("unknown-profile"),
+        (error) => error.code === "g3_profile_identity_unknown",
+      );
       const fableInput = managedProfile(root, "fable-chat");
       fs.writeFileSync(fableInput.personaSource, "\r\n  FABLE_ROLE_SENTINEL  \n", "utf8");
       const fable = validateLaunchProfile(fableInput, { baseDir: root });
@@ -134,8 +135,6 @@ test("T04 A1/A2 managed identities bind harness, role source, permission identit
         { ...fable, cwd: work.cwd },
         { ...fable, configRoot: work.configRoot },
         { ...fable, permissionMode: "rotated-permission-identity" },
-        { ...fable, mcpServerCeiling: "rotated-mcp-ceiling" },
-        { ...fable, toolsetCeiling: "rotated-tool-ceiling" },
       ];
       for (const variant of variants) {
         const changed = fingerprintG3ProfileIdentity(variant);
@@ -147,6 +146,28 @@ test("T04 A1/A2 managed identities bind harness, role source, permission identit
       }
       fs.writeFileSync(fable.personaSource, "FABLE_ROLE_SENTINEL_CHANGED", "utf8");
       assert.notEqual(fingerprintG3ProfileIdentity(fable), base, "persona content change rotates identity");
+
+      const digest = (filePath) => crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+      const expectedIdentity = {
+        schemaVersion: fable.schemaVersion,
+        profileId: fable.profileId,
+        cwd: fable.cwd,
+        configRoot: fable.configRoot,
+        harnessMode: fable.harnessMode,
+        settingSources: fable.settingSources,
+        skillsMode: fable.skillsMode,
+        settings: fable.settings.map(digest),
+        persona: digest(fable.personaSource),
+        mcpServerCeiling: "chat-ceiling@2",
+        toolsetCeiling: "chat-ceiling@1",
+        permissionMode: fable.permissionMode,
+        envPolicy: "chat-minimal",
+      };
+      assert.equal(
+        fingerprintG3ProfileIdentity(fable),
+        crypto.createHash("sha256").update(stableStringify(expectedIdentity), "utf8").digest("hex"),
+        "G3 identity retains the pre-cleanup derived values byte-for-byte",
+      );
     });
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
@@ -177,10 +198,18 @@ test("managed persona is the sole bounded system-prompt source and fails closed 
         );
       }
 
-      assert.throws(
-        () => validateLaunchProfile({ ...managedProfile(root, "fable-chat"), mcpServerCeiling: "chat-ceiling@1" }, { baseDir: root }),
-        (error) => error.code === "invalid_enum",
-      );
+      const staleFields = [
+        "residentToolSchemas", "mcpServerCeiling", "toolsetCeiling", "envPolicy", "defaultToolset", "defaultMcpServerSet",
+      ];
+      for (const field of staleFields) {
+        assert.throws(
+          () => validateLaunchProfile({
+            ...managedProfile(root, "fable-chat"),
+            [field]: field === "residentToolSchemas" ? [] : "stale",
+          }, { baseDir: root }),
+          (error) => error.code === "unknown_field",
+        );
+      }
       assert.throws(
         () => validateLaunchProfile({ ...managedProfile(root, "fable-chat"), permissionMode: "profile-local-least-privilege" }, { baseDir: root }),
         (error) => error.code === "invalid_enum",
@@ -281,7 +310,7 @@ test("T04 A7/A8 contract gate off is byte-compatible and launch trace is tokeniz
           baseDir: root,
         });
       } catch (error) { caught = error; }
-      assert.equal(caught?.code, "invalid_enum");
+      assert.equal(caught?.code, "unknown_field");
       const failure = JSON.stringify({ message: caught?.message, code: caught?.code, details: caught?.details });
       assert.equal(failure.includes("fable-chat"), false);
       assert.equal(failure.includes(root), false);
