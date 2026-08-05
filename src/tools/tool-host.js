@@ -39,10 +39,13 @@ class ProjectToolHost {
       .map((entry) => ({ ...entry, authorized: !toolset || toolset.members.has(entry.alias_of || entry.id) })) };
   }
 
-  maxResultBytes(toolName) {
+  // args is optional and only consulted for a catalog invoke, where the budget
+  // that matters belongs to the forwarded tool, not to the catalog entry.
+  maxResultBytes(toolName, args = null) {
     if (!route2GateEnabled()) return null;
-    const alias = TOOL_ALIASES[toolName];
-    const canonical = alias?.name || toolName;
+    const forwarded = catalogInvokeTarget(toolName, args);
+    const alias = TOOL_ALIASES[forwarded || toolName];
+    const canonical = alias?.name || forwarded || toolName;
     const entry = this.catalogState().entries.find((candidate) => !candidate.alias_of && candidate.id === canonical);
     return Number.isInteger(entry?.max_result_bytes) && entry.max_result_bytes > 0 ? entry.max_result_bytes : null;
   }
@@ -69,7 +72,10 @@ class ProjectToolHost {
     const spec = registeredProjectTools().find((candidate) => candidate.name === resolvedToolName);
     const extraHost = this.extraToolHosts.find((host) => hostSupportsToolName(host, toolName));
     const normalizedArgs = args && typeof args === "object" ? { ...args } : {};
-    if (toolName === "cyberboss_catalog" && normalizedArgs.handle !== undefined) {
+    // A catalog invoke is a call, not a schema load: it skips the schema ceiling
+    // here and takes the call ceiling on the forwarded hop instead.
+    const catalogInvoke = toolName === "cyberboss_catalog" && normalizedArgs.arguments !== undefined;
+    if (toolName === "cyberboss_catalog" && normalizedArgs.handle !== undefined && !catalogInvoke) {
       assertAuthorizedSchema(this.authorizationCeiling, normalizedArgs.handle);
     } else if (toolName !== "cyberboss_catalog") {
       assertAuthorizedCall(this.authorizationCeiling, resolvedToolName);
@@ -82,8 +88,23 @@ class ProjectToolHost {
         if (normalizedArgs.theme !== undefined && normalizedArgs.handle !== undefined) {
           throw catalogError("catalog_invalid_request", "theme and handle are mutually exclusive");
         }
+        if (normalizedArgs.arguments !== undefined) {
+          if (normalizedArgs.theme !== undefined) {
+            throw catalogError("catalog_invalid_request", "theme and arguments are mutually exclusive");
+          }
+          if (normalizedArgs.handle === undefined) {
+            throw catalogError("catalog_invalid_request", "arguments requires handle");
+          }
+        }
         if (normalizedArgs.handle !== undefined) {
           const category = String(normalizedArgs.handle).split("/", 1)[0];
+          if (catalogInvoke) {
+            // Resolve the handle to a canonical name, then re-enter the ordinary
+            // call path: toolset whitelist, self-escalation record, capability
+            // lease, alias defaults and schema validation all stay in one place.
+            const target = findSchema({ entries, category, handle: normalizedArgs.handle, allowSelfEscalation: true });
+            return await this.invokeTool(target.id, normalizedArgs.arguments, context);
+          }
           const entry = findSchema({
             entries,
             category,
@@ -180,6 +201,15 @@ class ProjectToolHost {
 
 function toolsetId(toolset) { return toolset?.id || ""; }
 
+// Returns the canonical tool name a catalog invoke forwards to, or "" when the
+// call is not a catalog invoke. Name resolution only; every gate lives in
+// invokeTool.
+function catalogInvokeTarget(toolName, args) {
+  if (toolName !== "cyberboss_catalog" || !args || typeof args !== "object") return "";
+  if (args.arguments === undefined || typeof args.handle !== "string") return "";
+  return args.handle.split("/", 2)[1] || "";
+}
+
 const AUTHORIZATION_CEILINGS = Object.freeze({
   "work-memory-readonly@1": Object.freeze(new Set(["memory_note", "memory_candidate_submit"])),
 });
@@ -250,7 +280,7 @@ function buildThemeIndex(entries) {
 function buildCatalogDirectoryTool(entries) {
   return {
     name: "cyberboss_catalog",
-    description: `Browse ${THEME_DEFINITIONS.length} intention themes or load one exact tool schema by handle.`,
+    description: `Browse ${THEME_DEFINITIONS.length} intention themes, load one exact tool schema by handle, or call that tool with handle plus arguments.`,
     inputSchema: CATALOG_INPUT_SCHEMA,
   };
 }

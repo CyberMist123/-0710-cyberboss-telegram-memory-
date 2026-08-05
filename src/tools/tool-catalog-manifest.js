@@ -32,9 +32,13 @@ const THEME_DEFINITIONS = Object.freeze([
   Object.freeze({ name: "工程派活", description: "GitHub 操作；将来 Route 1 派工程车也在这" }),
   Object.freeze({ name: "维护调试", description: "平时不碰" }),
 ]);
+// `arguments` is the transport seam (D34): MCP only lets the CLI call a tool it
+// has already broadcast, so a non-resident tool is reachable only by handing its
+// arguments to the one broadcast entry. `{handle}` loads a schema; `{handle,
+// arguments}` calls that tool; `theme` stays exclusive with both.
 const CATALOG_INPUT_SCHEMA = Object.freeze({
   type: "object",
-  properties: { theme: { type: "string" }, handle: { type: "string" } },
+  properties: { theme: { type: "string" }, handle: { type: "string" }, arguments: { type: "object" } },
   additionalProperties: false,
 });
 // Explicit policy data: risk is reviewed per canonical tool, never inferred from

@@ -581,9 +581,36 @@ Decision date: 2026-08-05
 
 ---
 
+## D34 · 目录工具的调用通路 = catalog invoke 转发；广播面恒定 3 工具
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-05
+补全: D27-1（「toolset 只是初始装载面」的执行侧缺环）
+```
+
+裁定背景：MCP 传输层只允许调用 `tools/list` 广播过的工具，而目录化后广播面恒为 3 工具（`cyberboss_catalog` + 两个常驻）且 `listChanged:false` 永不重拉——非常驻工具因此**可见不可调**。经查是设计漏环、不是当初的取舍：执行侧 `invokeTool` 早已备好非常驻工具的完整路径（toolset 白名单 + `chatSelfEscalation` 放行 + lease 校验），`tool-host.js` 加载未授权 schema 时还会 `recordSelfEscalation`——若意图是「非常驻不该被调」，不会存在「加载即升格」语义。`CURRENT_STATUS.md` 那句「目录可见 ≠ 调用权」谈的是授权，不是传输，没撒谎但没回答问题。裁定与证据详见 `workdesk/20260805-fable-ruling-catalog-invoke.md`。
+
+- **修法采 D（catalog invoke）**：`cyberboss_catalog` 增加 `arguments` 用法。`{handle}` 仍是加载 schema，`{handle, arguments}` 是**调用**该工具；`theme` 与两者互斥，`arguments` 必须伴随 `handle`。
+- **权限语义一处不新写**：invoke 解析出 canonical 名后重新进入 `invokeTool` 正常路径，authorizationCeiling、capabilityLease、toolset 白名单、self-escalation 记录、参数 `validateSchema`、`max_result_bytes` 截断全部沿用现有逻辑。invoke 是**调用**不是装载，因此吃 `g3_call_not_authorized` 而不是 `g3_schema_not_authorized`。结果 `{text, data}` 原样透传，错误码保留 `catalog_*` 系。
+- **广播面维持恒定**：`listTools()` 与 `listChanged:false` 都不动，工具数组恒定 3 项——前缀缓存不因任何工具装载失效。目录开/关的上下文摆动（常驻 373 字符 vs 全量 15,810 字符）兼任本条的回归判据。
+- **否决与挂起**：A（关目录、15.5k 常驻回锅）与 B（重启换工具面，一次冷启动换一次调用）代价倒挂且混淆两层机制，均否决；C（`listChanged` 动态注册）每次注册炸一遍前缀缓存且 CLI 支持未实证，挂 Candidates 作二期。
+
+---
+
 ## 待裁决 / Candidates
 
 下列**尚未做出决定**，不占用 D 编号，也不得当成已定方向施工。
+
+### C9 · MCP `listChanged` 动态注册作为目录调用的二期方案
+
+```text
+Status: OPEN
+```
+
+- **Known facts**：D34 采转发式调用（catalog invoke）落地。原 C 方案是改 `listChanged:true` 并在装载 schema 后动态注册该工具，让 CLI 真正看见它。
+- **Decision needed**：是否二期改走动态注册。前置条件有两项——真机实证 CLI 确实响应 `notifications/tools/list_changed`，以及转发式调用在真实使用中被证明质量不佳（她分不清 invoke 用法、或嵌套 arguments 出错率高）。
+- **Not authorised**：当前不做。每次注册都会作废整个前缀缓存，这是 D34 明确规避的代价。
 
 ### C1 · 语音 / 天气 / embedding 的能力归属
 
@@ -661,8 +688,10 @@ Status: OPEN
 ### C8 · 目录里的工具怎么变成可调用（chat 窗口"看得到说明书、摸不到机器"）
 
 ```text
-Status: OPEN
+Status: RESOLVED → D34（2026-08-05）
 ```
+
+**已裁决**：采 (a) 的转发式方案，但转发口不新增常驻工具，而是并进现有 `cyberboss_catalog` 的 `arguments` 用法（tools 数组仍恒定 3 项）。(b) 挂 C9 作二期，(c) 否决。下列 Known facts 保留为病因存档。
 
 - **Known facts**（2026-08-05 首轮 canary 实证 + 只读复现）：目录模式下 `tool-host.js` 的 `listTools()` 恒定只返回 `cyberboss_catalog` + `RESIDENT_NAMES`（`tool-catalog-manifest.js` 里硬编码的 `cyberboss_system_send` / `cyberboss_time`），而 `mcp-stdio-server.js` 声明 `listChanged: false`。两条合起来：经 `cyberboss_catalog` 加载 schema 之后，那个工具永远不会进入 CLI 的可调用工具表——真机实测 `memory_note` 调用返回 `No such tool available`。**这与两个 route2 开关无关**：`--chat-self-escalation` 只让 server 端接受越界调用，`chat-core@1` toolset 只影响目录条目的 `authorized` 标记，两者都改变不了"客户端从未被告知该工具存在"。即当前实现下 chat 窗口能真正调用的恒为那 3 个（外部 MCP 另算），与 D27-1「Chat 主体全权不减」「目录按意图主题分级、按需展开」的意图不符。
 - **Decision needed**：三选一——(a) **通用调度工具**：常驻面加一个 schema 恒定的 `cyberboss_invoke(name, args)`，模型读完说明书经它转发，鉴权与参数校验落 server 端（优点：不赌客户端是否理会工具表变更通知、tools 数组全程恒定不炸前缀缓存、只动 tool server 不碰 launch 链；代价：参数校验从客户端 schema 变成 server 端报错）；(b) 打开 `listChanged` 并在 schema 加载后推送新工具表（依赖 CLI 是否响应该通知，未实证）；(c) 承认目录只是索引，真正取用一律走 route1 派车。

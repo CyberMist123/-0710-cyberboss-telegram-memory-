@@ -6,8 +6,8 @@
   "resident_tools": [
     {
       "name": "cyberboss_catalog",
-      "schema_chars": 114,
-      "schema_bytes": 114
+      "schema_chars": 144,
+      "schema_bytes": 144
     },
     {
       "name": "cyberboss_system_send",
@@ -32,15 +32,15 @@
   },
   "totals": {
     "resident_item_count": 3,
-    "resident_schema_chars": 343,
-    "resident_schema_bytes": 343,
-    "tools_list_chars": 724,
-    "tools_list_bytes": 724
+    "resident_schema_chars": 373,
+    "resident_schema_bytes": 373,
+    "tools_list_chars": 798,
+    "tools_list_bytes": 798
   },
   "full_surface": {
     "item_count": 49,
     "schema_chars": 15810,
     "tools_list_chars": 12617
   },
-  "resident_hash": "sha256:28b71ec1759de558bec6ae8f2ad17026a142ff7df93ab230bda35e43e244094c"
+  "resident_hash": "sha256:817a56a4531a1f428b20e91399dce7e9d1fa8cce7856ac9809ad7815dba78d3f"
 }
