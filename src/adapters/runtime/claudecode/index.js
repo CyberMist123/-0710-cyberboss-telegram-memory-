@@ -209,6 +209,32 @@ function createClaudeCodeRuntimeAdapter(config) {
         .then((result) => ipcServer.reply(socket, { type: `${msg.type}.result`, requestId: msg.requestId, result }))
         .catch((error) => ipcServer.reply(socket, { type: `${msg.type}.result`, requestId: msg.requestId, error: error?.code || error?.message || "route1_task_query_failed" }));
     }
+    if (msg?.type === "route2.escalate") {
+      void Promise.resolve()
+        .then(() => {
+          if (!route2GateEnabled() || !windowOverrideEnabled()) {
+            const error = new Error("route2_escalate_disabled");
+            error.code = "route2_escalate_disabled";
+            throw error;
+          }
+          const context = msg.context || {};
+          const args = msg.args || {};
+          return adapter.grantRoute2Lease({
+            bindingKey: context.bindingKey || "",
+            workspaceRoot: context.workspaceRoot || "",
+            lane: context.lane || null,
+            launchProfile: context.launchProfile || null,
+            senderId: context.senderId || "",
+            taskId: args.taskId || "",
+            ttlMs: args.ttlMs,
+            // The built-in face is the whole point of this request, so the plan
+            // says so explicitly rather than pretending to be a tool plan.
+            plan: { ...(args.plan && typeof args.plan === "object" ? args.plan : {}), builtInFace: true },
+          });
+        })
+        .then((result) => ipcServer.reply(socket, { type: "route2.escalate.result", requestId: msg.requestId, result }))
+        .catch((error) => ipcServer.reply(socket, { type: "route2.escalate.result", requestId: msg.requestId, error: error?.code || error?.message || "route2_escalate_failed" }));
+    }
     if (msg?.type === "subject-signing.submit") {
       void Promise.resolve()
         .then(() => {
@@ -1107,7 +1133,7 @@ function createClaudeCodeRuntimeAdapter(config) {
 
   const TERMINAL_TASK_SESSION_STATES = new Set(["completed", "failed", "timed_out", "cancelled"]);
 
-  return {
+  const adapter = {
     describe() {
       return {
         id: "claudecode",
@@ -1813,6 +1839,8 @@ function createClaudeCodeRuntimeAdapter(config) {
       computeProcessKey,
     },
   };
+
+  return adapter;
 
   function hydrateRuntimeModelsFromClaudeProjects() {
     for (const binding of sessionStore.listBindings()) {

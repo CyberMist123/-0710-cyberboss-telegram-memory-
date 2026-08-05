@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { ProjectToolHost } = require("../src/tools/tool-host");
+const { ProjectToolHost, registeredProjectTools } = require("../src/tools/tool-host");
 
 function createHost(options = {}) {
   return new ProjectToolHost({
@@ -193,6 +193,7 @@ function createHost(options = {}) {
           };
         },
       },
+      ...(options.services || {}),
     },
     authorizationCeiling: options.authorizationCeiling || "",
     runtimeContextStore: {
@@ -426,4 +427,55 @@ test("tool host rejects timeline events without title or eventNodeId", async () 
       ],
     }, {});
   }, /input\.events\[0\]\.title or input\.events\[0\]\.eventNodeId is required/);
+});
+
+// D33 的升格面此前有机制没有触发方：`grantRoute2Lease` 生产零调用点，
+// 因此 `escalatedBuiltInTools` 永远换不上。这条工具就是那个缺失的触发方。
+test("route2_escalate is gated by the route 2 flag and relays the grant verdict", async () => {
+  const previous = process.env.CYBERBOSS_ROUTE2_GATE_ENABLED;
+  try {
+    delete process.env.CYBERBOSS_ROUTE2_GATE_ENABLED;
+    assert.equal(registeredProjectTools().some((tool) => tool.name === "route2_escalate"), false);
+
+    process.env.CYBERBOSS_ROUTE2_GATE_ENABLED = "1";
+    assert.equal(registeredProjectTools().some((tool) => tool.name === "route2_escalate"), true);
+
+    // 没有 IPC 客户端时 fail-closed，不静默降级成"升格成功"。
+    await assert.rejects(
+      () => createHost().invokeTool("route2_escalate", { reason: "needs to write a file" }),
+      (error) => error.code === "route2_escalate_unavailable",
+    );
+
+    const calls = [];
+    const granted = createHost({
+      services: {
+        route2Escalate: {
+          escalateRoute2: async (args, context) => {
+            calls.push({ args, context });
+            return { granted: true, lease: { id: "lease-fixture", status: "active" } };
+          },
+        },
+      },
+    });
+    const ok = await granted.invokeTool("route2_escalate", { reason: "needs to write a file", ttl_ms: 30000 });
+    assert.match(ok.text, /wide tool face is active/);
+    assert.equal(ok.data.granted, true);
+    assert.equal(calls[0].args.reason, "needs to write a file");
+    assert.equal(calls[0].args.ttlMs, 30000);
+
+    // 被闸门拒绝是一个真实答复，不是失败：她该听见"这活归 Route 1"。
+    const refused = createHost({
+      services: {
+        route2Escalate: {
+          escalateRoute2: async () => ({ granted: false, decision: { route: "route1", reasons: ["repository_work"] } }),
+        },
+      },
+    });
+    const no = await refused.invokeTool("route2_escalate", { reason: "rebuild the repo" });
+    assert.match(no.text, /repository_work/);
+    assert.match(no.text, /Route 1/);
+  } finally {
+    if (previous === undefined) delete process.env.CYBERBOSS_ROUTE2_GATE_ENABLED;
+    else process.env.CYBERBOSS_ROUTE2_GATE_ENABLED = previous;
+  }
 });

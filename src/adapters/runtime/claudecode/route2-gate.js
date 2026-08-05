@@ -22,7 +22,11 @@ function decideRoute2Gate(plan = {}, { env = process.env } = {}) {
   const namespaces = new Set(requestedNames.map((name) => namespaceOf(name)));
   const hardReasons = [];
 
-  if (!requestedNames.length) hardReasons.push("no_tools");
+  // Two different axes ride the same lease. The MCP-cost plan always names the
+  // tools it wants; a built-in face escalation (D33: "要动本地或执行命令") names
+  // none by definition, so `no_tools` would reject exactly the request the
+  // escalation exists to serve. Every other hard reason still applies.
+  if (!requestedNames.length && plan.builtInFace !== true) hardReasons.push("no_tools");
   if (entries.some((entry) => !entry)) hardReasons.push("catalog_entry_missing");
   if (entries.some((entry) => entry && entry.authorized === false)) hardReasons.push("outside_base_allowlist");
   if (entries.some((entry) => entry && !validResultLimit(entry.max_result_bytes))) hardReasons.push("unbounded_result");

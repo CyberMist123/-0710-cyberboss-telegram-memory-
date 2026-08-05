@@ -1922,3 +1922,27 @@ async function waitForFileText(filePath, pattern, timeoutMs = 1000) {
   }
   return fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : "";
 }
+
+// Route 2 用一把 lease 承载两条不同的轴：MCP 工具成本，和内建工具面。
+// 前者的 plan 必然点名工具，后者按定义一个都不点——`no_tools` 曾把后者
+// 整个挡在门外，也就是说"她想动本地文件"这类请求永远拿不到 lease。
+test("route2 gate lets a built-in face escalation through while keeping every structural hard reason", () => {
+  const on = { CYBERBOSS_ROUTE2_GATE_ENABLED: "1" };
+  const decide = (plan) => decideRoute2Gate(plan, { env: on });
+
+  assert.equal(decide({ builtInFace: true }).route, "route2");
+  assert.deepEqual(decide({ builtInFace: true }).reasons, ["within_soft_limit"]);
+
+  // 不带这面旗的空计划仍旧被拒 —— 放行的是这条轴，不是所有空计划。
+  assert.equal(decide({}).route, "route1");
+  assert.deepEqual(decide({}).reasons, ["no_tools"]);
+
+  // 结构性硬理由一条不减：这些依旧归 Route 1。
+  for (const hard of ["repositoryWork", "subagent", "parallel", "longLoop", "fullEngineeringHarness"]) {
+    const decision = decide({ builtInFace: true, [hard]: true });
+    assert.equal(decision.route, "route1", `${hard} must still route to route1`);
+  }
+
+  // 开关关闭时整条判定不存在。
+  assert.equal(decideRoute2Gate({ builtInFace: true }, { env: {} }), null);
+});
