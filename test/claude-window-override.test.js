@@ -11,6 +11,9 @@ const {
   fingerprintG3ProfileIdentity,
 } = require("../src/adapters/runtime/claudecode/launch-profile");
 const {
+  createClaudeCodeRuntimeAdapter,
+} = require("../src/adapters/runtime/claudecode");
+const {
   SessionSlotStore,
   buildSessionSlotKey,
 } = require("../src/adapters/runtime/claudecode/session-slot");
@@ -24,6 +27,7 @@ const {
   ensureRouteScopedMcpConfig,
 } = require("../src/adapters/runtime/claudecode/project-settings");
 const { sanitizeTraceEntry } = require("../src/core/context-trace");
+const { buildTelegramRouteLane } = require("../src/core/route-lane");
 const { ProjectToolHost } = require("../src/tools/tool-host");
 
 const ENABLED = { CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED: "true" };
@@ -168,6 +172,71 @@ test("T05 A2/A3 harness overlay is labelled in trace and leaves persona/memory b
   assert.equal(overlaid.match(/MEMORY_BYTES/g).length, 1);
   assert.deepEqual(resolved.trace.overlay_labels, ["route2-read"]);
   assert.equal(resolved.trace.entries.at(-1).overlay_label, "route2-read");
+});
+
+test("runtime params rebuild model and effort after the session slot is cleared", async () => {
+  const root = tempRoot();
+  const stateDir = path.join(root, "state");
+  const workspaceRoot = path.join(root, "workspace");
+  fs.mkdirSync(stateDir, { recursive: true });
+  fs.mkdirSync(workspaceRoot, { recursive: true });
+  const adapter = createClaudeCodeRuntimeAdapter({
+    stateDir,
+    sessionsFile: path.join(root, "sessions.json"),
+    claudeSessionSlotsFile: path.join(stateDir, "claude-session-slots.json"),
+  });
+  const bindingKey = "default:telegram:500";
+  const senderId = "500";
+  const lane = buildTelegramRouteLane({ accountId: "telegram", chatId: 500 });
+
+  try {
+    await withEnv(ENABLED, async () => {
+      const applied = adapter.setWindowOverride({
+        bindingKey,
+        workspaceRoot,
+        lane,
+        senderId,
+        patch: {
+          model: "claude-opus-5",
+          modelSource: "command",
+          modelScope: "window",
+          effort: "high",
+          effortSource: "command",
+          effortScope: "window",
+        },
+      });
+      const sessionStore = adapter.getSessionStore();
+      sessionStore.setRuntimeParamsForWorkspace(bindingKey, workspaceRoot, {
+        model: "claude-opus-5",
+        effort: "high",
+      });
+      assert.equal(applied.applied, true);
+      assert.equal(
+        adapter.__internals.sessionSlotStore.getWindowOverride(applied.sessionSlotKey).model,
+        "claude-opus-5",
+      );
+
+      adapter.__internals.sessionSlotStore.clear(applied.sessionSlotKey);
+      assert.equal(adapter.__internals.sessionSlotStore.getWindowOverride(applied.sessionSlotKey), null);
+
+      const turnParams = sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
+      const recovered = adapter.__internals.resolveRouteContext({
+        bindingKey,
+        workspaceRoot,
+        lane,
+        senderId,
+        model: turnParams.model,
+        effort: turnParams.effort,
+      });
+      assert.equal(recovered.model, "claude-opus-5");
+      assert.equal(recovered.effort, "high");
+      assert.equal(recovered.mutableOverride.model, "claude-opus-5");
+      assert.equal(recovered.mutableOverride.effort, "high");
+    });
+  } finally {
+    await adapter.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("T05 A4/A5 persona and permission identity rotate windows and are refused as mutable fields", () => {

@@ -11,6 +11,7 @@ const {
   resolveEffortLevel,
   resolveStrictMcpConfig,
 } = require("../src/adapters/runtime/claudecode/process-client");
+const { findModelByQuery } = require("../src/adapters/runtime/codex/model-catalog");
 const { CyberbossApp } = require("../src/core/app");
 
 // A launch built from nothing but the base runtime contract: no model, no
@@ -121,22 +122,40 @@ test("the effort level set is the CLI capability table's, not a second copy", ()
 
 // A CyberbossApp reduced to what the command handler touches: a session store
 // that persists runtime params in memory and a channel that records replies.
-function makeApp({ storedEffort = "" } = {}) {
+function makeApp({
+  storedEffort = "",
+  runtimeId = "claudecode",
+  sessionModels = [],
+  runtimeModels = [],
+  windowEnabled = false,
+} = {}) {
   const sent = [];
   const stored = { model: "", modelProvider: "", effort: storedEffort };
+  const runtimeWrites = [];
+  const windowWrites = [];
   const sessionStore = {
     buildBindingKey: () => "binding-1",
+    getAvailableModelCatalog: () => ({ models: sessionModels }),
     getRuntimeParamsForWorkspace: () => ({ ...stored }),
     setRuntimeParamsForWorkspace: (bindingKey, workspaceRoot, params) => {
+      runtimeWrites.push({ bindingKey, workspaceRoot, params: { ...params } });
       Object.assign(stored, params);
       return stored;
     },
   };
   const app = Object.create(CyberbossApp.prototype);
-  app.runtimeAdapter = { getSessionStore: () => sessionStore };
+  app.runtimeAdapter = {
+    describe: () => ({ id: runtimeId, model: "", models: runtimeModels }),
+    getSessionStore: () => sessionStore,
+    getWindowOverride: () => ({ enabled: windowEnabled, value: {} }),
+    setWindowOverride: (request) => {
+      windowWrites.push(request);
+      return { enabled: windowEnabled, applied: windowEnabled, value: request.patch };
+    },
+  };
   app.channelAdapter = { sendText: async (payload) => { sent.push(payload); } };
   app.resolveWorkspaceRoot = () => "/tmp/workspace";
-  return { app, sent, stored };
+  return { app, sent, stored, runtimeWrites, windowWrites };
 }
 
 const INBOUND = { senderId: "user-1", workspaceId: "default", accountId: "telegram", contextToken: "" };
@@ -180,6 +199,20 @@ test("/effort <level> persists the choice for this workspace and confirms it", a
   assert.match(sent[0].text, /workspace: \/tmp\/workspace/);
 });
 
+test("/effort high writes both the window override and workspace runtime params", async () => {
+  const { app, stored, runtimeWrites, windowWrites } = makeApp({ windowEnabled: true });
+  await app.handleEffortCommand(INBOUND, { name: "effort", args: "high" });
+
+  assert.equal(windowWrites.length, 1);
+  assert.deepEqual(windowWrites[0].patch, {
+    effort: "high",
+    effortSource: "command",
+    effortScope: "window",
+  });
+  assert.deepEqual(runtimeWrites.map((entry) => entry.params), [{ effort: "high" }]);
+  assert.equal(stored.effort, "high");
+});
+
 test("/effort with an unrecognised level changes nothing and prints the usage line", async () => {
   const { app, sent, stored } = makeApp({ storedEffort: "high" });
   await app.handleEffortCommand(INBOUND, { name: "effort", args: "turbo" });
@@ -197,4 +230,53 @@ test("/effort is dispatched by name and is listed in the help output", async () 
 
   const { buildWeixinHelpText } = require("../src/core/command-registry");
   assert.match(buildWeixinHelpText(), /\/effort, \/effort <level>/);
+});
+
+// --- /model command ----------------------------------------------------------
+
+const CLAUDE_MODELS = [
+  { model: "claude-fable-5", aliases: ["fable"] },
+  { model: "claude-opus-5", aliases: ["opus"] },
+  { model: "claude-sonnet-5", aliases: ["sonnet"] },
+  { model: "claude-haiku-4-5-20251001", aliases: ["haiku", "claude-haiku-4-5"] },
+];
+
+test("/model rejects an unknown Claude model, lists ids and aliases, and writes no storage", async () => {
+  const { app, sent, runtimeWrites, windowWrites } = makeApp({ runtimeModels: CLAUDE_MODELS });
+  await app.handleModelCommand(INBOUND, { name: "model", args: "claude-opus-4-6" });
+
+  assert.match(sent[0].text, /^❌ Model not found/m);
+  assert.match(sent[0].text, /claude-opus-5 \(aliases: opus\)/);
+  assert.match(sent[0].text, /claude-haiku-4-5-20251001 \(aliases: haiku, claude-haiku-4-5\)/);
+  assert.deepEqual(windowWrites, []);
+  assert.deepEqual(runtimeWrites, []);
+});
+
+test("/model resolves a Claude alias and writes both window override and runtime params", async () => {
+  const { app, sent, stored, runtimeWrites, windowWrites } = makeApp({
+    runtimeModels: CLAUDE_MODELS,
+    windowEnabled: true,
+  });
+  await app.handleModelCommand(INBOUND, { name: "model", args: " OPUS " });
+
+  assert.deepEqual(windowWrites[0].patch, {
+    model: "claude-opus-5",
+    modelSource: "command",
+    modelScope: "window",
+  });
+  assert.deepEqual(runtimeWrites.map((entry) => entry.params), [{ model: "claude-opus-5" }]);
+  assert.equal(stored.model, "claude-opus-5");
+  assert.match(sent[0].text, /scope: window/);
+  assert.match(sent[0].text, /model: claude-opus-5/);
+});
+
+test("findModelByQuery preserves Codex id and model matching when aliases are absent", () => {
+  const models = [
+    { id: "model-row-1", model: "gpt-5.2-codex" },
+    { id: "model-row-2", model: "gpt-5.3-codex" },
+  ];
+
+  assert.equal(findModelByQuery(models, "GPT-5.2-CODEX"), models[0]);
+  assert.equal(findModelByQuery(models, "MODEL-ROW-2"), models[1]);
+  assert.equal(findModelByQuery(models, "opus"), null);
 });
