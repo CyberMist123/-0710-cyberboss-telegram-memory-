@@ -9,6 +9,59 @@ const {
   ensureRouteScopedMcpConfig,
   buildClaudeProjectMcpServerConfig,
 } = require("../src/adapters/runtime/claudecode/project-settings");
+// The *child-side* reader, on purpose: this file's job here is to prove the two
+// sides of the process boundary agree about what "on" means.
+const { subjectSigningEnabled } = require("../src/tools/tool-catalog-manifest");
+
+function withEnv(values, run) {
+  const saved = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]));
+  for (const [key, value] of Object.entries(values)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try { return run(); } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+test("the subject signing switch survives the bridge -> tool server hop in the deployment's own form", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-signing-hop-"));
+  const workspaceRoot = path.join(root, "workspace");
+  const cyberbossHome = path.join(root, "cyberboss-home");
+  fs.mkdirSync(workspaceRoot, { recursive: true });
+  fs.mkdirSync(path.join(cyberbossHome, "bin"), { recursive: true });
+  fs.writeFileSync(path.join(cyberbossHome, "bin", "cyberboss.js"), "#!/usr/bin/env node\n", "utf8");
+  const launchProfile = { schemaVersion: 3, profileId: "fable-chat" };
+  try {
+    // Production writes `=1` -- the form every other switch in telegram.env
+    // uses. Anything narrower than "accepts 1" is the 2026-08-05 defect.
+    for (const deploymentForm of ["1", "true", "TRUE", "yes", "on"]) {
+      withEnv({ CYBERBOSS_SUBJECT_SIGNING_ENABLED: deploymentForm }, () => {
+        const entry = buildClaudeProjectMcpServerConfig({ workspaceRoot, cyberbossHome, routeToken: "route", launchProfile });
+        assert.equal(
+          subjectSigningEnabled(entry.env), true,
+          `bridge forwarded a value the tool server rejects (deployment wrote ${deploymentForm})`,
+        );
+        // The tool server also loads the deployment env file (override), so the
+        // forwarded value is replaced by the file's own form a moment later.
+        // Both must mean the same thing or the tool silently disappears.
+        assert.equal(
+          subjectSigningEnabled({ ...entry.env, CYBERBOSS_SUBJECT_SIGNING_ENABLED: deploymentForm }), true,
+          `env-file override of ${deploymentForm} turned the switch off`,
+        );
+      });
+    }
+    for (const off of ["0", "false", "no", "off", ""]) {
+      withEnv({ CYBERBOSS_SUBJECT_SIGNING_ENABLED: off }, () => {
+        const entry = buildClaudeProjectMcpServerConfig({ workspaceRoot, cyberbossHome, routeToken: "route", launchProfile });
+        assert.equal(entry.env?.CYBERBOSS_SUBJECT_SIGNING_ENABLED, undefined, `"${off}" must not be forwarded as on`);
+      });
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
 
 test("ensureClaudeProjectMcpConfig upserts cyberboss MCP server into workspace .mcp.json", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-claude-settings-"));

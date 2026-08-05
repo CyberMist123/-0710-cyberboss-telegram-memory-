@@ -3,6 +3,7 @@ const path = require("path");
 const dotenv = require("dotenv");
 
 const { readConfig } = require("./core/config");
+const { envFlagEnabled } = require("./core/env-flag");
 const { validateStartupPreflight } = require("./core/startup-preflight");
 const { renderInstructionTemplate } = require("./core/instructions-template");
 const { CyberbossApp } = require("./core/app");
@@ -177,14 +178,14 @@ async function main() {
       || (typeof process.env.CYBERBOSS_ROUTE_TOKEN === "string" ? process.env.CYBERBOSS_ROUTE_TOKEN.trim() : "");
     const toolset = readFlagValue(argv.slice(1), "--toolset")
       || (typeof process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET === "string" ? process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET.trim() : "");
-    if (toolset && process.env.CYBERBOSS_TOOL_CATALOG_ENABLED !== "true") throw new Error("catalog_disabled_toolset_not_accepted");
+    if (toolset && !envFlagEnabled("CYBERBOSS_TOOL_CATALOG_ENABLED")) throw new Error("catalog_disabled_toolset_not_accepted");
     if (toolset) require("./tools/tool-catalog-manifest").resolveToolset(toolset);
     const authorizationCeiling = readFlagValue(argv.slice(1), "--authorization-ceiling") || "";
     const chatSelfEscalation = argv.slice(1).includes("--chat-self-escalation")
-      && /^(?:1|true|yes|on)$/i.test(String(process.env.CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED || "").trim());
+      && envFlagEnabled("CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED");
     const route2LeaseToken = readFlagValue(argv.slice(1), "--route2-lease") || "";
     let route2Lease = null;
-    if (route2LeaseToken && /^(?:1|true|yes|on)$/i.test(String(process.env.CYBERBOSS_ROUTE2_GATE_ENABLED || "").trim())) {
+    if (route2LeaseToken && envFlagEnabled("CYBERBOSS_ROUTE2_GATE_ENABLED")) {
       try {
         route2Lease = JSON.parse(Buffer.from(route2LeaseToken, "base64url").toString("utf8"));
       } catch {

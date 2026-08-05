@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const { envFlagEnabled } = require("../../../core/env-flag");
 const { normalizeEffort, resolveEffortLevel } = require("./process-client");
 
 const WINDOW_OVERRIDE_FLAG = "CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED";
@@ -19,11 +20,11 @@ class WindowOverrideError extends Error {
 }
 
 function windowOverrideEnabled(env = process.env) {
-  return /^(?:1|true|yes|on)$/i.test(String(env?.[WINDOW_OVERRIDE_FLAG] || "").trim());
+  return envFlagEnabled(WINDOW_OVERRIDE_FLAG, env);
 }
 
 function route2GateEnabled(env = process.env) {
-  return /^(?:1|true|yes|on)$/i.test(String(env?.CYBERBOSS_ROUTE2_GATE_ENABLED || "").trim());
+  return envFlagEnabled("CYBERBOSS_ROUTE2_GATE_ENABLED", env);
 }
 
 function resolveWindowOverride(input = {}, { profile = null, env = process.env } = {}) {
