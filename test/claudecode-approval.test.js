@@ -1923,26 +1923,29 @@ async function waitForFileText(filePath, pattern, timeoutMs = 1000) {
   return fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : "";
 }
 
-// Route 2 用一把 lease 承载两条不同的轴：MCP 工具成本，和内建工具面。
-// 前者的 plan 必然点名工具，后者按定义一个都不点——`no_tools` 曾把后者
-// 整个挡在门外，也就是说"她想动本地文件"这类请求永远拿不到 lease。
-test("route2 gate lets a built-in face escalation through while keeping every structural hard reason", () => {
+// 这个闸门是**省 token 的路由器，不是权限闸**（D13 / 不变量 3：chat 全权不减）。
+// 它曾把"没点名任何 MCP 工具"的计划判成 no_tools 硬理由送去 Route 1 ——
+// 而那恰好是最省的一种计划，也正是"她只想要宽工具面"的形状。以省 token 之名
+// 削掉行动能力，方向是反的。
+test("route2 gate routes by cost, never denies capability for naming no tools", () => {
   const on = { CYBERBOSS_ROUTE2_GATE_ENABLED: "1" };
   const decide = (plan) => decideRoute2Gate(plan, { env: on });
 
-  assert.equal(decide({ builtInFace: true }).route, "route2");
-  assert.deepEqual(decide({ builtInFace: true }).reasons, ["within_soft_limit"]);
+  // 空计划留在 chat：最省的计划不该被赶去 Route 1。
+  assert.equal(decide({}).route, "route2");
+  assert.deepEqual(decide({}).reasons, ["within_soft_limit"]);
 
-  // 不带这面旗的空计划仍旧被拒 —— 放行的是这条轴，不是所有空计划。
-  assert.equal(decide({}).route, "route1");
-  assert.deepEqual(decide({}).reasons, ["no_tools"]);
-
-  // 结构性硬理由一条不减：这些依旧归 Route 1。
+  // 结构性硬理由一条不减 —— 这些是真的做不动或真的贵，不是权限判断。
   for (const hard of ["repositoryWork", "subagent", "parallel", "longLoop", "fullEngineeringHarness"]) {
-    const decision = decide({ builtInFace: true, [hard]: true });
-    assert.equal(decision.route, "route1", `${hard} must still route to route1`);
+    assert.equal(decide({ [hard]: true }).route, "route1", `${hard} must still route to route1`);
   }
+  assert.equal(decide({ expectedContextTokens: 999999 }).route, "route1");
+  assert.deepEqual(decide({ expectedContextTokens: 999999 }).reasons, ["context_hard_limit"]);
+
+  // 点了名的工具仍须有服务端字节预算，否则结果无界。
+  const unbounded = { catalog: [{ id: "x", authorized: true, max_result_bytes: null, estimated_schema_chars: 10 }], toolNames: ["x"] };
+  assert.deepEqual(decide(unbounded).reasons, ["unbounded_result"]);
 
   // 开关关闭时整条判定不存在。
-  assert.equal(decideRoute2Gate({ builtInFace: true }, { env: {} }), null);
+  assert.equal(decideRoute2Gate({}, { env: {} }), null);
 });

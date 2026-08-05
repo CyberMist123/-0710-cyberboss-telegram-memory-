@@ -227,9 +227,7 @@ function createClaudeCodeRuntimeAdapter(config) {
             senderId: context.senderId || "",
             taskId: args.taskId || "",
             ttlMs: args.ttlMs,
-            // The built-in face is the whole point of this request, so the plan
-            // says so explicitly rather than pretending to be a tool plan.
-            plan: { ...(args.plan && typeof args.plan === "object" ? args.plan : {}), builtInFace: true },
+            plan: args.plan && typeof args.plan === "object" ? args.plan : {},
           });
         })
         .then((result) => ipcServer.reply(socket, { type: "route2.escalate.result", requestId: msg.requestId, result }))
