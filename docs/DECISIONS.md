@@ -584,6 +584,8 @@ Decision date: 2026-08-05
 
 后一条是 Owner 2026-08-05 的口径澄清，值得单独记住：**Route 1 存在是为了省 token（少暴露工具），不是为了限制权限**。闸门是成本路由器，不是权限闸。"没点名任何 MCP 工具"恰恰是最省的一种计划，也正是"她只想要宽工具面"的形状——把它判去 Route 1 等于以省 token 之名削掉行动能力，与 D13 和不变量 3（chat 全权不减）方向相反。结构性硬理由（repositoryWork / subagent / parallel / longLoop / fullEngineeringHarness / 上下文硬顶 / 无界结果）一条不减，那些是"真的做不动或真的贵"，不是权限判断。本条语义不变，补的是从未接上的那根线。
 
+> **补注二（2026-08-05，Owner 口径）**：本条「默认给轻查阅（`Read`/`Glob`/`Grep`/`WebFetch`/`WebSearch`）」的取值已改为**默认面含写入**——生产 profile 的 `builtInTools` 加入 `Write` 与 `Edit`。理由是 Owner 对"省 token"的口径澄清：**省的是工具 schema 的字数（不加载全量目录），不是她的行动能力**。写入是轻量操作，两个工具的 schema 合计不过几百字节，而它是她保存任何东西的唯一出口；把它排除在默认面外，省下的字数微不足道，代价是"存个文件都要派车"。**升格（`escalatedBuiltInTools` + `route2_escalate`）的适用面因此收敛为真正贵的那类**：`Bash`、子代理、全功能 coding harness。本条的两档结构与"升格是 launch 变更、落在任务起点"均不变，变的只是默认档的取值。实测：加入前后 `launchFingerprint` 逐字节相同（`e209aeea65e8cbf5…`），**session slot 未轮换**，活体 argv 为 `--tools Read,Glob,Grep,Write,Edit,WebFetch,WebSearch` 且 `--resume` 仍是同一个 session id。
+
 ---
 
 ## D34 · 目录工具的调用通路 = catalog invoke 转发；广播面恒定 3 工具
