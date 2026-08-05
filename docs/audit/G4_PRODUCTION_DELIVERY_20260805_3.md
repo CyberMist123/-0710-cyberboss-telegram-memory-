@@ -100,3 +100,29 @@ PowerShell 跑 `phase1-offline.yml` 全部 13 组，逐组 `exit=0`，另加 `no
 只回其中一层都会 fail-closed（第四节已实测两个方向）。descriptor 的 `deployed_sha` 回填 `a0e9e8a…`，备份在 `descriptor.startup.json.bak-20260805-d8-predeploy`。
 
 只想关目录、不回滚代码：删 `telegram.env` 那一行重启即可——代码侧目录关闭时与基线逐字兼容（`test:catalog-metering` 的 A1 用例钉着）。
+
+---
+
+## 八、行为面真机验收（2026-08-05 21:17，Owner 在场）——D34 完整落地
+
+第五节留的那个缺口（"她自己会不会用"）当天即补齐。三项，**全程未向她提示 catalog 的存在或用法**，三个目标工具**都不在常驻 3 项里**，只能经 catalog invoke 到达：
+
+| # | 让她做的事 | 目标工具 | 独立核实的证据 |
+|---|---|---|---|
+| 1 | 记一句日记 | `cyberboss_diary_append` | `runtime\telegram\state\diary\2026-08-05.md` 实文件落盘，含 `## 21:17` 与正文 |
+| 2 | 除正常回复外再单独发一条 Telegram | `cyberboss_telegram_send` | Owner 侧真实收到该条消息 |
+| 3 | 翻档查「测试」 | `memory_lookup` | `memory\recall_log.jsonl` 记 `{"ts":"2026-08-05T11:17:56Z","trigger":"user_pull","query":"测试","hit_ids":["ep003","ep009"]}`，lookup 预算 `4→3→2` 单调递减；她复述的两条 episode 内容与 `hit_ids` 对得上 |
+
+期间 `cyberboss.err.log` **零新增**（仍停在 20:47 那条失败启动，size 24024），watchdog 21:18 仍 `healthy … pid 16244`。
+
+**观察项 F/G/H 结论**（判据见 `workdesk\20260805-canary2-addendum-d34-tg.md`）：F 通过——她自己走完了"翻主题 → 拿 handle → 带 arguments 调"，没有卡在"看得到调不了"。H 通过——广播面全程恒 3 项。因此 `DECISIONS.md` C9（`listChanged` 动态注册二期）**当前无需启动**，其触发判据"转发式调用质量不佳"未成立。
+
+另一路旁证：工程窗自身的 MCP 工具面在开关打开后同样塌成 `cyberboss_catalog` 一项，其余工具全部从工具表消失——与她那一侧观察一致。
+
+**故本能力生产接线由 `DISABLED` 直升 `VERIFIED`。**
+
+## 九、顺带发现（不属本次交付，未处理）
+
+1. **`weather` 在生产不可用**：`CYBERBOSS_AMAP_WEATHER_KEY is required`，生产 env 无此 key。该能力本就挂 `DECISIONS.md` C1（能力归属待裁决），此处只补一条真机实证。
+2. **`cyberboss_reminder` 在 Telegram lane 上不可用**：`ReminderService` 整条走微信（`resolveSelectedAccount` + 微信 context-token + 微信 queue store），无微信用户即抛 `Cannot determine the WeChat user for this reminder.`。发送类的 sticker / channel_file 同理走 `sendToCurrentChat`（微信语义）。
+3. **`CYBERBOSS_TIMEZONE` 未设，应用时区回落到宿主**：宿主为 `AUS Eastern Standard Time (UTC+10)`。`recall_log` 的 UTC 时间戳与本机时钟自洽（11:17Z ↔ 本地 21:17），**不是记录说谎**；但"本地时间"这一口径当前是隐式随宿主的，`src/utils/beijing-time.js` 的命名会让人误以为固定北京。若宿主时区就是预期，建议显式设 `CYBERBOSS_TIMEZONE` 把它从隐式变成声明。
