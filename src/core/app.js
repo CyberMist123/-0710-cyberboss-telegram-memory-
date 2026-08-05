@@ -128,8 +128,21 @@ class CyberbossApp {
       ? this.telegramChannelAdapter
       : this.weixinChannelAdapter;
     this.timelineIntegration = createTimelineIntegration(config);
+    // The registry has always collected diagnostics into an in-process array
+    // that nothing ever read, and its `onDiagnostic` hook was never wired -- so
+    // every refusal to issue a capability was invisible from outside the
+    // process. Surface the first occurrence of each code: enough to name the
+    // cause in the log, quiet enough that per-turn codes (`non_subject_lane`
+    // fires on every non-tg turn) cannot flood it.
+    const seenSigningDiagnostics = new Set();
     this.subjectCapabilityRegistry = new SubjectCapabilityRegistry({
       enabled: config.subjectSigningEnabled === true,
+      onDiagnostic: (event) => {
+        const code = event?.code || "subject_signing_failed";
+        if (seenSigningDiagnostics.has(code)) return;
+        seenSigningDiagnostics.add(code);
+        console.warn(`[subject-signing] ${code} (first occurrence this process)`);
+      },
     });
     this.subjectCapabilityByRunKey = new Map();
     const projectTooling = createProjectTooling(config, {
@@ -1382,7 +1395,21 @@ class CyberbossApp {
     try {
       const subjectTurnId = normalizeText(turn?.turnId);
       const sourceEntryId = normalizeText(prepared?.subjectSourceEntryId);
-      if (!subjectTurnId || !sourceEntryId) return null;
+      // Fail-open, but never silent. This branch swallowed the only symptom of a
+      // real defect: the provenance is attached to the inbound message as a
+      // non-enumerable property, and every rebuild of that message used to drop
+      // it, so `sourceEntryId` was always empty and no capability was ever
+      // issued. The child then died at `subject_signing_turn_unknown` -- a code
+      // that points at the lookup, not at the cause. Distinct codes so the next
+      // one of these is a log read, not an excavation.
+      if (!subjectTurnId) {
+        this.subjectCapabilityRegistry.recordDiagnostic?.("subject_turn_id_missing");
+        return null;
+      }
+      if (!sourceEntryId) {
+        this.subjectCapabilityRegistry.recordDiagnostic?.("subject_source_entry_id_missing");
+        return null;
+      }
       const currentIdentity = buildCurrentSubjectRouteIdentity({
         app: this,
         bindingKey,
