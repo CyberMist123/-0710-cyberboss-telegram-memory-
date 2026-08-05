@@ -55,14 +55,8 @@ function makeProfile(root, cwd, configRoot = path.join(root, "work-profile")) {
     skillsMode: "enabled",
     settings: [settings],
     personaSource,
-    residentToolSchemas: ["engineering-tools"],
-    mcpServerCeiling: "work-ceiling@1",
-    toolsetCeiling: "work-ceiling@1",
-    defaultMcpServerSet: "work-base@1",
-    defaultToolset: "work-full@1",
     strictMcpConfig: true,
     permissionMode: "work-engineering-full",
-    envPolicy: "work-engineering",
   };
 }
 

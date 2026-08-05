@@ -158,15 +158,7 @@ function subjectSigningEnabled(env = process.env) {
 
 function resolveAllowedExternalMcpServerConfigs(launchProfile, mutableOverride = null) {
   const available = resolveClaudeExternalMcpServerConfigs();
-  let allowed;
-  if (launchProfile?.schemaVersion !== 3) allowed = available;
-  else if (launchProfile.mcpServerCeiling === "chat-ceiling@2") allowed = available;
-  else if (launchProfile.mcpServerCeiling === "work-ceiling@1") allowed = available;
-  else {
-    const error = new Error("g3_mcp_server_ceiling_unknown");
-    error.code = "g3_mcp_server_ceiling_unknown";
-    throw error;
-  }
+  const allowed = available;
   if (!Array.isArray(mutableOverride?.effectiveMcpSet)) return allowed;
   const requested = new Set(mutableOverride.effectiveMcpSet.filter((name) => name !== "cyberboss_tools"));
   const known = new Set(allowed.map((config) => config.name));

@@ -66,27 +66,43 @@ const G3_PROFILE_FIELDS = Object.freeze(new Set([
   "settingSources",
   "skillsMode",
   "personaSource",
-  "residentToolSchemas",
-  "mcpServerCeiling",
-  "toolsetCeiling",
-  "defaultMcpServerSet",
-  "defaultToolset",
   "permissionMode",
-  "envPolicy",
   "escalatedBuiltInTools",
 ]));
 
 const G3_PROFILE_SCHEMA_VERSION = 3;
 const G3_PROFILE_IDS = Object.freeze(["fable-chat", "work-engineering"]);
-const G3_MCP_SERVER_CEILINGS = Object.freeze(["chat-ceiling@2", "work-ceiling@1"]);
-const G3_TOOLSET_CEILINGS = Object.freeze(["chat-ceiling@1", "work-ceiling@1"]);
 const G3_PERMISSION_MODES = Object.freeze([
   "chat-native-bypass",
   "work-engineering-full",
 ]);
-const G3_ENV_POLICIES = Object.freeze(["chat-minimal", "work-engineering"]);
 const G3_RESIDENT_TOOL_SCHEMAS = Object.freeze(["cyberboss_system_send", "cyberboss_time"]);
 const G3_HARNESS_MODES = Object.freeze(["bare", "chat-subscription", "engineering"]);
+
+const G3_CONTRACT_DEFAULTS = Object.freeze({
+  "fable-chat": Object.freeze({
+    residentToolSchemas: G3_RESIDENT_TOOL_SCHEMAS,
+    mcpServerCeiling: "chat-ceiling@2",
+    toolsetCeiling: "chat-ceiling@1",
+    envPolicy: "chat-minimal",
+    defaultToolset: "chat-core@1",
+    defaultMcpServerSet: "chat-base@1",
+  }),
+  "work-engineering": Object.freeze({
+    mcpServerCeiling: "work-ceiling@1",
+    toolsetCeiling: "work-ceiling@1",
+    envPolicy: "work-engineering",
+    defaultToolset: "work-full@1",
+    defaultMcpServerSet: "work-base@1",
+  }),
+});
+
+function g3ContractDefaults(profileId) {
+  if (!G3_PROFILE_IDS.includes(profileId)) {
+    throw new LaunchProfileError("profileId is not a managed G3 identity", "g3_profile_identity_unknown");
+  }
+  return G3_CONTRACT_DEFAULTS[profileId];
+}
 
 // Harness modes whose persona is delivered as the session's system prompt.
 //
@@ -995,19 +1011,20 @@ function buildLaunchTelemetry(profile, {
       native_session_present: false,
     };
     if (profileContractEnabledFor(profile)) {
+      const defaults = g3ContractDefaults(profile.profileId);
       Object.assign(telemetry, {
         harness_mode: profile.harnessMode,
         setting_sources_shape: profile.settingSources.join("+"),
         skills_mode: profile.skillsMode,
         settings_count: profile.settings?.length || 0,
-        mcp_server_set_id: hashToken(profile.defaultMcpServerSet),
-        toolset_ceiling_id: hashToken(profile.toolsetCeiling),
+        mcp_server_set_id: hashToken(defaults.defaultMcpServerSet),
+        toolset_ceiling_id: hashToken(defaults.toolsetCeiling),
         effective_mcp_set_id: mutableOverride
           ? mutableOverride.trace.entries.find((item) => item.kind === "effective_mcp_set")?.effective_token || ""
-          : hashToken(profile.defaultMcpServerSet),
+          : hashToken(defaults.defaultMcpServerSet),
         effective_toolset_id: mutableOverride
           ? mutableOverride.trace.entries.find((item) => item.kind === "effective_toolset")?.effective_token || ""
-          : hashToken(profile.defaultToolset),
+          : hashToken(defaults.defaultToolset),
         model_source: mutableOverride
           ? mutableOverride.trace.entries.find((item) => item.kind === "model")?.source || "runtime"
           : (profile.model ? "profile_default" : "runtime"),
@@ -1131,15 +1148,7 @@ function validateG3ProfileContract(profile, normalized, { baseDir, fs = fsApi } 
       throw new LaunchProfileError("settingSources contains an unsupported source", "g3_setting_source_invalid");
     }
   }
-  normalized.residentToolSchemas = normalizeStringList(profile.residentToolSchemas, {
-    field: "residentToolSchemas", maxItems: 8, maxLength: LIMITS.builtInToolName,
-  });
-  normalized.mcpServerCeiling = enumField(profile.mcpServerCeiling, "mcpServerCeiling", G3_MCP_SERVER_CEILINGS);
-  normalized.toolsetCeiling = enumField(profile.toolsetCeiling, "toolsetCeiling", G3_TOOLSET_CEILINGS);
-  normalized.defaultMcpServerSet = nonEmptyBoundedString(profile.defaultMcpServerSet, "defaultMcpServerSet", 64);
-  normalized.defaultToolset = nonEmptyBoundedString(profile.defaultToolset, "defaultToolset", 64);
   normalized.permissionMode = enumField(profile.permissionMode, "permissionMode", G3_PERMISSION_MODES);
-  normalized.envPolicy = enumField(profile.envPolicy, "envPolicy", G3_ENV_POLICIES);
   if (profile.escalatedBuiltInTools !== undefined) {
     normalized.escalatedBuiltInTools = normalizeStringList(profile.escalatedBuiltInTools, {
       field: "escalatedBuiltInTools",
@@ -1164,14 +1173,10 @@ function validateG3ProfileContract(profile, normalized, { baseDir, fs = fsApi } 
   }
   const expected = fable ? {
     harnessMode: "chat-subscription", skillsMode: "disabled", settingSources: ["user"],
-    residentToolSchemas: G3_RESIDENT_TOOL_SCHEMAS, mcpServerCeiling: "chat-ceiling@2",
-    toolsetCeiling: "chat-ceiling@1", permissionMode: "chat-native-bypass",
-    envPolicy: "chat-minimal",
+    permissionMode: "chat-native-bypass",
   } : {
     harnessMode: "engineering", skillsMode: "enabled", settingSources: ["user", "project", "local"],
-    mcpServerCeiling: "work-ceiling@1",
-    toolsetCeiling: "work-ceiling@1", permissionMode: "work-engineering-full",
-    envPolicy: "work-engineering",
+    permissionMode: "work-engineering-full",
   };
   for (const [field, value] of Object.entries(expected)) {
     const actual = normalized[field];
@@ -1193,6 +1198,7 @@ function fileDigest(filePath, fs = fsApi) {
 }
 
 function fingerprintG3ProfileIdentity(profile, { fs = fsApi } = {}) {
+  const defaults = g3ContractDefaults(profile.profileId);
   const identity = {
     schemaVersion: profile.schemaVersion,
     profileId: profile.profileId,
@@ -1203,10 +1209,10 @@ function fingerprintG3ProfileIdentity(profile, { fs = fsApi } = {}) {
     skillsMode: profile.skillsMode,
     settings: (profile.settings || []).map((filePath) => fileDigest(filePath, fs)),
     persona: fileDigest(profile.personaSource, fs),
-    mcpServerCeiling: profile.mcpServerCeiling,
-    toolsetCeiling: profile.toolsetCeiling,
+    mcpServerCeiling: defaults.mcpServerCeiling,
+    toolsetCeiling: defaults.toolsetCeiling,
     permissionMode: profile.permissionMode,
-    envPolicy: profile.envPolicy,
+    envPolicy: defaults.envPolicy,
   };
   return crypto.createHash("sha256").update(stableStringify(identity), "utf8").digest("hex");
 }
@@ -1246,6 +1252,7 @@ module.exports = {
   canonicalProfileId,
   fingerprintLaunchProfile,
   fingerprintG3ProfileIdentity,
+  g3ContractDefaults,
   personaDeliveredAsSystemPrompt,
   profileLogicalIdentity,
   resolveG3PreflightEnabled,

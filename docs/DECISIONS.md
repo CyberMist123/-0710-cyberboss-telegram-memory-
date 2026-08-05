@@ -560,6 +560,7 @@ Decision date: 2026-08-05
 - **不变的**：toolsetCeiling `chat-ceiling@1`（cyberboss_tools 初始装载面，见 D27-1）、residentToolSchemas 三项常驻、configRoot/session slot/fingerprint 隔离、signing/catalog env 按 fable-chat 作用域转发（D31、#154/#156）。work-engineering 契约与 role card 路径不动。
 
 > **补注（2026-08-05，D33）**：本条的两处**实现手段**已被 D33 修订——persona 不再依附 `--bare`（该模式下 CLI 只认 API key，订阅登录永不被读），内建工具面也不再是"不发 `--tools`、全量"。本条的**语义**（人格是系统层、权限对齐原生、外部 MCP 从禁改配）不变。
+> **再补注（2026-08-05，本车）**：本条点名的 `chat-ceiling@2` 等概念语义不变，只是不再作为 profile 配置字段存在，改由 `profileId` 在代码中派生；G3 契约形状因此收窄六个字段。
 
 ---
 

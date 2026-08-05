@@ -54,14 +54,8 @@ function managedProfile(root, extra = {}) {
     personaSource,
     builtInTools: ["Read", "WebFetch"],
     escalatedBuiltInTools: ["default"],
-    residentToolSchemas: ["cyberboss_system_send", "cyberboss_time"],
-    mcpServerCeiling: "chat-ceiling@2",
-    toolsetCeiling: "chat-ceiling@1",
-    defaultMcpServerSet: "chat-base@1",
-    defaultToolset: "chat-core@1",
     strictMcpConfig: true,
     permissionMode: "chat-native-bypass",
-    envPolicy: "chat-minimal",
     ...extra,
   };
 }
@@ -98,6 +92,15 @@ test("T05 A1/A2 four mutable values change launch behavior while the slot resume
       CYBERBOSS_CLAUDE_G3_PREFLIGHT_ENABLED: "true",
     }, () => {
       const profile = managedProfile(root);
+      const baseline = resolveWindowOverride({}, { profile, env: ENABLED });
+      assert.deepEqual(
+        baseline.trace.entries.filter((entry) => ["effective_toolset", "effective_mcp_set"].includes(entry.kind))
+          .map((entry) => [entry.kind, entry.effective_value, entry.source]),
+        [
+          ["effective_toolset", "chat-core@1", "profile_default"],
+          ["effective_mcp_set", "chat-base@1", "profile_default"],
+        ],
+      );
       const identity = fingerprintG3ProfileIdentity(profile);
       const slotKey = buildSessionSlotKey({ workspaceRoot: root, laneKey: "lane-a", profileFingerprint: identity });
       const store = new SessionSlotStore({ filePath: path.join(root, "slots.json") });
