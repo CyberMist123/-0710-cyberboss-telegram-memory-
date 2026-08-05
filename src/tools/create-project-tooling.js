@@ -1,3 +1,4 @@
+const { createTelegramChannelAdapter } = require("../adapters/channel/telegram");
 const { createWeixinChannelAdapter } = require("../adapters/channel/weixin");
 const { SessionStore } = require("../adapters/runtime/codex/session-store");
 const { createTimelineIntegration } = require("../integrations/timeline");
@@ -27,12 +28,30 @@ const { WhereaboutsService } = require("whereabouts-mcp");
 const { Route1DispatchIpcClient, route1DispatchEnabled } = require("../orchestration/route1-dispatch");
 const { route2GateEnabled } = require("./tool-catalog-manifest");
 
+// The tool-mcp-server child builds its own tooling and passes no adapter, so
+// this default is the only channel decision that path makes. Hardcoding WeChat
+// here sent every channel-bound tool (sticker send, channel file send, the
+// sticker save receipt) out the WeChat exit while the deployment ran on
+// Telegram, which surfaced as `No saved WeChat account was found`. The child
+// gets the deployment env forwarded via CYBERBOSS_ENV_FILE, so `config.channel`
+// is populated there just like in the main app.
+function createConfiguredChannelAdapter(config) {
+  if (normalizeChannel(config?.channel) === "telegram") {
+    return createTelegramChannelAdapter(config);
+  }
+  return createWeixinChannelAdapter(config);
+}
+
+function normalizeChannel(value) {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
 function createProjectTooling(config, options = {}) {
   const sessionStore = options.sessionStore || new SessionStore({
     filePath: config.sessionsFile,
     runtimeId: config.runtime || "codex",
   });
-  const channelAdapter = options.channelAdapter || createWeixinChannelAdapter(config);
+  const channelAdapter = options.channelAdapter || createConfiguredChannelAdapter(config);
   const timelineIntegration = options.timelineIntegration || createTimelineIntegration(config);
   const runtimeContextStore = options.runtimeContextStore || new RuntimeContextStore({
     filePath: config.projectToolContextFile,

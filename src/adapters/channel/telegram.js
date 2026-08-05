@@ -272,6 +272,34 @@ function createTelegramChannelAdapter(config) {
       }, Math.max(TELEGRAM_REQUEST_TIMEOUT_MS, 20_000), { allowEmptyJson: true });
       writeTelegramLog(config, `sendPhoto ok userId=${normalizeText(userId)} thread=${threadId ?? "-"} path=${normalizedPath}`);
     },
+    // Stickers are stored as normalized GIFs. sendDocument would deliver one as
+    // a downloadable attachment; sendAnimation is the API that makes Telegram
+    // render it inline and looping, which is what a sticker has to look like in
+    // the chat. Native sendSticker is deliberately not used -- it wants
+    // .webp/.tgs/.webm and would reject the local GIF library.
+    async sendAnimation({ userId, filePath, caption = "", messageThreadId = null }) {
+      if (!token) {
+        throw new Error("telegram bot token missing");
+      }
+      const normalizedPath = normalizeText(filePath);
+      if (!userId || !normalizedPath) {
+        throw new Error("telegram sendAnimation requires userId and filePath");
+      }
+      const threadId = resolveOutboundThreadId(messageThreadId);
+      const form = new FormData();
+      form.append("chat_id", String(userId));
+      appendThreadIdToForm(form, threadId);
+      const normalizedCaption = normalizeText(caption);
+      if (normalizedCaption) {
+        form.append("caption", normalizedCaption);
+      }
+      form.append("animation", new Blob([fs.readFileSync(normalizedPath)], { type: "image/gif" }), path.basename(normalizedPath));
+      await fetchJsonWithRetry(`https://api.telegram.org/bot${token}/sendAnimation`, {
+        method: "POST",
+        body: form,
+      }, Math.max(TELEGRAM_REQUEST_TIMEOUT_MS, 20_000), { allowEmptyJson: true });
+      writeTelegramLog(config, `sendAnimation ok userId=${normalizeText(userId)} thread=${threadId ?? "-"} path=${normalizedPath}`);
+    },
     async sendText({ userId, text, messageThreadId = null }) {
       if (!token) {
         throw new Error("telegram bot token missing");
