@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { resolveExternalMcpServerConfigs } = require("../../../tools/external-mcp-config");
+const { envFlagEnabled, isEnabledFlagValue } = require("../../../core/env-flag");
 
 /**
  * Per-route MCP configuration.
@@ -124,8 +125,8 @@ function buildClaudeProjectMcpServerConfig({
   const toolset = mutableOverride?.effectiveToolset && mutableOverride.effectiveToolset !== "full"
     ? mutableOverride.effectiveToolset
     : (typeof process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET === "string" ? process.env.CYBERBOSS_TOOL_CATALOG_TOOLSET.trim() : "");
-  const catalogEnabled = entry.env?.CYBERBOSS_TOOL_CATALOG_ENABLED === "true"
-    || process.env.CYBERBOSS_TOOL_CATALOG_ENABLED === "true";
+  const catalogEnabled = isEnabledFlagValue(entry.env?.CYBERBOSS_TOOL_CATALOG_ENABLED)
+    || envFlagEnabled("CYBERBOSS_TOOL_CATALOG_ENABLED");
   if (catalogEnabled && toolset) args.push("--toolset", toolset);
   if (mutableOverride && launchProfile?.profileId === "fable-chat") {
     args.push("--chat-self-escalation");
@@ -148,11 +149,11 @@ function buildClaudeProjectMcpServerConfig({
 }
 
 function route2GateEnabled(env = process.env) {
-  return /^(?:1|true|yes|on)$/i.test(String(env.CYBERBOSS_ROUTE2_GATE_ENABLED || "").trim());
+  return envFlagEnabled("CYBERBOSS_ROUTE2_GATE_ENABLED", env);
 }
 
 function subjectSigningEnabled(env = process.env) {
-  return /^(?:1|true|yes|on)$/i.test(String(env.CYBERBOSS_SUBJECT_SIGNING_ENABLED || "").trim());
+  return envFlagEnabled("CYBERBOSS_SUBJECT_SIGNING_ENABLED", env);
 }
 
 function resolveAllowedExternalMcpServerConfigs(launchProfile, mutableOverride = null) {

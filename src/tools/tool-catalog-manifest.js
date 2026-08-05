@@ -1,5 +1,7 @@
 "use strict";
 
+const { envFlagEnabled } = require("../core/env-flag");
+
 const CATEGORIES = ["memory", "tool", "mcp", "skill"];
 const RESIDENT_NAMES = ["cyberboss_system_send", "cyberboss_time"];
 const TOOLSETS = { "chat-core@1": ["memory_lookup", "memory_note", "cyberboss_reminder", "cyberboss_diary_append", "cyberboss_system_send", "cyberboss_time"] };
@@ -71,9 +73,12 @@ const TOOL_MAX_RESULT_BYTES = Object.freeze({
   whereabouts_summary: 16384,
 });
 
-function catalogEnabled(env = process.env) { return env.CYBERBOSS_TOOL_CATALOG_ENABLED === "true"; }
-function subjectSigningEnabled(env = process.env) { return env.CYBERBOSS_SUBJECT_SIGNING_ENABLED === "true"; }
-function route2GateEnabled(env = process.env) { return /^(?:1|true|yes|on)$/i.test(String(env.CYBERBOSS_ROUTE2_GATE_ENABLED || "").trim()); }
+// All three read a deployment switch, so all three use the one shared rule:
+// the env file writes `=1`, the bridge forwards `"true"`, and both forms mean
+// the same thing on either side of the process boundary.
+function catalogEnabled(env = process.env) { return envFlagEnabled("CYBERBOSS_TOOL_CATALOG_ENABLED", env); }
+function subjectSigningEnabled(env = process.env) { return envFlagEnabled("CYBERBOSS_SUBJECT_SIGNING_ENABLED", env); }
+function route2GateEnabled(env = process.env) { return envFlagEnabled("CYBERBOSS_ROUTE2_GATE_ENABLED", env); }
 function resolveToolset(value, env = process.env, toolsets = TOOLSETS) {
   const id = typeof value === "string" ? value.trim() : (env.CYBERBOSS_TOOL_CATALOG_TOOLSET || "").trim();
   if (!id) return null;

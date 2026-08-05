@@ -1,5 +1,7 @@
 "use strict";
 
+const { envFlagEnabled } = require("../../../core/env-flag");
+
 const ROUTE2_GATE_FLAG = "CYBERBOSS_ROUTE2_GATE_ENABLED";
 const ROUTE2_STATUS = "我把这个任务转到独立执行会话，完成后回来告诉你。";
 const LIMITS = Object.freeze({
@@ -8,7 +10,7 @@ const LIMITS = Object.freeze({
 });
 
 function route2GateEnabled(env = process.env) {
-  return /^(?:1|true|yes|on)$/i.test(String(env?.[ROUTE2_GATE_FLAG] || "").trim());
+  return envFlagEnabled(ROUTE2_GATE_FLAG, env);
 }
 
 function decideRoute2Gate(plan = {}, { env = process.env } = {}) {

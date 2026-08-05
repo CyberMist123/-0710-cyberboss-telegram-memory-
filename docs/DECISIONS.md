@@ -657,3 +657,14 @@ Status: OPEN
 - **Decision needed**：三选一——(a) 项目推进出 Phase 2-5A 后按现行判据取证；(b) 给启动预检开受控例外放行 env=1（**不推荐**——削弱阶段安全不变量，且例外本身就是 G2 要防的口子）；(c) 重定义 G1 判据对准现行真实核心读取路径（`memory_lookup` 按需翻档 + Context Trace）。
 - **Not authorised**：裁决前不得改 `startup-preflight.js` 放行 legacy 开关，也不得把 G1 状态词从 `PARTIAL` 改动。
 - **背景**：fable W9 审计裁定一.4「批 env=1 取 G1 真机 Trace 证据」已由 fable W11 裁定一撤回（superseded）——作出时未核 `startup-preflight.js` 的 Phase 2-5A 硬闸，属基于不完整代码事实的裁定；该裁定非 D 编号决定，本处不占 D 号、只登记待裁。
+
+### C8 · 目录里的工具怎么变成可调用（chat 窗口"看得到说明书、摸不到机器"）
+
+```text
+Status: OPEN
+```
+
+- **Known facts**（2026-08-05 首轮 canary 实证 + 只读复现）：目录模式下 `tool-host.js` 的 `listTools()` 恒定只返回 `cyberboss_catalog` + `RESIDENT_NAMES`（`tool-catalog-manifest.js` 里硬编码的 `cyberboss_system_send` / `cyberboss_time`），而 `mcp-stdio-server.js` 声明 `listChanged: false`。两条合起来：经 `cyberboss_catalog` 加载 schema 之后，那个工具永远不会进入 CLI 的可调用工具表——真机实测 `memory_note` 调用返回 `No such tool available`。**这与两个 route2 开关无关**：`--chat-self-escalation` 只让 server 端接受越界调用，`chat-core@1` toolset 只影响目录条目的 `authorized` 标记，两者都改变不了"客户端从未被告知该工具存在"。即当前实现下 chat 窗口能真正调用的恒为那 3 个（外部 MCP 另算），与 D27-1「Chat 主体全权不减」「目录按意图主题分级、按需展开」的意图不符。
+- **Decision needed**：三选一——(a) **通用调度工具**：常驻面加一个 schema 恒定的 `cyberboss_invoke(name, args)`，模型读完说明书经它转发，鉴权与参数校验落 server 端（优点：不赌客户端是否理会工具表变更通知、tools 数组全程恒定不炸前缀缓存、只动 tool server 不碰 launch 链；代价：参数校验从客户端 schema 变成 server 端报错）；(b) 打开 `listChanged` 并在 schema 加载后推送新工具表（依赖 CLI 是否响应该通知，未实证）；(c) 承认目录只是索引，真正取用一律走 route1 派车。
+- **Not authorised**：裁决前不得改 `listTools()` 的返回集合、不得打开 `listChanged`、不得新增常驻工具。
+- **背景**：`workdesk/20260805-canary1-tool-face-findings.md` 第 2 节有完整链路与复现命令。(a) 是本窗口给出的建议方向，尚未获 Owner 批准。

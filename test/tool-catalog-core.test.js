@@ -14,7 +14,7 @@ const {
 } = require("../src/tools/tool-host");
 const {
   TOOL_RISKS, TOOL_THEMES, THEME_DEFINITIONS, CATALOG_INPUT_SCHEMA,
-  buildManifest, catalogEnabled, findSchema, resolveToolset,
+  buildManifest, catalogEnabled, findSchema, resolveToolset, subjectSigningEnabled,
 } = require("../src/tools/tool-catalog-manifest");
 const { truncateToolResult } = require("../src/tools/mcp-stdio-server");
 
@@ -281,6 +281,44 @@ test("A1 CLI rejects toolset while catalog flag is off", () => {
     const result = spawnSync(process.execPath, [path.join(__dirname, "../bin/cyberboss.js"), "tool-mcp-server", "--workspace-root", temp, "--toolset", "chat-core@1"], { encoding: "utf8", env });
     assertFailedClosed(result, "disabled catalog must reject --toolset"); assert.match(`${result.stderr}${result.stdout}`, /catalog_disabled_toolset_not_accepted/);
   } finally { fs.rmSync(temp, { recursive: true, force: true }); }
+});
+
+test("deployment form =1 is honoured by every reader, in-process and across the MCP boundary", () => {
+  // 2026-08-05 首轮 canary 的病：telegram.env 写 `=1`（仓库惯例），bridge 判开
+  // 并往子进程转发字符串 "true"，子进程 loadEnv(override) 又把它换回 `1`，
+  // 而子进程这一侧当时用的是 `=== "true"` —— 同一个开关，两套真值口径，
+  // memory_candidate_submit 因此永远注册不上。
+  withEnv({ CYBERBOSS_TOOL_CATALOG_ENABLED: "1", CYBERBOSS_SUBJECT_SIGNING_ENABLED: "1", CYBERBOSS_TOOL_CATALOG_TOOLSET: undefined }, () => {
+    assert.equal(catalogEnabled(), true, "catalog must be on for the deployment's =1 form");
+    assert.equal(registeredProjectTools().some((tool) => tool.name === "memory_candidate_submit"), true);
+    assert.deepEqual(
+      manifest().filter((entry) => entry.theme === "记忆" && !entry.alias_of).map((entry) => entry.id).sort(),
+      ["memory_candidate_submit", "memory_lookup", "memory_note"],
+    );
+  });
+  // 真跨进程：与生产同形状（env 写 =1）起一个真的 tool server 问目录
+  const on = mcp(
+    [{ id: 1, method: "tools/call", params: { name: "cyberboss_catalog", arguments: { theme: "记忆" } } }],
+    { CYBERBOSS_TOOL_CATALOG_ENABLED: "1", CYBERBOSS_SUBJECT_SIGNING_ENABLED: "1" },
+  );
+  assert.equal(JSON.stringify(on).includes("memory_candidate_submit"), true,
+    "the signing tool must reach the catalog when the deployment writes =1");
+  // 关掉必须真的消失，否则上面那条断言是恒真的
+  const off = mcp(
+    [{ id: 1, method: "tools/call", params: { name: "cyberboss_catalog", arguments: { theme: "记忆" } } }],
+    { CYBERBOSS_TOOL_CATALOG_ENABLED: "1", CYBERBOSS_SUBJECT_SIGNING_ENABLED: "0" },
+  );
+  assert.equal(JSON.stringify(off).includes("memory_candidate_submit"), false);
+  // 口径本身：四种写法都认，其余一律不认（catalogEnabled 曾是同一颗雷——
+  // 它只是侥幸没被 env 文件覆盖过）
+  for (const value of ["1", "true", "TRUE", " on ", "yes"]) {
+    assert.equal(catalogEnabled({ CYBERBOSS_TOOL_CATALOG_ENABLED: value }), true, `catalogEnabled(${value})`);
+    assert.equal(subjectSigningEnabled({ CYBERBOSS_SUBJECT_SIGNING_ENABLED: value }), true, `subjectSigningEnabled(${value})`);
+  }
+  for (const value of ["0", "false", "no", "off", "", "  ", undefined]) {
+    assert.equal(catalogEnabled({ CYBERBOSS_TOOL_CATALOG_ENABLED: value }), false, `catalogEnabled(${String(value)})`);
+    assert.equal(subjectSigningEnabled({ CYBERBOSS_SUBJECT_SIGNING_ENABLED: value }), false, `subjectSigningEnabled(${String(value)})`);
+  }
 });
 
 test("manifest policy and privacy canary are explicit and private-text-free", () => withEnv({ CATALOG_TEST_SECRET: plantedValue, CYBERBOSS_SUBJECT_SIGNING_ENABLED: undefined }, () => {
