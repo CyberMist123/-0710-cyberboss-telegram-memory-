@@ -22,6 +22,7 @@ const {
 } = require("../src/adapters/runtime/shared-instructions");
 const {
   clearCliProbeCache,
+  runDefaultAuthProbe,
   runG3LaunchPreflight,
 } = require("../src/adapters/runtime/claudecode/g3-preflight");
 const { canonicalWorkspaceKey } = require("../src/core/workspace-lock");
@@ -377,6 +378,97 @@ test("A11 failures do not disclose secret, path, or raw profile id", async () =>
     assert.equal(text.includes(root), false);
     assert.equal(text.includes("private-profile"), false);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("A15 default auth probe reads only loggedIn and carries the profile-exact config root", () => {
+  const root = tempRoot();
+  const authEnvLog = path.join(root, "probe-env.txt");
+  const configRoot = path.join(root, "isolated-config");
+  try {
+    const ok = runDefaultAuthProbe({
+      command: process.execPath, commandPrefixArgs: [helper],
+      env: { ...process.env, CB_FAKE_AUTH: "logged-in", CB_FAKE_AUTH_ENV_LOG: authEnvLog, CLAUDE_CONFIG_DIR: configRoot },
+      cwd: root,
+    });
+    assert.deepEqual(ok, { ok: true });
+    // proves the probe invoked the CLI against exactly the isolated config root
+    assert.equal(fs.readFileSync(authEnvLog, "utf8"), configRoot);
+    // every not-signed-in shape (false / nonzero exit / unparseable) is ok:false
+    for (const mode of ["logged-out", "nonzero", "garbage"]) {
+      const bad = runDefaultAuthProbe({
+        command: process.execPath, commandPrefixArgs: [helper],
+        env: { ...process.env, CB_FAKE_AUTH: mode, CLAUDE_CONFIG_DIR: configRoot }, cwd: root,
+      });
+      assert.deepEqual(bad, { ok: false }, `mode ${mode}`);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("A15 default probe is wired through the profiled launch path and passes when signed in", async () => {
+  const root = tempRoot();
+  try {
+    clearCliProbeCache();
+    // No authProbe injected: this is the exact production assembly that shipped
+    // with config.claudeG3AuthProbe undefined and fail-closed on every launch.
+    const result = await runG3LaunchPreflight({
+      profile: profile(root), baseEnv: flagEnv({ PATH: process.env.PATH }),
+      baseCwd: root, baseDir: root, expectedLockPath: root,
+      command: process.execPath, commandPrefixArgs: [helper],
+    });
+    assert.equal(canonicalWorkspaceKey(result.launch.cwd), canonicalWorkspaceKey(root));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("A15 default probe through the profiled launch path fails closed when the config root is not signed in", async () => {
+  const base = tempRoot();
+  const root = path.join(base, "loggedout-config");
+  fs.mkdirSync(root, { recursive: true });
+  try {
+    clearCliProbeCache();
+    await assert.rejects(runG3LaunchPreflight({
+      profile: profile(root), baseEnv: flagEnv({ PATH: process.env.PATH }),
+      baseCwd: root, baseDir: root, expectedLockPath: root,
+      command: process.execPath, commandPrefixArgs: [helper],
+    }), (error) => error.code === "auth_probe_failed");
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
+});
+
+test("A15 runtime adapter assembly uses the default probe when none is configured", async () => {
+  const root = tempRoot();
+  const workspace = path.join(root, "workspace");
+  const state = path.join(root, "state");
+  fs.mkdirSync(workspace); fs.mkdirSync(state);
+  const log = path.join(root, "launches.jsonl");
+  fs.writeFileSync(log, "");
+  const saved = { ...process.env };
+  process.env.CB_FAKE_LAUNCH_LOG = log;
+  process.env.CB_FAKE_COUNTER = path.join(root, "counter");
+  process.env.CYBERBOSS_CLAUDE_G3_PREFLIGHT_ENABLED = "true";
+  clearCliProbeCache();
+  const adapter = createClaudeCodeRuntimeAdapter({
+    stateDir: state, sessionsFile: path.join(root, "sessions.json"),
+    claudeSessionSlotsFile: path.join(state, "slots.json"),
+    claudeCommand: process.execPath,
+    claudeCommandPrefixArgs: [path.join(__dirname, "helpers", "fake-claude-cli.js")],
+    claudeDisableVerbose: true,
+    claudeLaunchProfileBaseDir: root,
+    // NOTE: no claudeG3AuthProbe -> the in-file default must carry the launch
+  });
+  const lane = buildTelegramRouteLane({ accountId: "telegram", chatId: 700, messageThreadId: 7 });
+  try {
+    await adapter.sendTurn({
+      bindingKey: "binding", senderId: "700", workspaceRoot: workspace, lane, text: "hi",
+      launchProfile: profile(workspace),
+    });
+    const entries = adapter.__internals.processRegistry.listEntries();
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].client.usable, true);
+  } finally {
+    await adapter.close();
+    for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+    for (const [key, value] of Object.entries(saved)) process.env[key] = value;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("A10 failed target preflight leaves the live legacy process and session untouched", async () => {

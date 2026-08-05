@@ -25,6 +25,25 @@ if (argv.includes("--help")) {
   ].join("\n"));
   process.exit(0);
 }
+// `auth status --json`: fixture for the default production auth probe reached
+// through the real runtime assembly. Answers per CB_FAKE_AUTH (logged-in by
+// default) and never reaches the turn logic below.
+if (argv[0] === "auth" && argv[1] === "status") {
+  const configDir = String(process.env.CLAUDE_CONFIG_DIR || "");
+  if (process.env.CB_FAKE_AUTH_ENV_LOG) fs.writeFileSync(process.env.CB_FAKE_AUTH_ENV_LOG, configDir, "utf8");
+  // Through the profiled launch the probe env is allowlist-filtered, so the
+  // outcome rides on a marker inside the preserved config-root path (CB_FAKE_AUTH
+  // still wins for direct calls that pass an unfiltered env).
+  const mode = process.env.CB_FAKE_AUTH
+    || (/loggedout/i.test(configDir) ? "logged-out"
+      : /authnonzero/i.test(configDir) ? "nonzero"
+      : /authgarbage/i.test(configDir) ? "garbage"
+      : "logged-in");
+  if (mode === "nonzero") process.exit(1);
+  if (mode === "garbage") { process.stdout.write("not-json"); process.exit(0); }
+  process.stdout.write(JSON.stringify({ loggedIn: mode === "logged-in", authMethod: "fake" }));
+  process.exit(0);
+}
 const logFile = process.env.CB_FAKE_LAUNCH_LOG || "";
 const counterFile = process.env.CB_FAKE_COUNTER || "";
 
