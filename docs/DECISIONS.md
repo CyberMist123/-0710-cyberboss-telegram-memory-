@@ -580,7 +580,9 @@ Decision date: 2026-08-05
 - **launch 恒等式**：G3 preflight 构造的 launch 就是 spawn 的 launch（不再各算一遍），`extraArgs` / route-scoped MCP 路径 / window override / 两个部署审批全部进 gate；spawn 前重算比对，不等即 `launch_drift` fail-closed。`agentCwd` 由 profile 的 `cwd` 派生，`cwd_lock_mismatch` 退化为恒真保险带。
 - **profile 文件化**：新增 `CYBERBOSS_CLAUDE_LAUNCH_PROFILES_FILE`，与 `..._JSON` **互斥**（同设即启动失败，不做优先级）。改工具面/模型/档位从此不碰 secrets 文件。
 
-> **补注（2026-08-05，真机 canary 实证）**：本条的升格机制此前**没有触发方**。`grantRoute2Lease` 在生产代码里零调用点（唯一调用在 `test/claudecode-approval.test.js`），`decideRoute2` 连测试都没有调用，因此 `escalatedBuiltInTools` 永远换不上——真机实测她无论怎么要求都只有 `Read/Glob/Grep/WebFetch/WebSearch`。更深一层：即便接上调用方，`decideRoute2Gate` 的 `no_tools` 是硬理由，而内建面升格按定义不点名任何 MCP 工具，于是恰好被挡在门外。现按本条明文（「升格判据是要动本地或执行命令」）修复：闸门新增 `builtInFace` 这条轴（不点名工具不再等于无效计划，其余结构性硬理由——repositoryWork / subagent / parallel / longLoop / fullEngineeringHarness——一条不减），并补上触发方 `route2_escalate` 工具（经既有 route1 IPC 通道到 bridge，挂 `CYBERBOSS_ROUTE2_GATE_ENABLED`）。本条语义不变，补的是从未接上的那根线。
+> **补注（2026-08-05，真机 canary 实证）**：本条的升格机制此前**没有触发方**。`grantRoute2Lease` 在生产代码里零调用点（唯一调用在 `test/claudecode-approval.test.js`），`decideRoute2` 连测试都没有调用，因此 `escalatedBuiltInTools` 永远换不上——真机实测她无论怎么要求都只有 `Read/Glob/Grep/WebFetch/WebSearch`。更深一层：即便接上调用方，`decideRoute2Gate` 的 `no_tools` 是硬理由，而内建面升格按定义不点名任何 MCP 工具，于是恰好被挡在门外。现按本条明文（「升格判据是要动本地或执行命令」）修复：补上触发方 `route2_escalate` 工具（经既有 route1 IPC 通道到 bridge，挂 `CYBERBOSS_ROUTE2_GATE_ENABLED`），并**删掉闸门的 `no_tools` 硬理由**。
+
+后一条是 Owner 2026-08-05 的口径澄清，值得单独记住：**Route 1 存在是为了省 token（少暴露工具），不是为了限制权限**。闸门是成本路由器，不是权限闸。"没点名任何 MCP 工具"恰恰是最省的一种计划，也正是"她只想要宽工具面"的形状——把它判去 Route 1 等于以省 token 之名削掉行动能力，与 D13 和不变量 3（chat 全权不减）方向相反。结构性硬理由（repositoryWork / subagent / parallel / longLoop / fullEngineeringHarness / 上下文硬顶 / 无界结果）一条不减，那些是"真的做不动或真的贵"，不是权限判断。本条语义不变，补的是从未接上的那根线。
 
 ---
 
