@@ -76,14 +76,56 @@ profile 文件本身（`model` / `effort` / `cwd` / 工具面）在交付前已�
 
 **判部署真相的唯一可靠办法仍是比对活代码树，不是读 descriptor 元数据**——这与 #77 的"三套真相"缺口同源，仍未系统性解决。
 
-## 六、没做到的 / 保持原状的
+## 六、真机 canary（第一轮，bridge 侧）—— 16:36 Owner 发消息后
 
-- **真机 canary 未做**：本次只把 #159 搬上活体并完成 env 绑定。chat 链的第一次真实 launch 要等 Owner 在 Telegram 发一条消息才发生；`workdesk\20260805-g3-chat-cutover-runbook.md` 第 4 步的 8+4 项清单是那一场的判据。**在此之前，G3 的生产结论不得改动。**
+Owner 在 Telegram 发消息，chat 链**第一次真实 launch 成功**。以下是 bridge 侧可核的原始证据（Owner 侧的观感项见文末）。
+
+**1. 这一轮是 profile launch，不是 legacy**
+
+```text
+[claudecode-runtime] launching command=…\claude.exe cwd=c:\users\18717\.claude-profiles\fable-chat\workspace mcp_config=inherit:1
+```
+
+`cwd` 落在 profile 声明的隔离工作区（**S3/W2 的 agentCwd 派生生效**——同一份日志里此前的 legacy launch 都是 `cwd=…\cyberlink\memory`），`mcp_config` 是 profile 管理形态的标签。
+
+**2. 活体子进程 argv（逐 flag 计数，persona 正文不回显）**
+
+```text
+--disable-slash-commands x1   --effort x1   --input-format x1   --mcp-config x1
+--model x1   --output-format x1   --permission-mode x1   --permission-prompt-tool x1
+--setting-sources x1   --settings x1   --strict-mcp-config x1   --system-prompt x1
+--tools x1   --verbose x1
+
+--bare present : False
+--tools        : Read,Glob,Grep,WebFetch,WebSearch
+--model/--effort: claude-fable-5 / medium
+--system-prompt: 329 字符（占位 persona，正文不回显）
+--permission-mode: bypassPermissions
+```
+
+逐项对上本轮设计：**没有 `--bare`**（D33 去 bare，鉴权走 configRoot 的订阅登录）、persona 经 `--system-prompt` 下发、工具面正是首轮裁定的收窄五项、`--model`/`--effort` 由 profile 发射（此前静默丢失）、权限 `bypassPermissions`（D32）。**每个 flag 恰好出现一次**——没有重复的 `--mcp-config`，即 gate 构造的 launch 与实际 spawn 的 argv 在活体上确实是同一份。
+
+**3. tool MCP server 第一次活下来了（11.1 修复的直接证据）**
+
+```text
+node.exe  pid 23548  parent 31712(claude.exe)  args: tool-mcp-server --runtime-id claudecode
+          --workspace-root C:\Users\18717\Documents\cyberlink --route-token <64hex>
+```
+
+进程链 `bot 33572 → claude 31712 → tool-mcp-server 23548`。修复前它在 `loadEnv()` 空手而归后死在启动预检，`cyberboss_system_send` / `cyberboss_time` 从来注册不上；现在它持续存活。
+
+**4. 无一条 fail-closed 触发**：`cyberboss.err.log` 的 mtime/size 仍停在 `08/04 18:19:42 / 23631`（交付前=交付后=canary 后）；日志里 `g3_*` / `launch_drift` / `conflicting_args` / `cwd_lock_mismatch` / `exited during launch` 零命中。
+
+**5. Context Trace 正常**：`memory\trace\context_trace.jsonl` 新增该轮记录，`fallback:false`，`total_chars:149`，续接既有 thread（`reentry`/`current_state` 因 `existing_thread` 跳过，符合设计）。
+
+**仍待 Owner 侧确认的观感项**（粘贴件清单 1/2/4/6/7/8 与 runbook 第 11 项）：persona 是否真的成为系统层（能否复述开头、有无 Claude Code Harness 语气）、首轮有无 `PROFILE ROLE` 块、她自述的工具清单、G2 `memory_candidate_submit` 签署、memory 读写、关窗重开的 Re-entry 注入。**这些没过之前，G3 判据不动。**
+
+## 七、没做到的 / 保持原状的
 - 两个 route2 开关（`CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED` / `CYBERBOSS_ROUTE2_GATE_ENABLED`）按 D33 首轮保持关闭；升格工具面这一轮不生效属**预期**。
 - persona 正文仍是占位（646 字节），足以过 fail-closed 校验；Owner 填正文后 slot 轮换属预期。
 - `deployment\current.json` 旧真相、`start-telegram.ps1` 硬编码、正规发布包机制仍未处理（#77 原样）。
 
-## 七、回滚路径
+## 八、回滚路径
 
 1. `schtasks /End cyberboss-watchdog` + 按 pid file 核对命令行后杀进程树
 2. 删 `runtime\app\telegram`（新树），`telegram.bak-20260805-d6` 改名回 `telegram`；改名后**在树内 cwd** 复核 `require.resolve('whereabouts-mcp')`，必要时 `npm install` 重建链
@@ -92,12 +134,12 @@ profile 文件本身（`model` / `effort` / `cwd` / 工具面）在交付前已�
 5. 设 `CYBERLINK_ROOT` 后执行 `start-telegram.ps1`，`schtasks /Run cyberboss-watchdog`
 6. Telegram 说一句话确认应答
 
-## 八、对 Gate 的影响
+## 九、对 Gate 的影响
 
 | Gate | 之前 | 现在 | 为什么 |
 |---|---|---|---|
 | G4 | `PARTIAL` | 仍 `PARTIAL` | 第六次成功交付（停机 1m22s，历次最短）；首次交付含 env 绑定；坑 3 第五次复现同法修复；#77 仍未处理 |
-| G3 | `PARTIAL` | 仍 `PARTIAL` | 代码与生产 env 绑定已就位，但**真机 canary 未做**，差分隔离证据仍缺 |
+| G3 | `PARTIAL` | 仍 `PARTIAL` | chat 链首次真机 launch 成功（第六节），`fable-chat` 能力行的生产接线由 `DISABLED` 改 `WIRED`；但差分隔离（fable/work 互不串）与 Owner 侧观感项未验，**离 `VERIFIED` 还差 T11 那一场**，Gate 状态词不动 |
 | G1 / G2 / G5 | 各自不变 | 不变 | 本次交付不触及其证据面 |
 
 **仍不得切生产。** 判据状态不因本次交付改变。
