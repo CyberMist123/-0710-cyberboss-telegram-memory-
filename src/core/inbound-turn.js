@@ -4,16 +4,38 @@ const {
 } = require("../services/sticker-service");
 const { formatAppDateTime } = require("../utils/app-time");
 
+// Subject provenance rides on the inbound message as non-enumerable properties
+// so it never leaks into the message's own serialization -- but that is exactly
+// why every rebuild below drops it: object spread and field-by-field clones copy
+// own *enumerable* properties only. Losing it is silent and fatal: with no
+// source entry id, `issueSubjectCapabilityForTurnFailOpen` returns null, no
+// capability is ever recorded for the turn, and the child's submit dies at
+// `subject_signing_turn_unknown`. Every rebuild must carry it forward
+// explicitly, preserving non-enumerability.
+const SUBJECT_PROVENANCE_KEYS = ["subjectSourceEntryId", "subjectSourceEvidence"];
+
+function carrySubjectProvenance(target, source) {
+  if (!target || typeof target !== "object" || !source || typeof source !== "object") {
+    return target;
+  }
+  for (const key of SUBJECT_PROVENANCE_KEYS) {
+    const value = source[key];
+    if (value === undefined) continue;
+    Object.defineProperty(target, key, { value, enumerable: false, configurable: true });
+  }
+  return target;
+}
+
 function buildInboundDraft(normalized, { attachments = [], attachmentFailures = [] } = {}) {
   const originalText = normalizeText(normalized?.text);
-  return {
+  return carrySubjectProvenance({
     ...normalized,
     originalText,
     text: originalText,
     attachments: Array.isArray(attachments) ? attachments : [],
     attachmentFailures: Array.isArray(attachmentFailures) ? attachmentFailures : [],
     attachmentVisionContexts: normalizeAttachmentVisionContexts(normalized?.attachmentVisionContexts),
-  };
+  }, normalized);
 }
 
 function buildMergedInboundPrepared({
@@ -39,7 +61,9 @@ function buildMergedInboundPrepared({
   ].slice(0, 10);
   const originalText = originalTexts.join("\n\n");
 
-  return {
+  // A merged batch cites the newest inbound entry -- the same message `latest`
+  // supplies every other field from.
+  return carrySubjectProvenance({
     bindingKey,
     workspaceRoot,
     ...latest,
@@ -48,7 +72,7 @@ function buildMergedInboundPrepared({
     attachments,
     attachmentFailures,
     attachmentVisionContexts,
-  };
+  }, latest);
 }
 
 function assembleRuntimeTurnText({ prepared, config = {}, visionContext = {}, memoryContext = {} }) {
@@ -169,7 +193,7 @@ function takeImageOnlyBatchMessages(messages, maxAttachments) {
 }
 
 function clonePreparedInboundMessage(prepared) {
-  return {
+  return carrySubjectProvenance({
     workspaceId: prepared.workspaceId,
     accountId: prepared.accountId,
     senderId: prepared.senderId,
@@ -186,7 +210,7 @@ function clonePreparedInboundMessage(prepared) {
     attachmentFailures: Array.isArray(prepared.attachmentFailures) ? prepared.attachmentFailures : [],
     attachmentVisionContexts: normalizeAttachmentVisionContexts(prepared?.attachmentVisionContexts),
     receivedAt: prepared.receivedAt,
-  };
+  }, prepared);
 }
 
 function isPlainTextPreparedMessage(prepared) {
