@@ -113,15 +113,47 @@ async function runG3LaunchPreflight({
   if (cli.missing_flags.length) {
     throw new G3PreflightError("cli_required_flags_missing", { missing_flags: cli.missing_flags });
   }
-  if (typeof authProbe !== "function") throw new G3PreflightError("auth_probe_unavailable");
+  // An explicitly injected probe (tests, alternate auth backends) wins. When
+  // the caller wires none -- the production default -- fall back to an in-file
+  // probe that asks the profile-exact CLI whether its own config root is
+  // logged in. Without this fallback the whole G3 launch path fail-closes on
+  // `auth_probe_unavailable` in production, where nothing assigns authProbe.
+  const effectiveAuthProbe = authProbe == null
+    ? ({ env, cwd }) => runDefaultAuthProbe({ command, commandPrefixArgs, env, cwd })
+    : authProbe;
+  if (typeof effectiveAuthProbe !== "function") throw new G3PreflightError("auth_probe_unavailable");
   let authResult;
   try {
-    authResult = await authProbe({ env: launch.env, cwd: launch.cwd });
+    authResult = await effectiveAuthProbe({ env: launch.env, cwd: launch.cwd });
   } catch {
     throw new G3PreflightError("auth_probe_failed");
   }
   if (authResult?.ok !== true) throw new G3PreflightError("auth_probe_failed");
   return Object.freeze({ enabled: true, launch, cli });
+}
+
+// Default production auth probe. Asks the profile-exact CLI whether the config
+// root named by `env` (CLAUDE_CONFIG_DIR) is signed in. Deliberately minimal:
+// a single no-shell child, short timeout, and only the boolean `loggedIn` is
+// read. The full status JSON (auth method, account identity, tokens) is never
+// parsed beyond that field, never returned and never logged.
+function runDefaultAuthProbe({ command = "claude", commandPrefixArgs = [], env, cwd } = {}) {
+  const result = spawnSync(command, [...commandPrefixArgs, "auth", "status", "--json"], {
+    env,
+    cwd,
+    encoding: "utf8",
+    windowsHide: true,
+    shell: false,
+    timeout: 10_000,
+    maxBuffer: 64 * 1024,
+  });
+  if (result.error || result.status !== 0) return { ok: false };
+  try {
+    const status = JSON.parse(String(result.stdout || ""));
+    return { ok: status?.loggedIn === true };
+  } catch {
+    return { ok: false };
+  }
 }
 
 function clearCliProbeCache() {
@@ -135,5 +167,6 @@ module.exports = {
   REQUIRED_FLAGS,
   clearCliProbeCache,
   runCliCapabilityProbe,
+  runDefaultAuthProbe,
   runG3LaunchPreflight,
 };
