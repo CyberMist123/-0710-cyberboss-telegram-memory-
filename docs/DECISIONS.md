@@ -605,6 +605,29 @@ Decision date: 2026-08-05
 
 ---
 
+## D35 · 候选 provenance 由主进程从 turn 推导，不进模型输入面
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-06
+补全: D31（「主进程不信任 child 自报」漏掉了 source_ref 这一项）
+```
+
+裁定背景：Owner 实测 fable-chat 加载 `memory_candidate_submit` 的 schema 后卡住——`source_ref` 必填，其中 `content_sha256` 也必填且**没有任何 description**。查证结论：这个字段无法被诚实满足，且它想守的东西它根本没守住。
+
+- **它算不出来**：`content_sha256` 的真实语义是「被引用的原始 transcript 行的 sha256」（`legacy-candidate-classifier.js` 由读盘方算出再比对）。live 路径没有任何东西把那些原始行交给模型，而语言模型本来就算不出 sha256。
+- **它没人校验**：`origin: "live_subject"` 下 `requireSha256()` 只验 64 位十六进制格式，无任何交叉比对。于是模型要么卡住（实测现象），要么编一个假 provenance 哈希被当真写进候选档——**后者更糟，且没有一道校验拦得住**。
+- **同一个漏洞还锁死了整条通路**：`source_ref` 的 `additionalProperties: false` 只放行 `content_sha256` / `file` / `window`，`source_entry_hashes` 传不进来；而 Review 的 `locateSourceRef` 正是靠它定位来源。结果每一条 live 候选的 `source_ref_located` 恒为 false，**恒判 `deferred / source_ref_missing`**。closeout origin 同理撞 `material_pack_invalid`。离线 e2e fixture 在 service 层手搭 source_ref、绕过了真实 MCP schema，所以一直没暴露——与 D31 已记的第二、第三处接线债是同一失效模式。
+
+裁定：
+
+- **`source_ref` 整体退出 `memory_candidate_submit` 的 inputSchema。** 模型只写 `type` / `body` / `origin`（+ closeout 时的 material pack），一个哈希都不碰。`additionalProperties: false` 使残留的 `source_ref` 变成 schema 拒绝，而不是被静默忽略。
+- **provenance 在录入时刻由主进程取证。** `ConversationRecorder` 是唯一同时知道「写进了哪个 day 文件」与「写进去的确切字节」的地方，由它随记随算 `sourceFile` + `sourceLineSha256`（非枚举属性，不进记录行本身）；`issueSubjectCapabilityForTurnFailOpen` 据此构造权威 `source_ref`，与 capability 一同存进 `subjectCapabilityByRunKey`。摘要口径与 Review 的 `readConversationRowsWithEvidence` 逐字节一致。
+- **broker 丢弃调用方的任何 `source_ref`**，只用 capability 记录里的那一份；turn 没有取证则 fail closed（`subject_signing_source_evidence_missing`），不允许"没有来源也先落一条"。
+- **这是 D31 的延伸不是取代**：D31 已定「主进程不信任 child 自报的 profile、授权结论或 route 断言」，本条把 provenance 并入同一句话。模型自述的 provenance 在安全上等于零——真正的取证只能由权威方在事实发生的那一刻做。
+
+---
+
 ## 待裁决 / Candidates
 
 下列**尚未做出决定**，不占用 D 编号，也不得当成已定方向施工。

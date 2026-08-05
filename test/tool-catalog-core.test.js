@@ -1,7 +1,6 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -262,18 +261,25 @@ test("B2/B4 signing gate on keeps the model schema narrow; synthetic stdio only 
   assert.equal(host().catalogState().entries.find((entry) => entry.id === "memory_candidate_submit")?.theme, "记忆");
   const loaded = await host().invokeTool("cyberboss_catalog", { handle: "memory/memory_candidate_submit" });
   assert.deepEqual(loaded.data.inputSchema, PROJECT_TOOLS.find((tool) => tool.name === "memory_candidate_submit").inputSchema);
-  const args = { type: "episode", body: "这一刻由我自己留下。", origin: "live_subject", source_ref: { content_sha256: crypto.createHash("sha256").update("source fixture").digest("hex") } };
+  // No source_ref: provenance comes from the turn, not the model.
+  const args = { type: "episode", body: "这一刻由我自己留下。", origin: "live_subject" };
   const rpc = mcp([
     { id: 1, method: "tools/call", params: { name: "memory_candidate_submit", arguments: args } },
     { id: 2, method: "tools/call", params: { name: "memory_candidate_submit", arguments: { ...args, body: "第二次不该通过。" } } },
   ], { CYBERBOSS_TOOL_CATALOG_ENABLED: "true", CYBERBOSS_SUBJECT_SIGNING_ENABLED: "true" });
   assert.equal(rpc[0].result.isError, undefined); assert.match(rpc[0].result.content[0].text, /Memory candidate created/);
   assert.equal(rpc[1].result.isError, true); assert.match(rpc[1].result.content[0].text, /^capability_expired:/);
-  assert.deepEqual(Object.keys(PROJECT_TOOLS.find((tool) => tool.name === "memory_candidate_submit").inputSchema.properties).sort(), ["body", "material_pack", "material_pack_id", "origin", "source_ref", "type"]);
+  assert.deepEqual(Object.keys(PROJECT_TOOLS.find((tool) => tool.name === "memory_candidate_submit").inputSchema.properties).sort(), ["body", "material_pack", "material_pack_id", "origin", "type"]);
   assert.equal(PROJECT_TOOLS.find((tool) => tool.name === "memory_candidate_submit").inputSchema.additionalProperties, false);
+  // A child that still tries to assert its own provenance is rejected by the
+  // schema rather than having the field quietly ignored.
+  const forged = mcp([
+    { id: 1, method: "tools/call", params: { name: "memory_candidate_submit", arguments: { ...args, source_ref: { content_sha256: "a".repeat(64) } } } },
+  ], { CYBERBOSS_TOOL_CATALOG_ENABLED: "true", CYBERBOSS_SUBJECT_SIGNING_ENABLED: "true" });
+  assert.equal(forged[0].result.isError, true);
 }));
 test("B3 handler has no local writable fallback and relays the broker's explicit code", async () => signingEnabled(async () => {
-  const args = { type: "episode", body: "候选正文", origin: "live_subject", source_ref: { content_sha256: crypto.createHash("sha256").update("source").digest("hex") } };
+  const args = { type: "episode", body: "候选正文", origin: "live_subject" };
   await assert.rejects(() => host().invokeTool("memory_candidate_submit", args), (error) => assertCode(error, "subject_signing_broker_unavailable"));
   const expired = host("", { services: { subjectSigningBroker: { submit: async () => { const error = new Error("capability_expired"); error.code = "capability_expired"; throw error; } } } });
   await assert.rejects(() => expired.invokeTool("memory_candidate_submit", args), (error) => assertCode(error, "capability_expired"));

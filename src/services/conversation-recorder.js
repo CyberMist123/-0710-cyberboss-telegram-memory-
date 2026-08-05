@@ -6,6 +6,7 @@ const {
   classifyRecorderRoute,
   normalizeRecorderRouteSnapshot,
 } = require("../continuity/subject-route");
+const { sha256 } = require("../continuity/continuity-store");
 
 class ConversationRecorder {
   constructor({ dirPath = "", automationTimezone = DEFAULT_AUTOMATION_TIMEZONE } = {}) {
@@ -20,7 +21,18 @@ class ConversationRecorder {
     fs.mkdirSync(this.dirPath, { recursive: true });
     const day = formatDateKey(normalized.timestamp, this.automationTimezone);
     const filePath = path.join(this.dirPath, `${day}.jsonl`);
-    fs.appendFileSync(filePath, `${JSON.stringify(normalized)}\n`, "utf8");
+    const sourceLine = JSON.stringify(normalized);
+    fs.appendFileSync(filePath, `${sourceLine}\n`, "utf8");
+    // Provenance evidence for the subject-signing path. This is the only place
+    // that knows both the file chosen for this entry and the exact bytes
+    // written, so the hash is computed here rather than re-derived by a reader
+    // that would have to guess the day bucket and re-serialize the entry.
+    // `readConversationRowsWithEvidence` hashes the raw file line, so
+    // sha256(sourceLine) is the same digest it will recompute at Review time.
+    // Non-enumerable: the recorded entry is serialized and deep-compared
+    // elsewhere, and this is evidence about the row, not a field of it.
+    Object.defineProperty(normalized, "sourceFile", { value: filePath });
+    Object.defineProperty(normalized, "sourceLineSha256", { value: sha256(sourceLine) });
     return normalized;
   }
 

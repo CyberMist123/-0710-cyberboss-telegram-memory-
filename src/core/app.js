@@ -684,6 +684,16 @@ class CyberbossApp {
         value: recorded.id,
         enumerable: false,
       });
+      // The provenance of a subject candidate is what the recorder just wrote,
+      // not what the model says it is. Capturing it here — where the file and
+      // the exact bytes are known — is what lets `memory_candidate_submit`
+      // drop `source_ref` from its input schema entirely.
+      Object.defineProperty(normalized, "subjectSourceEvidence", {
+        value: recorded.sourceFile && recorded.sourceLineSha256
+          ? { file: recorded.sourceFile, sha256: recorded.sourceLineSha256 }
+          : null,
+        enumerable: false,
+      });
     }
     this.updateSleepModeFromInboundMessage(normalized);
     this.primeDeferredRepliesForSender(normalized);
@@ -1396,7 +1406,14 @@ class CyberbossApp {
       if (capability) {
         this.subjectCapabilityByRunKey.set(
           buildRunKey(turn.threadId, subjectTurnId),
-          { capability, subject_route: subjectRoute },
+          {
+            capability,
+            subject_route: subjectRoute,
+            source_ref: buildSubjectSourceRef({
+              sourceEntryId,
+              evidence: prepared?.subjectSourceEvidence,
+            }),
+          },
         );
       }
       return capability;
@@ -3979,6 +3996,26 @@ function buildRunKey(threadId, turnId) {
   return `${normalizeCommandArgument(threadId)}:${normalizeCommandArgument(turnId)}`;
 }
 
+// The authoritative `source_ref` for a subject candidate submitted during this
+// turn. A subject turn cites exactly one source entry — the inbound message the
+// recorder just wrote — so the content hash over "the cited lines joined by
+// newline" collapses to that single line's digest, which is what Review
+// recomputes in `locateSourceEntriesById`. Returns null when the recorder gave
+// us no evidence; the broker then fails the submit rather than inventing
+// provenance.
+function buildSubjectSourceRef({ sourceEntryId, evidence } = {}) {
+  const entryId = normalizeText(sourceEntryId);
+  const file = normalizeText(evidence?.file);
+  const sha256 = normalizeText(evidence?.sha256);
+  if (!entryId || !file || !/^[0-9a-f]{64}$/u.test(sha256)) return null;
+  return {
+    file,
+    source_entry_ids: [entryId],
+    source_entry_hashes: [{ entry_id: entryId, sha256 }],
+    content_sha256: sha256,
+  };
+}
+
 // Desire 八维报告经常被模型包在 ```json fence 或 "json:" 前缀里；
 // 以前直接 startsWith("{") 判定会把这些合法报告全部丢掉，
 // 导致 desire-state / desire-history 长期只有零星数据。
@@ -4426,7 +4463,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-module.exports = { CyberbossApp, createRuntimeAdapter };
+module.exports = { CyberbossApp, createRuntimeAdapter, buildSubjectSourceRef };
 
 function parseChannelCommand(text) {
   const normalized = typeof text === "string" ? text.trim() : "";

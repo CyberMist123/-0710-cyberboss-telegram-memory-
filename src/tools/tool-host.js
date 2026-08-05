@@ -529,23 +529,16 @@ const PROJECT_TOOLS = [
     description: "Submit subject-authored candidate prose through the current turn's one-time signing capability.",
     shortHint: "Submit one subject-authored memory candidate from the current turn.",
     topics: ["memory", "continuity"],
+    // No `source_ref`: provenance is derived by the main process from the turn
+    // that issued the signing capability, not asserted by the caller. It used to
+    // be required here, including a `content_sha256` no model can compute.
     inputSchema: {
       type: "object",
-      required: ["type", "body", "origin", "source_ref"],
+      required: ["type", "body", "origin"],
       properties: {
         type: { type: "string", enum: ["episode", "self_note", "reentry_draft", "details"] },
         body: { type: "string" },
         origin: { type: "string", enum: ["live_subject", "closeout_materials_then_subject", "subject_rewrite"] },
-        source_ref: {
-          type: "object",
-          required: ["content_sha256"],
-          properties: {
-            content_sha256: { type: "string" },
-            file: { type: "string" },
-            window: { type: "string" },
-          },
-          additionalProperties: false,
-        },
         material_pack_id: { type: "string" },
         material_pack: { type: "object" },
       },

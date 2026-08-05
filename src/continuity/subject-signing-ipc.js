@@ -52,13 +52,26 @@ class SubjectSigningBroker {
     }
     assertAuthoritativeRoute({ active, routeToken, subjectRoute });
 
+    // Provenance is taken from the turn, never from the caller. The child used
+    // to have to supply `source_ref.content_sha256` itself, which no language
+    // model can honestly compute -- it either stalled or invented a digest that
+    // nothing downstream verified. `source_entry_hashes` was worse: the tool
+    // schema had no way to carry it, so Review's `locateSourceRef` could never
+    // resolve a live candidate and deferred every one of them. Both now come
+    // from the capability record the app built when it recorded the inbound
+    // message, and any `source_ref` in `args` is discarded.
+    const sourceRef = signing?.source_ref || null;
+    if (!sourceRef) {
+      throw signingIpcError("subject_signing_source_evidence_missing");
+    }
+    const { source_ref: _ignoredCallerSourceRef, ...callerArgs } = args || {};
     const result = this.subjectCandidateService.createSubjectCandidate({
-      ...args,
+      ...callerArgs,
       capability_id: capability.capability_id,
       subject_turn_id: capability.subject_turn_id,
       subject_route: subjectRoute,
       source_ref: {
-        ...args.source_ref,
+        ...sourceRef,
         source_entry_ids: Array.isArray(subjectRoute.source_entry_ids)
           ? subjectRoute.source_entry_ids
           : [],
