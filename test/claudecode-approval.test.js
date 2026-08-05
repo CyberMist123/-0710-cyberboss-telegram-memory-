@@ -192,11 +192,12 @@ test("claudecode adapter describe exposes model provider and the chat model cata
   assert.equal(described.model, "claude-fable-5");
   // Fixes /status "provider: (default)" -- describe now carries a real provider.
   assert.equal(described.modelProvider, "anthropic");
-  // Seeds the /model chat menu (Owner-confirmed 3 models).
-  assert.deepEqual(described.models.map((entry) => entry.model), [
-    "claude-opus-4-6",
-    "claude-fable-5",
-    "claude-sonnet-4-6",
+  // Seeds the /model chat menu and its accepted aliases.
+  assert.deepEqual(described.models, [
+    { model: "claude-fable-5", aliases: ["fable"] },
+    { model: "claude-opus-5", aliases: ["opus"] },
+    { model: "claude-sonnet-5", aliases: ["sonnet"] },
+    { model: "claude-haiku-4-5-20251001", aliases: ["haiku", "claude-haiku-4-5"] },
   ]);
 });
 

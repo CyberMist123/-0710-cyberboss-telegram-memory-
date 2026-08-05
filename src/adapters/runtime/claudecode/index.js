@@ -164,12 +164,12 @@ function createClaudeCodeRuntimeAdapter(config) {
   }
   const configuredModel = normalizeText(config.claudeModel);
   const configuredModelProvider = normalizeText(config.claudeModelProvider) || "anthropic";
-  // Chat-selectable Claude models surfaced by /model (Owner-confirmed 2026-08-03).
-  // Advisory only: /model <id> still accepts any string; this just seeds the menu.
+  // Chat-selectable Claude models surfaced by /model.
   const CLAUDE_MODEL_CATALOG = [
-    { model: "claude-opus-4-6" },
-    { model: "claude-fable-5" },
-    { model: "claude-sonnet-4-6" },
+    { model: "claude-fable-5", aliases: ["fable"] },
+    { model: "claude-opus-5", aliases: ["opus"] },
+    { model: "claude-sonnet-5", aliases: ["sonnet"] },
+    { model: "claude-haiku-4-5-20251001", aliases: ["haiku", "claude-haiku-4-5"] },
   ];
   const configuredAgentCwd = normalizeText(config.agentCwd);
   let globalListener = null;

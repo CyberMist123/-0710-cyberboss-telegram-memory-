@@ -29,6 +29,9 @@ function findModelByQuery(models, query) {
   return models.find((item) => (
     normalizeText(item?.model).toLowerCase() === normalizedQuery
     || normalizeText(item?.id).toLowerCase() === normalizedQuery
+    || (Array.isArray(item?.aliases) && item.aliases.some(
+      (alias) => normalizeText(alias).toLowerCase() === normalizedQuery
+    ))
   )) || null;
 }
 

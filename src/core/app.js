@@ -2774,15 +2774,31 @@ class CyberbossApp {
       return;
     }
 
-    const runtimeId = this.runtimeAdapter.describe().id || "runtime";
-    let matched = require("../adapters/runtime/codex/model-catalog").findModelByQuery(catalog?.models || [], query);
-    if (!matched && runtimeId !== "codex" && !catalog?.models?.length) {
+    const runtimeDescription = this.runtimeAdapter.describe();
+    const runtimeId = runtimeDescription.id || "runtime";
+    const sessionModels = Array.isArray(catalog?.models) ? catalog.models : [];
+    const runtimeModels = Array.isArray(runtimeDescription.models) ? runtimeDescription.models : [];
+    const matchingModels = sessionModels.length ? sessionModels : runtimeModels;
+    let matched = require("../adapters/runtime/codex/model-catalog").findModelByQuery(matchingModels, query);
+    if (!matched && runtimeId !== "codex" && !sessionModels.length && !runtimeModels.length) {
       matched = { model: query };
     }
     if (!matched) {
+      const available = matchingModels.map((item) => {
+        const aliases = Array.isArray(item?.aliases)
+          ? item.aliases.map((alias) => normalizeCommandArgument(alias)).filter(Boolean)
+          : [];
+        return aliases.length
+          ? `${item.model} (aliases: ${aliases.join(", ")})`
+          : item.model;
+      });
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
-        text: `❌ Model not found\n${query}`,
+        text: [
+          "❌ Model not found",
+          query,
+          ...(available.length ? [`Available models: ${available.join(", ")}`] : []),
+        ].join("\n"),
         contextToken: normalized.contextToken,
         ...outboundThreadIdField(normalized),
       });
@@ -2797,11 +2813,9 @@ class CyberbossApp {
       senderId: normalized.senderId || "",
       patch: { model: matched.model, modelSource: "command", modelScope: "window" },
     });
-    if (!windowResult?.applied) {
-      sessionStore.setRuntimeParamsForWorkspace(bindingKey, workspaceRoot, {
-        model: matched.model,
-      });
-    }
+    sessionStore.setRuntimeParamsForWorkspace(bindingKey, workspaceRoot, {
+      model: matched.model,
+    });
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
       text: windowResult?.applied
@@ -2942,11 +2956,9 @@ class CyberbossApp {
       senderId: normalized.senderId || "",
       patch: { effort: matched, effortSource: "command", effortScope: "window" },
     });
-    if (!windowResult?.applied) {
-      sessionStore.setRuntimeParamsForWorkspace(bindingKey, workspaceRoot, {
-        effort: matched,
-      });
-    }
+    sessionStore.setRuntimeParamsForWorkspace(bindingKey, workspaceRoot, {
+      effort: matched,
+    });
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
       text: windowResult?.applied

@@ -94,7 +94,7 @@ Verified against: b0d8b68
 | Closeout liveness | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | 调度器已接入 `app.js`；`test:p0-closeout-liveness` 已接进主 CI；生产机开关状态仓库无法判断 |
 | nightly closeout | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | **`PARTIAL`** —— D18 业务日、时区统一及空结果重试/封存语义已实现，五类边界测试进入 `test:phase3`；仓库默认关闭，生产机实际状态未核 |
 | Reflect / 低频重读（rereadings） | `ORPHAN` | `UNIT_ONLY` | `BLOCKING` | `NOT_WIRED` | **`FAIL`** —— 无调度器调它，`runtime.reflect()` 无实现方。`test:reflect` 已接主 CI，但按第二节纪律 1，那只是给这个孤儿模块提供回归信号，**不代表目标通路有 CI 覆盖**；代码仍 `ORPHAN` |
-| `/effort` | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | — |
+| `/effort` | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 2026-08-05 与 `/model` 一并修复切换不生效：claudecode 目录刷新为现役型号 + 别名（旧目录列已下线型号，照菜单选即启动失败）、目录非空时未知型号拒绝并回列表、window override 与 workspace runtime params 双写（slot 清空后选择可恢复）；用例进 `test:phase1` + `test:route-lanes`（阻塞主 CI），真机证据待下次交付 |
 | `/pause_heartbeat` / `/continue_heartbeat` | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 单 writer 持久态、三类 poller/tick 与来源定向队列暂停均已接主链；窗口聊天和用户 reminder 明确不受影响。已随 `6fb078e` 上生产（2026-08-01），暂停态经文件预置生效。2026-08-04 前端 token 由 `/pause activity` `/continue activity` 改名为单 token `/pause_heartbeat` `/continue_heartbeat`（归入 Autonomy 组）；生产仍跑旧两词形态，改名形态待部署。`/pause` `/continue` 的命令级真机证据仍缺 |
 | Desire（八维状态 + hourly poller） | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | 最小闭环代码与生产落盘形态集成测试已进仓库；挂 `CYBERBOSS_DESIRE_LOOP_MINIMAL_ENABLED`，默认关闭，生产机实际开关状态由不入库的 secrets 决定 |
 | 520 · 只读视图与健康度 | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | 面板由独立计划任务拉起，真机状态未核 |
