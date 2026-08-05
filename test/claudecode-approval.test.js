@@ -198,6 +198,10 @@ test("claudecode adapter describe exposes model provider and the chat model cata
     { model: "claude-opus-5", aliases: ["opus"] },
     { model: "claude-sonnet-5", aliases: ["sonnet"] },
     { model: "claude-haiku-4-5-20251001", aliases: ["haiku", "claude-haiku-4-5"] },
+    { model: "claude-opus-4-8", aliases: ["opus-4.8"] },
+    { model: "claude-opus-4-7", aliases: ["opus-4.7"] },
+    { model: "claude-opus-4-6", aliases: ["opus-4.6"] },
+    { model: "claude-sonnet-4-6", aliases: ["sonnet-4.6"] },
   ]);
 });
 
