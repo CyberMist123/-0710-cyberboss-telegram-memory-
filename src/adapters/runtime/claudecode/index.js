@@ -15,7 +15,14 @@ const {
   isLegacyMigrationEligible,
 } = require("./session-slot");
 const { ProcessRegistry, buildProcessKey } = require("./process-registry");
-const { fingerprintLaunchProfile, profileLogicalIdentity } = require("./launch-profile");
+const {
+  fingerprintLaunchProfile,
+  personaDeliveredAsSystemPrompt,
+  profileLogicalIdentity,
+  resolveG3PreflightEnabled,
+  resolveG3ProfileContractEnabled,
+  validateLaunchProfile,
+} = require("./launch-profile");
 const { resolveCliCapabilities } = require("./cli-capabilities");
 const { runG3LaunchPreflight } = require("./g3-preflight");
 const { applyHarnessOverlay, resolveWindowOverride, windowOverrideEnabled } = require("./window-override");
@@ -50,6 +57,7 @@ const {
 const {
   DEFAULT_ACCESS,
   WorkspaceLockManager,
+  canonicalWorkspaceKey,
   normalizeAccessMode,
 } = require("../../../core/workspace-lock");
 const { SessionStore } = require("../codex/session-store");
@@ -294,6 +302,30 @@ function createClaudeCodeRuntimeAdapter(config) {
   }
 
   /**
+   * The working directory a profile pins, in exactly the form
+   * `buildProfileLaunch` will produce for the child. Empty when no profile is
+   * applied or the profile leaves `cwd` to the runtime.
+   */
+  function resolveProfileBoundCwd(launchProfile) {
+    if (!launchProfile) return "";
+    let normalized;
+    try {
+      normalized = validateLaunchProfile(launchProfile, {
+        baseDir: launchProfileBaseDir,
+        allowAuthBackendOverride,
+        capabilities: cliCapabilities,
+      });
+    } catch {
+      // An invalid profile is the launch gate's decision to report, not route
+      // resolution's: falling back here keeps the original error code intact.
+      return "";
+    }
+    if (!normalized?.cwd) return "";
+    const g3Enabled = resolveG3PreflightEnabled() || resolveG3ProfileContractEnabled();
+    return g3Enabled ? (canonicalWorkspaceKey(normalized.cwd) || normalized.cwd) : normalized.cwd;
+  }
+
+  /**
    * Resolve the full route identity for one runtime call.
    *
    * lane        -> delivery/serialization identity (from the channel)
@@ -331,7 +363,13 @@ function createClaudeCodeRuntimeAdapter(config) {
       laneKey: effectiveLane.laneKey,
       profileFingerprint,
     });
-    const agentCwd = resolveAgentCwd(configuredAgentCwd, normalizedWorkspaceRoot);
+    // A profile that declares `cwd` owns the lock domain too. The child runs in
+    // profile.cwd, so the workspace lock and the process key must name that same
+    // directory; deriving it here is what makes `cwd_lock_mismatch` a tautology
+    // instead of two independent configuration sources an operator must keep
+    // aligned by hand.
+    const agentCwd = resolveProfileBoundCwd(launchProfile)
+      || resolveAgentCwd(configuredAgentCwd, normalizedWorkspaceRoot);
     const configIdentity = [
       normalizeText(config.claudeConfigDir),
       normalizeText(config.claudePermissionMode || "default"),
@@ -515,7 +553,14 @@ function createClaudeCodeRuntimeAdapter(config) {
     });
   }
 
-  function createProcessClient(route, processKey, g3Preflight = null) {
+  /**
+   * Materialize this route's MCP configuration.
+   *
+   * Called before the G3 gate, never after: the gate has to see the same
+   * `--mcp-config` set the child will be spawned with, and the client is handed
+   * this exact result so the two can never be generated twice.
+   */
+  function resolveRouteMcpSettings(route) {
     const { workspaceRoot } = route;
     const cyberbossHome = process.env.CYBERBOSS_HOME || path.resolve(__dirname, "..", "..", "..", "..");
     // The shared project config is still maintained (other runtimes read it),
@@ -531,8 +576,34 @@ function createClaudeCodeRuntimeAdapter(config) {
       launchProfile: route.launchProfile,
       mutableOverride: route.mutableOverride,
     });
-    const projectSettings = routeScoped
-      || ensureClaudeProjectMcpConfig({ workspaceRoot, cyberbossHome });
+    return routeScoped || ensureClaudeProjectMcpConfig({ workspaceRoot, cyberbossHome });
+  }
+
+  // `mutableOverride` is passed explicitly rather than read off the route: the
+  // route1 task chain deliberately launches its worker without a window
+  // override, and the gate must be given the same value its client will use.
+  function runRouteLaunchPreflight(route, mcpConfigPaths, mutableOverride = route.mutableOverride) {
+    return runG3LaunchPreflight({
+      profile: route.launchProfile,
+      baseEnv: filterClaudeCodeEnv(process.env),
+      baseCwd: route.agentCwd,
+      baseMcpConfigPaths: mcpConfigPaths,
+      extraArgs: config.claudeExtraArgs || [],
+      baseDir: launchProfileBaseDir,
+      capabilities: cliCapabilities,
+      command: config.claudeCommand || "claude",
+      commandPrefixArgs: config.claudeCommandPrefixArgs || [],
+      authProbe: config.claudeG3AuthProbe,
+      expectedLockPath: route.agentCwd,
+      mutableOverride,
+      allowAuthBackendOverride,
+      allowCloudCredentialInheritance,
+    });
+  }
+
+  function createProcessClient(route, processKey, g3Preflight = null, mcpSettings = null) {
+    const { workspaceRoot } = route;
+    const projectSettings = mcpSettings || resolveRouteMcpSettings(route);
     console.log(
       `[claudecode-runtime] workspace=${workspaceRoot} mcp_config=${projectSettings.configPath} server=${projectSettings.serverName}`
     );
@@ -640,23 +711,7 @@ function createClaudeCodeRuntimeAdapter(config) {
       let entry = processRegistry.get(processKey);
       let client = entry?.client || null;
       let g3Preflight = null;
-
-      // Check the target before retiring a current process or registering a
-      // replacement. A refused switch leaves the old slot/session untouched.
-      if (!client?.usable && route.launchProfile) {
-        g3Preflight = await runG3LaunchPreflight({
-          profile: route.launchProfile,
-          baseEnv: filterClaudeCodeEnv(process.env),
-          baseCwd: route.agentCwd,
-          extraArgs: config.claudeExtraArgs || [],
-          baseDir: launchProfileBaseDir,
-          capabilities: cliCapabilities,
-          command: config.claudeCommand || "claude",
-          commandPrefixArgs: config.claudeCommandPrefixArgs || [],
-          authProbe: config.claudeG3AuthProbe,
-          expectedLockPath: route.agentCwd,
-        });
-      }
+      let mcpSettings = null;
 
       // Model and effort are launch flags, not turn parameters: changing either
       // means this slot's child is retired and relaunched. The stored session id
@@ -679,6 +734,16 @@ function createClaudeCodeRuntimeAdapter(config) {
         refreshRouteAfterLeaseRevocation(route);
       }
 
+      // Gate the launch once the route is settled -- a lease revoked just above
+      // changes the window override, and therefore the launch. Running before
+      // that would verify a launch this route no longer produces. Nothing usable
+      // has been retired at this point, so a refused launch still leaves the old
+      // slot and session untouched.
+      if (!client?.usable && route.launchProfile) {
+        mcpSettings = resolveRouteMcpSettings(route);
+        g3Preflight = await runRouteLaunchPreflight(route, [mcpSettings.configPath]);
+      }
+
       if (client?.usable && normalizedThreadId && clientMatchesThread(client, normalizedThreadId)) {
         return { client, threadId: normalizedThreadId, processKey };
       }
@@ -699,7 +764,14 @@ function createClaudeCodeRuntimeAdapter(config) {
         if (client) {
           await closeProcessKey(processKey);
         }
-        client = createProcessClient(route, processKey, g3Preflight);
+        // A process retired further up (model/effort/override change, thread
+        // switch) never went through the block above, so the gate runs here
+        // instead. Either way no profiled child is ever spawned ungated.
+        if (!mcpSettings) mcpSettings = resolveRouteMcpSettings(route);
+        if (route.launchProfile && !g3Preflight) {
+          g3Preflight = await runRouteLaunchPreflight(route, [mcpSettings.configPath]);
+        }
+        client = createProcessClient(route, processKey, g3Preflight, mcpSettings);
         processRegistry.set(processKey, {
           client,
           sessionSlotKey: route.sessionSlotKey,
@@ -846,18 +918,7 @@ function createClaudeCodeRuntimeAdapter(config) {
       mutableOverride: null,
     });
     if (!routeScoped) throw new Error("route1_task_mcp_config_unavailable");
-    const g3Preflight = await runG3LaunchPreflight({
-      profile: route.launchProfile,
-      baseEnv: filterClaudeCodeEnv(process.env),
-      baseCwd: route.agentCwd,
-      extraArgs: config.claudeExtraArgs || [],
-      baseDir: launchProfileBaseDir,
-      capabilities: cliCapabilities,
-      command: config.claudeCommand || "claude",
-      commandPrefixArgs: config.claudeCommandPrefixArgs || [],
-      authProbe: config.claudeG3AuthProbe,
-      expectedLockPath: route.agentCwd,
-    });
+    const g3Preflight = await runRouteLaunchPreflight(route, [routeScoped.configPath], null);
     return new ClaudeCodeProcessClient({
       command: config.claudeCommand || "claude",
       commandPrefixArgs: config.claudeCommandPrefixArgs || [],
@@ -1381,7 +1442,7 @@ function createClaudeCodeRuntimeAdapter(config) {
       });
       const { client, threadId: activeThreadId } = attached;
       const continuity = prepareRefreshContext({ config, reason });
-      if (route.launchProfile?.schemaVersion === 3 && route.launchProfile.harnessMode === "bare") {
+      if (personaDeliveredAsSystemPrompt(route.launchProfile)) {
         continuity.personaInSystemPrompt = true;
       }
       const refreshText = buildInstructionRefreshText(config, continuity);
@@ -1559,7 +1620,7 @@ function createClaudeCodeRuntimeAdapter(config) {
           threadId: outboundThreadId,
           reason: openingReason,
         });
-        if (route.launchProfile?.schemaVersion === 3 && route.launchProfile.harnessMode === "bare") {
+        if (personaDeliveredAsSystemPrompt(route.launchProfile)) {
           openingContext.personaInSystemPrompt = true;
         } else if (route.launchProfile?.schemaVersion === 3 && route.launchProfile.personaSource) {
           openingContext.roleCard = loadInstructionFile(route.launchProfile.personaSource, config);

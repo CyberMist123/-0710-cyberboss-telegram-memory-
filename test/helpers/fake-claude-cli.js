@@ -44,8 +44,18 @@ if (argv[0] === "auth" && argv[1] === "status") {
   process.stdout.write(JSON.stringify({ loggedIn: mode === "logged-in", authMethod: "fake" }));
   process.exit(0);
 }
-const logFile = process.env.CB_FAKE_LAUNCH_LOG || "";
-const counterFile = process.env.CB_FAKE_COUNTER || "";
+// The log and counter paths also arrive as prefix arguments, because a G3
+// profiled launch strips the child's environment down to an OS-level allowlist:
+// under that launch no CB_FAKE_* variable survives, and a fixture that could
+// only be configured through the environment would go silent exactly where the
+// launch identity needs observing.
+const flagValue = (flag) => {
+  const index = argv.indexOf(flag);
+  return index >= 0 ? String(argv[index + 1] || "") : "";
+};
+const logFile = flagValue("--cb-launch-log") || process.env.CB_FAKE_LAUNCH_LOG || "";
+const counterFile = flagValue("--cb-counter") || process.env.CB_FAKE_COUNTER || "";
+const CWD_MARKER = "cb-launch-cwd.marker";
 
 const resumeIndex = argv.indexOf("--resume");
 const resumeSessionId = resumeIndex >= 0 ? String(argv[resumeIndex + 1] || "") : "";
@@ -79,8 +89,17 @@ function allocateSessionNumber() {
 }
 
 if (logFile) {
+  // Working directory, recorded without ever naming it: a relative write lands
+  // wherever the child was actually started, so a test asserts the marker
+  // appears under the directory the launch was verified with. (Reading the cwd
+  // directly is refused by the portability guard, and rightly so.)
+  fs.writeFileSync(CWD_MARKER, sessionId, "utf8");
   fs.appendFileSync(logFile, `${JSON.stringify({
     argv,
+    // Key names only, never values: enough to prove the child was handed the
+    // exact environment the launch gate verified, without writing anyone's
+    // environment to disk.
+    envKeys: Object.keys(process.env).sort(),
     resumeSessionId,
     sessionId,
     // Only the presence of a handful of non-secret keys is recorded.

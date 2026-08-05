@@ -73,6 +73,7 @@ const G3_PROFILE_FIELDS = Object.freeze(new Set([
   "defaultToolset",
   "permissionMode",
   "envPolicy",
+  "escalatedBuiltInTools",
 ]));
 
 const G3_PROFILE_SCHEMA_VERSION = 3;
@@ -85,6 +86,15 @@ const G3_PERMISSION_MODES = Object.freeze([
 ]);
 const G3_ENV_POLICIES = Object.freeze(["chat-minimal", "work-engineering"]);
 const G3_RESIDENT_TOOL_SCHEMAS = Object.freeze(["cyberboss_system_send", "cyberboss_time"]);
+const G3_HARNESS_MODES = Object.freeze(["bare", "chat-subscription", "engineering"]);
+
+// Harness modes whose persona is delivered as the session's system prompt.
+//
+// Deliberately not tied to `--bare`: the chat harness dropped that flag (under
+// --bare the CLI reads neither OAuth nor the keychain, so a subscription login
+// in the profile's config root could never authenticate the child), while the
+// persona is still the whole instruction set for those launches.
+const G3_PERSONA_HARNESS_MODES = Object.freeze(new Set(["bare", "chat-subscription"]));
 
 // Sourced from the CLI capability table so the enum cannot drift from what the
 // installed Claude CLI actually accepts.
@@ -809,7 +819,7 @@ function buildProfileLaunch({
     if (normalized.harnessMode === "bare") args.push("--bare");
     if (normalized.skillsMode === "disabled") args.push("--disable-slash-commands");
     args.push("--setting-sources", normalized.settingSources.join(","));
-    if (normalized.harnessMode === "bare") {
+    if (G3_PERSONA_HARNESS_MODES.has(normalized.harnessMode)) {
       let personaText;
       try {
         personaText = fs.readFileSync(normalized.personaSource, "utf8").trim();
@@ -830,7 +840,18 @@ function buildProfileLaunch({
   for (const settingsPath of normalized.settings || []) {
     args.push("--settings", settingsPath);
   }
-  if (normalized.builtInTools) args.push("--tools", normalized.builtInTools.join(","));
+  // The built-in tool face. `builtInTools` is what this profile runs with by
+  // default; `escalatedBuiltInTools` is what a granted route2 capability lease
+  // raises it to. Escalation is a launch change on purpose -- the child is
+  // retired and relaunched, so a wider face starts at a task boundary with a
+  // clean process rather than appearing mid-turn.
+  const toolFaceEscalated = Boolean(
+    normalized.escalatedBuiltInTools && mutableOverride?.capabilityLease?.status === "active",
+  );
+  const effectiveBuiltInTools = toolFaceEscalated
+    ? normalized.escalatedBuiltInTools
+    : normalized.builtInTools;
+  if (effectiveBuiltInTools) args.push("--tools", effectiveBuiltInTools.join(","));
   if (normalized.agents) args.push("--agents", serializeAgents(normalized.agents));
   if (normalized.systemPrompt) args.push("--system-prompt", normalized.systemPrompt);
   if (normalized.outputStyle) args.push("--output-style", normalized.outputStyle);
@@ -896,6 +917,8 @@ function buildProfileLaunch({
       g3Enabled,
       mutableOverride,
       personaPromptChars,
+      builtInToolCount: effectiveBuiltInTools?.length || 0,
+      toolFace: toolFaceEscalated ? "escalated" : "default",
     }),
   });
 }
@@ -956,7 +979,7 @@ function isCloudCredentialEnvKey(key) {
  */
 function buildLaunchTelemetry(profile, {
   mcpConfigPaths = [], mcpConfigMode = "inherit", g3Enabled = false, mutableOverride = null,
-  personaPromptChars = 0,
+  personaPromptChars = 0, builtInToolCount = 0, toolFace = "default",
 } = {}) {
   if (g3Enabled) {
     const telemetry = {
@@ -997,8 +1020,12 @@ function buildLaunchTelemetry(profile, {
             .map((item) => item.effective_token)
           : [],
         permission_mode: profile.permissionMode,
-        persona_prompt_chars: profile.harnessMode === "bare" ? personaPromptChars : 0,
-        instruction_source: profile.harnessMode === "bare" ? "persona_system_prompt" : "role_card",
+        persona_prompt_chars: G3_PERSONA_HARNESS_MODES.has(profile.harnessMode) ? personaPromptChars : 0,
+        instruction_source: G3_PERSONA_HARNESS_MODES.has(profile.harnessMode)
+          ? "persona_system_prompt"
+          : "role_card",
+        built_in_tool_count: builtInToolCount,
+        tool_face: toolFace,
       });
     }
     return Object.freeze(telemetry);
@@ -1094,7 +1121,7 @@ function validateG3ProfileContract(profile, normalized, { baseDir, fs = fsApi } 
     throw new LaunchProfileError("strictMcpConfig must be true for managed profiles", "g3_profile_contract_mismatch");
   }
   normalized.schemaVersion = G3_PROFILE_SCHEMA_VERSION;
-  normalized.harnessMode = enumField(profile.harnessMode, "harnessMode", ["bare", "engineering"]);
+  normalized.harnessMode = enumField(profile.harnessMode, "harnessMode", G3_HARNESS_MODES);
   normalized.skillsMode = enumField(profile.skillsMode, "skillsMode", ["disabled", "enabled"]);
   normalized.settingSources = normalizeStringList(profile.settingSources, {
     field: "settingSources", maxItems: 3, maxLength: 16,
@@ -1113,14 +1140,30 @@ function validateG3ProfileContract(profile, normalized, { baseDir, fs = fsApi } 
   normalized.defaultToolset = nonEmptyBoundedString(profile.defaultToolset, "defaultToolset", 64);
   normalized.permissionMode = enumField(profile.permissionMode, "permissionMode", G3_PERMISSION_MODES);
   normalized.envPolicy = enumField(profile.envPolicy, "envPolicy", G3_ENV_POLICIES);
+  if (profile.escalatedBuiltInTools !== undefined) {
+    normalized.escalatedBuiltInTools = normalizeStringList(profile.escalatedBuiltInTools, {
+      field: "escalatedBuiltInTools",
+      maxItems: LIMITS.builtInTools,
+      maxLength: LIMITS.builtInToolName,
+    });
+  }
   const persona = resolveExistingPath(profile.personaSource, {
     field: "personaSource", baseDir, kind: "file", fs,
   });
   normalized.personaSource = persona.path;
 
   const fable = normalized.profileId === "fable-chat";
+  if (fable && profile.builtInTools === undefined) {
+    // Without --tools the CLI hands the child its full built-in set. For the
+    // chat profile the narrow face *is* the contract, so leaving it unstated is
+    // a configuration error rather than a default.
+    throw new LaunchProfileError(
+      "builtInTools is required by the managed chat profile contract",
+      "g3_profile_field_required",
+    );
+  }
   const expected = fable ? {
-    harnessMode: "bare", skillsMode: "disabled", settingSources: ["user"],
+    harnessMode: "chat-subscription", skillsMode: "disabled", settingSources: ["user"],
     residentToolSchemas: G3_RESIDENT_TOOL_SCHEMAS, mcpServerCeiling: "chat-ceiling@2",
     toolsetCeiling: "chat-ceiling@1", permissionMode: "chat-native-bypass",
     envPolicy: "chat-minimal",
@@ -1168,6 +1211,20 @@ function fingerprintG3ProfileIdentity(profile, { fs = fsApi } = {}) {
   return crypto.createHash("sha256").update(stableStringify(identity), "utf8").digest("hex");
 }
 
+/**
+ * True when this profile's persona reaches the child as `--system-prompt`.
+ *
+ * The single source of truth for that question: the launch builder emits the
+ * flag on exactly this predicate, and the continuity layer uses it to decide
+ * that a role card would be a second copy of the same instructions.
+ */
+function personaDeliveredAsSystemPrompt(profile) {
+  return Boolean(
+    profile?.schemaVersion === G3_PROFILE_SCHEMA_VERSION
+    && G3_PERSONA_HARNESS_MODES.has(profile.harnessMode),
+  );
+}
+
 function resolveProfileCliPermissionMode(profile) {
   if (!profileContractEnabledFor(profile)) return "";
   return profile.permissionMode === "chat-native-bypass" ? "bypassPermissions" : "inherit";
@@ -1189,6 +1246,7 @@ module.exports = {
   canonicalProfileId,
   fingerprintLaunchProfile,
   fingerprintG3ProfileIdentity,
+  personaDeliveredAsSystemPrompt,
   profileLogicalIdentity,
   resolveG3PreflightEnabled,
   resolveG3ProfileContractEnabled,

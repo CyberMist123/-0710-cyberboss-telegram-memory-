@@ -101,11 +101,22 @@ function buildClaudeProjectMcpServerConfig({
   const authorizationCeiling = resolveToolAuthorizationCeiling(launchProfile);
   if (authorizationCeiling) args.push("--authorization-ceiling", authorizationCeiling);
   const entry = { command: process.execPath, args };
+  // The tool server is our own process, not the isolated one -- what G3 strips
+  // is the *Claude* child's environment, and this server is started by that
+  // child. With the host allowlist applied it inherits no CYBERBOSS_* key at
+  // all, so `loadEnv()` finds nothing and the process exits in startup
+  // preflight before it can register a single tool. Forwarding the env file
+  // (not CYBERBOSS_CONFIG_DIR: production points that at a directory with no
+  // `.env` in it) restores the whole deployment env for this child only.
+  const envFile = normalizeText(process.env.CYBERBOSS_ENV_FILE);
+  if (envFile) {
+    entry.env = { ...(entry.env || {}), CYBERBOSS_ENV_FILE: envFile };
+  }
   if (normalizedToken) {
     // Passed twice on purpose: the argument is what the server reads, the
     // environment variable is a belt-and-braces signal for a launcher that
     // rewrites argv.
-    entry.env = { CYBERBOSS_ROUTE_TOKEN: normalizedToken };
+    entry.env = { ...(entry.env || {}), CYBERBOSS_ROUTE_TOKEN: normalizedToken };
   }
   if (launchProfile?.schemaVersion === 3 && launchProfile.profileId === "fable-chat") {
     entry.env = { ...(entry.env || {}), CYBERBOSS_TOOL_CATALOG_ENABLED: "true" };
