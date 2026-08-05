@@ -76,12 +76,14 @@ const G3_PERMISSION_MODES = Object.freeze([
   "chat-native-bypass",
   "work-engineering-full",
 ]);
-const G3_RESIDENT_TOOL_SCHEMAS = Object.freeze(["cyberboss_system_send", "cyberboss_time"]);
 const G3_HARNESS_MODES = Object.freeze(["bare", "chat-subscription", "engineering"]);
 
+// Values a managed profile used to have to restate in its config file, where
+// they were then checked against exactly these constants. The single authority
+// for which tools are resident lives in tool-catalog-manifest.js RESIDENT_NAMES
+// and is deliberately not restated here.
 const G3_CONTRACT_DEFAULTS = Object.freeze({
   "fable-chat": Object.freeze({
-    residentToolSchemas: G3_RESIDENT_TOOL_SCHEMAS,
     mcpServerCeiling: "chat-ceiling@2",
     toolsetCeiling: "chat-ceiling@1",
     envPolicy: "chat-minimal",
