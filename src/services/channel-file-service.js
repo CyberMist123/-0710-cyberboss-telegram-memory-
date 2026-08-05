@@ -12,7 +12,11 @@ class ChannelFileService {
     this.sessionStore = sessionStore;
   }
 
-  async sendToCurrentChat({ filePath = "", userId = "" } = {}, context = {}) {
+  // `as` picks the presentation, not the transport: "file" is a plain
+  // attachment, "animation" asks the channel to render the GIF inline the way a
+  // sticker reads in chat. Adapters that have no inline form (WeChat) simply
+  // lack `sendAnimation` and fall back to the attachment.
+  async sendToCurrentChat({ filePath = "", userId = "", as = "file" } = {}, context = {}) {
     const account = resolveChannelAccount(this.config);
     const targetUserId = normalizeText(userId)
       || normalizeText(context?.senderId)
@@ -22,7 +26,7 @@ class ChannelFileService {
         sessionStore: this.sessionStore,
       });
     if (!targetUserId) {
-      throw new Error("Cannot determine which WeChat user should receive the file.");
+      throw new Error("Cannot determine which chat should receive the file.");
     }
 
     const contextToken = resolveChannelContextToken({
@@ -52,7 +56,11 @@ class ChannelFileService {
       status: 1,
       contextToken,
     }).catch(() => {});
-    await this.channelAdapter.sendFile({
+    const sendInline = as === "animation" && typeof this.channelAdapter.sendAnimation === "function";
+    const send = sendInline
+      ? this.channelAdapter.sendAnimation.bind(this.channelAdapter)
+      : this.channelAdapter.sendFile.bind(this.channelAdapter);
+    await send({
       userId: targetUserId,
       filePath: resolvedPath,
       contextToken,
@@ -62,7 +70,7 @@ class ChannelFileService {
       status: 0,
       contextToken,
     }).catch(() => {});
-    return { userId: targetUserId, filePath: resolvedPath };
+    return { userId: targetUserId, filePath: resolvedPath, sentAs: sendInline ? "animation" : "file" };
   }
 }
 
