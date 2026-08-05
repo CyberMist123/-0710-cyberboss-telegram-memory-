@@ -425,6 +425,13 @@ class Route1DispatchIpcClient {
     return this.request(type, `${type}.result`, args, context);
   }
 
+  // Route 2 escalation rides the same authenticated socket. It lives on this
+  // client because the socket, token and framing are identical; only the
+  // message type differs.
+  async escalateRoute2(args, context) {
+    return this.request("route2.escalate", "route2.escalate.result", args, context);
+  }
+
   async request(type, responseType, args, context) {
     if (!this.stateDir) throw dispatchError("route1_ipc_state_dir_required");
     const endpoint = JSON.parse(fs.readFileSync(path.join(this.stateDir, "claudecode-runtime.json"), "utf8"));

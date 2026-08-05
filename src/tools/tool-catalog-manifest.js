@@ -8,6 +8,7 @@ const TOOLSETS = { "chat-core@1": ["memory_lookup", "memory_note", "cyberboss_re
 const TOOL_THEMES = Object.freeze({
   github_repo_create: "工程派活", github_file_upload: "工程派活", github_issue_open: "工程派活", github_pr_open: "工程派活",
   route1_dispatch: "工程派活", route1_task_status: "工程派活", route1_task_result: "工程派活",
+  route2_escalate: "工程派活",
   location_debug_snapshot: "感知", location_event_dashboard: "感知",
   memory_note: "记忆", memory_lookup: "记忆", memory_candidate_submit: "记忆",
   cyberboss_time: "感知", cyberboss_diary_append: "生活记录", cyberboss_reminder: "生活记录",
@@ -55,6 +56,7 @@ const TOOL_RISKS = Object.freeze({
   cyberboss_timeline_serve: "admin", cyberboss_timeline_write: "mutate", github_file_upload: "mutate",
   github_issue_open: "mutate", github_pr_open: "mutate", github_repo_create: "admin",
   route1_dispatch: "mutate", route1_task_status: "read", route1_task_result: "read",
+  route2_escalate: "mutate",
   location_debug_snapshot: "admin", location_event_dashboard: "admin", weather: "read",
   whereabouts_current_stay: "read", whereabouts_recent_moves: "read", whereabouts_recent_stays: "read",
   whereabouts_snapshot: "read", whereabouts_summary: "read",

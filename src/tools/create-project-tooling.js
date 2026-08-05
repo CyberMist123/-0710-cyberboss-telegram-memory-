@@ -25,6 +25,7 @@ const { SubjectCapabilityRegistry, SubjectCandidateService } = require("../conti
 const { SubjectSigningIpcClient } = require("../continuity/subject-signing-ipc");
 const { WhereaboutsService } = require("whereabouts-mcp");
 const { Route1DispatchIpcClient, route1DispatchEnabled } = require("../orchestration/route1-dispatch");
+const { route2GateEnabled } = require("./tool-catalog-manifest");
 
 function createProjectTooling(config, options = {}) {
   const sessionStore = options.sessionStore || new SessionStore({
@@ -52,11 +53,15 @@ function createProjectTooling(config, options = {}) {
         enabled: config.subjectSigningEnabled === true,
       }))
     : null;
-  const route1Client = route1DispatchEnabled()
+  // One IPC client serves both seams; route 1 dispatch and route 2 escalation
+  // are gated independently, so either flag alone is enough to need it.
+  const ipcClient = (route1DispatchEnabled() || route2GateEnabled())
     ? new Route1DispatchIpcClient({ stateDir: config.stateDir })
     : null;
+  const route1Client = route1DispatchEnabled() ? ipcClient : null;
   const services = {
     ...(route1Client ? { route1Dispatch: route1Client, route1TaskQuery: route1Client } : {}),
+    ...(route2GateEnabled() && ipcClient ? { route2Escalate: ipcClient } : {}),
     diary: new DiaryService({ config }),
     reminder: new ReminderService({ config, sessionStore }),
     system: new SystemMessageService({ config, sessionStore }),

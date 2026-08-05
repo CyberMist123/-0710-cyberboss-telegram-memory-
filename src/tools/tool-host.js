@@ -260,6 +260,7 @@ function registeredProjectTools(env = process.env) {
   return PROJECT_TOOLS.filter((tool) => {
     if (tool.name === "memory_candidate_submit") return subjectSigningEnabled(env);
     if (["route1_dispatch", "route1_task_status", "route1_task_result"].includes(tool.name)) return route1DispatchEnabled(env);
+    if (tool.name === "route2_escalate") return route2GateEnabled(env);
     return true;
   });
 }
@@ -368,6 +369,40 @@ const PROJECT_TOOLS = [
       if (!services.route1TaskQuery) throw new Error("route1_task_query_unavailable");
       const result = await services.route1TaskQuery.query("result", args, context);
       return { text: result.status || "claimed", data: result };
+    },
+  },
+  {
+    name: "route2_escalate",
+    description: "Ask for the full built-in tool face (file editing and commands) in this same chat window when the current task needs to touch local files or run a command. The window restarts and resumes the same session; the wide face expires on its own.",
+    shortHint: "本窗要动本地文件或跑命令时，自己申请升格到全功能面。",
+    topics: ["engineering"],
+    inputSchema: {
+      type: "object",
+      required: ["reason"],
+      properties: {
+        reason: { type: "string", description: "Why this turn needs the wide face." },
+        ttl_ms: { type: "integer", minimum: 1, maximum: 600000, description: "Optional lease lifetime; defaults to the runtime's own value." },
+      },
+      additionalProperties: false,
+    },
+    async handler({ services, args, context }) {
+      if (!services.route2Escalate) {
+        const error = new Error("route2_escalate_unavailable");
+        error.code = "route2_escalate_unavailable";
+        throw error;
+      }
+      const result = await services.route2Escalate.escalateRoute2(
+        { reason: args.reason, ttlMs: args.ttl_ms },
+        context,
+      );
+      // A refused escalation is a real answer, not a failure: the gate routes
+      // structurally heavy work to Route 1 instead, and she should hear that.
+      return {
+        text: result?.granted
+          ? "Escalated: the wide tool face is active in this window."
+          : `Escalation refused (${result?.decision?.reasons?.join(", ") || "gate_declined"}); this work belongs to a Route 1 task.`,
+        data: result,
+      };
     },
   },
   {
