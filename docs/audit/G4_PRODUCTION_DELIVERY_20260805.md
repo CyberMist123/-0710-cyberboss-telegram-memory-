@@ -83,8 +83,10 @@ Owner 在 Telegram 发消息，chat 链**第一次真实 launch 成功**。以�
 **1. 这一轮是 profile launch，不是 legacy**
 
 ```text
-[claudecode-runtime] launching command=…\claude.exe cwd=c:\users\18717\.claude-profiles\fable-chat\workspace mcp_config=inherit:1
+[claudecode-runtime] launching command=…\claude.exe cwd=<USERPROFILE>\.claude-profiles\fable-chat\workspace mcp_config=inherit:1
 ```
+
+> 本节所有原样输出按仓库纪律（坑 24）做了机械替换：本机用户目录 → `<USERPROFILE>`、工作区根 → `<CYBERLINK_ROOT>`、route token → `<64hex>`。**除此之外逐字未改。**
 
 `cwd` 落在 profile 声明的隔离工作区（**S3/W2 的 agentCwd 派生生效**——同一份日志里此前的 legacy launch 都是 `cwd=…\cyberlink\memory`），`mcp_config` 是 profile 管理形态的标签。
 
@@ -109,7 +111,7 @@ Owner 在 Telegram 发消息，chat 链**第一次真实 launch 成功**。以�
 
 ```text
 node.exe  pid 23548  parent 31712(claude.exe)  args: tool-mcp-server --runtime-id claudecode
-          --workspace-root C:\Users\18717\Documents\cyberlink --route-token <64hex>
+          --workspace-root <CYBERLINK_ROOT> --route-token <64hex>
 ```
 
 进程链 `bot 33572 → claude 31712 → tool-mcp-server 23548`。修复前它在 `loadEnv()` 空手而归后死在启动预检，`cyberboss_system_send` / `cyberboss_time` 从来注册不上；现在它持续存活。
