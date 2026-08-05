@@ -2,7 +2,7 @@ const {
   STICKER_DESC_GUIDANCE,
   STICKER_TAG_GUIDANCE,
 } = require("../services/sticker-service");
-const { formatBeijingDateTime } = require("../utils/beijing-time");
+const { formatAppDateTime } = require("../utils/app-time");
 
 function buildInboundDraft(normalized, { attachments = [], attachmentFailures = [] } = {}) {
   const originalText = normalizeText(normalized?.text);
@@ -227,7 +227,7 @@ function formatWechatLocalTime(receivedAt) {
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return formatBeijingDateTime(parsed);
+  return formatAppDateTime(parsed);
 }
 
 module.exports = {

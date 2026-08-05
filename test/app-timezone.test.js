@@ -11,10 +11,8 @@ const {
 } = require("../src/app/system-checkin-poller");
 const { resolveAppTimezone } = require("../src/utils/app-timezone");
 const { DEFAULT_SLEEP_WINDOW, SleepWindowStore } = require("../src/core/sleep-window-store");
-const {
-  formatAppDateTime,
-  formatBeijingDateTime,
-} = require("../src/utils/beijing-time");
+const { formatAppDateTime } = require("../src/utils/app-time");
+const { describeAppTimezone } = require("../src/utils/app-timezone");
 
 test("application timezone falls back to the host timezone when unset", () => {
   const hostTimezone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -48,7 +46,19 @@ test("time formatting uses the configured timezone and keeps compatibility expor
   const expected = "本地时间 2026-07-12 10:00:00";
 
   assert.equal(formatAppDateTime("2026-07-12T00:00:00.000Z", options), expected);
-  assert.equal(formatBeijingDateTime("2026-07-12T00:00:00.000Z", options), expected);
+});
+
+// The host fallback is legitimate but silent: without this the machine's own
+// setting decides what "local time" means and nothing ever says so.
+test("timezone resolution reports whether it was declared or inherited from the host", () => {
+  assert.deepEqual(
+    describeAppTimezone({ env: { CYBERBOSS_TIMEZONE: "Australia/Sydney" }, localTimezone: "Pacific/Auckland" }),
+    { timezone: "Australia/Sydney", source: "CYBERBOSS_TIMEZONE" },
+  );
+  assert.deepEqual(
+    describeAppTimezone({ env: {}, localTimezone: "Pacific/Auckland" }),
+    { timezone: "Pacific/Auckland", source: "host" },
+  );
 });
 
 test("sleep window observes cross-midnight boundaries in the specified timezone", () => {
