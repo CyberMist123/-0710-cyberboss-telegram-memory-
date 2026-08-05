@@ -103,7 +103,7 @@ function runToolMcpServer({ toolHost, runtimeId = "", workspaceRoot = "", routeT
           routeToken,
         });
         const formatted = formatToolResult(result);
-        const maxResultBytes = toolHost.maxResultBytes?.(toolName) || null;
+        const maxResultBytes = toolHost.maxResultBytes?.(toolName, args) || null;
         writeRpcResponse(id, {
           content: [
             {
@@ -118,7 +118,7 @@ function runToolMcpServer({ toolHost, runtimeId = "", workspaceRoot = "", routeT
       writeRpcError(id, -32601, `Method not found: ${method}`, reader.getMode());
     } catch (error) {
       const errorToolName = method === "tools/call" && typeof params.name === "string" ? params.name : "";
-      const errorLimit = errorToolName ? (toolHost.maxResultBytes?.(errorToolName) || null) : null;
+      const errorLimit = errorToolName ? (toolHost.maxResultBytes?.(errorToolName, params.arguments) || null) : null;
       writeRpcResponse(id, {
         content: [
           {

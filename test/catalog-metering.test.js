@@ -27,7 +27,7 @@ test("catalog has four mechanism categories, eight intention themes, stable metr
 test("resident catalog is deterministic, fixture-checked, private-text-free, and fails closed on drift", () => {
   const args = ["--surface", "resident"]; const first = run(args, { CB_AUDIT_SECRET: "planted-nondisclosure-canary-0000" }); const second = run(args);
   assert.equal(first.status, 0); assert.equal(first.stdout, second.stdout); assert.equal(run(["--check", ...args]).status, 0); assertNoPrivateText(first.stdout);
-  const resident = JSON.parse(first.stdout); assert.equal(resident.totals.resident_item_count, 3); assert.equal(resident.totals.resident_schema_chars, 343);
+  const resident = JSON.parse(first.stdout); assert.equal(resident.totals.resident_item_count, 3); assert.equal(resident.totals.resident_schema_chars, 373);
   const original = fs.readFileSync(path.join(__dirname, "fixtures/catalog-metering-resident.json"), "utf8"); const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "catalog-resident-")); const altered = path.join(tempDir, "resident.json");
   try { fs.writeFileSync(altered, `${original}x`, "utf8"); assertFailedClosed(run(["--check", ...args, "--baseline", altered]), "changed resident fixture must fail closed"); } finally { fs.rmSync(tempDir, { recursive: true, force: true }); }
 });

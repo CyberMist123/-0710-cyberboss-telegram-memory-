@@ -7,7 +7,8 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { buildCatalog } = require("../scripts/audit/catalog-metering");
+const { buildCatalog, buildResidentCatalog } = require("../scripts/audit/catalog-metering");
+const { resolveAppTimezone } = require("../src/utils/app-timezone");
 const {
   ProjectToolHost, PROJECT_TOOLS, TOOL_ALIASES, DEPRECATED_HIDDEN_TOOL_NAMES,
   createExtraToolHosts, registeredProjectTools,
@@ -84,7 +85,7 @@ test("A1/A2 flag-off is exact and enabled surface is one minimal catalog plus tw
     const tools = host().listTools();
     assert.deepEqual(tools.map((tool) => tool.name), ["cyberboss_catalog", "cyberboss_system_send", "cyberboss_time"]);
     assert.deepEqual(tools[0].inputSchema, CATALOG_INPUT_SCHEMA);
-    assert.deepEqual(CATALOG_INPUT_SCHEMA, { type: "object", properties: { theme: { type: "string" }, handle: { type: "string" } }, additionalProperties: false });
+    assert.deepEqual(CATALOG_INPUT_SCHEMA, { type: "object", properties: { theme: { type: "string" }, handle: { type: "string" }, arguments: { type: "object" } }, additionalProperties: false });
     assert.ok(JSON.stringify(tools[0].inputSchema).length <= 160);
     for (const tool of tools.slice(1)) assert.deepEqual(tool.inputSchema, PROJECT_TOOLS.find((item) => item.name === tool.name).inputSchema);
   });
@@ -319,6 +320,122 @@ test("deployment form =1 is honoured by every reader, in-process and across the 
     assert.equal(catalogEnabled({ CYBERBOSS_TOOL_CATALOG_ENABLED: value }), false, `catalogEnabled(${String(value)})`);
     assert.equal(subjectSigningEnabled({ CYBERBOSS_SUBJECT_SIGNING_ENABLED: value }), false, `subjectSigningEnabled(${String(value)})`);
   }
+});
+
+// D34 catalog invoke: MCP only lets the CLI call a tool that tools/list has
+// broadcast, and the broadcast surface is three tools with listChanged:false.
+// Before this seam every non-resident tool was visible in the catalog and
+// permanently unreachable. Each case below re-proves one existing gate still
+// binds on the forwarded hop, so the seam adds reach, not authority.
+test("T-A invoke reaches resident and non-resident tools through the one broadcast entry", async () => enabled(async () => {
+  const catalog = host();
+  const time = await catalog.invokeTool("cyberboss_catalog", { handle: "tool/cyberboss_time", arguments: {} });
+  assert.match(time.text, /\d{2}:\d{2}:\d{2}/);
+  assert.equal(time.data.timezone, resolveAppTimezone());
+
+  // memory_lookup is in chat-core@1 but is not resident: it never appears in
+  // tools/list, so this call is only possible through the catalog.
+  const restricted = host("chat-core@1");
+  assert.equal(restricted.listTools().some((tool) => tool.name === "memory_lookup"), false);
+  const lookup = await restricted.invokeTool("cyberboss_catalog", {
+    handle: "memory/memory_lookup",
+    arguments: { query: "test", trigger: "user_pull", reason: "test" },
+  });
+  assert.match(lookup.text, /no matching record/);
+  assert.deepEqual(lookup.data.hits, []);
+
+  // The forwarded result is passed through untouched, not re-wrapped.
+  const direct = await restricted.invokeTool("memory_lookup", { query: "test", trigger: "user_pull", reason: "test" });
+  assert.deepEqual(lookup, direct);
+
+  // Argument validation is the target tool's own schema, run server side.
+  await assert.rejects(
+    () => restricted.invokeTool("cyberboss_catalog", { handle: "memory/memory_lookup", arguments: { trigger: "user_pull", reason: "test" } }),
+    /memory_lookup input\.query is required/,
+  );
+}));
+
+test("T-A invoke keeps the toolset gate and still records self-escalation", async () => enabled(async () => {
+  await assert.rejects(
+    () => host("chat-core@1").invokeTool("cyberboss_catalog", { handle: "tool/weather", arguments: { command: "raw" } }),
+    (error) => assertCode(error, "catalog_tool_not_in_toolset"),
+  );
+
+  const escalations = [];
+  const escalating = new ProjectToolHost({
+    services: services(),
+    runtimeContextStore: { load() {}, resolveActiveContext() { return {}; } },
+    toolset: "chat-core@1",
+    chatSelfEscalation: true,
+    onSelfEscalation: (event) => escalations.push(event),
+  });
+  const weather = await escalating.invokeTool("cyberboss_catalog", { handle: "tool/weather", arguments: { command: "raw" } });
+  assert.equal(weather.data.extensions, "all");
+  assert.deepEqual(escalations.map((event) => [event.type, event.toolset, event.tool]), [["toolset_self_escalation", "chat-core@1", "weather"]]);
+}));
+
+test("T-A invoke fails closed on lease, request shape, and unknown handles", async () => {
+  await withEnv({ CYBERBOSS_TOOL_CATALOG_ENABLED: "true", CYBERBOSS_ROUTE2_GATE_ENABLED: "true" }, async () => {
+    const expired = new ProjectToolHost({
+      services: services(),
+      runtimeContextStore: { load() {}, resolveActiveContext() { return {}; } },
+      route2Lease: { id: "lease-expired-fake", status: "revoked", expiresAt: Date.now() - 1, toolNames: ["cyberboss_time"] },
+    });
+    await assert.rejects(
+      () => expired.invokeTool("cyberboss_catalog", { handle: "tool/cyberboss_time", arguments: {} }),
+      (error) => assertCode(error, "capability_lease_expired"),
+    );
+    // The forwarded tool's own byte budget applies, not the catalog entry's.
+    assert.equal(expired.maxResultBytes("cyberboss_catalog", { handle: "tool/cyberboss_time", arguments: {} }), 2048);
+    assert.equal(expired.maxResultBytes("cyberboss_catalog", { handle: "tool/cyberboss_time" }), null);
+    assert.equal(expired.maxResultBytes("cyberboss_catalog", { theme: "感知" }), null);
+  });
+  await enabled(async () => {
+    const catalog = host();
+    for (const args of [{ theme: "感知", arguments: {} }, { arguments: {} }]) {
+      await assert.rejects(() => catalog.invokeTool("cyberboss_catalog", args), (error) => assertCode(error, "catalog_invalid_request"));
+    }
+    await assert.rejects(() => catalog.invokeTool("cyberboss_catalog", { handle: "tool/missing", arguments: {} }), (error) => assertCode(error, "catalog_unknown_handle"));
+    await assert.rejects(() => catalog.invokeTool("cyberboss_catalog", { handle: "not-a-handle", arguments: {} }), (error) => assertCode(error, "catalog_invalid_handle"));
+    // A tool is reachable only under its own category prefix.
+    await assert.rejects(() => catalog.invokeTool("cyberboss_catalog", { handle: "tool/memory_lookup", arguments: {} }), (error) => assertCode(error, "catalog_unknown_handle"));
+    await assert.rejects(() => catalog.invokeTool("cyberboss_catalog", { handle: "tool/cyberboss_time", arguments: [] }), /cyberboss_catalog input\.arguments must be an object/);
+  });
+});
+
+test("T-A real stdio calls a never-broadcast tool through the catalog and keeps the surface at three", () => {
+  // Responses are indexed by id: forwarded calls resolve asynchronously, so the
+  // server may answer a later message first.
+  const rpc = new Map(mcp([
+    { id: 1, method: "tools/list" },
+    { id: 2, method: "tools/call", params: { name: "cyberboss_catalog", arguments: { handle: "memory/memory_lookup", arguments: { query: "test", trigger: "user_pull", reason: "test" } } } },
+    { id: 3, method: "tools/call", params: { name: "cyberboss_catalog", arguments: { handle: "tool/weather", arguments: { command: "raw" } } } },
+    { id: 4, method: "tools/list" },
+  ], { CYBERBOSS_TOOL_CATALOG_ENABLED: "true", TEST_TOOLSET: "chat-core@1" }).map((message) => [message.id, message]));
+  assert.deepEqual(rpc.get(1).result.tools.map((tool) => tool.name), ["cyberboss_catalog", "cyberboss_system_send", "cyberboss_time"]);
+  assert.equal(rpc.get(2).result.isError, undefined);
+  assert.match(rpc.get(2).result.content[0].text, /no matching record/);
+  assert.equal(rpc.get(3).result.isError, true);
+  assert.match(rpc.get(3).result.content[0].text, /^catalog_tool_not_in_toolset:/);
+  // listChanged:false stays honest — invoking never mutates the broadcast list.
+  assert.deepEqual(rpc.get(4).result.tools, rpc.get(1).result.tools);
+});
+
+// T-B: the context swing that motivated the catalog. It doubles as the D34
+// regression judge — invoke must add reach without growing the resident surface.
+test("T-B catalog on/off context swing stays at three broadcast tools", () => {
+  const off = withEnv({ CYBERBOSS_TOOL_CATALOG_ENABLED: undefined, CYBERBOSS_TOOL_CATALOG_TOOLSET: undefined, CYBERBOSS_SUBJECT_SIGNING_ENABLED: undefined }, () => host().listTools());
+  const on = enabled(() => host().listTools());
+  assert.equal(on.length, 3);
+  assert.ok(off.length >= 25, `legacy surface collapsed to ${off.length} tools`);
+  const chars = (tools) => JSON.stringify(tools).length;
+  assert.ok(chars(on) <= 1200, `resident surface grew to ${chars(on)} chars`);
+  assert.ok(chars(off) >= 12000, `legacy surface shrank to ${chars(off)} chars`);
+  assert.ok(chars(off) / chars(on) >= 10, `swing collapsed to ${(chars(off) / chars(on)).toFixed(1)}x`);
+  const resident = buildResidentCatalog();
+  assert.equal(resident.totals.resident_item_count, 3);
+  assert.equal(resident.totals.resident_schema_chars, 373);
+  assert.equal(resident.full_surface.schema_chars, 15810);
 });
 
 test("manifest policy and privacy canary are explicit and private-text-free", () => withEnv({ CATALOG_TEST_SECRET: plantedValue, CYBERBOSS_SUBJECT_SIGNING_ENABLED: undefined }, () => {

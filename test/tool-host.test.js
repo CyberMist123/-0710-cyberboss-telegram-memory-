@@ -219,6 +219,14 @@ test("T04 A4/A5 work authorization denies relationship-memory schema and calls i
         () => host.invokeTool("memory_note", { text: "bounded fixture" }),
         (error) => error.code === "g3_call_not_authorized",
       );
+      if (enabled === "true") {
+        // D34: the catalog invoke seam must not become a way around the work
+        // ceiling. It is a call, so it takes the call verdict, not the schema one.
+        await assert.rejects(
+          () => host.invokeTool("cyberboss_catalog", { handle: "memory/memory_note", arguments: { text: "bounded fixture" } }),
+          (error) => error.code === "g3_call_not_authorized",
+        );
+      }
     }
     assert.throws(
       () => new ProjectToolHost({ services: {}, runtimeContextStore: {}, authorizationCeiling: "unknown@1" }),
