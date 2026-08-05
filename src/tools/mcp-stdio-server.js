@@ -231,7 +231,21 @@ function buildToolResources(toolCatalog, catalogEntries = null) {
 
 function buildCatalogIndexMarkdown(entries) {
   const visible = entries.filter((entry) => !entry.alias_of && entry.hidden !== true);
-  const lines = ["# Cyberboss Tool Catalog", "", "Schemas are loaded only through an authorized exact catalog handle.", ""];
+  // The index is the only place that reads like a manual, so it has to say how
+  // the machine is worked, not just that a schema exists (D34).
+  const lines = [
+    "# Cyberboss Tool Catalog",
+    "",
+    "Every tool below is reached through the single `cyberboss_catalog` entry. It takes three shapes:",
+    "",
+    "- `{}` — list the intention themes with their counts.",
+    "- `{\"theme\": \"记忆\"}` — list the tools under one theme, with their handles.",
+    "- `{\"handle\": \"memory/memory_lookup\"}` — load that tool's exact input schema.",
+    "- `{\"handle\": \"memory/memory_lookup\", \"arguments\": {...}}` — call that tool. The arguments are the ones its schema declares; the result comes back unchanged.",
+    "",
+    "Load the schema before calling anything you have not called before: the arguments are validated server side and a wrong shape is refused, not guessed at.",
+    "",
+  ];
   for (const definition of THEME_DEFINITIONS) {
     const count = visible.filter((entry) => entry.theme === definition.name).length;
     lines.push(`- ${definition.name}(${count}) ${definition.description}`);
