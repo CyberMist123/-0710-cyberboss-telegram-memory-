@@ -14,7 +14,12 @@ const {
   resolveG3ProfileContractEnabled,
   validateLaunchProfile,
 } = require("../src/adapters/runtime/claudecode/launch-profile");
-const { buildArgs, resolveEffectivePermissionMode } = require("../src/adapters/runtime/claudecode/process-client");
+const {
+  ClaudeCodeProcessClient,
+  assertNoLaunchDrift,
+  buildArgs,
+  resolveEffectivePermissionMode,
+} = require("../src/adapters/runtime/claudecode/process-client");
 const {
   buildInstructionRefreshText,
   buildOpeningTurnText,
@@ -26,6 +31,7 @@ const {
   runG3LaunchPreflight,
 } = require("../src/adapters/runtime/claudecode/g3-preflight");
 const { canonicalWorkspaceKey } = require("../src/core/workspace-lock");
+const { readConfig } = require("../src/core/config");
 const { createClaudeCodeRuntimeAdapter } = require("../src/adapters/runtime/claudecode");
 const { createTelegramProfileRouter } = require("../src/adapters/runtime/claudecode/telegram-profile-router");
 const { buildTelegramRouteLane } = require("../src/core/route-lane");
@@ -56,11 +62,12 @@ function managedProfile(root, id) {
     profileId: id,
     cwd,
     configRoot,
-    harnessMode: fable ? "bare" : "engineering",
+    harnessMode: fable ? "chat-subscription" : "engineering",
     settingSources: fable ? ["user"] : ["user", "project", "local"],
     skillsMode: fable ? "disabled" : "enabled",
     settings: [settings],
     personaSource,
+    ...(fable ? { builtInTools: ["Read", "WebFetch"], escalatedBuiltInTools: ["default"] } : {}),
     residentToolSchemas: fable ? ["cyberboss_system_send", "cyberboss_time"] : ["engineering-tools"],
     mcpServerCeiling: fable ? "chat-ceiling@2" : "work-ceiling@1",
     toolsetCeiling: fable ? "chat-ceiling@1" : "work-ceiling@1",
@@ -96,9 +103,19 @@ test("T04 A1/A2 managed identities bind harness, role source, permission identit
       const work = validateLaunchProfile(managedProfile(root, "work-engineering"), { baseDir: root });
       const fableLaunch = buildProfileLaunch({ profile: fable, baseEnv: {}, baseCwd: root, baseDir: root });
       const workLaunch = buildProfileLaunch({ profile: work, baseEnv: {}, baseCwd: root, baseDir: root });
-      assert.deepEqual(fableLaunch.args.slice(0, 5), ["--bare", "--disable-slash-commands", "--setting-sources", "user", "--system-prompt"]);
+      // The chat harness authenticates with the subscription login in its own
+      // config root, so it must NOT pass --bare (under which the CLI reads
+      // neither OAuth nor the keychain) while still delivering the persona as
+      // the system prompt.
+      assert.equal(fableLaunch.args.includes("--bare"), false);
+      assert.deepEqual(fableLaunch.args.slice(0, 4), ["--disable-slash-commands", "--setting-sources", "user", "--system-prompt"]);
       assert.equal(fableLaunch.args[fableLaunch.args.indexOf("--system-prompt") + 1], "FABLE_ROLE_SENTINEL");
-      assert.equal(fableLaunch.args.includes("--tools"), false);
+      assert.deepEqual(
+        fableLaunch.args.slice(fableLaunch.args.indexOf("--tools"), fableLaunch.args.indexOf("--tools") + 2),
+        ["--tools", "Read,WebFetch"],
+      );
+      assert.equal(fableLaunch.telemetry.tool_face, "default");
+      assert.equal(fableLaunch.telemetry.built_in_tool_count, 2);
       assert.equal(fableLaunch.permissionMode, "bypassPermissions");
       assert.equal(workLaunch.args.includes("--bare"), false);
       assert.equal(workLaunch.args.includes("--disable-slash-commands"), false);
@@ -357,7 +374,11 @@ test("A6/A7/A8/A9/A14 fail-closed codes", async () => {
     await assert.rejects(runG3LaunchPreflight({ ...common, profile: profile(root, { configDir: root }) }), (e) => e.code === "config_root_conflict");
     clearCliProbeCache();
     await assert.rejects(runG3LaunchPreflight({ ...common, profile: profile(root), authProbe: async () => ({ ok: false }) }), (e) => e.code === "auth_probe_failed");
-    await assert.rejects(runG3LaunchPreflight({ ...common, profile: profile(root), extraArgs: ["--tools=none"] }), (e) => e.code === "forbidden_raw_extra_args");
+    // Raw extraArgs are refused by the profile builder itself now that the gate
+    // passes them through unchanged, so the flag-name blocklist that used to
+    // guess which ones mattered is gone: *any* non-empty extraArgs is refused.
+    await assert.rejects(runG3LaunchPreflight({ ...common, profile: profile(root), extraArgs: ["--tools=none"] }), (e) => e.code === "conflicting_args");
+    await assert.rejects(runG3LaunchPreflight({ ...common, profile: profile(root), extraArgs: ["--effort", "medium"] }), (e) => e.code === "conflicting_args");
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -465,6 +486,327 @@ test("A15 runtime adapter assembly uses the default probe when none is configure
     assert.equal(entries[0].client.usable, true);
   } finally {
     await adapter.close();
+    for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+    for (const [key, value] of Object.entries(saved)) process.env[key] = value;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// T12 launch identity: the gate verifies the launch that is actually spawned.
+//
+// Every test below assembles the adapter in production shape -- a managed
+// fable-chat profile whose `cwd` is NOT the configured agentCwd, a route-scoped
+// MCP config, both deployment approvals on -- because that is precisely the
+// combination the old preflight never saw (it hard-coded `extraArgs: []` and
+// left four more inputs at their defaults).
+// ---------------------------------------------------------------------------
+
+function identityFixture() {
+  const root = tempRoot();
+  const workspace = path.join(root, "workspace");
+  const state = path.join(root, "state");
+  const memoryDir = path.join(root, "memory");
+  fs.mkdirSync(workspace); fs.mkdirSync(state); fs.mkdirSync(memoryDir);
+  const log = path.join(root, "launches.jsonl");
+  fs.writeFileSync(log, "");
+  return { root, workspace, state, memoryDir, log };
+}
+
+// Passed as prefix args rather than env: a profiled launch hands the child only
+// the G3 host allowlist, so CB_FAKE_LAUNCH_LOG would never reach it.
+function identityPrefixArgs(fixture) {
+  return [
+    path.join(__dirname, "helpers", "fake-claude-cli.js"),
+    "--cb-launch-log", fixture.log,
+    "--cb-counter", path.join(fixture.root, "counter"),
+  ];
+}
+
+function startIdentityAdapter(fixture, { adapterOptions = {}, env = {} } = {}) {
+  const saved = { ...process.env };
+  process.env.CB_FAKE_LAUNCH_LOG = fixture.log;
+  process.env.CB_FAKE_COUNTER = path.join(fixture.root, "counter");
+  process.env.CYBERBOSS_CLAUDE_G3_PREFLIGHT_ENABLED = "true";
+  process.env.CYBERBOSS_CLAUDE_G3_PROFILE_CONTRACT_ENABLED = "true";
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  clearCliProbeCache();
+  const adapter = createClaudeCodeRuntimeAdapter({
+    stateDir: fixture.state,
+    sessionsFile: path.join(fixture.root, "sessions.json"),
+    claudeSessionSlotsFile: path.join(fixture.state, "slots.json"),
+    claudeCommand: process.execPath,
+    claudeCommandPrefixArgs: identityPrefixArgs(fixture),
+    claudeDisableVerbose: true,
+    claudeLaunchProfileBaseDir: fixture.root,
+    // The production defect in miniature: the deployment's agent cwd is the
+    // memory directory, while the profile pins its own isolated workspace.
+    agentCwd: fixture.memoryDir,
+    claudeAllowCloudCredentialInheritance: true,
+    claudeAllowAuthBackendOverride: true,
+    claudeG3AuthProbe: async () => ({ ok: true }),
+    ...adapterOptions,
+  });
+  const stop = async () => {
+    await adapter.close();
+    for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+    for (const [key, value] of Object.entries(saved)) process.env[key] = value;
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  };
+  return { adapter, stop };
+}
+
+function readLaunchLog(fixture) {
+  return fs.readFileSync(fixture.log, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+}
+
+const identityLane = buildTelegramRouteLane({ accountId: "telegram", chatId: 900, messageThreadId: 3 });
+
+test("T12 A1/A4/A6 the spawned child is byte-for-byte the launch the gate verified", async () => {
+  const fixture = identityFixture();
+  const { adapter, stop } = startIdentityAdapter(fixture);
+  try {
+    const profileInput = managedProfile(fixture.root, "fable-chat");
+    await adapter.sendTurn({
+      bindingKey: "binding", senderId: "900", workspaceRoot: fixture.workspace,
+      lane: identityLane, launchProfile: profileInput, text: "hi",
+    });
+    const [entry] = adapter.__internals.processRegistry.listEntries();
+    const verified = entry.client.g3Preflight.launch;
+
+    // 1. the client spawned the gate's object, not one of its own
+    assert.equal(entry.client.launchFingerprint, verified.launchFingerprint);
+
+    const launches = readLaunchLog(fixture);
+    assert.equal(launches.length, 1);
+    const [launched] = launches;
+
+    // 2. argv: the profile's verified args are the tail of what the child saw,
+    //    and nothing else in argv duplicates them
+    assert.deepEqual(launched.argv.slice(-verified.args.length), [...verified.args]);
+    assert.equal(launched.argv.filter((arg) => arg === "--mcp-config").length,
+      verified.args.filter((arg) => arg === "--mcp-config").length);
+    assert.equal(launched.argv.filter((arg) => arg === "--system-prompt").length, 1);
+
+    // 3. the route-scoped MCP config went through the gate (it used to be
+    //    generated after the gate had already run)
+    const mcpPath = verified.args[verified.args.indexOf("--mcp-config") + 1];
+    assert.equal(mcpPath.includes(path.join("claude-mcp", "route-")), true);
+    assert.equal(fs.existsSync(mcpPath), true);
+
+    // 4. cwd and environment, observed from inside the child. The marker is a
+    //    relative write by the child, so it can only appear under the directory
+    //    the child was actually started in.
+    assert.equal(fs.existsSync(path.join(verified.cwd, "cb-launch-cwd.marker")), true);
+    const verifiedEnvKeys = Object.keys(verified.env).sort();
+    for (const key of verifiedEnvKeys) {
+      assert.equal(launched.envKeys.includes(key), true, `child is missing verified env key ${key}`);
+    }
+    // Everything the child has beyond the verified environment is injected by
+    // libuv, which adds a fixed list of Windows variables to every child it
+    // spawns (uv win/process.c `required_vars`) regardless of the env passed.
+    // They are outside this runtime's control and carry no credential material;
+    // the assertion pins the set so a genuine leak cannot hide among them.
+    const libuvWindowsVars = new Set([
+      "HOMEDRIVE", "HOMEPATH", "LOGONSERVER", "SYSTEMDRIVE",
+      "USERDOMAIN", "USERNAME", "USERPROFILE", "WINDIR",
+    ]);
+    assert.deepEqual(
+      launched.envKeys.filter((key) => !verifiedEnvKeys.includes(key) && !libuvWindowsVars.has(key)),
+      [],
+    );
+  } finally { await stop(); }
+});
+
+test("T12 A2 raw extraArgs fail closed in the gate and spawn nothing", async () => {
+  const fixture = identityFixture();
+  const { adapter, stop } = startIdentityAdapter(fixture, {
+    // Exactly the production value that reached spawn time as `conflicting_args`
+    adapterOptions: { claudeExtraArgs: ["--effort", "medium"] },
+  });
+  try {
+    await assert.rejects(adapter.sendTurn({
+      bindingKey: "binding", senderId: "900", workspaceRoot: fixture.workspace,
+      lane: identityLane, launchProfile: managedProfile(fixture.root, "fable-chat"), text: "hi",
+    }), (error) => error.code === "conflicting_args");
+    assert.deepEqual(readLaunchLog(fixture), []);
+    assert.equal(adapter.__internals.processRegistry.listEntries().length, 0);
+  } finally { await stop(); }
+});
+
+test("T12 A3 the lock domain follows the profile cwd instead of the deployment default", async () => {
+  const fixture = identityFixture();
+  const { adapter, stop } = startIdentityAdapter(fixture);
+  try {
+    const profileInput = managedProfile(fixture.root, "fable-chat");
+    const route = adapter.__internals.resolveRouteContext({
+      bindingKey: "binding", workspaceRoot: fixture.workspace, lane: identityLane,
+      launchProfile: profileInput, senderId: "900",
+    });
+    assert.notEqual(canonicalWorkspaceKey(fixture.memoryDir), canonicalWorkspaceKey(profileInput.cwd));
+    // The workspace lock and the process key are both taken on route.agentCwd
+    // (beginTurnHold / computeProcessKey), so binding it to the profile cwd is
+    // what puts the lock on the directory the child actually runs in.
+    assert.equal(canonicalWorkspaceKey(route.agentCwd), canonicalWorkspaceKey(profileInput.cwd));
+
+    await adapter.sendTurn({
+      bindingKey: "binding", senderId: "900", workspaceRoot: fixture.workspace,
+      lane: identityLane, launchProfile: profileInput, text: "hi",
+    });
+    const [entry] = adapter.__internals.processRegistry.listEntries();
+    assert.equal(canonicalWorkspaceKey(entry.client.g3Preflight.launch.cwd), canonicalWorkspaceKey(route.agentCwd));
+    // The child's own relative write proves where it ran: under the profile
+    // cwd, not under the deployment's memory directory.
+    assert.equal(fs.existsSync(path.join(route.agentCwd, "cb-launch-cwd.marker")), true);
+    assert.equal(fs.existsSync(path.join(fixture.memoryDir, "cb-launch-cwd.marker")), false);
+  } finally { await stop(); }
+});
+
+test("T12 A5 a window override reaches the gate and the child identically", async () => {
+  const fixture = identityFixture();
+  const { adapter, stop } = startIdentityAdapter(fixture, {
+    env: { CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED: "true" },
+  });
+  try {
+    await adapter.sendTurn({
+      bindingKey: "binding", senderId: "900", workspaceRoot: fixture.workspace,
+      lane: identityLane, launchProfile: managedProfile(fixture.root, "fable-chat"),
+      model: "claude-model-two", effort: "high", text: "hi",
+    });
+    const [entry] = adapter.__internals.processRegistry.listEntries();
+    const verified = entry.client.g3Preflight.launch;
+    assert.equal(verified.args[verified.args.indexOf("--model") + 1], "claude-model-two");
+    assert.equal(verified.args[verified.args.indexOf("--effort") + 1], "high");
+    const [launched] = readLaunchLog(fixture);
+    assert.deepEqual(launched.argv.slice(-verified.args.length), [...verified.args]);
+  } finally { await stop(); }
+});
+
+test("T12 A7 a launch that drifts from the verified one fails closed instead of spawning", async () => {
+  const fixture = identityFixture();
+  const { adapter, stop } = startIdentityAdapter(fixture);
+  try {
+    const profileInput = managedProfile(fixture.root, "fable-chat");
+    const baseEnv = { ...process.env };
+    const verified = await runG3LaunchPreflight({
+      profile: profileInput, baseEnv, baseCwd: profileInput.cwd, baseDir: fixture.root,
+      expectedLockPath: profileInput.cwd, baseMcpConfigPaths: [],
+      command: process.execPath, commandPrefixArgs: identityPrefixArgs(fixture),
+      authProbe: async () => ({ ok: true }),
+    });
+    // The client is handed a *different* MCP config set than the gate saw --
+    // the exact shape of the pre-fix code, where the route-scoped config was
+    // generated only after the gate had run.
+    const drifted = new ClaudeCodeProcessClient({
+      command: process.execPath,
+      commandPrefixArgs: identityPrefixArgs(fixture),
+      cwd: profileInput.cwd,
+      env: baseEnv,
+      launchProfile: profileInput,
+      launchProfileBaseDir: fixture.root,
+      mcpConfigPaths: [path.join(fixture.state, "unverified-mcp.json")],
+      g3Preflight: verified,
+    });
+    await assert.rejects(() => drifted.connect(), (error) => error.code === "launch_drift");
+    assert.equal(drifted.child, null);
+    assert.deepEqual(readLaunchLog(fixture), []);
+
+    // and the belt itself, in isolation: equal launches pass, any difference
+    // in fingerprint, cwd or argv is refused.
+    assert.equal(assertNoLaunchDrift(verified.launch, verified.launch), verified.launch);
+    for (const mutation of [
+      { launchFingerprint: "rotated" },
+      { cwd: path.join(fixture.root, "elsewhere") },
+      { args: [...verified.launch.args, "--extra"] },
+    ]) {
+      assert.throws(
+        () => assertNoLaunchDrift(verified.launch, { ...verified.launch, ...mutation }),
+        (error) => error.code === "launch_drift",
+      );
+    }
+    assert.throws(() => assertNoLaunchDrift(verified.launch, null), (error) => error.code === "launch_drift");
+  } finally { await stop(); }
+});
+
+test("T12 A8 the chat profile authenticates by subscription: no --bare, persona and tool face intact", () => {
+  const root = tempRoot();
+  try {
+    withManagedProfileGate(() => {
+      const profileInput = managedProfile(root, "fable-chat");
+      const launch = buildProfileLaunch({ profile: profileInput, baseEnv: {}, baseCwd: root, baseDir: root });
+      assert.equal(launch.args.includes("--bare"), false);
+      assert.equal(launch.args.includes("--system-prompt"), true);
+      assert.equal(launch.args[launch.args.indexOf("--tools") + 1], "Read,WebFetch");
+
+      // An active route2 lease raises the built-in face; that is a launch
+      // change, so the fingerprint moves and the slot relaunches with it.
+      const escalated = buildProfileLaunch({
+        profile: profileInput, baseEnv: {}, baseCwd: root, baseDir: root,
+        mutableOverride: {
+          capabilityLease: { id: "lease-1", status: "active", expiresAt: 1, toolNames: [] },
+          trace: { entries: [] },
+        },
+      });
+      assert.equal(escalated.args[escalated.args.indexOf("--tools") + 1], "default");
+      assert.equal(escalated.telemetry.tool_face, "escalated");
+      assert.notEqual(escalated.launchFingerprint, launch.launchFingerprint);
+
+      // A revoked lease is not an escalation.
+      const revoked = buildProfileLaunch({
+        profile: profileInput, baseEnv: {}, baseCwd: root, baseDir: root,
+        mutableOverride: {
+          capabilityLease: { id: "lease-1", status: "revoked", expiresAt: 1, toolNames: [] },
+          trace: { entries: [] },
+        },
+      });
+      assert.equal(revoked.args[revoked.args.indexOf("--tools") + 1], "Read,WebFetch");
+
+      // The narrow face is the contract, so leaving it unstated fails closed
+      // rather than handing the chat child the CLI's full built-in set.
+      const { builtInTools, ...faceless } = managedProfile(root, "fable-chat");
+      assert.equal(Array.isArray(builtInTools), true);
+      assert.throws(
+        () => validateLaunchProfile(faceless, { baseDir: root }),
+        (error) => error.code === "g3_profile_field_required",
+      );
+      // and the harness mode is pinned by the contract, not free-form
+      assert.throws(
+        () => validateLaunchProfile({ ...managedProfile(root, "fable-chat"), harnessMode: "bare" }, { baseDir: root }),
+        (error) => error.code === "g3_profile_contract_mismatch",
+      );
+    });
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("T12 A9 launch profiles come from a file or from env, never both", () => {
+  const root = tempRoot();
+  const file = path.join(root, "launch-profiles.json");
+  const saved = { ...process.env };
+  try {
+    const document = JSON.stringify({ "fable-chat": { profileId: "fable-chat" } });
+    fs.writeFileSync(file, `﻿${document}`, "utf8");
+    process.env.CYBERBOSS_CLAUDE_LAUNCH_PROFILES_FILE = file;
+    delete process.env.CYBERBOSS_CLAUDE_LAUNCH_PROFILES_JSON;
+    // The BOM an editor leaves behind is stripped: the router's JSON parse would
+    // otherwise reject a file the operator can see is valid.
+    assert.equal(readConfig().claudeLaunchProfilesJson, document);
+
+    process.env.CYBERBOSS_CLAUDE_LAUNCH_PROFILES_JSON = document;
+    assert.throws(() => readConfig(), /cannot both be set/);
+
+    delete process.env.CYBERBOSS_CLAUDE_LAUNCH_PROFILES_JSON;
+    fs.writeFileSync(file, "   \n", "utf8");
+    assert.throws(() => readConfig(), /is empty/);
+
+    fs.rmSync(file);
+    assert.throws(() => readConfig(), /does not exist or is not readable/);
+
+    process.env.CYBERBOSS_CLAUDE_LAUNCH_PROFILES_FILE = root;
+    assert.throws(() => readConfig(), /must point at a file/);
+  } finally {
     for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
     for (const [key, value] of Object.entries(saved)) process.env[key] = value;
     fs.rmSync(root, { recursive: true, force: true });

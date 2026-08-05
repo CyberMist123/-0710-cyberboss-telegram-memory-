@@ -144,7 +144,7 @@ class ClaudeCodeProcessClient {
     this.sessionId = "";
     this.resumeSessionId = isValidSessionId(resumeSessionId) ? resumeSessionId : "";
     this.activeThreadId = "";
-    const profileLaunch = this.launchProfile
+    const recomputedLaunch = this.launchProfile
       ? buildProfileLaunch({
         profile: this.launchProfile,
         mutableOverride: this.mutableOverride,
@@ -158,6 +158,13 @@ class ClaudeCodeProcessClient {
         capabilities: this.cliCapabilities,
       })
       : null;
+    // The G3 gate builds the launch; this client spawns *that* launch, never a
+    // second one built from a different set of inputs. The recomputation above
+    // stays only as the belt: if the two ever disagree, one of the two input
+    // sets is wrong and the child must not start.
+    const profileLaunch = this.g3Preflight?.launch
+      ? assertNoLaunchDrift(this.g3Preflight.launch, recomputedLaunch)
+      : recomputedLaunch;
 
     // With a profile applied the base model / extraArgs / mcp flags are dropped
     // and rebuilt from the validated profile, so an unvalidated flag can never
@@ -609,6 +616,32 @@ function extraArgsContainFlag(extraArgs, flag) {
   });
 }
 
+/**
+ * The identity assertion: what the G3 gate verified is what gets spawned.
+ *
+ * Returns the *gate's* launch, so the spawn can only ever use the verified
+ * object. The recomputed one is compared, never used: any disagreement means the
+ * gate and the spawn path were fed different inputs, which is precisely the
+ * class of defect this seam exists to make impossible.
+ */
+function assertNoLaunchDrift(preflightLaunch, recomputedLaunch) {
+  const drift = !recomputedLaunch ? "profile_absent"
+    : preflightLaunch.launchFingerprint !== recomputedLaunch.launchFingerprint ? "fingerprint"
+      : preflightLaunch.cwd !== recomputedLaunch.cwd ? "cwd"
+        : !sameArgv(preflightLaunch.args, recomputedLaunch.args) ? "args"
+          : "";
+  if (!drift) return preflightLaunch;
+  const error = new Error(`claudecode launch drifted from the verified preflight launch (${drift})`);
+  error.code = "launch_drift";
+  throw error;
+}
+
+function sameArgv(left, right) {
+  const a = Array.isArray(left) ? left : [];
+  const b = Array.isArray(right) ? right : [];
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
 function resolveEffectivePermissionMode(profilePermissionMode, basePermissionMode) {
   if (!profilePermissionMode) return basePermissionMode;
   return profilePermissionMode === "inherit" ? basePermissionMode : profilePermissionMode;
@@ -686,6 +719,7 @@ module.exports = {
   ClaudeCodeProcessClient,
   DEFAULT_EFFORT,
   EFFORT_VALUES,
+  assertNoLaunchDrift,
   buildArgs,
   normalizeEffort,
   resolveEffortLevel,

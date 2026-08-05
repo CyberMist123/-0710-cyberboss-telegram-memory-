@@ -214,11 +214,11 @@ function readConfig() {
     claudeDisableVerbose: readBoolEnv("CYBERBOSS_CLAUDE_DISABLE_VERBOSE"),
     claudeExtraArgs: readListEnv("CYBERBOSS_CLAUDE_EXTRA_ARGS"),
     claudeConfigDir: resolveConfiguredPath(readTextEnv("CYBERBOSS_CLAUDE_CONFIG_DIR")),
-    // Raw operator JSON. It is deliberately NOT parsed here: parsing happens in
-    // the Telegram profile router, which is fail-closed and throws on any
-    // defect, so a malformed mapping blocks startup instead of degrading into a
-    // more permissive legacy launch.
-    claudeLaunchProfilesJson: readRawEnv("CYBERBOSS_CLAUDE_LAUNCH_PROFILES_JSON"),
+    // Raw operator JSON, inline or from a file. It is deliberately NOT parsed
+    // here: parsing happens in the Telegram profile router, which is fail-closed
+    // and throws on any defect, so a malformed mapping blocks startup instead of
+    // degrading into a more permissive legacy launch.
+    claudeLaunchProfilesJson: readLaunchProfilesSource(),
     telegramProfileMappingJson: readRawEnv("CYBERBOSS_TELEGRAM_PROFILE_MAPPING_JSON"),
     claudeLaunchProfileBaseDir: resolveConfiguredPath(
       readTextEnv("CYBERBOSS_CLAUDE_LAUNCH_PROFILE_BASE_DIR"),
@@ -237,6 +237,55 @@ function readConfig() {
     sessionsFile: joinIfBase(stateDir, "sessions.json"),
     startWithCheckin: (mode === "start" && hasArgFlag(argv, "--checkin")) || readBoolEnv("CYBERBOSS_ENABLE_CHECKIN"),
   };
+}
+
+// Upper bound on the launch-profile file. The profile set is a handful of
+// objects; anything approaching this is a misconfiguration, and reading it
+// before the router's own bounded parse would be the one unbounded read on the
+// startup path.
+const LAUNCH_PROFILES_FILE_MAX_BYTES = 256 * 1024;
+
+/**
+ * The launch profiles document, from either `..._JSON` (inline) or
+ * `..._FILE` (a path).
+ *
+ * Both set is a configuration error, not a precedence question: an operator who
+ * edits the file while a stale inline copy silently wins would be running a
+ * profile they cannot see. Every failure here stops startup.
+ */
+function readLaunchProfilesSource() {
+  const inline = readRawEnv("CYBERBOSS_CLAUDE_LAUNCH_PROFILES_JSON");
+  const filePath = resolveConfiguredPath(readTextEnv("CYBERBOSS_CLAUDE_LAUNCH_PROFILES_FILE"));
+  if (inline && filePath) {
+    throw new Error(
+      "CYBERBOSS_CLAUDE_LAUNCH_PROFILES_JSON and CYBERBOSS_CLAUDE_LAUNCH_PROFILES_FILE cannot both be set",
+    );
+  }
+  if (!filePath) return inline;
+  let stat;
+  try {
+    stat = fs.statSync(filePath);
+  } catch {
+    throw new Error("CYBERBOSS_CLAUDE_LAUNCH_PROFILES_FILE does not exist or is not readable");
+  }
+  if (!stat.isFile()) {
+    throw new Error("CYBERBOSS_CLAUDE_LAUNCH_PROFILES_FILE must point at a file");
+  }
+  if (stat.size > LAUNCH_PROFILES_FILE_MAX_BYTES) {
+    throw new Error("CYBERBOSS_CLAUDE_LAUNCH_PROFILES_FILE exceeds the size limit");
+  }
+  let text;
+  try {
+    text = fs.readFileSync(filePath, "utf8");
+  } catch {
+    throw new Error("CYBERBOSS_CLAUDE_LAUNCH_PROFILES_FILE does not exist or is not readable");
+  }
+  // An editor-written JSON file may carry a BOM; JSON.parse would reject it.
+  const cleaned = text.replace(/^﻿/, "");
+  if (!cleaned.trim()) {
+    throw new Error("CYBERBOSS_CLAUDE_LAUNCH_PROFILES_FILE is empty");
+  }
+  return cleaned;
 }
 
 function readListEnv(name) {

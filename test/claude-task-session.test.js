@@ -93,7 +93,11 @@ function makeFixture({ taskId = "fixture-route1-task", timeoutMs = 5_000, delayM
     sessionsFile: path.join(stateDir, "sessions.json"),
     claudeSessionSlotsFile: path.join(stateDir, "claude-session-slots.json"),
     claudeCommand: process.execPath,
-    claudeCommandPrefixArgs: [FAKE_CLI],
+    // The log path travels as a prefix argument, not as CB_FAKE_LAUNCH_LOG: a
+    // profiled launch strips the child's environment to the G3 host allowlist,
+    // so an env-configured fixture would record nothing for exactly the
+    // launches these tests need to observe.
+    claudeCommandPrefixArgs: [FAKE_CLI, "--cb-launch-log", launchLog],
     claudeDisableVerbose: true,
     claudeLaunchProfileBaseDir: root,
     claudeG3AuthProbe: async () => ({ ok: true }),
@@ -230,6 +234,64 @@ test("T09 A1/A4 task timeout uses spec timeout and remains resumable", async () 
       const resumed = fixture.adapter.__internals.taskSessionRegistry.resume(fixture.spec.task_id);
       assert.equal(resumed.state, "queued");
     } finally {
+      await fixture.adapter.close();
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+});
+
+test("T12 route1 worker is spawned with the launch its own gate verified", async () => {
+  const fixture = makeFixture({ taskId: "fixture-route1-identity" });
+  await withTaskEnv(fixture, async () => {
+    try {
+      const result = await fixture.adapter.runTaskSession({
+        spec: fixture.spec,
+        launchProfile: fixture.profile,
+        observedChangedPaths: [],
+      });
+      assert.equal(result.shortStatus.lifecycle, "completed", JSON.stringify(result));
+      const [worker] = readLaunches(fixture.launchLog);
+      // The worker's route-scoped MCP config reached its gate: it is in the
+      // spawned argv exactly once, from the profile launch the gate built.
+      assert.equal(worker.argv.filter((arg) => arg === "--mcp-config").length, 1);
+      const mcpPath = worker.argv[worker.argv.indexOf("--mcp-config") + 1];
+      assert.equal(mcpPath.includes(path.join("claude-mcp", "route-")), true);
+      assert.equal(fs.existsSync(mcpPath), true);
+      assert.equal(worker.argv.includes("--strict-mcp-config"), true);
+    } finally {
+      await fixture.adapter.close();
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+});
+
+test("T12 route1 refuses raw extraArgs in the gate instead of at spawn time", async () => {
+  const fixture = makeFixture({ taskId: "fixture-route1-extra-args" });
+  // Same production shape as the chat lane: a deployment-wide extra arg that a
+  // profiled launch may never combine with.
+  fixture.adapter.__internals.processRegistry.listEntries();
+  const withExtraArgs = createClaudeCodeRuntimeAdapter({
+    stateDir: path.join(fixture.root, "state"),
+    sessionsFile: path.join(fixture.root, "state", "sessions-extra.json"),
+    claudeSessionSlotsFile: path.join(fixture.root, "state", "slots-extra.json"),
+    claudeCommand: process.execPath,
+    claudeCommandPrefixArgs: [FAKE_CLI, "--cb-launch-log", fixture.launchLog],
+    claudeDisableVerbose: true,
+    claudeLaunchProfileBaseDir: fixture.root,
+    claudeExtraArgs: ["--effort", "medium"],
+    claudeG3AuthProbe: async () => ({ ok: true }),
+  });
+  await withTaskEnv(fixture, async () => {
+    try {
+      const result = await withExtraArgs.runTaskSession({
+        spec: fixture.spec,
+        launchProfile: fixture.profile,
+        observedChangedPaths: [],
+      });
+      assert.equal(result.capsule.status, "failed", JSON.stringify(result));
+      assert.deepEqual(readLaunches(fixture.launchLog), []);
+    } finally {
+      await withExtraArgs.close();
       await fixture.adapter.close();
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }

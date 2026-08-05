@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { canonicalWorkspaceKey } = require("../../../core/workspace-lock");
-const { extraArgsContainFlag, isPotentiallySensitive } = require("./process-client");
+const { isPotentiallySensitive } = require("./process-client");
 const { buildProfileLaunch, resolveG3PreflightEnabled } = require("./launch-profile");
 
 const REQUIRED_FLAGS = Object.freeze([
@@ -13,9 +13,6 @@ const REQUIRED_FLAGS = Object.freeze([
   "--mcp-config", "--strict-mcp-config", "--tools", "--effort",
 ]);
 const OPTIONAL_FLAGS = Object.freeze(["--config-dir", "--output-style"]);
-const FORBIDDEN_RAW_FLAGS = Object.freeze([
-  "--settings", "--mcp-config", "--strict-mcp-config", "--tools",
-]);
 const probeCache = new Map();
 
 class G3PreflightError extends Error {
@@ -76,6 +73,15 @@ function runCliCapabilityProbe({ command = "claude", commandPrefixArgs = [], env
   return result;
 }
 
+/**
+ * Build and verify the one launch this route will actually spawn.
+ *
+ * Every input the spawn path uses is taken here too -- raw `extraArgs`,
+ * route-scoped MCP config paths, the window override and both deployment
+ * approvals. The returned `launch` is the object `ProcessClient.connect()`
+ * spawns; a gate that validated anything else would be validating a launch that
+ * never runs (which is exactly how `conflicting_args` reached production).
+ */
 async function runG3LaunchPreflight({
   profile,
   baseEnv,
@@ -88,17 +94,27 @@ async function runG3LaunchPreflight({
   commandPrefixArgs = [],
   authProbe = null,
   expectedLockPath = "",
+  mutableOverride = null,
+  allowAuthBackendOverride = false,
+  allowCloudCredentialInheritance = false,
 } = {}) {
   if (!resolveG3PreflightEnabled(baseEnv)) return Object.freeze({ enabled: false });
-  for (const flag of FORBIDDEN_RAW_FLAGS) {
-    if (extraArgsContainFlag(extraArgs, flag)) {
-      throw new G3PreflightError("forbidden_raw_extra_args", { flag });
-    }
-  }
   let launch;
   try {
     launch = buildProfileLaunch({
-      profile, baseEnv, baseCwd, baseMcpConfigPaths, extraArgs: [], baseDir, capabilities,
+      profile,
+      mutableOverride,
+      baseEnv,
+      baseCwd,
+      baseMcpConfigPaths,
+      // Passed through unchanged. A profiled launch rejects any non-empty raw
+      // extraArgs (`conflicting_args`), so the rejection now happens in the gate
+      // instead of leaking to spawn time.
+      extraArgs,
+      baseDir,
+      allowAuthBackendOverride,
+      allowCloudCredentialInheritance,
+      capabilities,
     });
   } catch (error) {
     if (error?.code) throw error;
@@ -161,7 +177,6 @@ function clearCliProbeCache() {
 }
 
 module.exports = {
-  FORBIDDEN_RAW_FLAGS,
   G3PreflightError,
   OPTIONAL_FLAGS,
   REQUIRED_FLAGS,
