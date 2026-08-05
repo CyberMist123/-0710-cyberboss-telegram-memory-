@@ -60,7 +60,7 @@ test("folder registry loads enabled declarations with args and env", () => {
       name: "registry_alpha",
       command: "alpha-command",
       args: ["--alpha", " --loud "],
-      env: { ALPHA_TOKEN_PATH: "C:/somewhere/alpha" },
+      env: { ALPHA_TOKEN_PATH: "/opt/alpha/token" },
       enabled: true,
     }),
   }, (dir) => withEnv({ CYBERBOSS_EXTRA_MCP_SERVERS_DIR: dir }, () => {
@@ -69,7 +69,7 @@ test("folder registry loads enabled declarations with args and env", () => {
       name: "registry_alpha",
       command: "alpha-command",
       args: ["--alpha", "--loud"],
-      env: { ALPHA_TOKEN_PATH: "C:/somewhere/alpha" },
+      env: { ALPHA_TOKEN_PATH: "/opt/alpha/token" },
     }]);
   }));
 });
