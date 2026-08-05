@@ -181,6 +181,12 @@ test("A7 real stdio exposes three tools and supports theme and direct-handle cat
   const resources = mcp([{ id: 1, method: "resources/list" }, { id: 2, method: "resources/read", params: { uri: "cyberboss://tools/weather" } }], { CYBERBOSS_TOOL_CATALOG_ENABLED: "true" });
   assert.deepEqual(resources[0].result.resources.filter((item) => item.uri.startsWith("cyberboss://tools/")).map((item) => item.uri), ["cyberboss://tools/index", "cyberboss://tools/cyberboss_system_send", "cyberboss://tools/cyberboss_time"]);
   assert.match(resources[1].error.message, /Unknown resource/);
+  // The index is the manual: it must document the call shape, not only the
+  // schema-load shape, or the D34 seam stays invisible to her.
+  const index = mcp([{ id: 1, method: "resources/read", params: { uri: "cyberboss://tools/index" } }], { CYBERBOSS_TOOL_CATALOG_ENABLED: "true" })[0].result.contents[0].text;
+  assert.match(index, /"arguments"/);
+  assert.match(index, /call that tool/);
+  for (const definition of THEME_DEFINITIONS) assert.match(index, new RegExp(definition.name));
 });
 
 test("A8 toolset discovery is not invocation authority and aliases canonicalize before the gate", async () => enabled(async () => {
