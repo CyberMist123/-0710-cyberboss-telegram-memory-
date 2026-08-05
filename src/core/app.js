@@ -85,7 +85,8 @@ const { CloseoutLivenessAutomation, MAX_ALERT_DELIVERY_ATTEMPTS } = require("../
 const { persistReportedDesireState } = require("./desire-state-persistence");
 const { loadContextGates } = require("./hard-context");
 const { createProjectTooling } = require("../tools/create-project-tooling");
-const { formatBeijingDateTime } = require("../utils/beijing-time");
+const { formatAppDateTime } = require("../utils/app-time");
+const { describeAppTimezone } = require("../utils/app-timezone");
 const { resolveMemoryRetrievalPlan } = require("./memory-resolver");
 const { parseMemoryCommand } = require("./memory-command-router");
 const { validateDraftAgainstMemory, rewriteDraftToMatchMemory } = require("./memory-validator");
@@ -328,6 +329,8 @@ class CyberbossApp {
     console.log(`[cyberboss] account=${account.accountId}`);
     console.log(`[cyberboss] baseUrl=${account.baseUrl || "(none)"}`);
     console.log(`[cyberboss] workspaceRoot=${this.config.workspaceRoot}`);
+    const appTimezone = describeAppTimezone();
+    console.log(`[cyberboss] timezone=${appTimezone.timezone} source=${appTimezone.source}`);
     console.log(`[cyberboss] knownContextTokens=${knownContextTokens}`);
     console.log(`[cyberboss] syncBuffer=${syncBuffer ? "ready" : "empty"}`);
     console.log(`[cyberboss] runtimeEndpoint=${runtimeState.endpoint || runtimeState.command || "(spawn)"}`);
@@ -5334,7 +5337,7 @@ function formatWechatLocalTime(receivedAt) {
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return formatBeijingDateTime(parsed);
+  return formatAppDateTime(parsed);
 }
 
 function stringifyRpcId(value) {

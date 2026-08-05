@@ -29,4 +29,13 @@ function resolveAppTimezone({
   return timezone;
 }
 
-module.exports = { resolveAppTimezone };
+// Same resolution, but says where the value came from. `host` means nobody
+// declared a timezone and the machine's own setting is silently deciding what
+// "local time" means for her — worth printing at startup rather than assuming.
+function describeAppTimezone(options = {}) {
+  const timezone = resolveAppTimezone(options);
+  const env = options.env || process.env;
+  return { timezone, source: normalizeTimezone(env?.CYBERBOSS_TIMEZONE) ? "CYBERBOSS_TIMEZONE" : "host" };
+}
+
+module.exports = { resolveAppTimezone, describeAppTimezone };

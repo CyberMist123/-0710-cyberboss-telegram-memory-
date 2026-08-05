@@ -1,4 +1,4 @@
-const { formatBeijingDateTime } = require("../utils/beijing-time");
+const { formatAppDateTime } = require("../utils/app-time");
 const { isActivityPaused, isPausedSystemMessageSource } = require("./activity-pause-state");
 
 class SystemMessageDispatcher {
@@ -165,7 +165,7 @@ function formatSystemLocalTime(value) {
   if (!normalized) {
     return "";
   }
-  return formatBeijingDateTime(new Date(normalized));
+  return formatAppDateTime(new Date(normalized));
 }
 
 function normalizeIsoTime(value) {

@@ -5,7 +5,7 @@ const {
   STICKER_TAG_GUIDANCE,
 } = require("../services/sticker-service");
 const { resolveAppTimezone } = require("../utils/app-timezone");
-const { formatAppTime } = require("../utils/beijing-time");
+const { formatAppTime } = require("../utils/app-time");
 const { route1DispatchEnabled } = require("../orchestration/route1-dispatch");
 const {
   catalogEnabled, subjectSigningEnabled, route2GateEnabled, resolveToolset, buildManifest, findSchema, assertCapabilityLease,

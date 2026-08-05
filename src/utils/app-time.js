@@ -47,12 +47,7 @@ function formatAppDateTime(input = new Date(), timezoneOptions) {
   return `本地时间 ${parts.year}-${parts.month}-${parts.day} ${pad(parts.hour)}:${pad(parts.minute)}:${pad(parts.second)}`;
 }
 
-const formatBeijingDateTime = formatAppDateTime;
-const formatBeijingTime = formatAppTime;
-
 module.exports = {
   formatAppDateTime,
   formatAppTime,
-  formatBeijingDateTime,
-  formatBeijingTime,
 };
