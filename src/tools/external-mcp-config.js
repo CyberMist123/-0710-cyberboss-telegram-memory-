@@ -1,3 +1,6 @@
+const fs = require("fs");
+const path = require("path");
+
 function resolveExternalMcpServerConfig({
   nameEnv,
   commandEnv,
@@ -20,6 +23,7 @@ function resolveExternalMcpServerConfig({
 function resolveExternalMcpServerConfigs({
   legacy = [],
   extraJsonEnv = "CYBERBOSS_EXTRA_MCP_SERVERS",
+  extraDirEnv = "CYBERBOSS_EXTRA_MCP_SERVERS_DIR",
 } = {}) {
   const configs = [];
   for (const item of Array.isArray(legacy) ? legacy : []) {
@@ -31,7 +35,63 @@ function resolveExternalMcpServerConfigs({
   for (const extra of parseExtraServerConfigs(process.env[extraJsonEnv])) {
     configs.push(extra);
   }
+  // Folder registry entries append last, so the existing first-wins dedupe
+  // keeps legacy and CYBERBOSS_EXTRA_MCP_SERVERS entries authoritative on
+  // name collisions. Unset env / missing directory = empty set (default off).
+  for (const extra of loadServerConfigsFromDir(process.env[extraDirEnv])) {
+    configs.push(extra);
+  }
   return dedupeServerConfigs(configs);
+}
+
+function loadServerConfigsFromDir(value) {
+  const dir = normalizeText(value);
+  if (!dir) {
+    return [];
+  }
+  let entries = [];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    // Directory missing or unreadable = empty set; the registry is opt-in
+    // and must never take the runtime down (fail-open).
+    return [];
+  }
+  const configs = [];
+  for (const entry of entries.filter((item) => item.toLowerCase().endsWith(".json")).sort()) {
+    const filePath = path.join(dir, entry);
+    let parsed = null;
+    try {
+      parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    } catch {
+      console.warn(`[external-mcp-config] skipping ${filePath}: unreadable or invalid JSON`);
+      continue;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      console.warn(`[external-mcp-config] skipping ${filePath}: expected a JSON object`);
+      continue;
+    }
+    if (parsed.enabled !== true) {
+      continue;
+    }
+    const name = normalizeText(parsed.name);
+    const command = normalizeText(parsed.command);
+    if (!name || !command) {
+      console.warn(`[external-mcp-config] skipping ${filePath}: missing name or command`);
+      continue;
+    }
+    const args = Array.isArray(parsed.args)
+      ? parsed.args.map((item) => normalizeText(item)).filter(Boolean)
+      : parseArgsEnv(parsed.args);
+    const env = normalizeEnvObject(parsed.env);
+    configs.push({
+      name,
+      command,
+      args,
+      ...(env ? { env } : {}),
+    });
+  }
+  return configs;
 }
 
 function parseExtraServerConfigs(value) {
