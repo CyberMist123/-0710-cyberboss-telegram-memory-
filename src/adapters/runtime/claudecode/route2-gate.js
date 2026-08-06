@@ -89,7 +89,11 @@ class Route2GateState {
       overrideFingerprint: normalizeText(overrideFingerprint),
       taskId: normalizeText(taskId),
       decision,
-      lease: normalizeLease(lease, { plan, now: this.now() }),
+      // The slot and window are known here, so the lease never has to be trusted
+      // to carry its own identity -- a lease that loses it breaks the next read.
+      lease: normalizeLease(lease, {
+        plan, now: this.now(), sessionSlotKey: slotKey, windowId: normalizeText(windowId),
+      }),
       restoreOverride: restoreOverride && typeof restoreOverride === "object" ? { ...restoreOverride } : {},
       actualToolUses: 0,
       returnBytes: 0,
@@ -216,7 +220,7 @@ function publicState(state) {
   };
 }
 
-function normalizeLease(value, { plan = {}, now = Date.now() } = {}) {
+function normalizeLease(value, { plan = {}, now = Date.now(), sessionSlotKey = "", windowId = "" } = {}) {
   if (!value || typeof value !== "object") return null;
   const ttlMs = Math.max(1, Number(value.ttlMs) || 60_000);
   const toolNames = [...new Set((Array.isArray(value.toolNames) ? value.toolNames : plan.toolNames || []).map(normalizeText).filter(Boolean))];
@@ -225,6 +229,15 @@ function normalizeLease(value, { plan = {}, now = Date.now() } = {}) {
     issuedAt: now,
     expiresAt: now + ttlMs,
     toolNames: Object.freeze(toolNames),
+    // Identity and tier must survive normalization. Dropping them was invisible
+    // while a lease lived one turn and died with its window; once revocation
+    // writes the lease *back* into the persisted window override, a lease
+    // without `sessionSlotKey` fails `safeId` on the next read and takes the
+    // poll loop down with it.
+    status: value.status === "revoked" ? "revoked" : "active",
+    harness: value.harness === true,
+    sessionSlotKey: normalizeText(value.sessionSlotKey) || normalizeText(sessionSlotKey),
+    windowId: normalizeText(value.windowId) || normalizeText(windowId),
   });
 }
 

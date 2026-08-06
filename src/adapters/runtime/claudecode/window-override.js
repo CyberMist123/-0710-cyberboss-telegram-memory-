@@ -110,6 +110,13 @@ function normalizeCapabilityLease(value) {
     throw new WindowOverrideError("capabilityLease must be an object");
   }
   const status = value.status === "active" ? "active" : "revoked";
+  // A spent lease grants nothing, so a malformed one must not be able to take
+  // anything down either. It is written back on revocation purely as
+  // bookkeeping, and it is read again on every poll and every startup restore --
+  // one bad field there stalled the poll loop with
+  // `capabilityLease.sessionSlotKey is not a safe identifier`. Granting still
+  // fails closed; reading back a dead lease drops it instead.
+  if (status === "revoked") return null;
   const toolNames = normalizeMcpNames(value.toolNames || []);
   const expiresAt = Number(value.expiresAt);
   if (!Number.isFinite(expiresAt) || expiresAt <= 0) {

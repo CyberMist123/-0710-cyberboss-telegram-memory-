@@ -16,6 +16,7 @@ const {
   runOptionalRoute2Tool,
 } = require("../src/adapters/runtime/claudecode/route2-gate");
 const { Route1DispatchIpcClient } = require("../src/orchestration/route1-dispatch");
+const { resolveWindowOverride } = require("../src/adapters/runtime/claudecode/window-override");
 
 // Thread-bearing runtime events resolve a reply target before delivery
 // (src/core/app.js:2642-2648), so appLike fixtures must provide the real
@@ -2056,4 +2057,32 @@ test("T08 A12 route2_escalate 经真 IPC socket 到达门控（import 回归）"
     }
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
+});
+
+test("T08 A14 a revoked lease written back must never break the next read", () => {
+  // 2026-08-06 真机：回收把 lease 写回持久化的 window override，而 normalizeLease
+  // 早就把 sessionSlotKey/windowId 丢了，于是下一次读取 safeId 抛错，
+  // `poll failed: capabilityLease.sessionSlotKey is not a safe identifier`
+  // 连着打断轮询与启动恢复。两头都补：normalize 保留身份，读回已作废的 lease 直接丢弃。
+  const env = { CYBERBOSS_ROUTE2_GATE_ENABLED: "1", CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED: "1" };
+  const { state } = beginLeaseFixture({ now: () => 5_000 });
+  const held = state.get("slot-lease-fake").lease;
+  assert.equal(held.sessionSlotKey, "slot-lease-fake", "identity must survive normalization");
+  assert.equal(held.status, "active");
+
+  // The exact shape revocation persists.
+  const revokedOverride = { capabilityLease: { ...held, status: "revoked" } };
+  const resolved = resolveWindowOverride(revokedOverride, { env });
+  assert.equal(resolved.capabilityLease, null, "a spent lease is dropped, not rethrown");
+
+  // Even a lease persisted by the old, lossy shape must not throw on read.
+  const legacy = { capabilityLease: { id: "route2-legacy", status: "revoked", expiresAt: 1, toolNames: [] } };
+  assert.doesNotThrow(() => resolveWindowOverride(legacy, { env }));
+
+  // An *active* lease with a missing identity is still a hard error: granting
+  // must fail closed.
+  assert.throws(
+    () => resolveWindowOverride({ capabilityLease: { id: "x", status: "active", expiresAt: 9e12, toolNames: [] } }, { env }),
+    /capabilityLease.sessionSlotKey/u,
+  );
 });
