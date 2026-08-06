@@ -119,6 +119,15 @@ class Route2GateState {
     this.sessionSlotStore?.setRoute2Gate?.(slotKey, publicState(state));
     const terminal = terminalReason(event.type);
     if (!terminal) return null;
+    // A turn ending is a *cost checkpoint*, not the end of the lease.
+    //
+    // It used to be both, and that made the wide face useless in practice:
+    // every turn boundary revoked the lease and (via onRevoke) closed the
+    // escalated process, so she had to re-apply -- and pay a relaunch -- for
+    // each turn, with a 60s TTL as a second blade. Work does not end where a
+    // turn ends. The lease now outlives the turn and is surrendered only by
+    // its own TTL, by an explicit hand-back, or by a strong interrupt (which
+    // is an operator abort, not a boundary).
     const payload = {
       route: state.decision.route,
       routeToken: slotKey,
@@ -134,8 +143,25 @@ class Route2GateState {
       usage: state.usage,
       outcome: event.type === "runtime.turn.completed" ? "success" : "error",
     };
-    this.revoke(slotKey, terminal);
+    if (REVOKING_EVENTS.has(event.type)) {
+      this.revoke(slotKey, terminal);
+    } else {
+      // Counters are per-turn, so reset them once this turn's cost is reported;
+      // the lease itself carries on.
+      state.actualToolUses = 0;
+      state.returnBytes = 0;
+      this.sessionSlotStore?.setRoute2Gate?.(slotKey, publicState(state));
+    }
     return { type: "runtime.route2.cost", payload };
+  }
+
+  /**
+   * Hand the wide face back before the TTL runs out. Distinct from `revoke` only
+   * in the reason it records, but that reason is what tells a later reader
+   * whether she chose to stop or the clock did.
+   */
+  release(sessionSlotKey) {
+    return this.revoke(sessionSlotKey, "released");
   }
 
   get(sessionSlotKey) {
@@ -211,6 +237,12 @@ function terminalReason(type) {
     "runtime.process.restarted": "restart",
   })[type] || "";
 }
+
+// Of the events that close out a turn's cost, only an operator's strong
+// interrupt also ends the lease. `runtime.process.restarted` deliberately does
+// not: granting the wide face *is* a relaunch, so treating a restart as a
+// surrender would have the grant revoke itself.
+const REVOKING_EVENTS = Object.freeze(new Set(["runtime.strong_interrupt"]));
 
 function normalizeUsage(value = {}) {
   return {

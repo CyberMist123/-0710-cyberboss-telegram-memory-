@@ -541,17 +541,34 @@ function beginLeaseFixture({ now = () => 1_000, setTimer = () => ({ unref() {} }
   return { state, store };
 }
 
-test("T08 A2 completed revokes the single-operation lease and clears the slot state", () => {
+test("T08 A2 completed reports the turn's cost but the lease outlives the turn", () => {
+  // Contract change (2026-08-06): a turn boundary is a cost checkpoint, not the
+  // end of the lease. It used to be both, which made the wide face survive
+  // exactly one reply -- and since revocation also closed the child,每一轮都要
+  // 重新申请并重启一次进程。工作不在 turn 边界结束。
   const { state, store } = beginLeaseFixture();
   const cost = state.observe({ type: "runtime.turn.completed", payload: { sessionSlotKey: "slot-lease-fake" } });
   assert.equal(cost.payload.outcome, "success");
+  assert.equal(state.get("slot-lease-fake")?.lease?.id, "lease-fake", "lease must survive the turn");
+  assert.equal(store.getRoute2Gate("slot-lease-fake")?.lease?.id, "lease-fake");
+  // Per-turn counters restart so the next turn's cost is its own.
+  assert.equal(state.get("slot-lease-fake").actualToolUses, 0);
+});
+
+test("T08 A3 failed also keeps the lease; only a strong interrupt surrenders it", () => {
+  const { state, store } = beginLeaseFixture();
+  state.observe({ type: "runtime.turn.failed", payload: { sessionSlotKey: "slot-lease-fake" } });
+  assert.equal(state.get("slot-lease-fake")?.lease?.id, "lease-fake");
+
+  state.observe({ type: "runtime.strong_interrupt", payload: { sessionSlotKey: "slot-lease-fake" } });
   assert.equal(state.get("slot-lease-fake"), null);
   assert.equal(store.getRoute2Gate("slot-lease-fake"), null);
 });
 
-test("T08 A3 failed revokes the single-operation lease", () => {
+test("T08 A3b she can hand the wide face back before the TTL runs out", () => {
   const { state, store } = beginLeaseFixture();
-  state.observe({ type: "runtime.turn.failed", payload: { sessionSlotKey: "slot-lease-fake" } });
+  const released = state.release("slot-lease-fake");
+  assert.equal(released.revokeReason, "released");
   assert.equal(state.get("slot-lease-fake"), null);
   assert.equal(store.getRoute2Gate("slot-lease-fake"), null);
 });
@@ -572,10 +589,10 @@ test("T08 A4 TTL expiry revokes the lease and clears persisted state", () => {
   assert.equal(revoked[0].revokeReason, "ttl_expired");
 });
 
-test("T08 A5 cancel signal revokes the lease", () => {
+test("T08 A5 a cancelled turn is still just a turn boundary; the lease holds", () => {
   const { state, store } = beginLeaseFixture();
   state.observe({ type: "runtime.turn.cancelled", payload: { sessionSlotKey: "slot-lease-fake" } });
-  assert.equal(store.getRoute2Gate("slot-lease-fake"), null);
+  assert.equal(store.getRoute2Gate("slot-lease-fake")?.lease?.id, "lease-fake");
 });
 
 test("T08 A6 strong-interrupt signal revokes the lease without implementing task interruption semantics", () => {
@@ -584,10 +601,13 @@ test("T08 A6 strong-interrupt signal revokes the lease without implementing task
   assert.equal(store.getRoute2Gate("slot-lease-fake"), null);
 });
 
-test("T08 A7 restart signal revokes the lease", () => {
+test("T08 A7 a restart must NOT revoke: granting the wide face is itself a relaunch", () => {
+  // If a restart surrendered the lease, the grant would revoke itself moments
+  // after being issued -- the child is retired and relaunched precisely to pick
+  // up the wider tool face.
   const { state, store } = beginLeaseFixture();
   state.observe({ type: "runtime.process.restarted", payload: { sessionSlotKey: "slot-lease-fake" } });
-  assert.equal(store.getRoute2Gate("slot-lease-fake"), null);
+  assert.equal(store.getRoute2Gate("slot-lease-fake")?.lease?.id, "lease-fake");
 });
 
 test("T08 A1/A11 grant relaunches the mutable override and resumes the identical native window", async () => {
@@ -1989,12 +2009,28 @@ test("T08 A12 route2_escalate 经真 IPC socket 到达门控（import 回归）"
     const first = await adapter.sendTurn({ bindingKey: "binding-ipc", workspaceRoot, text: "fixture opening" });
     assert.equal(first.threadId, sessionId);
 
-    // tool-host 就是这样调的：同一个客户端、同一条鉴权 socket，args 只有 reason/ttlMs。
+    // The app layer owns the origin route, exactly as it does for Route 1: the
+    // child knows its turn, not its lane. Without this registration the adapter
+    // refuses (`route2_escalate_unwired`) rather than guessing a route.
+    let seenContext = null;
+    adapter.onRoute2EscalateRequest((args, context) => {
+      seenContext = context;
+      return adapter.grantRoute2Lease({
+        bindingKey: "binding-ipc",
+        workspaceRoot,
+        taskId: args.taskId || "",
+        tier: args.tier,
+        ttlMs: args.ttlMs,
+      });
+    });
+
+    // tool-host 就是这样调的：同一个客户端、同一条鉴权 socket。
     const client = new Route1DispatchIpcClient({ stateDir, timeoutMs: 15_000 });
     const result = await client.escalateRoute2(
-      { reason: "regression: the handler must reach the gate", ttlMs: 10_000 },
-      { bindingKey: "binding-ipc", workspaceRoot },
+      { reason: "regression: the handler must reach the gate", tier: "wide", ttlMs: 10_000 },
+      { turnId: "turn-ipc-fixture", workspaceRoot },
     );
+    assert.equal(seenContext?.turnId, "turn-ipc-fixture", "the origin turn id must survive the socket");
 
     assert.equal(result.granted, true, "空计划落在软限内，门控应当放行");
     assert.equal(result.windowIdBefore, sessionId);

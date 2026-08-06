@@ -33,6 +33,7 @@ const {
   runDefaultAuthProbe,
   runG3LaunchPreflight,
 } = require("../src/adapters/runtime/claudecode/g3-preflight");
+const { resolveWindowOverride } = require("../src/adapters/runtime/claudecode/window-override");
 const { canonicalWorkspaceKey } = require("../src/core/workspace-lock");
 const { readConfig } = require("../src/core/config");
 const { createClaudeCodeRuntimeAdapter } = require("../src/adapters/runtime/claudecode");
@@ -886,6 +887,61 @@ test("A10 failed target preflight leaves the live legacy process and session unt
     await adapter.close();
     for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
     for (const [key, value] of Object.entries(saved)) process.env[key] = value;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Route 3 keeps the CLI harness and appends the persona; Route 2 still replaces it", () => {
+  // Route 2 widens the tool face but leaves her persona as the whole system
+  // prompt -- cheap, and right for touching a file. Route 3 is for a real
+  // project: the CLI's own coding harness stays, and the persona rides on top
+  // of it. Same window, same session: the tier lives on the lease, not on the
+  // profile fingerprint, so escalating must not rotate the session slot.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-route3-"));
+  try {
+    withManagedProfileGate(() => {
+      const input = managedProfile(root, "fable-chat");
+      input.escalatedHarness = true;
+      const profile = validateLaunchProfile(input, { baseDir: root });
+      const leaseEnv = { CYBERBOSS_ROUTE2_GATE_ENABLED: "1", CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED: "1" };
+      const lease = (harness) => resolveWindowOverride({
+        capabilityLease: {
+          id: "lease-route3", status: "active", harness, expiresAt: 4_102_444_800_000,
+          toolNames: [], sessionSlotKey: "slot", windowId: "window",
+        },
+      }, { profile, env: leaseEnv });
+
+      const wide = buildProfileLaunch({ profile, mutableOverride: lease(false), baseEnv: {}, baseCwd: root, baseDir: root });
+      assert.equal(wide.args.includes("--system-prompt"), true, "route2 keeps persona as the whole system prompt");
+      assert.equal(wide.args.includes("--append-system-prompt"), false);
+
+      const withHarness = buildProfileLaunch({ profile, mutableOverride: lease(true), baseEnv: {}, baseCwd: root, baseDir: root });
+      assert.equal(withHarness.args.includes("--append-system-prompt"), true, "route3 appends onto the default harness");
+      assert.equal(withHarness.args.includes("--system-prompt"), false, "the default harness must not be replaced");
+      assert.equal(
+        withHarness.args[withHarness.args.indexOf("--append-system-prompt") + 1],
+        "FABLE_ROLE_SENTINEL",
+      );
+      // Both tiers get the wide tool face; only the system layer differs.
+      for (const launch of [wide, withHarness]) {
+        assert.deepEqual(
+          launch.args.slice(launch.args.indexOf("--tools"), launch.args.indexOf("--tools") + 2),
+          ["--tools", "default"],
+        );
+      }
+      // Identity is unchanged by the tier, so the session slot cannot rotate.
+      assert.equal(
+        fingerprintLaunchProfile(profile, { baseDir: root }),
+        fingerprintLaunchProfile(validateLaunchProfile(managedProfile(root, "fable-chat"), { baseDir: root }), { baseDir: root }),
+      );
+
+      // A profile that never declared it cannot be talked into it by a lease.
+      const undeclared = validateLaunchProfile(managedProfile(root, "fable-chat"), { baseDir: root });
+      const refused = buildProfileLaunch({ profile: undeclared, mutableOverride: lease(true), baseEnv: {}, baseCwd: root, baseDir: root });
+      assert.equal(refused.args.includes("--append-system-prompt"), false);
+      assert.equal(refused.args.includes("--system-prompt"), true);
+    });
+  } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

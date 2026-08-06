@@ -47,6 +47,10 @@ const VERIFIED_PROFILE_FLAGS = Object.freeze(new Set([
   "--tools",
   "--agents",
   "--system-prompt",
+  // Verified present in the installed CLI 2.1.222: "Append a system prompt to
+  // the default". Route 3 needs it -- `--system-prompt` replaces the default
+  // harness, which is exactly what an escalation for a real project must not do.
+  "--append-system-prompt",
   "--bare",
   "--disable-slash-commands",
   "--setting-sources",

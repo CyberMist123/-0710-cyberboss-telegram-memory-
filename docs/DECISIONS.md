@@ -657,6 +657,34 @@ Decision date: 2026-08-06
 
 ---
 
+## D37 · 升格分三档；lease 不再绑在 turn 上；回收不得腰斩正在跑的活
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-06
+补全: D33（升格机制的寿命与档位；D33 语义不变，仍 ACTIVE）
+```
+
+裁定背景：2026-08-06 真机第一次调 `route2_escalate`，连挖出四层，前两层是这条链**从未通过一次**的原因：
+
+1. `index.js` 的 IPC 处理器调 `route2GateEnabled()`，而 require 只取了 `Route2GateState` / `decideRoute2Gate`——每次升格请求都在门控那行抛 `ReferenceError`。
+2. 同一处理器从 `context` 读 `lane` / `launchProfile`，但子进程侧 `tool-host.resolveContext` 从不提供这两个字段，于是 `resolveRouteContext` 永远算出对不上任何 slot 的 key，恒挂 `route2_window_id_required`。**与从哪条 lane 调无关，任何窗口调都必挂。**
+3. `toolsetScope: "turn"` + `terminalReason` 把 `runtime.turn.completed` 当终结事件 → 升格只活一轮；而 `handleRoute2LeaseRevoked` 回收时 `closeProcessKey`，即回收会**关掉那个宽面子进程**。
+4. `route2_escalate` 的 schema 只有 `reason` / `ttl_ms`，从不送 `plan`，故 `decideRoute2Gate({})` 恒为 `within_soft_limit`。
+
+裁定：
+
+- **接线归 app 层**（修 1、2）。适配器新增 `onRoute2EscalateRequest`，由 `app.js` 注册；origin route 在 turn 起点按 `turnId` 登记（与 Route 1 的 `registerTurn` 同一条路，只是登记的是**本窗自己的** lane 与 profile，而非 `work-engineering`）。查不到即 `route2_origin_turn_unknown` fail-closed。适配器不再自行还原路由——第二个「还原路由」的真相源正是漂移的来源。
+- **升格分三档**（Owner 2026-08-06 裁定）。Route 1 派出去不变；**Route 2** = 本窗全权限宽工具面、人格仍独占 system prompt（便宜）；**Route 3** = 在 Route 2 基础上保留 CLI 自带 coding harness，人格改经 `--append-system-prompt` 附加其上（贵，harness 常驻到 lease 结束，仅用于较大项目）。档位由她在 `route2_escalate` 的 `tier` 自选（`wide` / `wide+harness` / `return`）。Route 3 需 profile 显式声明 `escalatedHarness: true`，未声明的 profile 不能被一把 lease 说服加宽系统层。`--append-system-prompt` 经实装 CLI 2.1.222 核实存在，加入已验证 flag 白名单。
+- **档位不进 profile 指纹**（与 `escalatedBuiltInTools` 同构）：`harness` 写在 lease 上，故升格不轮换 session slot，仍是同窗 `--resume` 续会话。
+- **lease 寿命解绑 turn**（修 3）。turn 边界降级为**成本结算点**：仍产出 `runtime.route2.cost` 并重置每轮计数器，但不再回收。回收只由三件事触发：TTL 到期、她主动 `tier: "return"` 交还、operator 的 strong interrupt。`runtime.process.restarted` **不**回收——授予宽面本身就是一次 relaunch，否则这把 lease 会在签发瞬间自我作废。
+- **TTL 由她申请时给**，缺省从 60 秒改为 20 分钟，上限 60 分钟。
+- **回收不得关掉正在干活的子进程**。`handleRoute2LeaseRevoked` 先查 `ProcessRegistry.isEntryBusy`：有 turn 在飞就只写回 override 并记一行 warn，窄面在下一次 launch 时回落。旧行为下 TTL 在命令跑到一半到期会连进程一起杀掉，命令表现为取消、结果丢失且无解释——用一次「宽面多活到下次 launch」换掉一个静默丢数据的事故面。
+- **本批不动 `plan`（第 4 层），只记录**。Owner 2026-08-06 口径：放行原则上没问题，路线本来就该由她自己判断；门控是成本路由器不是权限闸（与 D33 补注、不变量 3 同向）。故 `repositoryWork` / `parallel` / `longLoop` 等硬理由在真实调用链上仍是死代码，属**已知且已接受**的缺口，不在本批修——顺手接上等于同时上线一套没人裁决过的强制分流。另注：`plan` 是模型自报，服务端无独立推导来源，接它之前要先想清楚「把活说小一点就能保住手」这个激励。
+- 升格那一轮**不额外注入 harness overlay**（Owner 2026-08-06 裁定）：工具自身的返回文本已经说明发生了什么，再加一段等于往她那一轮嘴里塞工程指令，也制造第二份工具清单。
+
+---
+
 ## 待裁决 / Candidates
 
 下列**尚未做出决定**，不占用 D 编号，也不得当成已定方向施工。

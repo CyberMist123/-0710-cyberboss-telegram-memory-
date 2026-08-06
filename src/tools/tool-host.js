@@ -373,15 +373,20 @@ const PROJECT_TOOLS = [
   },
   {
     name: "route2_escalate",
-    description: "Ask for the full built-in tool face (file editing and commands) in this same chat window when the current task needs to touch local files or run a command. The window restarts and resumes the same session; the wide face expires on its own.",
-    shortHint: "本窗要动本地文件或跑命令时，自己申请升格到全功能面。",
+    description: "Ask for the full built-in tool face (file editing and commands) in this same chat window. `wide` keeps your own system prompt and just widens the tools -- cheap, right for most hands-on work. `wide+harness` also puts Claude Code's own coding harness underneath you, which costs real context every turn it is held; take it for a substantial project, not for editing one file. `return` hands the wide face back early. The window restarts and resumes the same session; the lease outlives the turn and ends at its TTL or when you return it.",
+    shortHint: "本窗要动本地文件或跑命令时自己申请；大项目才要 harness 那档。",
     topics: ["engineering"],
     inputSchema: {
       type: "object",
       required: ["reason"],
       properties: {
-        reason: { type: "string", description: "Why this turn needs the wide face." },
-        ttl_ms: { type: "integer", minimum: 1, maximum: 600000, description: "Optional lease lifetime; defaults to the runtime's own value." },
+        reason: { type: "string", description: "Why the wide face is needed now." },
+        tier: {
+          type: "string",
+          enum: ["wide", "wide+harness", "return"],
+          description: "wide = full tools, your own system prompt (default). wide+harness = also restore Claude Code's coding harness; expensive, for real projects. return = hand it back now.",
+        },
+        ttl_ms: { type: "integer", minimum: 1, maximum: 3600000, description: "How long you expect to need it, in ms. Defaults to 20 minutes, capped at 60." },
       },
       additionalProperties: false,
     },
@@ -392,14 +397,18 @@ const PROJECT_TOOLS = [
         throw error;
       }
       const result = await services.route2Escalate.escalateRoute2(
-        { reason: args.reason, ttlMs: args.ttl_ms },
+        { reason: args.reason, tier: args.tier || "wide", ttlMs: args.ttl_ms },
         context,
       );
+      if (args.tier === "return") {
+        return { text: result?.released ? "Handed back: this window is on its narrow tool face again." : "Nothing to hand back.", data: result };
+      }
       // A refused escalation is a real answer, not a failure: the gate routes
       // structurally heavy work to Route 1 instead, and she should hear that.
+      const heldFor = Math.round((Number(result?.lease?.ttlMs) || 0) / 60000);
       return {
         text: result?.granted
-          ? "Escalated: the wide tool face is active in this window."
+          ? `Escalated (${result.lease?.harness ? "wide+harness" : "wide"}): the wide tool face is active in this window for about ${heldFor} minutes, or until you return it.`
           : `Escalation refused (${result?.decision?.reasons?.join(", ") || "gate_declined"}); this work belongs to a Route 1 task.`,
         data: result,
       };

@@ -72,6 +72,19 @@ const {
 } = require("../../../core/hard-context");
 const CLAUDE_RESUME_SESSION_TIMEOUT_MS = 8000;
 
+// Route 2/3 lease lifetime. The old default was 60 seconds, which paired badly
+// with the old turn-boundary revocation: a wide face that could not outlive a
+// single reply is not an ability, it is a demo. She names the TTL when she asks;
+// these are the fallback and the ceiling.
+const ROUTE2_LEASE_TTL_DEFAULT_MS = 20 * 60 * 1000;
+const ROUTE2_LEASE_TTL_MAX_MS = 60 * 60 * 1000;
+
+function clampLeaseTtlMs(value) {
+  const requested = Number(value);
+  if (!Number.isFinite(requested) || requested <= 0) return ROUTE2_LEASE_TTL_DEFAULT_MS;
+  return Math.min(Math.trunc(requested), ROUTE2_LEASE_TTL_MAX_MS);
+}
+
 /**
  * A turn whose write to the child failed after the attempt began.
  *
@@ -179,6 +192,12 @@ function createClaudeCodeRuntimeAdapter(config) {
   let globalListener = null;
   let route1DispatchListener = null;
   let route1TaskQueryListener = null;
+  // Route 2 escalation resolves its origin route in the app layer, exactly like
+  // Route 1's dispatch. The child knows its own `turnId` and nothing else about
+  // routing; lane and launch profile live in app.js, and re-deriving them here
+  // would be a second "restore the route" authority that can drift from the
+  // first. Without a listener the adapter refuses rather than guessing.
+  let route2EscalateListener = null;
   let subjectSigningListener = null;
   const ipcSocketPath = path.join(
     stateDir,
@@ -217,18 +236,12 @@ function createClaudeCodeRuntimeAdapter(config) {
             error.code = "route2_escalate_disabled";
             throw error;
           }
-          const context = msg.context || {};
-          const args = msg.args || {};
-          return adapter.grantRoute2Lease({
-            bindingKey: context.bindingKey || "",
-            workspaceRoot: context.workspaceRoot || "",
-            lane: context.lane || null,
-            launchProfile: context.launchProfile || null,
-            senderId: context.senderId || "",
-            taskId: args.taskId || "",
-            ttlMs: args.ttlMs,
-            plan: args.plan && typeof args.plan === "object" ? args.plan : {},
-          });
+          if (!route2EscalateListener) {
+            const error = new Error("route2_escalate_unwired");
+            error.code = "route2_escalate_unwired";
+            throw error;
+          }
+          return route2EscalateListener(msg.args || {}, msg.context || {});
         })
         .then((result) => ipcServer.reply(socket, { type: "route2.escalate.result", requestId: msg.requestId, result }))
         .catch((error) => ipcServer.reply(socket, { type: "route2.escalate.result", requestId: msg.requestId, error: error?.code || error?.message || "route2_escalate_failed" }));
@@ -515,7 +528,19 @@ function createClaudeCodeRuntimeAdapter(config) {
       capabilityLease: { ...lease, status: "revoked" },
     });
     const entry = processRegistry.listEntries().find((candidate) => candidate.sessionSlotKey === revoked.sessionSlotKey);
-    if (entry) void processRegistry.withLock(entry.processKey, () => closeProcessKey(entry.processKey));
+    if (!entry) return;
+    // Never cut off work in progress. Closing the child is how the narrow face
+    // comes back, but a child with a turn in flight is running her command; a
+    // TTL that expires mid-command used to kill the process and the command
+    // died with it -- cancelled, no result, no explanation. The override has
+    // already been written back above, so a busy child keeps the wide face only
+    // until its next launch, which is a bounded and visible cost. The
+    // alternative is silent data loss.
+    if (ProcessRegistry.isEntryBusy(entry)) {
+      console.warn(`[route2] lease ${revoked.revokeReason} while a turn is in flight; narrow face restored at next launch`);
+      return;
+    }
+    void processRegistry.withLock(entry.processKey, () => closeProcessKey(entry.processKey));
   }
 
   function refreshRouteAfterLeaseRevocation(route) {
@@ -1159,6 +1184,10 @@ function createClaudeCodeRuntimeAdapter(config) {
       route1DispatchListener = typeof listener === "function" ? listener : null;
       return () => { if (route1DispatchListener === listener) route1DispatchListener = null; };
     },
+    onRoute2EscalateRequest(listener) {
+      route2EscalateListener = typeof listener === "function" ? listener : null;
+      return () => { if (route2EscalateListener === listener) route2EscalateListener = null; };
+    },
     onRoute1TaskQueryRequest(listener) {
       route1TaskQueryListener = typeof listener === "function" ? listener : null;
       return () => { if (route1TaskQueryListener === listener) route1TaskQueryListener = null; };
@@ -1510,9 +1539,20 @@ function createClaudeCodeRuntimeAdapter(config) {
     },
     async grantRoute2Lease({
       bindingKey = "", workspaceRoot = "", lane = null, launchProfile = null, senderId = "",
-      taskId = "", plan = {}, ttlMs = 60_000, override = {},
+      taskId = "", plan = {}, ttlMs, tier = "wide", override = {},
     } = {}) {
       const initialRoute = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, senderId });
+      if (tier === "return") {
+        const released = route2GateState.release(initialRoute.sessionSlotKey);
+        return { granted: false, released: Boolean(released), tier, sessionSlotKey: initialRoute.sessionSlotKey };
+      }
+      const wantsHarness = tier === "wide+harness";
+      if (wantsHarness && !initialRoute.launchProfile?.escalatedHarness) {
+        const error = new Error("route3_harness_not_declared");
+        error.code = "route3_harness_not_declared";
+        throw error;
+      }
+      const leaseTtlMs = clampLeaseTtlMs(ttlMs);
       const decision = decideRoute2Gate(plan, { env: process.env });
       if (!decision || decision.route !== "route2") return { granted: false, decision };
       if (!windowOverrideEnabled()) {
@@ -1529,7 +1569,12 @@ function createClaudeCodeRuntimeAdapter(config) {
       const lease = {
         id: `route2-${crypto.randomBytes(12).toString("hex")}`,
         status: "active",
-        expiresAt: Date.now() + Math.max(1, Number(ttlMs) || 60_000),
+        // `harness` is what separates Route 3 from Route 2: same wide tool face,
+        // but the persona rides on top of the CLI's own coding harness instead
+        // of replacing it. It lives on the lease, not on the profile fingerprint,
+        // so escalating does not rotate the session slot.
+        harness: wantsHarness,
+        expiresAt: Date.now() + leaseTtlMs,
         toolNames: Array.isArray(plan.toolNames) ? plan.toolNames : [],
         sessionSlotKey: initialRoute.sessionSlotKey,
         windowId: initialRoute.storedThreadId,
@@ -1550,7 +1595,7 @@ function createClaudeCodeRuntimeAdapter(config) {
           overrideFingerprint: leasedRoute.mutableOverride?.fingerprint || "",
           taskId,
           plan,
-          lease: { ...lease, ttlMs: Math.max(1, Number(ttlMs) || 60_000) },
+          lease: { ...lease, ttlMs: leaseTtlMs },
           restoreOverride: previousOverride,
         });
         return {

@@ -100,6 +100,7 @@ const RETRY_DELAY_MS = 2_000;
 const BACKOFF_DELAY_MS = 30_000;
 const MAX_CONSECUTIVE_FAILURES = 3;
 const MAX_INBOUND_STICKER_IMAGE_BATCH = 10;
+const MAX_ROUTE2_ORIGINS = 64;
 const INBOUND_IMAGE_BATCH_IDLE_MS = 1_500;
 
 function createRuntimeAdapter(config) {
@@ -205,6 +206,35 @@ class CyberbossApp {
     this.runtimeAdapter.onRoute1TaskQueryRequest?.((action, args, context) => {
       if (action === "status") return this.route1DispatchController?.taskStatus(args, context);
       return this.route1DispatchController?.taskResult(args, context);
+    });
+    // Route 2/3 escalation origin, keyed by the turn that asks. The child's tool
+    // context carries `turnId` but neither a lane nor a launch profile, so an
+    // escalation that re-derived the route from the child's flat fields resolved
+    // a session slot key that matched nothing and failed `route2_window_id_required`
+    // on every call, from every lane. The route lives here, recorded at the same
+    // point Route 1 records its own origin turn.
+    this.route2OriginByTurnId = new Map();
+    this.runtimeAdapter.onRoute2EscalateRequest?.((args, context) => {
+      const origin = this.route2OriginByTurnId.get(normalizeText(context?.turnId));
+      if (!origin) {
+        return Promise.reject(Object.assign(
+          new Error("route2_origin_turn_unknown"),
+          { code: "route2_origin_turn_unknown" },
+        ));
+      }
+      return this.runtimeAdapter.grantRoute2Lease({
+        bindingKey: origin.bindingKey,
+        workspaceRoot: origin.workspaceRoot,
+        lane: origin.lane,
+        launchProfile: origin.launchProfile,
+        senderId: origin.senderId,
+        taskId: normalizeText(args?.taskId),
+        tier: args?.tier,
+        ttlMs: args?.ttlMs,
+        // Deliberately no `plan` and no `override`. The gate is a cost router,
+        // not a permission gate (D33): the wide face comes from the profile's
+        // own `escalatedBuiltInTools` once the lease is active.
+      });
     });
     this.runtimeAdapter.onSubjectSigningRequest?.((request) => (
       this.subjectSigningBroker.submit(request)
@@ -1055,6 +1085,15 @@ class CyberbossApp {
         launchProfile: this.telegramProfileRouter?.getProfile?.("work-engineering") || null,
         routeIdentity: route1TurnIdentity,
         originRoute: route1OriginRoute,
+      });
+      // Route 1 dispatches to the *work* profile; Route 2/3 stays in this very
+      // window, so it needs this turn's own lane and profile, not that one.
+      this.rememberRoute2Origin?.(turn.turnId, {
+        bindingKey,
+        workspaceRoot,
+        lane: effectiveLane,
+        launchProfile,
+        senderId: prepared.senderId || "",
       });
       const route1NoticeTrace = route1Notice?.block
         ? { task_id: route1Notice.taskId, chars: route1Notice.block.length }
@@ -3346,7 +3385,26 @@ class CyberbossApp {
     return sessionStore.getActiveWorkspaceRoot(bindingKey) || this.config.workspaceRoot;
   }
 
+  /**
+   * Record the escalation origin for one turn. Bounded: a turn that never asks
+   * for the wide face still leaves an entry, so the map is trimmed oldest-first
+   * rather than allowed to grow for the process lifetime.
+   */
+  rememberRoute2Origin(turnId, origin) {
+    const id = normalizeText(turnId);
+    if (!id || !origin?.workspaceRoot) return;
+    this.route2OriginByTurnId.set(id, origin);
+    while (this.route2OriginByTurnId.size > MAX_ROUTE2_ORIGINS) {
+      const oldest = this.route2OriginByTurnId.keys().next().value;
+      if (oldest === undefined) break;
+      this.route2OriginByTurnId.delete(oldest);
+    }
+  }
+
   async handleRuntimeEvent(event) {
+    if (event?.type === "runtime.turn.completed" || event?.type === "runtime.turn.failed") {
+      this.route2OriginByTurnId?.delete(normalizeText(event?.payload?.turnId));
+    }
     if (this.route1DispatchController
       && (event?.type === "runtime.turn.completed" || event?.type === "runtime.turn.failed")) {
       // The claudecode adapter releases the foreground process/workspace hold

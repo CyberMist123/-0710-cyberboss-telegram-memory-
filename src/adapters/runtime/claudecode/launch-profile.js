@@ -68,6 +68,7 @@ const G3_PROFILE_FIELDS = Object.freeze(new Set([
   "personaSource",
   "permissionMode",
   "escalatedBuiltInTools",
+  "escalatedHarness",
 ]));
 
 const G3_PROFILE_SCHEMA_VERSION = 3;
@@ -851,7 +852,18 @@ function buildProfileLaunch({
         throw new LaunchProfileError("personaSource exceeds the system prompt limit", "persona_prompt_too_long");
       }
       personaPromptChars = personaText.length;
-      args.push("--system-prompt", personaText);
+      // Route 3. `--system-prompt` *replaces* the CLI's own system prompt, so a
+      // persona-only chat window has no coding harness behind it -- fine for
+      // talking, thin for a real project. An active lease that asked for the
+      // harness appends the persona to the default prompt instead, so she keeps
+      // her voice and gains the harness. Requires the profile to declare it:
+      // silently widening the system layer is not something a lease may do.
+      const personaFlag = normalized.escalatedHarness
+        && mutableOverride?.capabilityLease?.status === "active"
+        && mutableOverride.capabilityLease.harness === true
+        ? "--append-system-prompt"
+        : "--system-prompt";
+      args.push(personaFlag, personaText);
     }
   }
   if (normalized.configDir) args.push("--config-dir", normalized.configDir);
@@ -1157,6 +1169,20 @@ function validateG3ProfileContract(profile, normalized, { baseDir, fs = fsApi } 
       maxItems: LIMITS.builtInTools,
       maxLength: LIMITS.builtInToolName,
     });
+  }
+  if (profile.escalatedHarness !== undefined) {
+    if (typeof profile.escalatedHarness !== "boolean") {
+      throw new LaunchProfileError("escalatedHarness must be a boolean", "g3_profile_field_invalid");
+    }
+    if (profile.escalatedHarness && !G3_PERSONA_HARNESS_MODES.has(normalized.harnessMode)) {
+      // Only a profile whose persona *is* the system prompt has anything to
+      // append; for `engineering` the default harness is already what runs.
+      throw new LaunchProfileError(
+        "escalatedHarness requires a persona-bearing harnessMode",
+        "g3_escalated_harness_unavailable",
+      );
+    }
+    normalized.escalatedHarness = profile.escalatedHarness;
   }
   const persona = resolveExistingPath(profile.personaSource, {
     field: "personaSource", baseDir, kind: "file", fs,

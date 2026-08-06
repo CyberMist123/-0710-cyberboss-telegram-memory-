@@ -118,6 +118,10 @@ function normalizeCapabilityLease(value) {
   return Object.freeze({
     id: safeId(value.id, "capabilityLease.id"),
     status,
+    // Route 3: keep the CLI's own coding harness and append the persona to it,
+    // instead of the persona replacing the system prompt outright. Carried on
+    // the lease so the launch layer can read it without a second source.
+    harness: value.harness === true,
     expiresAt,
     toolNames: Object.freeze(toolNames || []),
     sessionSlotKey: safeId(value.sessionSlotKey, "capabilityLease.sessionSlotKey"),
