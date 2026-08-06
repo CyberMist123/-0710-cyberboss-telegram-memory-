@@ -97,7 +97,9 @@ Node ≥ 22。**没有 `npm test`**，测试按 `npm run test:*` 分组，见 `p
 4. **使某份历史文档失效** → 在它顶部标 `completed` / `superseded` / `historical` 并指向当前 authority，**不要删**。
 5. **只新增或刷新了证据**（调研、实验、日志、外部材料）→ 更新补充材料本身即可，**不要求**改 `CURRENT_STATUS.md`。只有当证据导致当前结论变化时才动权威文档。
 
-PR 必须使用 `.github/pull_request_template.md`，并显式判断状态、架构、决策、生产接线和补充材料是否受影响。
+**默认交付单位是一个部署批次，不是一个 PR**（`DECISIONS.md` D36）：相关功能在同一分支连续做完 → 本机跑完整测试 → 部署那个 exact SHA → Telegram 真机验证 → 批次收尾 → ff 进 `main` 直推。上面 1–5 条在**批次收尾时做一次**，不必每个 commit 做一遍。
+
+需要隔离审查时（多人协作、高风险重构、Owner 点名）才开 PR。开了就必须用 `.github/pull_request_template.md`，显式判断状态、架构、决策、生产接线和补充材料是否受影响。
 
 ### 全仓审计只在三个时机做
 
@@ -138,11 +140,13 @@ PR 必须使用 `.github/pull_request_template.md`，并显式判断状态、架
 
 `docs/archive/` 是历史，不据此判断当前状态。`docs/audit/` 的结论只对它审的那个 SHA 有效。标了 `Status: supplemental` 的文档不是当前真相，也不是已批准的决定。
 
-## 八、分支
+## 八、分支与推送
 
-`main` 是唯一主干；`fix/*` 单一问题，合并后即删；`audit/*` 只加报告、不改被审代码。
+`main` 是唯一主干。默认在一条批次分支上连续做完一批相关功能，验证通过后 ff 进 `main` 直推（D36）；`audit/*` 只加报告、不改被审代码。分支用完即删。
 
-**合并进 `main` ≠ 批准部署**（`DECISIONS.md` D3）。放行判据见 `CURRENT_STATUS.md` 第五节。
+**推 `main` 之前必须过本机密钥闸。** `pwsh scripts/install-git-hooks.ps1` 装一次，之后 `git push` 自动跑（约 2 分钟）。公开仓库，用 `--no-verify` 绕过它等于把密钥直接公开，且历史不许重写、撤不回来。
+
+**进 `main` ≠ 批准部署**（`DECISIONS.md` D3）。新流程下部署发生在推送**之前**，这条反而更要记住：进 main 只是同步进度，放行判据仍见 `CURRENT_STATUS.md` 第五节。
 
 ```bash
 git rev-list --left-right --count origin/main...<分支>

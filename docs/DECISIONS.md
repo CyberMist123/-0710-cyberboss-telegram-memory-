@@ -628,6 +628,35 @@ Decision date: 2026-08-06
 
 ---
 
+## D36 · 默认交付单位是部署批次，不是 PR；密钥闸前移到本机
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-06
+取代范围: 不取代 D3（进 main ≠ 批准部署，仍成立），只改「默认怎么进 main」
+```
+
+裁定背景：PR-first 下，一批本来要一起部署、一起做 Telegram 真机验证的功能被拆成多个 PR 和多个阶段，大量时间花在分支、PR 描述、状态同步和合并流程上，"代码完成"长期早于"实际部署可用"，且执行模型会围绕 PR 合规推进而不是围绕真机可用性推进。
+
+复核发现 PR 在本仓库并未提供它名义上的价值：ruleset `protect-main` 的 `required_approving_review_count` 为 0（可自合、无人审），且没有 `required_status_checks`（CI 红也能合）。PR 实际只提供两件事——触发只挂 `pull_request` 的 `docs-governance` 与 `secret-audit`。两件都能在不开 PR 的前提下拿回来。
+
+裁定：
+
+- **默认流程**：一批相关功能在同一分支连续完成 → 本机跑完整测试 → 部署那个 exact SHA → Telegram 真机验证 → 批次收尾（`CURRENT_STATUS.md` 对应行、决定登记、架构文档，各做一次）→ ff 进 `main` 直推。批内保留多个清晰 commit 便于定位。
+- **PR 降级为特殊情况的审查工具**：多人协作、高风险重构、需要隔离审查，或 Owner 点名。模板保留不动。
+- **密钥闸前移到本机**（这是本条最关键的补偿，不是可选项）：`.githooks/pre-push` 跑 `scripts/secret_audit_scan.py`，fail-closed；`secret-audit.yml` 增挂 main push 只作事后兜底。公开仓库上"推完才发现"等于已经泄露，而 `non_fast_forward` 禁止历史重写，撤不回来。
+- **`docs-governance` 拆开按性质挂触发器**：纯内容检查（`check-doc-status-blocks.js`）跟着 main push 跑——它不在 `npm run check` 里，只挂 PR 等于这道闸消失；读 PR body 的那个 job 仍只在 PR 上跑。
+- **GitHub 侧**：ruleset `protect-main` 去掉 `pull_request` 规则，**保留 `deletion` 与 `non_fast_forward`**。这两条是公开仓库的底线，且 `secret_audit_scan.py` 的豁免名单注释正依赖"main 禁止历史重写"这个前提。
+
+已知代价，显式接受，不另建机制消化：
+
+- **批次中间 commit 没有 CI**（GitHub push 事件只跑 head commit）。故回滚目标只认"整批之前那个 SHA"，不认批内中间 commit。
+- **部署发生在推送之前**，main CI 变红时已经上线。红即停线，走 `git revert`，不 force-push。
+- **生产可能短时间跑在 GitHub 上不存在的 commit 上**。故真机验证通过后立刻推，不允许带着未推送状态过夜或关窗——叠加已实证的"descriptor 元数据会说谎"，这个状态拖久了排障时没有任何外部可核对的真相。
+- **本机扫描范围是 `git rev-list --all`**，覆盖所有本地分支。某个从没推过的旧分支带敏感串也会拦下推送；按既有分支纪律删掉死分支即可。
+
+---
+
 ## 待裁决 / Candidates
 
 下列**尚未做出决定**，不占用 D 编号，也不得当成已定方向施工。

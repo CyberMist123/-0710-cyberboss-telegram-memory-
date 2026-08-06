@@ -1,0 +1,38 @@
+#!/bin/sh
+# 公开仓库的密钥闸。deployment-first 下这是 push 之前唯一一道 secret 检查
+# ——`.github/workflows/secret-audit.yml` 的 main push 触发只能事后兜底，
+# 而公开仓库上「事后」等于已经泄露。所以这里 fail-closed：扫不了 == 不许推。
+#
+# 本机实测全量扫描约 130 秒（4.5k 可达对象，逐 blob 起 git 子进程）。批次直推
+# 每天 1–2 次，这个代价可以接受，不要为了提速去改扫描器。
+#
+# 打印的消息一律 ASCII 英文：钩子的输出落在跑 `git push` 的那个终端里，
+# 代码页可能是 GBK，最不该看不懂的就是"闸没过"这一句。
+#
+# 安装：pwsh scripts/install-git-hooks.ps1（装进 git common dir，所有 worktree 共享）
+set -e
+
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+
+if ! command -v python >/dev/null 2>&1; then
+  echo "pre-push: python not found; the secret gate cannot run. Push refused." >&2
+  echo "          This is fail-closed, not a malfunction: no gate, no push to a public repo." >&2
+  exit 1
+fi
+
+echo "pre-push: scanning reachable git history for secrets (about 2 minutes)..."
+status=0
+python scripts/secret_audit_scan.py || status=$?
+
+# 扫描器把报告写进工作树里那个被版本控制的文件。推送前后工作树必须保持干净，
+# 否则紧接着的「按 exact SHA 部署 + 活树逐字节比对」会踩到这个脏文件。
+git checkout -- secret-audit-report.json 2>/dev/null || true
+
+if [ "$status" -ne 0 ]; then
+  echo "pre-push: secret gate FAILED (exit $status). Push blocked." >&2
+  echo "          Scope is 'git rev-list --all': the hit may come from a local branch you never pushed." >&2
+  exit 1
+fi
+
+echo "pre-push: secret gate passed."

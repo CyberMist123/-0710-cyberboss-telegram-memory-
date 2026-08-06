@@ -1,10 +1,17 @@
 name: docs-governance
-# 把 CLAUDE.md 第六节的收尾纪律从"自觉"变成机器检查：
-# PR 必须对文档影响做出显式判断，且判断要与 diff 自洽。
+# 把 CLAUDE.md 第六节的收尾纪律从"自觉"变成机器检查。
+#
+# 两个 job 性质不同，触发条件也不同：
+# - doc-status-blocks 是纯内容检查（docs/** 的顶部 Status 块），与 PR 无关，
+#   main push 上必须照跑 —— 默认流程是批次直推，只挂 PR 等于这道闸消失。
+#   它也不在 `npm run check` 里，phase1-offline 兜不住。
+# - check 读 PR body，只能在 PR 存在时跑。
 
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -18,6 +25,7 @@ jobs:
       - run: node scripts/ci/check-doc-status-blocks.js
 
   check:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
