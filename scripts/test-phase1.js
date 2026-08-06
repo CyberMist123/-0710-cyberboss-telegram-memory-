@@ -89,26 +89,31 @@ function runPowerShellParseChecks() {
     return { status: 0 };
   }
 
-  for (const script of scripts) {
-    const code = [
-      "$tokens = $null",
-      "$errors = $null",
-      `[System.Management.Automation.Language.Parser]::ParseFile(${quotePowerShell(script)}, [ref]$tokens, [ref]$errors) | Out-Null`,
-      "if ($errors -and $errors.Count -gt 0) {",
-      "  $errors | ForEach-Object { Write-Error $_.Message }",
-      "  exit 1",
-      "}",
-    ].join("; ");
-    const result = spawnSync(shell, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", code], {
-      cwd: repoRoot,
-      stdio: "inherit",
-    });
-    if (result.status !== 0) {
-      return result;
-    }
-    console.log(`parsed ${path.relative(repoRoot, script).replace(/\\/g, "/")}`);
-  }
-  return { status: 0 };
+  // 一个进程检查全部文件，不是一个文件一个进程。ParseFile 本身 16 个文件加
+  // 起来不到 1 秒，而 powershell.exe 冷启动在 windows-latest 上约 9 秒 —— 旧写
+  // 法让 CI 的 phase1 步骤 180 秒里有约 150 秒纯粹花在反复启动 PowerShell 上。
+  // 检查范围与逐个起进程时完全一致：仍然对每个文件调一次 ParseFile，仍然逐个
+  // 报错，只是全部错误一次报完再退出，而不是撞到第一个就中止。
+  const code = [
+    `$files = @(${scripts.map(quotePowerShell).join(", ")})`,
+    "$failed = 0",
+    "foreach ($file in $files) {",
+    "  $tokens = $null",
+    "  $errors = $null",
+    "  [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors) | Out-Null",
+    "  if ($errors -and $errors.Count -gt 0) {",
+    "    $failed = 1",
+    "    $errors | ForEach-Object { Write-Error ('{0}: {1}' -f $file, $_.Message) }",
+    "  } else {",
+    "    Write-Output ('parsed {0}' -f $file)",
+    "  }",
+    "}",
+    "exit $failed",
+  ].join("\n");
+  return spawnSync(shell, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", code], {
+    cwd: repoRoot,
+    stdio: "inherit",
+  });
 }
 
 function listFiles(dir, extension) {

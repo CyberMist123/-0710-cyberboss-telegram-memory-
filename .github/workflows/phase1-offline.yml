@@ -117,8 +117,43 @@ jobs:
         id: orch
         run: ./scripts/ci/run-annotated.ps1 -Name orchestration -Command 'npm run test:orchestration'
 
-      # R4 翻盘清单第 5 条（F5）：低版本 Python 上 watchdog 必须 fail-closed 且给出
-      # 明确诊断，而不是静默不启动或含糊的 TypeError。
+      - name: Diff hygiene
+        id: diff
+        run: |
+          $diff = git diff --check 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error title=diff hygiene::$($diff -replace "`n", '%0A')"; exit 1 }
+
+      - name: Report step outcomes
+        if: always()
+        run: |
+          $outcomes = @(
+            "npmci=${{ steps.npmci.outcome }}", "pipdeps=${{ steps.pipdeps.outcome }}",
+            "static=${{ steps.static.outcome }}", "p1=${{ steps.p1.outcome }}",
+            "p2=${{ steps.p2.outcome }}", "p3=${{ steps.p3.outcome }}",
+            "p4=${{ steps.p4.outcome }}", "p5a=${{ steps.p5a.outcome }}",
+            "p0_liveness=${{ steps.p0_liveness.outcome }}",
+            "memory_services=${{ steps.memory_services.outcome }}", "reflect=${{ steps.reflect.outcome }}",
+            "dash520=${{ steps.dash520.outcome }}",
+            "route_lanes=${{ steps.route_lanes.outcome }}", "catalog_metering=${{ steps.catalog_metering.outcome }}", "telegram_media=${{ steps.telegram_media.outcome }}",
+            "orch=${{ steps.orch.outcome }}", "diff=${{ steps.diff.outcome }}"
+          ) -join ' | '
+          Write-Output "::notice title=step outcomes::$outcomes"
+
+  # R4 翻盘清单第 5 条（F5）：低版本 Python 上 watchdog 必须 fail-closed 且给出
+  # 明确诊断，而不是静默不启动或含糊的 TypeError。
+  #
+  # 独立 job：装一个 Python 3.9 要 40 秒，跑这个探针要 0 秒。串在主 job 里等于
+  # 给每次 CI 白加 40 秒；并行跑对总时长零影响（公开仓库 Actions 分钟免费）。
+  watchdog-python-floor:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Setup Python 3.9 for the version-floor probe
         id: py39
         uses: actions/setup-python@v5
@@ -150,26 +185,3 @@ jobs:
             Write-Output "::error title=py39 probe exception::$detail"
             exit 1
           }
-
-      - name: Diff hygiene
-        id: diff
-        run: |
-          $diff = git diff --check 2>&1 | Out-String
-          if ($LASTEXITCODE -ne 0) { Write-Output "::error title=diff hygiene::$($diff -replace "`n", '%0A')"; exit 1 }
-
-      - name: Report step outcomes
-        if: always()
-        run: |
-          $outcomes = @(
-            "npmci=${{ steps.npmci.outcome }}", "pipdeps=${{ steps.pipdeps.outcome }}",
-            "static=${{ steps.static.outcome }}", "p1=${{ steps.p1.outcome }}",
-            "p2=${{ steps.p2.outcome }}", "p3=${{ steps.p3.outcome }}",
-            "p4=${{ steps.p4.outcome }}", "p5a=${{ steps.p5a.outcome }}",
-            "p0_liveness=${{ steps.p0_liveness.outcome }}",
-            "memory_services=${{ steps.memory_services.outcome }}", "reflect=${{ steps.reflect.outcome }}",
-            "dash520=${{ steps.dash520.outcome }}",
-            "route_lanes=${{ steps.route_lanes.outcome }}", "catalog_metering=${{ steps.catalog_metering.outcome }}", "telegram_media=${{ steps.telegram_media.outcome }}",
-            "orch=${{ steps.orch.outcome }}", "py39=${{ steps.py39.outcome }}",
-            "probe=${{ steps.probe.outcome }}", "diff=${{ steps.diff.outcome }}"
-          ) -join ' | '
-          Write-Output "::notice title=step outcomes::$outcomes"
