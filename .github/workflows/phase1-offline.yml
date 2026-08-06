@@ -51,6 +51,17 @@ jobs:
         id: static
         run: npm run check
 
+      # WMI 冷启动预热。phase1 里 7 个 phase1-switch 测试各起一个 powershell.exe
+      # 跑 scripts/windows/phase1-switch.ps1 的 `Get-CimInstance Win32_Process`；
+      # 在运行器上每个测试 22–31 秒（本机 WMI 热态时约 1 秒），合计约 167 秒，
+      # 占整个 job 一半以上。这里先付一次，检验 WMI 初始化是不是机器级一次性成本。
+      #
+      # 判据：下一轮 "Phase 1 tests" 若仍在 170s 上下，说明是每进程各付一次，
+      # 这一步没用、应当删掉，改走「给进程扫描加可注入接缝」那条路。
+      - name: Warm up WMI before the phase1 switch tests
+        id: wmiwarm
+        run: Get-CimInstance Win32_Process | Out-Null
+
       # 失败输出经 annotation 暴露（scripts/ci/run-annotated.ps1）：run 页面的
       # annotation 无需登录即可读取，让失败可以在没有仓库凭据的环境里被诊断。
       - name: Phase 1 tests
@@ -128,7 +139,7 @@ jobs:
         run: |
           $outcomes = @(
             "npmci=${{ steps.npmci.outcome }}", "pipdeps=${{ steps.pipdeps.outcome }}",
-            "static=${{ steps.static.outcome }}", "p1=${{ steps.p1.outcome }}",
+            "static=${{ steps.static.outcome }}", "wmiwarm=${{ steps.wmiwarm.outcome }}", "p1=${{ steps.p1.outcome }}",
             "p2=${{ steps.p2.outcome }}", "p3=${{ steps.p3.outcome }}",
             "p4=${{ steps.p4.outcome }}", "p5a=${{ steps.p5a.outcome }}",
             "p0_liveness=${{ steps.p0_liveness.outcome }}",
