@@ -147,6 +147,9 @@ function createClaudeCodeRuntimeAdapter(config) {
   const allowAuthBackendOverride = config.claudeAllowAuthBackendOverride === true;
   const allowCloudCredentialInheritance = config.claudeAllowCloudCredentialInheritance === true;
   const pendingModelByWorkspaceRoot = new Map();
+  // Process keys whose child must be retired once its current turn settles, so
+  // the next launch picks up a freshly granted route2/route3 lease.
+  const pendingEscalationRelaunch = new Set();
   const taskSessionRegistry = new TaskSessionRegistry();
   const taskSessionInputs = new Map();
   const taskWorktrees = new Map();
@@ -773,18 +776,18 @@ function createClaudeCodeRuntimeAdapter(config) {
         && (normalizeText(client.model) !== route.model
           || normalizeEffort(client.effort) !== route.effort
           || normalizeText(client.mutableOverrideFingerprint) !== (route.mutableOverride?.fingerprint || "baseline"));
+      // Neither a changed launch nor a dead child cancels the lease any more.
+      // Both used to, and under the old per-turn model that was harmless -- the
+      // lease died at the turn boundary anyway. Now the escalation relaunch is
+      // itself how the wide face arrives, so revoking here made the relaunch
+      // cancel the very grant it was carrying: the child came back narrow every
+      // time. The lease is authoritative until its TTL, an explicit hand-back,
+      // or a strong interrupt; a process is not its owner. Operations that
+      // genuinely retire the window (compact, instruction refresh, a context
+      // change that drops the thread) still revoke at their own call sites.
       if (launchStateChanged) {
-        if (route2GateState.get(route.sessionSlotKey)) {
-          route2GateState.revoke(route.sessionSlotKey, "restart");
-          refreshRouteAfterLeaseRevocation(route);
-        }
         await closeProcessKey(processKey);
         client = null;
-      }
-
-      if (!client?.usable && route2GateState.get(route.sessionSlotKey)) {
-        route2GateState.revoke(route.sessionSlotKey, "restart");
-        refreshRouteAfterLeaseRevocation(route);
       }
 
       // Gate the launch once the route is settled -- a lease revoked just above
@@ -917,6 +920,16 @@ function createClaudeCodeRuntimeAdapter(config) {
     turnHolds.delete(processKey);
     hold.releaseWorkspace();
     processRegistry.settleTurn(processKey, { turnToken: hold.turnToken });
+    // A lease granted mid-turn retires the child here, at the boundary, rather
+    // than under the turn that asked for it. D33 already says escalation "落在
+    // 任务起点，不做任务中途横跳" -- but the grant used to relaunch immediately,
+    // which killed the very turn making the request: she asked for the wide
+    // face, the lease was issued, and her reply died as
+    // `Runtime process exited unexpectedly`. Deleting first keeps the nested
+    // finishTurn inside closeProcessKey from re-entering.
+    if (pendingEscalationRelaunch.delete(processKey)) {
+      void processRegistry.withLock(processKey, () => closeProcessKey(processKey));
+    }
   }
 
   async function closeProcessKey(processKey) {
@@ -1587,7 +1600,15 @@ function createClaudeCodeRuntimeAdapter(config) {
       }, { route: initialRoute.routeDescriptor });
       const leasedRoute = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, senderId });
       try {
-        const attached = await attachProcessToSession(leasedRoute, { threadId: initialRoute.storedThreadId });
+        // The relaunch always waits for the turn boundary. The request can only
+        // arrive from inside a turn -- calling the tool *is* her turn -- so
+        // retiring the child here would end the very reply that asked for the
+        // wide face; the first real-machine grant died exactly that way
+        // (`Runtime process exited unexpectedly`, lease issued, reply lost).
+        // D33 already said escalation lands 在任务起点; this is that, honestly.
+        const leasedProcessKey = computeProcessKey(leasedRoute);
+        pendingEscalationRelaunch.add(leasedProcessKey);
+        const attached = { threadId: initialRoute.storedThreadId };
         if (attached.threadId !== initialRoute.storedThreadId) throw new Error("route2_window_id_changed");
         route2GateState.begin({
           sessionSlotKey: leasedRoute.sessionSlotKey,
@@ -1600,6 +1621,8 @@ function createClaudeCodeRuntimeAdapter(config) {
         });
         return {
           granted: true,
+          // The wide face opens on her next message, never on this one.
+          deferred: true,
           decision,
           lease: route2GateState.get(leasedRoute.sessionSlotKey)?.lease || null,
           sessionSlotKey: leasedRoute.sessionSlotKey,

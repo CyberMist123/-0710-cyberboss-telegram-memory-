@@ -666,6 +666,13 @@ test("T08 A1/A11 grant relaunches the mutable override and resumes the identical
     assert.equal(grant.windowIdAfter, sessionId);
     assert.ok(grant.overrideFingerprint);
     assert.equal(grant.lease.toolNames[0], "cyberboss_time");
+    // The tool can only be called from inside a turn, so the relaunch waits for
+    // the boundary. Relaunching inline killed the asking turn on the first real
+    // grant: lease issued, reply lost to `Runtime process exited unexpectedly`.
+    assert.equal(grant.deferred, true);
+    // The next turn is the one that opens wide, resuming the identical window.
+    const second = await adapter.sendTurn({ bindingKey: "binding-lease", workspaceRoot, text: "next turn" });
+    assert.equal(second.threadId, sessionId, "still the same session after the escalation relaunch");
     const launches = (await waitForFileText(launchLog, /--resume/)).trim().split(/\r?\n/).map(JSON.parse);
     assert.equal(launches.length >= 2, true);
     assert.equal(launches.at(-1)[launches.at(-1).indexOf("--resume") + 1], sessionId);
@@ -2037,6 +2044,8 @@ test("T08 A12 route2_escalate 经真 IPC socket 到达门控（import 回归）"
     assert.equal(result.windowIdAfter, sessionId, "升格是同窗恢复，不换 session");
     assert.ok(result.lease?.id, "放行必须带一把 lease，否则回收无从谈起");
     assert.equal(result.decision.route, "route2");
+    // Nothing was in flight here, so the wide face may open immediately.
+    assert.equal(result.deferred, true, "升格永远落在任务边界，不在提出请求的那一轮生效");
   } finally {
     await adapter.close();
     for (const [key, value] of Object.entries({

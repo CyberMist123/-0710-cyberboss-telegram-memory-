@@ -373,7 +373,7 @@ const PROJECT_TOOLS = [
   },
   {
     name: "route2_escalate",
-    description: "Ask for the full built-in tool face (file editing and commands) in this same chat window. `wide` keeps your own system prompt and just widens the tools -- cheap, right for most hands-on work. `wide+harness` also puts Claude Code's own coding harness underneath you, which costs real context every turn it is held; take it for a substantial project, not for editing one file. `return` hands the wide face back early. The window restarts and resumes the same session; the lease outlives the turn and ends at its TTL or when you return it.",
+    description: "Ask for the full built-in tool face (file editing and commands) in this same chat window. `wide` keeps your own system prompt and just widens the tools -- cheap, right for most hands-on work. `wide+harness` also puts Claude Code's own coding harness underneath you, which costs real context every turn it is held; take it for a substantial project, not for editing one file. `return` hands the wide face back early. Ask while you are mid-turn and the wider face opens on your *next* message: the window restarts to change it, and restarting now would cut this reply off. The lease then outlives the turn and ends at its TTL or when you return it.",
     shortHint: "本窗要动本地文件或跑命令时自己申请；大项目才要 harness 那档。",
     topics: ["engineering"],
     inputSchema: {
@@ -408,7 +408,9 @@ const PROJECT_TOOLS = [
       const heldFor = Math.round((Number(result?.lease?.ttlMs) || 0) / 60000);
       return {
         text: result?.granted
-          ? `Escalated (${result.lease?.harness ? "wide+harness" : "wide"}): the wide tool face is active in this window for about ${heldFor} minutes, or until you return it.`
+          ? `Escalated (${result.lease?.harness ? "wide+harness" : "wide"}): ${result.deferred
+            ? "the wide tool face opens on your next message -- switching it on now would end this turn mid-sentence"
+            : "the wide tool face is active in this window now"}, and lasts about ${heldFor} minutes or until you return it.`
           : `Escalation refused (${result?.decision?.reasons?.join(", ") || "gate_declined"}); this work belongs to a Route 1 task.`,
         data: result,
       };

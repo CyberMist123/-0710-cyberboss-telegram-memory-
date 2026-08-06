@@ -681,6 +681,8 @@ Decision date: 2026-08-06
 - **TTL 由她申请时给**，缺省从 60 秒改为 20 分钟，上限 60 分钟。
 - **回收不得关掉正在干活的子进程**。`handleRoute2LeaseRevoked` 先查 `ProcessRegistry.isEntryBusy`：有 turn 在飞就只写回 override 并记一行 warn，窄面在下一次 launch 时回落。旧行为下 TTL 在命令跑到一半到期会连进程一起杀掉，命令表现为取消、结果丢失且无解释——用一次「宽面多活到下次 launch」换掉一个静默丢数据的事故面。
 - **本批不动 `plan`（第 4 层），只记录**。Owner 2026-08-06 口径：放行原则上没问题，路线本来就该由她自己判断；门控是成本路由器不是权限闸（与 D33 补注、不变量 3 同向）。故 `repositoryWork` / `parallel` / `longLoop` 等硬理由在真实调用链上仍是死代码，属**已知且已接受**的缺口，不在本批修——顺手接上等于同时上线一套没人裁决过的强制分流。另注：`plan` 是模型自报，服务端无独立推导来源，接它之前要先想清楚「把活说小一点就能保住手」这个激励。
+- **升格的 relaunch 永远落在 turn 边界，不在提出请求的那一轮生效**（2026-08-06 真机第一次成功授予后立刻暴露）。`route2_escalate` 只能从一轮对话内部被调用——调用它就是她那一轮——而旧实现在 `grantRoute2Lease` 里当场退休重启子进程，于是那一轮死于 `Runtime process exited unexpectedly`：lease 发出去了，她的回复丢了。现改为登记待重启，`finishTurn` 结算后再退休，宽面在她**下一条消息**生效。这正是本条上游 D33「落在任务起点，不做任务中途横跳」的字面意思，旧代码没做到。工具返回文本据实说明"下一条消息生效"。
+- **进程重启不再撤销 lease**。`attachProcessToSession` 里原有两处「launch 变了 / client 不可用 → revoke("restart")」，在旧的每轮回收模型下无害（lease 本来就活不过这轮）；新模型下它让**承载宽面的那次 relaunch 反过来取消了自己承载的授权**，子进程每次都窄面回来。已删除。lease 的权威是 TTL、主动交还、strong interrupt，不是某个进程的存活；真正废弃窗口的操作（compact、instruction refresh、context 变更丢弃 thread）仍在各自调用点撤销。
 - 升格那一轮**不额外注入 harness overlay**（Owner 2026-08-06 裁定）：工具自身的返回文本已经说明发生了什么，再加一段等于往她那一轮嘴里塞工程指令，也制造第二份工具清单。
 
 ---
