@@ -26,7 +26,7 @@ const {
 const { resolveCliCapabilities } = require("./cli-capabilities");
 const { runG3LaunchPreflight } = require("./g3-preflight");
 const { applyHarnessOverlay, resolveWindowOverride, windowOverrideEnabled } = require("./window-override");
-const { Route2GateState, decideRoute2Gate } = require("./route2-gate");
+const { Route2GateState, decideRoute2Gate, route2GateEnabled } = require("./route2-gate");
 const {
   TaskSessionRegistry,
   buildTaskSessionPrompt,

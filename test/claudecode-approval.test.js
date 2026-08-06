@@ -15,6 +15,7 @@ const {
   decideRoute2Gate,
   runOptionalRoute2Tool,
 } = require("../src/adapters/runtime/claudecode/route2-gate");
+const { Route1DispatchIpcClient } = require("../src/orchestration/route1-dispatch");
 
 // Thread-bearing runtime events resolve a reply target before delivery
 // (src/core/app.js:2642-2648), so appLike fixtures must provide the real
@@ -1948,4 +1949,66 @@ test("route2 gate routes by cost, never denies capability for naming no tools", 
 
   // 开关关闭时整条判定不存在。
   assert.equal(decideRoute2Gate({}, { env: {} }), null);
+});
+
+test("T08 A12 route2_escalate 经真 IPC socket 到达门控（import 回归）", async () => {
+  // 这条测试只为一件事存在。`route2.escalate` 的 IPC 处理器调用了一个从未 import
+  // 进 index.js 的 `route2GateEnabled`，于是**每一次**升格请求都在门控那一行抛
+  // ReferenceError —— 生产上 route2 升格从来没有成功过一次。适配器上的
+  // `grantRoute2Lease` 单测（T08 A1/A11）照样全绿，因为它绕过了处理器直接调方法。
+  // 缺的是从子进程那侧发一条真消息进来。所以这里必须走真 socket，不许走捷径。
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cb-route2-ipc-"));
+  const workspaceRoot = path.join(tempDir, "workspace");
+  const stateDir = path.join(tempDir, "state");
+  const commandFile = path.join(tempDir, "fake-route2-ipc-claude.js");
+  const sessionId = "33333333-3333-4333-8333-333333333333";
+  fs.mkdirSync(workspaceRoot, { recursive: true });
+  fs.mkdirSync(stateDir, { recursive: true });
+  fs.writeFileSync(commandFile, [
+    "#!/usr/bin/env node",
+    "process.stdin.on('data', () => {",
+    `  console.log(JSON.stringify({ type: 'system', session_id: ${JSON.stringify(sessionId)} }));`,
+    `  console.log(JSON.stringify({ type: 'result', session_id: ${JSON.stringify(sessionId)}, result: 'fixture done' }));`,
+    "});",
+  ].join("\n"));
+  const previous = {
+    gate: process.env.CYBERBOSS_ROUTE2_GATE_ENABLED,
+    override: process.env.CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED,
+  };
+  process.env.CYBERBOSS_ROUTE2_GATE_ENABLED = "true";
+  process.env.CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED = "true";
+  const adapter = createClaudeCodeRuntimeAdapter({
+    stateDir,
+    sessionsFile: path.join(tempDir, "sessions.json"),
+    claudeCommand: process.execPath,
+    claudeCommandPrefixArgs: [commandFile],
+    claudeDisableVerbose: true,
+  });
+  try {
+    await adapter.initialize();
+    const first = await adapter.sendTurn({ bindingKey: "binding-ipc", workspaceRoot, text: "fixture opening" });
+    assert.equal(first.threadId, sessionId);
+
+    // tool-host 就是这样调的：同一个客户端、同一条鉴权 socket，args 只有 reason/ttlMs。
+    const client = new Route1DispatchIpcClient({ stateDir, timeoutMs: 15_000 });
+    const result = await client.escalateRoute2(
+      { reason: "regression: the handler must reach the gate", ttlMs: 10_000 },
+      { bindingKey: "binding-ipc", workspaceRoot },
+    );
+
+    assert.equal(result.granted, true, "空计划落在软限内，门控应当放行");
+    assert.equal(result.windowIdBefore, sessionId);
+    assert.equal(result.windowIdAfter, sessionId, "升格是同窗恢复，不换 session");
+    assert.ok(result.lease?.id, "放行必须带一把 lease，否则回收无从谈起");
+    assert.equal(result.decision.route, "route2");
+  } finally {
+    await adapter.close();
+    for (const [key, value] of Object.entries({
+      CYBERBOSS_ROUTE2_GATE_ENABLED: previous.gate,
+      CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED: previous.override,
+    })) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
