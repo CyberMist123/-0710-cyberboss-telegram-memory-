@@ -25,7 +25,6 @@ const themeSnapshot = [
   "感知(7)   你和世界的状态：天气、位置；将来健康、手机使用、可穿戴、日常活动 MCP 全进这",
   "记忆(2)   翻过去（Episodes/账本都从这个把手进）、留笔记",
   "生活记录(2)   记日记、设提醒",
-  "时间线(8)   你们的时间线回看与整理",
   "作息(1)   睡眠模式",
   "工程派活(4)   GitHub 操作；将来 Route 1 派工程车也在这",
   "维护调试(3)   平时不碰",
@@ -136,7 +135,7 @@ test("A1 flag-off leaves legacy invocation and real stdio tools/resources byte-c
   assert.deepEqual(mcp(requests, { CYBERBOSS_TOOL_CATALOG_ENABLED: "false" }), mcp(requests));
 }));
 
-test("A3 theme index is an exact eight-line snapshot and excludes aliases and hidden entries", async () => enabled(async () => {
+test("A3 theme index is an exact seven-line snapshot and excludes aliases and hidden entries", async () => enabled(async () => {
   const result = await host().invokeTool("cyberboss_catalog", {});
   assert.equal(result.text, themeSnapshot);
   assert.deepEqual(result.data.map((item) => item.name), THEME_DEFINITIONS.map((item) => item.name));
@@ -439,15 +438,19 @@ test("T-B catalog on/off context swing stays at three broadcast tools", () => {
   const off = withEnv({ CYBERBOSS_TOOL_CATALOG_ENABLED: undefined, CYBERBOSS_TOOL_CATALOG_TOOLSET: undefined, CYBERBOSS_SUBJECT_SIGNING_ENABLED: undefined }, () => host().listTools());
   const on = enabled(() => host().listTools());
   assert.equal(on.length, 3);
-  assert.ok(off.length >= 25, `legacy surface collapsed to ${off.length} tools`);
+  assert.ok(off.length >= 17, `legacy surface collapsed to ${off.length} tools`);
   const chars = (tools) => JSON.stringify(tools).length;
   assert.ok(chars(on) <= 1200, `resident surface grew to ${chars(on)} chars`);
-  assert.ok(chars(off) >= 12000, `legacy surface shrank to ${chars(off)} chars`);
+  // 门槛随能力面走：2026-08-06 移除时间线工具包带走了 8 个大 schema，传统面由
+  // 12k+ 降到 9.2k。这条测试真正的判据是下面那个摆幅倍数，绝对字数只是"传统面确实
+  // 是一大片"的粗证。
+  assert.ok(chars(off) >= 9000, `legacy surface shrank to ${chars(off)} chars`);
   assert.ok(chars(off) / chars(on) >= 10, `swing collapsed to ${(chars(off) / chars(on)).toFixed(1)}x`);
   const resident = buildResidentCatalog();
   assert.equal(resident.totals.resident_item_count, 3);
   assert.equal(resident.totals.resident_schema_chars, 373);
-  assert.equal(resident.full_surface.schema_chars, 15810);
+  // 15810 -> 12962：移除时间线工具包后的全量面。常驻面本身（3 项 / 373 字）未变。
+  assert.equal(resident.full_surface.schema_chars, 12962);
 });
 
 test("manifest policy and privacy canary are explicit and private-text-free", () => withEnv({ CATALOG_TEST_SECRET: plantedValue, CYBERBOSS_SUBJECT_SIGNING_ENABLED: undefined }, () => {

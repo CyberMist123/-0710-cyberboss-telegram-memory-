@@ -23,7 +23,6 @@ const {
   sanitizeRoutingTelemetry,
   slotToken,
 } = require("./route-telemetry");
-const { createTimelineIntegration } = require("../integrations/timeline");
 const {
   assembleRuntimeTurnText,
   buildInboundDraft,
@@ -54,7 +53,6 @@ const { SystemMessageQueueStore } = require("./system-message-queue-store");
 const { SystemMessageDispatcher } = require("./system-message-dispatcher");
 const { writeActivityPauseState } = require("./activity-pause-state");
 const { readWatchdogHealth, formatWatchdogStatusLine } = require("./watchdog-health");
-const { TimelineScreenshotQueueStore } = require("./timeline-screenshot-queue-store");
 const { TurnGateStore } = require("./turn-gate-store");
 const { ReminderQueueStore } = require("../adapters/channel/weixin/reminder-queue-store");
 const { ConversationRecorder } = require("../services/conversation-recorder");
@@ -128,7 +126,6 @@ class CyberbossApp {
     this.channelAdapter = config.channel === "telegram"
       ? this.telegramChannelAdapter
       : this.weixinChannelAdapter;
-    this.timelineIntegration = createTimelineIntegration(config);
     // The registry has always collected diagnostics into an in-process array
     // that nothing ever read, and its `onDiagnostic` hook was never wired -- so
     // every refusal to issue a capability was invisible from outside the
@@ -148,7 +145,6 @@ class CyberbossApp {
     this.subjectCapabilityByRunKey = new Map();
     const projectTooling = createProjectTooling(config, {
       channelAdapter: this.channelAdapter,
-      timelineIntegration: this.timelineIntegration,
       subjectCandidateOwner: true,
       subjectCapabilityRegistry: this.subjectCapabilityRegistry,
       subjectSigningContext: {
@@ -257,7 +253,6 @@ class CyberbossApp {
     this.systemMessageQueue = new SystemMessageQueueStore({ filePath: config.systemMessageQueueFile });
     this.deferredSystemReplyQueue = new DeferredSystemReplyStore({ filePath: config.deferredSystemReplyQueueFile });
     this.checkinConfigStore = new CheckinConfigStore({ filePath: config.checkinConfigFile });
-    this.timelineScreenshotQueue = new TimelineScreenshotQueueStore({ filePath: config.timelineScreenshotQueueFile });
     this.reminderQueue = new ReminderQueueStore({ filePath: config.reminderQueueFile });
     this.turnGateStore = new TurnGateStore();
     this.conversationRecorder = config.conversationDir ? new ConversationRecorder({
@@ -339,7 +334,6 @@ class CyberbossApp {
       channel: this.channelAdapter.describe(),
       telegram: this.telegramChannelAdapter.describe(),
       runtime: this.runtimeAdapter.describe(),
-      timeline: this.timelineIntegration.describe(),
       threads: this.threadStateStore.snapshot(),
     }, null, 2));
   }
@@ -368,7 +362,6 @@ class CyberbossApp {
     console.log("[cyberboss] bootstrap ok");
     console.log(`[cyberboss] channel=${this.channelAdapter.describe().id}`);
     console.log(`[cyberboss] runtime=${this.runtimeAdapter.describe().id}`);
-    console.log(`[cyberboss] timeline=${this.timelineIntegration.describe().id}`);
     console.log(`[cyberboss] account=${account.accountId}`);
     console.log(`[cyberboss] baseUrl=${account.baseUrl || "(none)"}`);
     console.log(`[cyberboss] workspaceRoot=${this.config.workspaceRoot}`);
@@ -443,7 +436,6 @@ class CyberbossApp {
             this.flushDueReminders(account),
             this.flushPendingInboundMessages(),
             this.flushPendingSystemMessages(),
-            this.flushPendingTimelineScreenshots(account),
           ]);
           if (this.config.channel === "telegram") {
             const response = await this.telegramChannelAdapter.getUpdates({
@@ -492,7 +484,6 @@ class CyberbossApp {
             this.flushDueReminders(account),
             this.flushPendingInboundMessages(),
             this.flushPendingSystemMessages(),
-            this.flushPendingTimelineScreenshots(account),
           ]);
         } catch (error) {
           if (shutdown.stopped) {
@@ -676,37 +667,6 @@ class CyberbossApp {
     }
   }
 
-  async sendTimelineScreenshot({
-    senderId = "",
-    outputFile = "",
-    selector = "",
-    range = "",
-    date = "",
-    week = "",
-    month = "",
-    category = "",
-    subcategory = "",
-    width = 0,
-    height = 0,
-    sidePadding = undefined,
-    locale = "",
-  } = {}) {
-    return this.projectServices.timeline.queueScreenshot({
-      userId: senderId,
-      outputFile,
-      selector,
-      range,
-      date,
-      week,
-      month,
-      category,
-      subcategory,
-      width,
-      height,
-      sidePadding,
-      locale,
-    }, {});
-  }
 
   async sendLocalFileToCurrentChat({ senderId = "", filePath = "" } = {}) {
     return this.projectServices.channelFile.sendToCurrentChat({
@@ -1928,45 +1888,6 @@ class CyberbossApp {
     return true;
   }
 
-  async flushPendingTimelineScreenshots(account) {
-    const pendingJobs = this.timelineScreenshotQueue.drainForAccount(account.accountId);
-    for (const job of pendingJobs) {
-      try {
-        const captured = await this.projectServices.timeline.captureScreenshot({
-          outputFile: job.outputFile,
-          selector: job.selector,
-          range: job.range,
-          date: job.date,
-          week: job.week,
-          month: job.month,
-          category: job.category,
-          subcategory: job.subcategory,
-          width: job.width,
-          height: job.height,
-          sidePadding: job.sidePadding,
-          locale: job.locale,
-        });
-        await this.sendLocalFileToCurrentChat({
-          senderId: job.senderId,
-          filePath: captured.outputFile,
-        });
-      } catch (error) {
-        const messageText = error instanceof Error ? error.message : String(error || "unknown error");
-        console.error(`[cyberboss] timeline screenshot failed job=${job.id} ${messageText}`);
-        await this.channelAdapter.sendTyping({
-          userId: job.senderId,
-          status: 0,
-          ...outboundThreadIdField({ provider: "telegram", messageThreadId: job.messageThreadId ?? null }),
-        }).catch(() => {});
-        await this.channelAdapter.sendText({
-          userId: job.senderId,
-          text: `❌ Timeline screenshot failed\n${messageText}`,
-          preserveBlock: true,
-          ...outboundThreadIdField({ provider: "telegram", messageThreadId: job.messageThreadId ?? null }),
-        }).catch(() => {});
-      }
-    }
-  }
 
   resolveLongPollTimeoutMs() {
     if (this.systemMessageDispatcher?.hasPending()) {
@@ -1975,10 +1896,6 @@ class CyberbossApp {
     if (this.pendingInboundByScope?.size > 0) {
       return MIN_LONG_POLL_TIMEOUT_MS;
     }
-    if (this.activeAccountId && this.timelineScreenshotQueue.hasPendingForAccount(this.activeAccountId)) {
-      return MIN_LONG_POLL_TIMEOUT_MS;
-    }
-
     const nextDueAtMs = this.reminderQueue.peekNextDueAtMs();
     if (!nextDueAtMs) {
       return DEFAULT_LONG_POLL_TIMEOUT_MS;

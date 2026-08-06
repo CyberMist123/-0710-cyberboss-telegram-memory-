@@ -28,7 +28,7 @@ test("codex MCP config auto-approves cyberboss tools", () => {
   );
   assert.match(
     args.join("\n"),
-    /mcp_servers\.cyberboss_tools\.tools\.cyberboss_timeline_screenshot\.approval_mode="auto"/
+    /mcp_servers\.cyberboss_tools\.tools\.cyberboss_diary_append\.approval_mode="auto"/
   );
   // Deprecated whereabouts tools are deliberately hidden from the project
   // catalog (src/tools/tool-host.js:86-90,102-108).

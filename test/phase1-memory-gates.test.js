@@ -100,7 +100,6 @@ function createConfig(root, memoryDir, gates) {
     systemMessageQueueFile: path.join(stateDir, "system-message-queue.json"),
     deferredSystemReplyQueueFile: path.join(stateDir, "deferred-system-replies.json"),
     checkinConfigFile: path.join(stateDir, "checkin-config.json"),
-    timelineScreenshotQueueFile: path.join(stateDir, "timeline-screenshot-queue.json"),
     reminderQueueFile: path.join(stateDir, "reminder-queue.json"),
     telegramStateFile: path.join(stateDir, "telegram-state.json"),
     conversationDir: "",
@@ -136,11 +135,6 @@ async function withAppWithSpies(spies, fn) {
     [require.resolve("../src/adapters/runtime/codex"), {
       createCodexRuntimeAdapter() {
         return createRuntimeAdapterStub();
-      },
-    }],
-    [require.resolve("../src/integrations/timeline"), {
-      createTimelineIntegration() {
-        return { describe: () => ({ id: "timeline", kind: "integration" }) };
       },
     }],
     [require.resolve("../src/tools/create-project-tooling"), {

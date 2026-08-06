@@ -169,7 +169,7 @@ accepted decision 的旧路径。
 | **目录式** | 只把**索引 / 摘要 / 标签表**放进上下文，正文不放 | Memory 目录、Timeline 摘要、贴纸标签表（`cyberboss_sticker_tags` 明确写着"只在决定要用贴纸时才加载目录"） |
 | **完全按需** | 上下文里连目录都没有，模型靠工具自己翻 | Episodes 正文、Timeline 正文、旧对话、天气、健康、Todo 原文、日记、账本（`details.jsonl`，见 [`MEMORY.md`](./MEMORY.md) 2.5） |
 
-第三档靠 `src/tools/tool-host.js` 注册的工具实现，经 `src/tools/mcp-stdio-server.js` 以 MCP 暴露给子进程。相关工具：`memory_lookup`、`cyberboss_timeline_read` / `_categories` / `_proposals`、`weather`、`cyberboss_diary_append`、`cyberboss_reminder`、`cyberboss_sticker_*`、`location_*`。
+第三档靠 `src/tools/tool-host.js` 注册的工具实现，经 `src/tools/mcp-stdio-server.js` 以 MCP 暴露给子进程。相关工具：`memory_lookup`、`weather`、`cyberboss_diary_append`、`cyberboss_reminder`、`cyberboss_sticker_*`、`location_*`。
 
 **Telegram CMX 图片上下文**属于该次 turn 的临时附件数据，不进入三档长期记忆：默认关闭；开启时随 photo 生成，位于明文 channel 信封外，标为 untrusted，并在 conversation purity 阶段剥除。它不是常驻注入或 memory 目录；运行时 transcript 的正常保留不等于记忆晋升。
 

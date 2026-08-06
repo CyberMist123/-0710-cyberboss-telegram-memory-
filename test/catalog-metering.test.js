@@ -14,10 +14,10 @@ function run(args = [], env = {}) { return spawnSync(process.execPath, [script, 
 function assertFailedClosed(result, message) { assert.equal(result.error, undefined, `process never ran: ${result.error}`); assert.notEqual(result.status, null, "process never ran: spawnSync returned status null"); assert.notEqual(result.status, 0, `${message}\nstderr: ${result.stderr}\nstdout: ${result.stdout}`); }
 function assertNoPrivateText(value) { for (const pattern of [/[A-Za-z]:[\\/]/, /\/home\/[A-Za-z0-9_.-]+/, /\/Users\/[A-Za-z0-9_.-]+/, /(sk|ghp|xoxb)-[A-Za-z0-9_-]{8,}/]) assert.doesNotMatch(value, pattern); if (process.env.USERNAME) assert.equal(value.includes(process.env.USERNAME), false); }
 
-test("catalog has four mechanism categories, eight intention themes, stable metrics and no fictional result ceiling", () => {
+test("catalog has four mechanism categories, seven intention themes, stable metrics and no fictional result ceiling", () => {
   const first = run([], { CB_AUDIT_SECRET: "planted-nondisclosure-canary-0000" }); const second = run(); assert.equal(first.status, 0); assert.equal(first.stdout, second.stdout);
   const catalog = JSON.parse(first.stdout); assert.deepEqual(Object.keys(catalog.categories), ["memory", "tool", "mcp", "skill"]);
-  assert.deepEqual(Object.keys(catalog.themes), ["表达行动", "感知", "记忆", "生活记录", "时间线", "作息", "工程派活", "维护调试"]);
+  assert.deepEqual(Object.keys(catalog.themes), ["表达行动", "感知", "记忆", "生活记录", "作息", "工程派活", "维护调试"]);
   for (const item of catalog.items) { assert.ok(Number.isInteger(item.schema_chars) && item.schema_chars >= 0); assert.ok(Number.isInteger(item.schema_bytes) && item.schema_bytes >= item.schema_chars); assert.equal(item.has_max_result_bytes, false); assert.equal(item.max_result_bytes, null); }
   for (const name of ["memory_lookup", "memory_note", "cyberboss_reminder", "cyberboss_diary_append", "cyberboss_system_send", "cyberboss_time"]) { const item = catalog.items.find((entry) => entry.name === name); assert.ok(item); assert.equal(item.hidden, false); assert.equal(item.deprecated, false); }
   assertNoPrivateText(first.stdout);

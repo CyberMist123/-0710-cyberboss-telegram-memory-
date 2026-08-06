@@ -1,7 +1,6 @@
 const { createTelegramChannelAdapter } = require("../adapters/channel/telegram");
 const { createWeixinChannelAdapter } = require("../adapters/channel/weixin");
 const { SessionStore } = require("../adapters/runtime/codex/session-store");
-const { createTimelineIntegration } = require("../integrations/timeline");
 const { ChannelFileService } = require("../services/channel-file-service");
 const { DiaryService } = require("../services/diary-service");
 const { ReminderService } = require("../services/reminder-service");
@@ -9,7 +8,6 @@ const { createTelegramSendService } = require("../services/telegram-service");
 const { MediaInboxService } = require("../services/media-inbox-service");
 const { StickerService } = require("../services/sticker-service");
 const { SystemMessageService } = require("../services/system-message-service");
-const { TimelineService } = require("../services/timeline-service");
 const { VoiceService } = require("../services/voice-service");
 const { createWeatherService } = require("../services/weather-service");
 const { MemoryLookupService } = require("../services/memory-lookup-service");
@@ -52,7 +50,6 @@ function createProjectTooling(config, options = {}) {
     runtimeId: config.runtime || "codex",
   });
   const channelAdapter = options.channelAdapter || createConfiguredChannelAdapter(config);
-  const timelineIntegration = options.timelineIntegration || createTimelineIntegration(config);
   const runtimeContextStore = options.runtimeContextStore || new RuntimeContextStore({
     filePath: config.projectToolContextFile,
   });
@@ -89,7 +86,6 @@ function createProjectTooling(config, options = {}) {
     mediaInbox: new MediaInboxService({ config }),
     channelFile,
     sticker: new StickerService({ config, channelAdapter, sessionStore, channelFileService: channelFile }),
-    timeline: new TimelineService({ config, timelineIntegration, sessionStore }),
     weather: createWeatherService({ config }),
     memoryLookup: new MemoryLookupService({ continuityDir: config.continuityDir }),
     // issue #74：Self-note 的第二个 writer。lease 文件必须和 History writer 用的

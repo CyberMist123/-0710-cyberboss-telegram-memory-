@@ -235,41 +235,6 @@ const COMMAND_GROUPS = [
         status: "active",
       },
       {
-        action: "timeline.write",
-        summary: "Write the current context into timeline",
-        terminal: [],
-        weixin: [],
-        status: "active",
-      },
-      {
-        action: "timeline.build",
-        summary: "Build the static timeline site",
-        terminal: [],
-        weixin: [],
-        status: "active",
-      },
-      {
-        action: "timeline.serve",
-        summary: "Start the static timeline site server",
-        terminal: [],
-        weixin: [],
-        status: "active",
-      },
-      {
-        action: "timeline.dev",
-        summary: "Start the hot-reload timeline dev server",
-        terminal: [],
-        weixin: [],
-        status: "active",
-      },
-      {
-        action: "timeline.screenshot",
-        summary: "Capture a timeline screenshot",
-        terminal: [],
-        weixin: [],
-        status: "active",
-      },
-      {
         action: "reminder.create",
         summary: "Create a reminder and hand it to the scheduler",
         terminal: [],
@@ -336,7 +301,12 @@ const COMMAND_GROUPS = [
 function listCommandGroups() {
   return COMMAND_GROUPS.map((group) => ({
     ...group,
-    actions: group.actions.filter(isActionEnabled).map((action) => ({ ...action })),
+    // Not `filter(isActionEnabled)`: filter passes the index as the second
+    // argument, which landed in the `env` parameter, so every feature-gated
+    // action read its switch off a number and stayed hidden no matter what the
+    // deployment set. Route 1's two interrupt commands were unreachable for
+    // exactly this reason.
+    actions: group.actions.filter((action) => isActionEnabled(action)).map((action) => ({ ...action })),
   }));
 }
 

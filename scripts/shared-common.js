@@ -147,15 +147,7 @@ async function ensureSharedAppServer() {
 
   const env = {
     CYBERBOSS_STATE_DIR: stateDir,
-    TIMELINE_FOR_AGENT_STATE_DIR: stateDir,
   };
-  if (!process.env.TIMELINE_FOR_AGENT_CHROME_PATH) {
-    env.TIMELINE_FOR_AGENT_CHROME_PATH =
-      process.env.CYBERBOSS_SCREENSHOT_CHROME_PATH
-      || (process.platform === "darwin"
-        ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-        : "");
-  }
 
   const command = process.env.CYBERBOSS_CODEX_COMMAND || "codex";
   const mcpConfigArgs = buildCodexMcpConfigArgs(resolveCodexProjectToolMcpServerConfig({

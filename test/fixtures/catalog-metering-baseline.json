@@ -6,7 +6,7 @@
       "item_count": 4
     },
     "tool": {
-      "item_count": 40
+      "item_count": 32
     },
     "mcp": {
       "item_count": 5
@@ -27,9 +27,6 @@
     },
     "生活记录": {
       "item_count": 2
-    },
-    "时间线": {
-      "item_count": 8
     },
     "作息": {
       "item_count": 1
@@ -492,118 +489,6 @@
     },
     {
       "category": "tool",
-      "theme": "时间线",
-      "name": "cyberboss_timeline_build",
-      "namespace": "cyberboss",
-      "hidden": false,
-      "deprecated": false,
-      "alias_of": null,
-      "schema_chars": 88,
-      "schema_bytes": 88,
-      "description_chars": 48,
-      "has_max_result_bytes": false,
-      "max_result_bytes": null
-    },
-    {
-      "category": "tool",
-      "theme": "时间线",
-      "name": "cyberboss_timeline_categories",
-      "namespace": "cyberboss",
-      "hidden": false,
-      "deprecated": false,
-      "alias_of": null,
-      "schema_chars": 62,
-      "schema_bytes": 62,
-      "description_chars": 82,
-      "has_max_result_bytes": false,
-      "max_result_bytes": null
-    },
-    {
-      "category": "tool",
-      "theme": "时间线",
-      "name": "cyberboss_timeline_dev",
-      "namespace": "cyberboss",
-      "hidden": false,
-      "deprecated": false,
-      "alias_of": null,
-      "schema_chars": 88,
-      "schema_bytes": 88,
-      "description_chars": 54,
-      "has_max_result_bytes": false,
-      "max_result_bytes": null
-    },
-    {
-      "category": "tool",
-      "theme": "时间线",
-      "name": "cyberboss_timeline_proposals",
-      "namespace": "cyberboss",
-      "hidden": false,
-      "deprecated": false,
-      "alias_of": null,
-      "schema_chars": 131,
-      "schema_bytes": 131,
-      "description_chars": 70,
-      "has_max_result_bytes": false,
-      "max_result_bytes": null
-    },
-    {
-      "category": "tool",
-      "theme": "时间线",
-      "name": "cyberboss_timeline_read",
-      "namespace": "cyberboss",
-      "hidden": false,
-      "deprecated": false,
-      "alias_of": null,
-      "schema_chars": 149,
-      "schema_bytes": 149,
-      "description_chars": 38,
-      "has_max_result_bytes": false,
-      "max_result_bytes": null
-    },
-    {
-      "category": "tool",
-      "theme": "时间线",
-      "name": "cyberboss_timeline_screenshot",
-      "namespace": "cyberboss",
-      "hidden": false,
-      "deprecated": false,
-      "alias_of": null,
-      "schema_chars": 1101,
-      "schema_bytes": 1101,
-      "description_chars": 63,
-      "has_max_result_bytes": false,
-      "max_result_bytes": null
-    },
-    {
-      "category": "tool",
-      "theme": "时间线",
-      "name": "cyberboss_timeline_serve",
-      "namespace": "cyberboss",
-      "hidden": false,
-      "deprecated": false,
-      "alias_of": null,
-      "schema_chars": 88,
-      "schema_bytes": 88,
-      "description_chars": 48,
-      "has_max_result_bytes": false,
-      "max_result_bytes": null
-    },
-    {
-      "category": "tool",
-      "theme": "时间线",
-      "name": "cyberboss_timeline_write",
-      "namespace": "cyberboss",
-      "hidden": false,
-      "deprecated": false,
-      "alias_of": null,
-      "schema_chars": 1141,
-      "schema_bytes": 1141,
-      "description_chars": 78,
-      "has_max_result_bytes": false,
-      "max_result_bytes": null
-    },
-    {
-      "category": "tool",
       "theme": "工程派活",
       "name": "github_file_upload",
       "namespace": "cyberboss",
@@ -730,12 +615,12 @@
     }
   ],
   "totals": {
-    "item_count": 49,
-    "schema_chars": 15810,
-    "schema_bytes": 15826,
-    "catalog_chars": 13076,
-    "catalog_bytes": 13410
+    "item_count": 41,
+    "schema_chars": 12962,
+    "schema_bytes": 12978,
+    "catalog_chars": 10998,
+    "catalog_bytes": 11278
   },
-  "items_hash": "sha256:00cce2d149cfa50048c09679930a7845b60aa7fe16a483fa90ae57abd8dc8c63",
-  "catalog_hash": "sha256:95617d3ab21f12de5ebdfa61f34111308d71d57a8b411a8132c351d316e17292"
+  "items_hash": "sha256:90bd5597f0643d5835ece9c018a1923eb32801a5c2387d51724f4d953fa26a72",
+  "catalog_hash": "sha256:31f3722b8e5fcab72cc7eb0dc5c8ceeee30c6974fc18b9221569b88a9974e415"
 }

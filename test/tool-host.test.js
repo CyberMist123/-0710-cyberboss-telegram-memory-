@@ -105,50 +105,6 @@ function createHost(options = {}) {
           };
         },
       },
-      timeline: {
-        async read(args) {
-          return {
-            data: {
-              date: args.date,
-              exists: true,
-              eventCount: 1,
-              events: [{ id: "evt-1" }],
-            },
-          };
-        },
-        async listCategories() {
-          return {
-            data: {
-              categoryCount: 2,
-              categories: [{ id: "work" }, { id: "life" }],
-            },
-          };
-        },
-        async listProposals(args) {
-          return {
-            data: {
-              date: args.date || "",
-              proposalCount: 1,
-              proposals: [{ id: "proposal-1" }],
-            },
-          };
-        },
-        async write(args) {
-          return args;
-        },
-        async build(args) {
-          return args;
-        },
-        async serve(args) {
-          return args;
-        },
-        async dev(args) {
-          return args;
-        },
-        async captureScreenshot(args) {
-          return { outputFile: "/tmp/shot.png", ...args };
-        },
-      },
       whereabouts: {
         getSnapshot(args) {
           return {
@@ -239,31 +195,6 @@ test("T04 A4/A5 work authorization denies relationship-memory schema and calls i
   }
 });
 
-test("tool host rejects legacy timeline write CLI-shaped fields", async () => {
-  const host = createHost();
-  await assert.rejects(async () => {
-    await host.invokeTool("cyberboss_timeline_write", {
-      date: "2026-04-21",
-      events: [],
-      eventsJson: "{\"events\":[]}",
-    }, {});
-  }, /input\.eventsJson is not allowed/);
-});
-
-test("tool host exposes structured timeline read tools", async () => {
-  const host = createHost();
-  const readResult = await host.invokeTool("cyberboss_timeline_read", {
-    date: "2026-04-21",
-  }, {});
-  const categoriesResult = await host.invokeTool("cyberboss_timeline_categories", {}, {});
-  const proposalsResult = await host.invokeTool("cyberboss_timeline_proposals", {
-    date: "2026-04-21",
-  }, {});
-
-  assert.equal(readResult.text, "Timeline day 2026-04-21: 1 events.");
-  assert.equal(categoriesResult.text, "Timeline categories loaded: 2.");
-  assert.equal(proposalsResult.text, "Timeline proposals loaded: 1.");
-});
 
 test("tool host returns final configured local time without UTC conversion hints", async () => {
   const previousTimezone = process.env.CYBERBOSS_TIMEZONE;
@@ -363,25 +294,14 @@ test("tool host exposes sticker tools with compact structured outputs", async ()
   assert.equal(updateResult.text, "Sticker batch updated: 1.");
 });
 
-test("tool host accepts structured timeline screenshot input", async () => {
-  const host = createHost();
-  const result = await host.invokeTool("cyberboss_timeline_screenshot", {
-    selector: "timeline",
-    range: "day",
-    date: "2026-04-21",
-    width: 1440,
-  }, {});
-  assert.equal(result.text, "Timeline screenshot sent: /tmp/shot.png");
-  assert.equal(result.data.delivery.filePath, "/tmp/shot.png");
-});
 
 test("tool host descriptions stay compact while schemas remain structured", () => {
   const host = createHost();
-  const timelineWrite = host.listTools().find((tool) => tool.name === "cyberboss_timeline_write");
-  assert.equal(timelineWrite.description, "Write timeline events after checking the current day and taxonomy when needed.");
-  assert.deepEqual(timelineWrite.inputSchema.required, ["date", "events"]);
-  assert.equal(timelineWrite.inputSchema.properties.date.type, "string");
-  assert.equal(timelineWrite.inputSchema.properties.events.type, "array");
+  const upload = host.listTools().find((tool) => tool.name === "github_file_upload");
+  assert.equal(upload.description, "Upload one file to a GitHub repository.");
+  assert.deepEqual(upload.inputSchema.required, ["repository", "path", "content", "message"]);
+  assert.equal(upload.inputSchema.properties.repository.type, "string");
+  assert.equal(upload.inputSchema.properties.content.type, "string");
 });
 
 test("tool host hides deprecated whereabouts tools from discovery but preserves invocation", async () => {
@@ -412,22 +332,6 @@ test("tool host hides deprecated whereabouts tools from discovery but preserves 
   assert.equal(summaryResult.data.mobilityState.state, "staying");
 });
 
-test("tool host rejects timeline events without title or eventNodeId", async () => {
-  const host = createHost();
-  await assert.rejects(async () => {
-    await host.invokeTool("cyberboss_timeline_write", {
-      date: "2026-04-22",
-      events: [
-        {
-          startAt: "2026-04-22T10:00:00+08:00",
-          endAt: "2026-04-22T10:30:00+08:00",
-          categoryId: "work",
-          subcategoryId: "coding",
-        },
-      ],
-    }, {});
-  }, /input\.events\[0\]\.title or input\.events\[0\]\.eventNodeId is required/);
-});
 
 // D33 的升格面此前有机制没有触发方：`grantRoute2Lease` 生产零调用点，
 // 因此 `escalatedBuiltInTools` 永远换不上。这条工具就是那个缺失的触发方。

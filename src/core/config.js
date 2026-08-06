@@ -14,7 +14,6 @@ function readConfig() {
   const promptFile = resolveConfiguredPath(
     readTextEnv("CYBERBOSS_PROMPT_FILE") || readTextEnv("CYBERBOSS_INSTRUCTIONS_FILE")
   );
-  const timelineStateDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_TIMELINE_STATE_DIR")) || stateDir;
   const diaryDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_DIARY_DIR")) || joinIfBase(stateDir, "diary");
   const sourceLabel = readTextEnv("CYBERBOSS_SOURCE_LABEL");
   const memoryDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_MEMORY_DIR") || joinIfBase(stateDir, "memory"));
@@ -39,7 +38,6 @@ function readConfig() {
     allowedUserIds: readListEnv("CYBERBOSS_ALLOWED_USER_IDS"),
     channel: readTextEnv("CYBERBOSS_CHANNEL"),
     runtime: readTextEnv("CYBERBOSS_RUNTIME"),
-    timelineCommand: readTextEnv("CYBERBOSS_TIMELINE_COMMAND") || "timeline-for-agent",
     accountId: readTextEnv("CYBERBOSS_ACCOUNT_ID"),
     weixinBaseUrl: readTextEnv("CYBERBOSS_WEIXIN_BASE_URL") || "https://ilinkai.weixin.qq.com",
     weixinCdnBaseUrl: readTextEnv("CYBERBOSS_WEIXIN_CDN_BASE_URL") || "https://novac2c.cdn.weixin.qq.com/c2c",
@@ -88,7 +86,6 @@ function readConfig() {
     voiceTtsModelId: readTextEnv("CYBERBOSS_ELEVENLABS_MODEL_ID") || readTextEnv("CYBERBOSS_VOICE_TTS_MODEL_ID"),
     voiceTtsBaseUrl: readTextEnv("CYBERBOSS_VOICE_TTS_BASE_URL"),
     sleepScheduleFile: joinIfBase(stateDir, "sleep-schedule.json"),
-    timelineScreenshotQueueFile: joinIfBase(stateDir, "timeline-screenshot-queue.json"),
     desireStateFile: joinIfBase(stateDir, "desire-state.json"),
     currentStateOverrideFile: joinIfBase(stateDir, "context-current-state.md"),
     memoryContextOverrideFile: joinIfBase(stateDir, "context-memory-override.md"),
@@ -130,7 +127,6 @@ function readConfig() {
     stickerTagsTemplateFile: path.resolve(__dirname, "..", "..", "templates", "stickers", "tags.json"),
     stickerNormalizeGifScript: path.resolve(__dirname, "..", "..", "scripts", "normalize-sticker-gif.js"),
     diaryDir,
-    timelineStateDir,
     sourceLabel,
     locationStoreFile: joinIfBase(stateDir, "locations.json"),
     locationStateFile: joinIfBase(stateDir, "location-state.json"),

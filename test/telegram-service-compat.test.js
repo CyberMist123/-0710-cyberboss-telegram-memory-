@@ -5,7 +5,6 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const { SystemMessageService } = require("../src/services/system-message-service");
-const { TimelineService } = require("../src/services/timeline-service");
 
 test("system message service queues telegram messages without WeChat account files", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cb-system-telegram-"));
@@ -36,36 +35,4 @@ test("system message service queues telegram messages without WeChat account fil
   assert.equal(queued.senderId, "12345");
   assert.equal(queued.workspaceRoot, workspaceRoot);
   assert.equal(queued.text, "ping");
-});
-
-test("timeline service queues telegram screenshots without WeChat account files", () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cb-timeline-telegram-"));
-  const service = new TimelineService({
-    config: {
-      channel: "telegram",
-      accountId: "telegram-deepseek",
-      timelineScreenshotQueueFile: path.join(tempDir, "timeline-screenshot-queue.json"),
-      workspaceId: "deepseek",
-      allowedUserIds: [],
-    },
-    timelineIntegration: {
-      async runSubcommand() {
-        return {};
-      },
-    },
-    sessionStore: {
-      getBindings() {
-        return {};
-      },
-    },
-  });
-
-  const queued = service.queueScreenshot({
-    userId: "12345",
-    date: "2026-06-10",
-  }, {});
-
-  assert.equal(queued.accountId, "telegram-deepseek");
-  assert.equal(queued.senderId, "12345");
-  assert.equal(queued.date, "2026-06-10");
 });

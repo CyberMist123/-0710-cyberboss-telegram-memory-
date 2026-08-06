@@ -60,7 +60,6 @@ The runtime can be `codex` or `claudecode`, but the documented command surface s
 - `model.select`
 - `runtime.effort`
 - `channel.send_file`
-- `timeline.write`
 - `reminder.create`
 - `diary.append`
 - `app.star`
@@ -82,7 +81,7 @@ Historical naming note: `command-registry.js` 的键仍叫 `weixin`，属上游�
 
 ## Project Tools
 
-Models no longer use local capability CLI commands for diary, reminders, timeline, screenshots, or file sending.
+Models no longer use local capability CLI commands for diary, reminders, or file sending.
 
 Those capabilities are exposed as project-native structured tools:
 
@@ -93,11 +92,6 @@ Those capabilities are exposed as project-native structured tools:
 - `cyberboss_sleep_schedule_enable`
 - `cyberboss_sleep_schedule_disable`
 - `cyberboss_sleep_schedule_status`
-- `cyberboss_timeline_write`
-- `cyberboss_timeline_build`
-- `cyberboss_timeline_serve`
-- `cyberboss_timeline_dev`
-- `cyberboss_timeline_screenshot`
 
 Notes:
 - These tools are bound to the Cyberboss project and routed through the repo's internal tool host.

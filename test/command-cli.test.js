@@ -5,7 +5,6 @@ const os = require("os");
 const path = require("path");
 
 const { resolveBodyInput } = require("../src/services/text-input");
-const { buildTimelineFailureMessage, prepareTimelineInvocation } = require("../src/integrations/timeline");
 
 function createTempFile(name, content) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-command-test-"));
@@ -24,37 +23,4 @@ test("diary body can be loaded from --text-file", async () => {
   const filePath = createTempFile("diary.md", "\nline one\nline two\n");
   const body = await resolveBodyInput({ text: "", textFile: filePath });
   assert.equal(body, "line one\nline two");
-});
-
-test("timeline invocation translates write JSON sources to stdin", () => {
-  const payload = JSON.stringify({ events: [{ title: "ship it" }] });
-  const filePath = createTempFile("events.json", payload);
-  const prepared = prepareTimelineInvocation("write", [
-    "--date", "2026-04-11",
-    "--locale", "en",
-    "--events-file", filePath,
-  ]);
-
-  assert.deepEqual(prepared.extraEnv, { TIMELINE_FOR_AGENT_LOCALE: "en" });
-  assert.deepEqual(prepared.args, [
-    "--date", "2026-04-11",
-    "--stdin",
-  ]);
-  assert.equal(prepared.stdinBody, payload);
-});
-
-test("timeline invocation rejects mixed json sources", () => {
-  assert.throws(() => {
-    prepareTimelineInvocation("write", ["--json", "[]", "--events-json", "[]"]);
-  }, /Use only one of --json, --stdin, --events-json, or --events-file/);
-});
-
-test("timeline failure message explains port conflicts", () => {
-  const message = buildTimelineFailureMessage({
-    subcommand: "serve",
-    code: 1,
-    stderr: "Error: listen EADDRINUSE: address already in use 127.0.0.1:4317",
-  });
-  assert.match(message, /port is already in use/i);
-  assert.match(message, /4317/);
 });
