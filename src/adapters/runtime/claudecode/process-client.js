@@ -498,6 +498,13 @@ class ClaudeCodeProcessClient {
 
   async close() {
     if (!this.child) return;
+    // We are the ones closing it, so the close is not news. Without this the
+    // exit maps straight to `runtime.turn.failed` and she is shown
+    // "❌ Runtime process exited unexpectedly" every time the runtime retires a
+    // child on purpose -- a granted escalation, a compact, an instruction
+    // refresh. The suppression flag already existed for the unexpected-session
+    // path; deliberate shutdown deserves it just as much.
+    this.suppressNextCloseEvent = true;
     if (this.stdin && !this.stdin.destroyed) {
       this.stdin.end();
     }

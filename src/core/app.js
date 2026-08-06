@@ -1079,10 +1079,18 @@ class CyberbossApp {
           console.warn(`[route1] origin snapshot skipped: ${error?.message || String(error)}`);
         }
       }
+      // Route 1 works on a repository: every task is cut as a git worktree from
+      // `base_sha`, and `allowed_paths` are repo-relative. The chat's own
+      // workspace root is the product tree (`cyberlink`), which is not a git
+      // repo at all -- dispatching against it fails at worktree provisioning no
+      // matter how correct the task spec is. The engineering profile's `cwd` is
+      // the repo it is meant to work in, so that is the workspace a dispatched
+      // task inherits.
+      const workEngineeringProfile = this.telegramProfileRouter?.getProfile?.("work-engineering") || null;
       this.route1DispatchController?.registerTurn({
         turnId: turn.turnId,
-        workspaceRoot,
-        launchProfile: this.telegramProfileRouter?.getProfile?.("work-engineering") || null,
+        workspaceRoot: normalizeText(workEngineeringProfile?.cwd) || workspaceRoot,
+        launchProfile: workEngineeringProfile,
         routeIdentity: route1TurnIdentity,
         originRoute: route1OriginRoute,
       });
