@@ -108,3 +108,30 @@ test("T09 A8 readonly exception does not weaken mutation acceptance-test evidenc
   assert.equal(verdict.decision, "rework");
   assert.match(verdict.reasons.join("\n"), /acceptance tests missing/);
 });
+
+test("T09 A9 a capsule wrapped the way a model actually answers still parses", () => {
+  // 2026-08-06 真机第一台工程车：活干完了，胶囊被 `task_session_capsule_invalid_json`
+  // 拒掉，结果回投成 rework。原因是对 worker 的最终文本做裸 JSON.parse——而被要求
+  // 「只返回一个 JSON 对象」的模型，用 ```json 围栏或前面加一句话回答的概率不比裸
+  // JSON 低。提取放宽，契约不放宽：validateResultCapsule 仍是唯一裁判。
+  const capsule = readonlyCapsule();
+  const raw = JSON.stringify(capsule);
+  const shapes = [
+    raw,
+    "```json\n" + raw + "\n```",
+    "```\n" + raw + "\n```",
+    "这是结果胶囊：\n\n```json\n" + raw + "\n```\n\n以上。",
+    "Here is the capsule:\n" + raw,
+    raw + "\n\n（备注：allowed_paths 内未见其他改动。）",
+  ];
+  for (const shape of shapes) {
+    const parsed = parseTaskSessionCapsule(shape);
+    assert.deepEqual(parsed, capsule, `未能从这种形状里取出胶囊: ${shape.slice(0, 40)}`);
+    assert.deepEqual(validateResultCapsule(parsed), { ok: true, errors: [] });
+  }
+
+  // 放宽的是包装，不是内容：非对象、空文本、根本没有 JSON 仍然硬失败。
+  for (const bad of ["", "   ", "没有胶囊，只有一段话。", "[1,2,3]", "```json\nnot json\n```"]) {
+    assert.throws(() => parseTaskSessionCapsule(bad), /task_session_capsule_(empty|invalid_json)/u);
+  }
+});

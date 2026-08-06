@@ -1807,6 +1807,13 @@ function createClaudeCodeRuntimeAdapter(config) {
         laneKey: route.lane.laneKey,
         processKey: attached.processKey,
         profileId: route.profileId,
+        // The fingerprint travels with the id. Without it the caller builds a
+        // subject route whose `session.profile_fingerprint` is empty, which
+        // `createSubjectRoute` rejects -- so Route 1 recorded no origin snapshot
+        // at all and every finished task came back labelled 来自已终结窗口,
+        // because the origin window could not be matched rather than because it
+        // was gone.
+        profileFingerprint: route.profileFingerprint,
         workspaceAccess: route.workspaceAccess,
         windowOverride: route.mutableOverride?.trace || null,
         continuity,

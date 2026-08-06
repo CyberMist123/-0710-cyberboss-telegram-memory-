@@ -259,13 +259,63 @@ function buildTaskSessionPrompt({
   ].join("\n");
 }
 
+// Extraction is lenient; the contract is not.
+//
+// The worker is a language model told to "return exactly one JSON object", and
+// a coding harness answers that with a ```json fence, or a sentence in front of
+// the object, about as often as it answers with bare JSON. A strict
+// `JSON.parse` on the raw final text therefore rejected real, complete capsules
+// as `task_session_capsule_invalid_json` -- the first live Route 1 task did the
+// work and still came back "rework". What matters is that the object we hand on
+// is a valid capsule, and `assertValidResultCapsule` still decides that; how it
+// was wrapped in transit does not.
 function parseTaskSessionCapsule(text) {
   const source = typeof text === "string" ? text.trim() : "";
   if (!source) throw taskSessionError("task_session_capsule_empty");
-  try {
-    return JSON.parse(source);
-  } catch {
-    throw taskSessionError("task_session_capsule_invalid_json");
+  for (const candidate of capsuleJsonCandidates(source)) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+    } catch {
+      // Try the next shape.
+    }
+  }
+  throw taskSessionError("task_session_capsule_invalid_json");
+}
+
+function* capsuleJsonCandidates(source) {
+  yield source;
+  // A fenced block, with or without a language tag.
+  const fenced = /```(?:[A-Za-z0-9_-]+)?\s*\r?\n([\s\S]*?)```/g;
+  for (const match of source.matchAll(fenced)) {
+    const body = match[1].trim();
+    if (body) yield body;
+  }
+  // Last resort: the outermost balanced object in the text. Scanning for
+  // balance rather than taking first-`{`-to-last-`}` keeps a trailing sentence
+  // containing a brace from swallowing the capsule.
+  const start = source.indexOf("{");
+  if (start < 0) return;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < source.length; i += 1) {
+    const ch = source[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        yield source.slice(start, i + 1);
+        return;
+      }
+    }
   }
 }
 
