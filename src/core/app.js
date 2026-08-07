@@ -995,6 +995,16 @@ class CyberbossApp {
           messageId: prepared.messageId || prepared.telegram?.messageId || "",
           channelSource: prepared.provider,
         },
+        // Fires after this turn's identity is fixed and before the payload is
+        // written to the child. See `registerSubjectTurnContextFailOpen`.
+        beforeWrite: (identity) => this.registerSubjectTurnContextFailOpen?.({
+          bindingKey,
+          workspaceRoot,
+          prepared,
+          lane: effectiveLane,
+          messageThreadId,
+          identity,
+        }),
       });
       const route1TurnIdentity = this.route1DispatchController
         ? buildCurrentSubjectRouteIdentity({
@@ -1086,25 +1096,16 @@ class CyberbossApp {
           );
         }
       }
-      this.runtimeContextStore?.setActiveContext?.({
-        workspaceRoot,
+      this.runtimeContextStore?.setActiveContext?.(buildActiveContextPayload({
         runtimeId: this.runtimeAdapter.describe().id,
-        threadId: turn.threadId,
+        includeTurnId: this.config.subjectSigningEnabled === true || Boolean(this.route1DispatchController),
         bindingKey,
-        accountId: prepared.accountId,
-        senderId: prepared.senderId,
-        provider: prepared.provider,
-        chatId: prepared.chatId || prepared.telegram?.chatId || "",
+        workspaceRoot,
+        prepared,
+        lane: effectiveLane,
         messageThreadId,
-        // Keyed per session slot, so two topics running at once each read back
-        // their own outbound target instead of a workspace singleton.
-        routeToken: turn.routeToken || turn.sessionSlotKey || "",
-        laneKey: turn.laneKey || effectiveLane?.laneKey || "",
-        processKey: turn.processKey || "",
-        ...((this.config.subjectSigningEnabled === true || this.route1DispatchController) && turn.turnId
-          ? { turnId: turn.turnId }
-          : {}),
-      });
+        turn,
+      }));
       this.turnGateStore.attachThread(pendingScopeKey, turn.threadId);
       // The reply target carries the originating topic, so a reply, a media
       // send, an error or a status can only land back in the lane that asked.
@@ -1378,6 +1379,50 @@ class CyberbossApp {
     }
   }
 
+  /**
+   * Register this turn with the subject signing broker *before* the user
+   * message reaches the child.
+   *
+   * `SubjectSigningBroker.submit` resolves the active runtime context by route
+   * token, requires `turnActive === true`, and then reads both thread id and
+   * turn id straight out of that record to find the capability. So the child
+   * cannot submit anything until this pair exists -- and the child starts work
+   * the instant the write lands, not when `sendTurn` resolves. Registering
+   * afterwards left a window where `memory_candidate_submit` failed with
+   * `subject_signing_turn_inactive` / `subject_signing_turn_unknown` for no
+   * reason the logs could explain.
+   *
+   * Returns false when the identity is not complete enough to register, which
+   * today means only one case: a brand-new session, whose thread id the child
+   * has not reported yet. That turn keeps the old post-send registration.
+   */
+  registerSubjectTurnContextFailOpen({
+    bindingKey, workspaceRoot, prepared, lane, messageThreadId, identity,
+  } = {}) {
+    const threadId = normalizeText(identity?.threadId);
+    const turnId = normalizeText(identity?.turnId);
+    if (!threadId || !turnId) return false;
+    const turn = { ...identity, threadId, turnId };
+    this.issueSubjectCapabilityForTurnFailOpen?.({
+      bindingKey,
+      workspaceRoot,
+      prepared,
+      lane,
+      turn,
+    });
+    this.runtimeContextStore?.setActiveContext?.(buildActiveContextPayload({
+      runtimeId: this.runtimeAdapter?.describe?.().id || "",
+      includeTurnId: this.config?.subjectSigningEnabled === true || Boolean(this.route1DispatchController),
+      bindingKey,
+      workspaceRoot,
+      prepared,
+      lane,
+      messageThreadId,
+      turn,
+    }));
+    return true;
+  }
+
   issueSubjectCapabilityForTurnFailOpen({ bindingKey, prepared, lane, turn } = {}) {
     if (!this.subjectCapabilityRegistry?.enabled) return null;
     if (prepared?.provider !== "telegram" || lane?.kind !== "tg") {
@@ -1387,6 +1432,16 @@ class CyberbossApp {
     try {
       const subjectTurnId = normalizeText(turn?.turnId);
       const sourceEntryId = normalizeText(prepared?.subjectSourceEntryId);
+      // Called twice per turn by design: once from the pre-write seam (so the
+      // broker is ready before the child can call a tool) and once after
+      // `sendTurn` resolves (which still covers a brand-new session, whose
+      // thread id does not exist yet at seam time, and any runtime adapter
+      // without the seam). Issuing a second capability for a turn that already
+      // has one would leave two records for one turn, so the first one wins.
+      if (subjectTurnId && turn?.threadId
+        && this.subjectCapabilityByRunKey?.has?.(buildRunKey(turn.threadId, subjectTurnId))) {
+        return this.subjectCapabilityByRunKey.get(buildRunKey(turn.threadId, subjectTurnId))?.capability || null;
+      }
       // Fail-open, but never silent. This branch swallowed the only symptom of a
       // real defect: the provenance is attached to the inbound message as a
       // non-enumerable property, and every rebuild of that message used to drop
@@ -5287,6 +5342,44 @@ function resolveEventRoute(app, event) {
   }
   const linked = app.runtimeAdapter.getSessionStore().findBindingForThreadId(payload.threadId);
   return linked?.bindingKey ? { ...linked, laneKey: "", sessionSlotKey: "", processKey: "" } : null;
+}
+
+// The active runtime context for a turn in flight. Module-level for the same
+// reason as `attachSubjectProvenance` below: `dispatchPreparedTurn` is driven
+// by fixtures that assemble a plain object carrying only the prototype methods
+// they need, so a `this.`-method dependency added here fails those turns
+// outright rather than visibly.
+//
+// Built in one place because two callers now write it -- the pre-write seam and
+// the post-send registration -- and a drift between them would hand the signing
+// broker two different views of the same turn.
+function buildActiveContextPayload({
+  runtimeId = "",
+  includeTurnId = false,
+  bindingKey = "",
+  workspaceRoot = "",
+  prepared = {},
+  lane = null,
+  messageThreadId,
+  turn = {},
+} = {}) {
+  return {
+    workspaceRoot,
+    runtimeId,
+    threadId: turn.threadId,
+    bindingKey,
+    accountId: prepared.accountId,
+    senderId: prepared.senderId,
+    provider: prepared.provider,
+    chatId: prepared.chatId || prepared.telegram?.chatId || "",
+    messageThreadId,
+    // Keyed per session slot, so two topics running at once each read back
+    // their own outbound target instead of a workspace singleton.
+    routeToken: turn.routeToken || turn.sessionSlotKey || "",
+    laneKey: turn.laneKey || lane?.laneKey || "",
+    processKey: turn.processKey || "",
+    ...(includeTurnId && turn.turnId ? { turnId: turn.turnId } : {}),
+  };
 }
 
 // Subject provenance for the turn being recorded. A module-level function

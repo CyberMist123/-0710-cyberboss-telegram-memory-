@@ -284,6 +284,44 @@ test("the same profile in two different topics still gets isolated sessions", as
   }
 });
 
+// The pre-write seam only helps if the real adapter actually forwards it. The
+// app-level fixtures all stub `sendTurn`, so nothing else in the suite proves
+// this hop -- which is the exact shape that let four wiring debts through.
+test("sendTurn hands the pre-write hook this turn's full identity, before the turn resolves", async () => {
+  const { adapter, tempDir, workspaceRoot } = makeAdapter();
+  const profile = validateLaunchProfile({ profileId: "safe", effort: "low" }, { baseDir: tempDir });
+  const lane = laneFor(500, 21);
+  const seen = [];
+
+  try {
+    const result = await adapter.sendTurn({
+      bindingKey: BINDING_KEY,
+      senderId: SENDER_ID,
+      workspaceRoot,
+      lane,
+      launchProfile: profile,
+      text: "hi",
+      beforeWrite: (identity) => { seen.push(identity); },
+    });
+
+    assert.equal(seen.length, 1, "the seam must fire exactly once per turn");
+    const identity = seen[0];
+    // Everything the signing broker keys on has to be present at seam time.
+    assert.equal(identity.turnId, result.turnId);
+    assert.equal(identity.routeToken, result.routeToken);
+    assert.equal(identity.sessionSlotKey, result.sessionSlotKey);
+    assert.equal(identity.laneKey, result.laneKey);
+    assert.equal(identity.processKey, result.processKey);
+    assert.equal(identity.profileId, result.profileId);
+    assert.equal(identity.profileFingerprint, result.profileFingerprint);
+    // A brand-new session has no thread id yet at seam time -- that is the one
+    // case the caller is expected to decline rather than half-register.
+    assert.equal(identity.threadId, "");
+  } finally {
+    await adapter.close();
+  }
+});
+
 test("a long-lived child reuses one session, slot, and process for three completed turns", async () => {
   const {
     adapter, tempDir, workspaceRoot, readLaunches, readExec,

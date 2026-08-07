@@ -432,12 +432,29 @@ class ClaudeCodeProcessClient {
     }, raw);
   }
 
-  async sendUserMessage({ text, threadId }) {
+  async sendUserMessage({ text, threadId, beforeWrite = null }) {
     if (!this.usable) {
       throw new Error("claudecode process not running");
     }
     this.pendingTurnId = `turn-${Date.now()}`;
     this.activeThreadId = threadId || this.sessionId;
+    // Everything a tool call needs must be registered before the write, not
+    // after `sendTurn` resolves. The moment this payload lands the child may
+    // call `memory_candidate_submit`, and the signing broker answers that call
+    // out of the active runtime context and the capability registry -- neither
+    // of which the model waits for. `await send()` returning *after* the write
+    // is exactly what makes "register afterwards" a race rather than an
+    // ordering detail.
+    //
+    // Fail-open (invariant 5): a hook that throws costs the turn nothing. The
+    // submit it was meant to enable will still fail closed on its own code.
+    if (typeof beforeWrite === "function") {
+      try {
+        await beforeWrite({ turnId: this.pendingTurnId, threadId: this.activeThreadId });
+      } catch (error) {
+        console.warn(`[claudecode] pre-write turn registration failed: ${error?.message || String(error)}`);
+      }
+    }
     if (this.ipcServer) {
       this.ipcServer.broadcast({
         type: "inboundMessage",

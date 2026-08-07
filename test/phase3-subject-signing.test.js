@@ -16,6 +16,8 @@ const {
 } = require("../src/continuity/subject-signing");
 const { canonicalSerialize } = require("../src/continuity/subject-route");
 const { sha256 } = require("../src/continuity/continuity-store");
+const { ClaudeCodeProcessClient } = require("../src/adapters/runtime/claudecode/process-client");
+const { RuntimeContextStore } = require("../src/tools/runtime-context-store");
 
 test("subject signing defaults off and background/system lanes cannot obtain a capability", () => {
   const original = process.env.CYBERBOSS_SUBJECT_SIGNING_ENABLED;
@@ -399,3 +401,195 @@ function restoreEnv(name, value) {
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
 }
+
+// --- pre-write turn registration -------------------------------------------
+//
+// `sendTurn()` resolves *after* the payload has been written to the child, so
+// registering the turn on its return value left a window in which the model was
+// already free to call `memory_candidate_submit` while the broker's two
+// preconditions -- an active runtime context and a capability under
+// runKey(threadId, turnId) -- did not exist yet. These pin the ordering rather
+// than the shape: the contract is "ready before the write", not "ready soon".
+
+function subjectTurnAppStub({ registry, contextStore }) {
+  return {
+    config: { subjectSigningEnabled: true },
+    subjectCapabilityRegistry: registry,
+    subjectCapabilityByRunKey: new Map(),
+    runtimeContextStore: contextStore,
+    runtimeAdapter: { describe: () => ({ id: "claudecode" }) },
+    issueSubjectCapabilityForTurnFailOpen: CyberbossApp.prototype.issueSubjectCapabilityForTurnFailOpen,
+    registerSubjectTurnContextFailOpen: CyberbossApp.prototype.registerSubjectTurnContextFailOpen,
+  };
+}
+
+function subjectTurnArgs() {
+  return {
+    bindingKey: "binding-a",
+    workspaceRoot: path.join(os.tmpdir(), "cyberboss-prewrite-workspace"),
+    prepared: {
+      provider: "telegram",
+      workspaceId: "workspace-a",
+      accountId: "telegram",
+      senderId: "42",
+      chatId: "-100",
+      subjectSourceEntryId: "entry-subject",
+      // What `recordInboundMessage` attached when it wrote the inbound row.
+      // Without it `buildSubjectSourceRef` fails closed and the broker would
+      // reject the submit with `subject_signing_source_evidence_missing`.
+      subjectSourceEvidence: {
+        file: path.join(os.tmpdir(), "cyberboss-prewrite-conversations", "2026-08-07.jsonl"),
+        sha256: sha256("entry-subject"),
+      },
+    },
+    lane: { kind: "tg", laneKey: "lane:-100:7", chatId: "-100", messageThreadId: "7" },
+    messageThreadId: "7",
+  };
+}
+
+const PRE_WRITE_IDENTITY = Object.freeze({
+  turnId: "turn-prewrite",
+  threadId: "native-session-prewrite",
+  sessionSlotKey: "slot-prewrite",
+  routeToken: "slot-prewrite",
+  laneKey: "lane:-100:7",
+  processKey: "proc-prewrite",
+  profileId: "fable-chat",
+  profileFingerprint: "profile-fingerprint-a",
+});
+
+test("the pre-write seam registers both broker preconditions for a resumed turn", () => {
+  const root = temporaryRoot();
+  const registry = new SubjectCapabilityRegistry({ enabled: true });
+  const contextStore = new RuntimeContextStore({ filePath: path.join(root, "runtime-context.json") });
+  const app = subjectTurnAppStub({ registry, contextStore });
+
+  const registered = app.registerSubjectTurnContextFailOpen({
+    ...subjectTurnArgs(),
+    identity: PRE_WRITE_IDENTITY,
+  });
+  assert.equal(registered, true);
+
+  // Precondition 1: the broker resolves an active context by route token and
+  // reads thread id + turn id straight out of it.
+  const active = contextStore.resolveActiveContext({ routeToken: "slot-prewrite" });
+  assert.equal(active.turnActive, true);
+  assert.equal(active.threadId, PRE_WRITE_IDENTITY.threadId);
+  assert.equal(active.turnId, PRE_WRITE_IDENTITY.turnId);
+
+  // Precondition 2: a capability sits under exactly that pair.
+  const signing = app.subjectCapabilityByRunKey.get(
+    `${PRE_WRITE_IDENTITY.threadId}:${PRE_WRITE_IDENTITY.turnId}`,
+  );
+  assert.ok(signing?.capability, "capability must exist under runKey(threadId, turnId)");
+  assert.ok(signing?.source_ref, "the turn's own provenance must ride along");
+
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("a brand-new session has no thread id yet, so the seam declines instead of half-registering", () => {
+  const root = temporaryRoot();
+  const registry = new SubjectCapabilityRegistry({ enabled: true });
+  const contextStore = new RuntimeContextStore({ filePath: path.join(root, "runtime-context.json") });
+  const app = subjectTurnAppStub({ registry, contextStore });
+
+  const registered = app.registerSubjectTurnContextFailOpen({
+    ...subjectTurnArgs(),
+    identity: { ...PRE_WRITE_IDENTITY, threadId: "" },
+  });
+
+  // Half-registering would publish turnActive=true with no thread id, which the
+  // broker rejects as `subject_signing_thread_missing`. Declining leaves the
+  // post-send registration to do it once the child reports the session id.
+  assert.equal(registered, false);
+  assert.equal(contextStore.resolveActiveContext({ routeToken: "slot-prewrite" }), null);
+  assert.equal(app.subjectCapabilityByRunKey.size, 0);
+
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("issuing twice for one turn keeps the first capability, not a second one", () => {
+  const registry = new SubjectCapabilityRegistry({ enabled: true });
+  const contextStore = new RuntimeContextStore({
+    filePath: path.join(temporaryRoot(), "runtime-context.json"),
+  });
+  const app = subjectTurnAppStub({ registry, contextStore });
+  const args = { ...subjectTurnArgs(), identity: PRE_WRITE_IDENTITY };
+
+  app.registerSubjectTurnContextFailOpen(args);
+  const first = app.subjectCapabilityByRunKey.get(
+    `${PRE_WRITE_IDENTITY.threadId}:${PRE_WRITE_IDENTITY.turnId}`,
+  ).capability;
+  // The post-send registration still runs, for new sessions and for adapters
+  // with no seam. It must not mint a second capability for the same turn.
+  app.registerSubjectTurnContextFailOpen(args);
+  const second = app.subjectCapabilityByRunKey.get(
+    `${PRE_WRITE_IDENTITY.threadId}:${PRE_WRITE_IDENTITY.turnId}`,
+  ).capability;
+
+  assert.equal(app.subjectCapabilityByRunKey.size, 1);
+  assert.equal(second.capability_id, first.capability_id);
+});
+
+test("sendUserMessage finishes the pre-write hook before anything reaches the child", async () => {
+  const order = [];
+  const client = Object.create(ClaudeCodeProcessClient.prototype);
+  client.alive = true;
+  client.child = { exitCode: null, signalCode: null };
+  client.ipcServer = null;
+  client.listeners = new Set();
+  client.stdin = {
+    writable: true,
+    destroyed: false,
+    write(_payload, callback) {
+      order.push("write");
+      callback(null);
+      return true;
+    },
+  };
+
+  await client.sendUserMessage({
+    text: "hi",
+    threadId: "native-session-prewrite",
+    async beforeWrite({ turnId, threadId }) {
+      order.push("hook:start");
+      // The hook is asynchronous in production (it persists the runtime context
+      // to disk). An unawaited hook would let "write" land in between.
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.match(turnId, /^turn-\d+$/u);
+      assert.equal(threadId, "native-session-prewrite");
+      order.push("hook:end");
+    },
+  });
+
+  assert.deepEqual(order, ["hook:start", "hook:end", "write"]);
+});
+
+test("a throwing pre-write hook still lets the turn reach her (fail-open)", async () => {
+  const order = [];
+  const client = Object.create(ClaudeCodeProcessClient.prototype);
+  client.alive = true;
+  client.child = { exitCode: null, signalCode: null };
+  client.ipcServer = null;
+  client.listeners = new Set();
+  client.stdin = {
+    writable: true,
+    destroyed: false,
+    write(_payload, callback) {
+      order.push("write");
+      callback(null);
+      return true;
+    },
+  };
+
+  await client.sendUserMessage({
+    text: "hi",
+    threadId: "native-session-prewrite",
+    beforeWrite() {
+      throw new Error("registration exploded");
+    },
+  });
+
+  // Invariant 5: 宁可本轮失忆，不可本轮失联。
+  assert.deepEqual(order, ["write"]);
+});

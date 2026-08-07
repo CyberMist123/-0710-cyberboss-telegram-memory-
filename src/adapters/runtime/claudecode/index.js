@@ -1682,6 +1682,7 @@ function createClaudeCodeRuntimeAdapter(config) {
     async sendTurn({
       bindingKey, workspaceRoot, text, metadata = {}, model = "", effort = "",
       lane = null, launchProfile = null, senderId = "", windowOverride = null,
+      beforeWrite = null,
     }) {
       const desiredModel = resolveModel(model);
       const route = resolveRouteContext({
@@ -1788,7 +1789,29 @@ function createClaudeCodeRuntimeAdapter(config) {
           const reattached = await attachProcessToSession(route, { threadId: outboundThreadId });
           activeClient = reattached.client;
         }
-        await activeClient.sendUserMessage({ text: outboundText, threadId: outboundThreadId });
+        // Every identity field below is already fixed here -- they all come
+        // from `route` / `attached`, which were resolved before the write. The
+        // one exception is `threadId` on a brand-new session: it is only
+        // reported by the child afterwards (see `waitForSessionId` below), so
+        // the hook receives an empty thread id and the caller is expected to
+        // skip pre-write registration for that case rather than register a
+        // half-identity.
+        await activeClient.sendUserMessage({
+          text: outboundText,
+          threadId: outboundThreadId,
+          beforeWrite: typeof beforeWrite === "function"
+            ? ({ turnId, threadId: writeThreadId }) => beforeWrite({
+              turnId,
+              threadId: writeThreadId,
+              sessionSlotKey: route.sessionSlotKey,
+              routeToken: route.sessionSlotKey,
+              laneKey: route.lane.laneKey,
+              processKey: attached.processKey,
+              profileId: route.profileId,
+              profileFingerprint: route.profileFingerprint,
+            })
+            : null,
+        });
       } catch (error) {
         if (turnHeld) {
           finishTurn(attached.processKey);
