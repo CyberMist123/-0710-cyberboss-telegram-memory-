@@ -1,4 +1,5 @@
 const { formatAppDateTime } = require("../utils/app-time");
+const { loadTriggerPrompt } = require("./trigger-prompts");
 const { isActivityPaused, isPausedSystemMessageSource } = require("./activity-pause-state");
 
 class SystemMessageDispatcher {
@@ -47,6 +48,11 @@ class SystemMessageDispatcher {
         {
           desireLoopMinimalEnabled: this.config?.desireLoopMinimalEnabled === true,
           desireState: message?.desireState,
+          // Owner 可编辑的覆盖层；读不到就是空串，下面照用内置文本。
+          promptOverride: loadTriggerPrompt({
+            dir: this.config?.triggerPromptsDir,
+            sourceType: message?.sourceType,
+          }),
         },
       ),
       attachments: [],
@@ -63,6 +69,16 @@ function buildSystemInboundText(text, createdAt = "", sourceType = "system", ale
   const localTime = formatSystemLocalTime(createdAt);
   const normalizedOptions = normalizeSystemInboundOptions(sourceType, alertKind, options);
   const normalizedType = normalizedOptions.sourceType;
+
+  // Owner 编辑过的那份优先。时间戳与 Trigger 正文仍由这里拼，md 只负责「跟她说
+  // 什么」——那才是要编辑的部分。读不到就落到下面的内置文本，一次触发都不会丢。
+  if (normalizedOptions.promptOverride) {
+    return [
+      ...(localTime ? [`[${localTime}]`, ""] : []),
+      normalizedOptions.promptOverride,
+      ...(body ? ["", "Trigger:", body] : []),
+    ].join("\n").trim();
+  }
 
   if (normalizedType === "desire_checkin") {
     if (!normalizedOptions.desireLoopMinimalEnabled) {
@@ -212,6 +228,7 @@ function normalizeSystemInboundOptions(sourceType, alertKind, options) {
       alertKind: normalizeText(sourceType.alertKind) || normalizeText(alertKind) || "failure",
       desireState: sourceType.desireState && typeof sourceType.desireState === "object" ? sourceType.desireState : null,
       desireLoopMinimalEnabled: sourceType.desireLoopMinimalEnabled === true,
+      promptOverride: normalizeText(sourceType.promptOverride),
     };
   }
   return {
@@ -219,6 +236,7 @@ function normalizeSystemInboundOptions(sourceType, alertKind, options) {
     alertKind: normalizeText(alertKind) || "failure",
     desireState: options?.desireState && typeof options.desireState === "object" ? options.desireState : null,
     desireLoopMinimalEnabled: options?.desireLoopMinimalEnabled === true,
+    promptOverride: normalizeText(options?.promptOverride),
   };
 }
 

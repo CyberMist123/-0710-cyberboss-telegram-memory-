@@ -24,6 +24,9 @@ function readConfig() {
   // 行 env 就整体切换（仓库纪律：新能力默认关、关闭时逐字兼容）。
   const chatAssetsDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_CHAT_ASSETS_DIR")) || stateDir;
   const diaryDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_DIARY_DIR")) || joinIfBase(chatAssetsDir, "diary");
+  // 系统触发提示词的可编辑覆盖目录（一个 sourceType 一个 md）。不设或读不到就
+  // 用内置文本，见 `core/trigger-prompts.js`。
+  const triggerPromptsDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_TRIGGER_PROMPTS_DIR"));
   const sourceLabel = readTextEnv("CYBERBOSS_SOURCE_LABEL");
   const memoryDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_MEMORY_DIR") || joinIfBase(stateDir, "memory"));
   // The agent's process may be deliberately narrower than the workspace used
@@ -118,6 +121,7 @@ function readConfig() {
     // `/new` opens a window she asked for; this decides whether the window
     // speaks first instead of waiting to be pulled. Off by default.
     windowOpenGreetingEnabled: readStrictBoolEnv("CYBERBOSS_WINDOW_OPEN_GREETING_ENABLED", false),
+    triggerPromptsDir,
     legacyCandidateBindingEnabled: readStrictBoolEnv("CYBERBOSS_LEGACY_CANDIDATE_BINDING_ENABLED", false),
     claudeTranscriptDir: resolveConfiguredPath(readTextEnv("CYBERBOSS_CLAUDE_TRANSCRIPT_DIR")),
     reentryAuthoringMode: readTextEnv("CYBERBOSS_REENTRY_AUTHORING_MODE") || "ai_direct",
