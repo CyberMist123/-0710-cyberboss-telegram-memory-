@@ -321,7 +321,11 @@ test("checkin branch ignores desireState when the minimal loop gate is off", () 
 
   assert.match(text, /System trigger type: checkin\./);
   assert.doesNotMatch(text, /Desire snapshot:/);
-  assert.match(text, /Do any timeline\/diary\/reminder or state-aware follow-up work in this turn\./);
+  // "timeline/" left this sentence when the timeline-for-agent tool pack was
+  // uninstalled (fa59679, 2026-08-06); this expectation was not updated with it,
+  // so main's blocking CI has been red ever since. The shipped wording is the
+  // correct one — the capability is gone.
+  assert.match(text, /Do any diary\/reminder or state-aware follow-up work in this turn\./);
 });
 
 test("checkin branch includes the desire snapshot only when the minimal loop gate is on", () => {
