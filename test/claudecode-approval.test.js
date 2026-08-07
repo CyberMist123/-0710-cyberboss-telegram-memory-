@@ -344,7 +344,10 @@ test("claudecode assistant events map usage into context snapshots", () => {
 });
 
 test("claudecode adapter dispatches turns only after a real session id is available", async () => {
-  const tempDir = fs.mkdtempSync(path.join("/tmp", "cb-claude-"));
+  // os.tmpdir(), not "/tmp": on Windows the latter resolves to <current drive>:\tmp,
+  // which does not exist on the CI runner. Every other temp dir in this file already
+  // does it this way; these two were the holdouts.
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cb-claude-"));
   const workspaceRoot = path.join(tempDir, "workspace");
   const stateDir = path.join(tempDir, "state");
   fs.mkdirSync(workspaceRoot, { recursive: true });
@@ -732,7 +735,7 @@ test("claudecode runtime params are isolated from codex model selections", () =>
 });
 
 test("claudecode adapter does not pass a codex-selected model to Claude Code", async () => {
-  const tempDir = fs.mkdtempSync(path.join("/tmp", "cb-claude-model-"));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cb-claude-model-"));
   const workspaceRoot = path.join(tempDir, "workspace");
   const stateDir = path.join(tempDir, "state");
   fs.mkdirSync(workspaceRoot, { recursive: true });
