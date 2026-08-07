@@ -142,7 +142,9 @@ test("/status renders the watchdog line and human-readable idle state", async ()
     },
   };
 
-  await CyberbossApp.prototype.handleStatusCommand.call(appLike, {
+  // Chained to the real prototype so the shared window-override ladder the
+  // command calls runs its production implementation, not a per-fixture stub.
+  await CyberbossApp.prototype.handleStatusCommand.call(Object.setPrototypeOf(appLike, CyberbossApp.prototype), {
     workspaceId: "default",
     accountId: "account-1",
     senderId: "user-1",
@@ -150,6 +152,6 @@ test("/status renders the watchdog line and human-readable idle state", async ()
   });
 
   assert.match(sent[0], /🐕 watchdog: alive · last healthy/);
-  assert.match(sent[0], /📊 status: idle · 空闲，无待办/);
+  assert.match(sent[0], /📊 status: idle · 空闲，这条 lane 没有正在跑的回合/);
   fs.rmSync(dir, { recursive: true, force: true });
 });

@@ -2133,6 +2133,31 @@ class CyberbossApp {
     });
   }
 
+  // Single resolution ladder for a window-scoped runtime param (model / effort):
+  // window override when enabled → the value stored for this workspace → "".
+  // /model, /effort and /status must all read through here. /status used to skip
+  // the ladder entirely and print `describe().model`, which is the profile's
+  // configured default and always non-empty — so it kept reporting the default
+  // after /model had switched the live child (2026-08-06 Owner report).
+  resolveWindowScopedRuntimeParam(kind, { bindingKey, workspaceRoot, lane, senderId }) {
+    const launchProfile = this.resolveLaunchProfileForLane?.(lane) || null;
+    const windowState = this.runtimeAdapter.getWindowOverride?.({
+      bindingKey, workspaceRoot, lane, launchProfile, senderId: senderId || "",
+    });
+    if (windowState?.enabled) {
+      return {
+        value: windowState.value?.[kind]
+          || windowState.trace?.entries?.find((entry) => entry.kind === kind)?.effective_value
+          || "",
+        fromWindow: true,
+      };
+    }
+    return {
+      value: this.runtimeAdapter.getSessionStore().getRuntimeParamsForWorkspace(bindingKey, workspaceRoot)[kind] || "",
+      fromWindow: false,
+    };
+  }
+
   async handleStatusCommand(normalized) {
     const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
       workspaceId: normalized.workspaceId,
@@ -2149,18 +2174,25 @@ class CyberbossApp {
       ? threadState.context
       : this.threadStateStore.getLatestContext(runtimeName);
     const runtimeParams = sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
-    const storedModel = runtimeParams.model || "";
     const storedModelProvider = runtimeParams.modelProvider || this.runtimeAdapter.describe().modelProvider || "";
-    const effectiveModel = this.runtimeAdapter.describe().model || storedModel;
+    const effectiveModel = this.resolveWindowScopedRuntimeParam("model", {
+      bindingKey, workspaceRoot, lane: commandLane, senderId: normalized.senderId,
+    }).value || this.runtimeAdapter.describe().model || "";
+    // Same ladder as /effort, so the two can never disagree the way /model and
+    // /status did. Falls back to the env default rather than printing nothing.
+    const effectiveEffort = resolveEffortLevel(this.resolveWindowScopedRuntimeParam("effort", {
+      bindingKey, workspaceRoot, lane: commandLane, senderId: normalized.senderId,
+    }).value);
 
     const lines = [
       `📍 workspace: ${workspaceRoot}`,
       // Empty thread/status are honest cold-start values, not bugs: render them as
       // plain language while leaving the underlying value tokens intact.
       `🧵 thread: ${threadId || "(none · 尚未绑定线程)"}`,
-      `📊 status: ${threadState?.status || "idle · 空闲，无待办"}`,
+      `📊 status: ${describeThreadStatus(threadState?.status)}`,
       `🤖 runtime: ${runtimeName}`,
       `🤖 model: ${effectiveModel || "(default)"}`,
+      `🤖 effort: ${effectiveEffort}`,
       `🤖 provider: ${storedModelProvider || "(default)"}`,
     ];
     lines.push(formatContextStatusLine({
@@ -2753,13 +2785,9 @@ class CyberbossApp {
     const sessionStore = this.runtimeAdapter.getSessionStore();
     const catalog = sessionStore.getAvailableModelCatalog();
     const commandLane = resolveRouteLaneFor(normalized, bindingKey);
-    const launchProfile = this.resolveLaunchProfileForLane?.(commandLane) || null;
-    const windowState = this.runtimeAdapter.getWindowOverride?.({
-      bindingKey, workspaceRoot, lane: commandLane, launchProfile, senderId: normalized.senderId || "",
-    });
-    const currentModel = windowState?.enabled
-      ? (windowState.value?.model || windowState.trace?.entries?.find((entry) => entry.kind === "model")?.effective_value || "")
-      : sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot).model;
+    const currentModel = this.resolveWindowScopedRuntimeParam("model", {
+      bindingKey, workspaceRoot, lane: commandLane, senderId: normalized.senderId,
+    }).value;
 
     if (!query) {
       // Prefer a populated session catalog (e.g. codex); otherwise fall back to
@@ -2817,7 +2845,7 @@ class CyberbossApp {
       bindingKey,
       workspaceRoot,
       lane: commandLane,
-      launchProfile,
+      launchProfile: this.resolveLaunchProfileForLane?.(commandLane) || null,
       senderId: normalized.senderId || "",
       patch: { model: matched.model, modelSource: "command", modelScope: "window" },
     });
@@ -2917,18 +2945,16 @@ class CyberbossApp {
     const requested = normalizeCommandArgument(command.args);
     const commandLane = resolveRouteLaneFor(normalized, bindingKey);
     const launchProfile = this.resolveLaunchProfileForLane?.(commandLane) || null;
-    const windowState = this.runtimeAdapter.getWindowOverride?.({
-      bindingKey, workspaceRoot, lane: commandLane, launchProfile, senderId: normalized.senderId || "",
-    });
 
     if (!requested) {
-      const storedEffort = windowState?.enabled
-        ? (windowState.value?.effort || windowState.trace?.entries?.find((entry) => entry.kind === "effort")?.effective_value || "")
-        : sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot).effort;
+      const resolvedEffort = this.resolveWindowScopedRuntimeParam("effort", {
+        bindingKey, workspaceRoot, lane: commandLane, senderId: normalized.senderId,
+      });
+      const storedEffort = resolvedEffort.value;
       const envEffort = normalizeEffort(process.env.CYBERBOSS_CLAUDE_EFFORT);
       let source = "default";
       if (normalizeEffort(storedEffort)) {
-        source = windowState?.enabled ? "this window" : "this chat";
+        source = resolvedEffort.fromWindow ? "this window" : "this chat";
       } else if (envEffort) {
         source = "CYBERBOSS_CLAUDE_EFFORT";
       }
@@ -4178,6 +4204,27 @@ function resolveDesireAvailableActionsSafe(app) {
     return app.resolveDesireAvailableActions();
   }
   return ["co_read", "github", "web_search", "web_browse", "tease", "vent", "none"];
+}
+
+// /status thread status, rendered as "<token> · <人话>". The raw token is kept so
+// the line stays greppable and matches ThreadStateStore's vocabulary; the gloss is
+// there because "idle" read as a comment on the Owner rather than on the lane
+// (2026-08-06 Owner report). Unknown tokens pass through untranslated rather than
+// being flattened into a wrong gloss.
+const THREAD_STATUS_GLOSS = {
+  idle: "空闲，这条 lane 没有正在跑的回合",
+  running: "正在跑一个回合",
+  waiting_approval: "卡在等你批准",
+  failed: "上一个回合失败了",
+};
+
+function describeThreadStatus(status) {
+  const token = typeof status === "string" ? status.trim() : "";
+  if (!token) {
+    return `idle · ${THREAD_STATUS_GLOSS.idle}`;
+  }
+  const gloss = THREAD_STATUS_GLOSS[token];
+  return gloss ? `${token} · ${gloss}` : token;
 }
 
 function formatContextStatusLine({ runtimeName, context, claudeContextWindow, claudeMaxOutputTokens }) {

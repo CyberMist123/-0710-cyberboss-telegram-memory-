@@ -5,6 +5,15 @@ const path = require("node:path");
 const fs = require("node:fs");
 
 const { CyberbossApp } = require("../src/core/app");
+
+// The /status fixtures are duck-typed objects, not real CyberbossApp instances.
+// Chain them to the real prototype so helper methods the command calls (e.g. the
+// shared window-override resolution ladder) run their production implementation
+// instead of being re-stubbed per fixture — a re-stub would let the fixture agree
+// with itself while the shipped ladder drifts.
+function withAppPrototype(appLike) {
+  return Object.setPrototypeOf(appLike, CyberbossApp.prototype);
+}
 const { mapClaudeCodeMessageToRuntimeEvent } = require("../src/adapters/runtime/claudecode/events");
 const { createClaudeCodeRuntimeAdapter } = require("../src/adapters/runtime/claudecode");
 const { ClaudeCodeProcessClient } = require("../src/adapters/runtime/claudecode/process-client");
@@ -1706,7 +1715,7 @@ test("handleStatusCommand asks to configure claudecode context window before sho
     },
   };
 
-  await CyberbossApp.prototype.handleStatusCommand.call(appLike, {
+  await CyberbossApp.prototype.handleStatusCommand.call(withAppPrototype(appLike), {
     workspaceId: "default",
     accountId: "account-1",
     senderId: "user-1",
@@ -1765,7 +1774,7 @@ test("handleStatusCommand shows approximate context details for claudecode when 
     },
   };
 
-  await CyberbossApp.prototype.handleStatusCommand.call(appLike, {
+  await CyberbossApp.prototype.handleStatusCommand.call(withAppPrototype(appLike), {
     workspaceId: "default",
     accountId: "account-1",
     senderId: "user-1",
@@ -1824,7 +1833,7 @@ test("handleStatusCommand asks to reduce claudecode max output tokens when reser
     },
   };
 
-  await CyberbossApp.prototype.handleStatusCommand.call(appLike, {
+  await CyberbossApp.prototype.handleStatusCommand.call(withAppPrototype(appLike), {
     workspaceId: "default",
     accountId: "account-1",
     senderId: "user-1",
@@ -1878,7 +1887,7 @@ test("handleStatusCommand shows codex context details", async () => {
     },
   };
 
-  await CyberbossApp.prototype.handleStatusCommand.call(appLike, {
+  await CyberbossApp.prototype.handleStatusCommand.call(withAppPrototype(appLike), {
     workspaceId: "default",
     accountId: "account-1",
     senderId: "user-1",
@@ -1928,7 +1937,7 @@ test("handleStatusCommand shows codex context as unavailable when no context dat
     },
   };
 
-  await CyberbossApp.prototype.handleStatusCommand.call(appLike, {
+  await CyberbossApp.prototype.handleStatusCommand.call(withAppPrototype(appLike), {
     workspaceId: "default",
     accountId: "account-1",
     senderId: "user-1",
@@ -1936,6 +1945,209 @@ test("handleStatusCommand shows codex context as unavailable when no context dat
   });
 
   assert.match(sent[0], /📦 context: unavailable/);
+});
+
+// 2026-08-06 Owner report: /status kept printing the profile's configured model
+// (claude-fable-5) after /model had switched the live child to claude-opus-4-6.
+// Root cause: /status read `describe().model` — always non-empty — instead of the
+// window-override ladder /model itself uses. These pin the two to one ladder.
+function buildStatusAppLike({ sent, describeModel, storedModel, storedEffort = "", windowOverride, status = "idle" }) {
+  return {
+    config: {},
+    resolveWorkspaceRoot() {
+      return "/workspace";
+    },
+    resolveLaunchProfileForLane() {
+      return { profileId: "fable-chat" };
+    },
+    runtimeAdapter: {
+      describe() {
+        return { id: "claudecode", model: describeModel };
+      },
+      getWindowOverride() {
+        return windowOverride;
+      },
+      getSessionStore() {
+        return {
+          buildBindingKey() {
+            return "binding-1";
+          },
+          getThreadIdForWorkspace() {
+            return "thread-1";
+          },
+          getRuntimeParamsForWorkspace() {
+            return { model: storedModel, effort: storedEffort };
+          },
+        };
+      },
+    },
+    threadStateStore: {
+      getThreadState() {
+        return { status };
+      },
+      getLatestContext() {
+        return null;
+      },
+    },
+    channelAdapter: {
+      async sendText(payload) {
+        sent.push(payload.text);
+      },
+    },
+  };
+}
+
+const STATUS_NORMALIZED = {
+  workspaceId: "default",
+  accountId: "account-1",
+  senderId: "user-1",
+  contextToken: "ctx-1",
+};
+
+test("handleStatusCommand reports the window override model, not the profile default", async () => {
+  const sent = [];
+  const appLike = buildStatusAppLike({
+    sent,
+    describeModel: "claude-fable-5",
+    storedModel: "claude-fable-5",
+    windowOverride: { enabled: true, value: { model: "claude-opus-4-6" } },
+  });
+
+  await CyberbossApp.prototype.handleStatusCommand.call(withAppPrototype(appLike), STATUS_NORMALIZED);
+
+  assert.match(sent[0], /🤖 model: claude-opus-4-6/);
+  assert.doesNotMatch(sent[0], /🤖 model: claude-fable-5/);
+});
+
+test("handleStatusCommand reads the override model out of the trace when value is absent", async () => {
+  const sent = [];
+  const appLike = buildStatusAppLike({
+    sent,
+    describeModel: "claude-fable-5",
+    storedModel: "",
+    windowOverride: {
+      enabled: true,
+      value: {},
+      trace: { entries: [{ kind: "model", effective_value: "claude-opus-4-6" }] },
+    },
+  });
+
+  await CyberbossApp.prototype.handleStatusCommand.call(withAppPrototype(appLike), STATUS_NORMALIZED);
+
+  assert.match(sent[0], /🤖 model: claude-opus-4-6/);
+});
+
+test("handleStatusCommand falls back to the stored workspace model when no window override is active", async () => {
+  const sent = [];
+  const appLike = buildStatusAppLike({
+    sent,
+    describeModel: "claude-fable-5",
+    storedModel: "claude-sonnet-5",
+    windowOverride: { enabled: false },
+  });
+
+  await CyberbossApp.prototype.handleStatusCommand.call(withAppPrototype(appLike), STATUS_NORMALIZED);
+
+  assert.match(sent[0], /🤖 model: claude-sonnet-5/);
+});
+
+test("handleStatusCommand falls back to the runtime default only when nothing is stored", async () => {
+  const sent = [];
+  const appLike = buildStatusAppLike({
+    sent,
+    describeModel: "claude-fable-5",
+    storedModel: "",
+    windowOverride: { enabled: false },
+  });
+
+  await CyberbossApp.prototype.handleStatusCommand.call(withAppPrototype(appLike), STATUS_NORMALIZED);
+
+  assert.match(sent[0], /🤖 model: claude-fable-5/);
+});
+
+// Owner 2026-08-07: /status should show effort too, and it must come off the same
+// ladder as /effort — the whole point of this batch is that two commands reading
+// the same thing by different routes is how they end up disagreeing.
+test("handleStatusCommand reports the window override effort", async () => {
+  const sent = [];
+  const appLike = buildStatusAppLike({
+    sent,
+    describeModel: "claude-fable-5",
+    storedModel: "",
+    storedEffort: "low",
+    windowOverride: { enabled: true, value: { effort: "high" } },
+  });
+
+  await CyberbossApp.prototype.handleStatusCommand.call(withAppPrototype(appLike), STATUS_NORMALIZED);
+
+  assert.match(sent[0], /🤖 effort: high/);
+});
+
+test("handleStatusCommand falls back to the stored effort when no window override is active", async () => {
+  const sent = [];
+  const appLike = buildStatusAppLike({
+    sent,
+    describeModel: "claude-fable-5",
+    storedModel: "",
+    storedEffort: "low",
+    windowOverride: { enabled: false },
+  });
+
+  await CyberbossApp.prototype.handleStatusCommand.call(withAppPrototype(appLike), STATUS_NORMALIZED);
+
+  assert.match(sent[0], /🤖 effort: low/);
+});
+
+test("handleStatusCommand never prints an empty effort", async () => {
+  const sent = [];
+  const appLike = buildStatusAppLike({
+    sent,
+    describeModel: "claude-fable-5",
+    storedModel: "",
+    storedEffort: "",
+    windowOverride: { enabled: false },
+  });
+
+  await CyberbossApp.prototype.handleStatusCommand.call(withAppPrototype(appLike), STATUS_NORMALIZED);
+
+  assert.match(sent[0], /🤖 effort: (minimal|low|medium|high)/);
+});
+
+// Owner could not tell whether "idle" described the lane or described her.
+test("handleStatusCommand glosses the thread status token in plain language", async () => {
+  const cases = [
+    ["idle", /📊 status: idle · 空闲，这条 lane 没有正在跑的回合/],
+    ["running", /📊 status: running · 正在跑一个回合/],
+    ["waiting_approval", /📊 status: waiting_approval · 卡在等你批准/],
+    ["failed", /📊 status: failed · 上一个回合失败了/],
+  ];
+  for (const [status, expected] of cases) {
+    const sent = [];
+    const appLike = buildStatusAppLike({
+      sent,
+      describeModel: "claude-fable-5",
+      storedModel: "",
+      windowOverride: { enabled: false },
+      status,
+    });
+    await CyberbossApp.prototype.handleStatusCommand.call(withAppPrototype(appLike), STATUS_NORMALIZED);
+    assert.match(sent[0], expected);
+  }
+});
+
+test("handleStatusCommand passes an unknown status token through rather than mislabelling it", async () => {
+  const sent = [];
+  const appLike = buildStatusAppLike({
+    sent,
+    describeModel: "claude-fable-5",
+    storedModel: "",
+    windowOverride: { enabled: false },
+    status: "some_future_state",
+  });
+
+  await CyberbossApp.prototype.handleStatusCommand.call(withAppPrototype(appLike), STATUS_NORMALIZED);
+
+  assert.match(sent[0], /📊 status: some_future_state$/m);
 });
 
 async function waitForFileText(filePath, pattern, timeoutMs = 1000) {
