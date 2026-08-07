@@ -14,7 +14,16 @@ function readConfig() {
   const promptFile = resolveConfiguredPath(
     readTextEnv("CYBERBOSS_PROMPT_FILE") || readTextEnv("CYBERBOSS_INSTRUCTIONS_FILE")
   );
-  const diaryDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_DIARY_DIR")) || joinIfBase(stateDir, "diary");
+  // 聊天资产的基座：日记、聊天原文、表情包、收到的媒体。
+  //
+  // 这四类是「她的东西」，而 stateDir 装的是「机器的东西」（pid、会话槽、轮询
+  // 游标、writer 锁）——换台机器就该丢掉的那些。两者同居一个目录，备份与迁机
+  // 时分不开，她自己也够不着（stateDir 在 runtime\ 下，是 FRAMEWORK 禁区）。
+  //
+  // 不设置时缺省等于 stateDir，各派生路径与设这行之前逐字节一致；生产只需设一
+  // 行 env 就整体切换（仓库纪律：新能力默认关、关闭时逐字兼容）。
+  const chatAssetsDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_CHAT_ASSETS_DIR")) || stateDir;
+  const diaryDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_DIARY_DIR")) || joinIfBase(chatAssetsDir, "diary");
   const sourceLabel = readTextEnv("CYBERBOSS_SOURCE_LABEL");
   const memoryDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_MEMORY_DIR") || joinIfBase(stateDir, "memory"));
   // The agent's process may be deliberately narrower than the workspace used
@@ -57,13 +66,13 @@ function readConfig() {
     deferredSystemReplyQueueFile: joinIfBase(stateDir, "deferred-system-replies.json"),
     checkinConfigFile: joinIfBase(stateDir, "checkin-config.json"),
     sleepWindowFile: joinIfBase(stateDir, "sleep-window.json"),
-    conversationDir: joinIfBase(stateDir, "conversations"),
+    conversationDir: joinIfBase(chatAssetsDir, "conversations"),
     telegramBotToken: readTextEnv("CYBERBOSS_TELEGRAM_BOT_TOKEN"),
     telegramAllowedUserIds: readListEnv("CYBERBOSS_TELEGRAM_ALLOWED_USER_IDS"),
     telegramStateFile: joinIfBase(stateDir, "telegram-state.json"),
     voiceKitDir: resolveConfiguredPath(readTextEnv("CYBERBOSS_VOICE_KIT_DIR")),
-    voiceMediaDir: joinIfBase(stateDir, "media", "voice"),
-    photoMediaDir: joinIfBase(stateDir, "media", "photos"),
+    voiceMediaDir: joinIfBase(chatAssetsDir, "media", "voice"),
+    photoMediaDir: joinIfBase(chatAssetsDir, "media", "photos"),
     mediaInboxMaxBytes: readBoundedIntEnv("CYBERBOSS_MEDIA_INBOX_MAX_BYTES", 20 * 1024 * 1024, 1, 500 * 1024 * 1024),
     localWhisperEnabled,
     localWhisperPythonCommand: readTextEnv("CYBERBOSS_LOCAL_WHISPER_PYTHON") || "python",
@@ -121,7 +130,7 @@ function readConfig() {
     legacyMemoryRetrieval: readBoolEnv("CYBERBOSS_MEMORY_RETRIEVAL"),
     legacyMemoryBackgroundWrite: readBoolEnv("CYBERBOSS_MEMORY_BACKGROUND_WRITE"),
     legacyMemoryReplyTransform: readBoolEnv("CYBERBOSS_MEMORY_REPLY_TRANSFORM"),
-    stickersDir: joinIfBase(stateDir, "stickers"),
+    stickersDir: joinIfBase(chatAssetsDir, "stickers"),
     stickerAssetsDir: joinIfBase(stateDir, "stickers", "assets"),
     stickersIndexFile: joinIfBase(stateDir, "stickers", "index.json"),
     stickerTagsFile: joinIfBase(stateDir, "stickers", "tags.json"),
