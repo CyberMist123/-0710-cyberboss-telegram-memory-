@@ -223,29 +223,20 @@ test("/status falls back to the in-memory reading when the transcript cannot be 
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-test("/status stamps how old the context figure is, and omits the stamp when unknown", async () => {
+test("/status keeps the context line to the figure itself, with no age stamp", async () => {
   const root = tempConfigRoot();
   writeTranscript(root, "proj-a", "sess-1", [
     assistantEntry({ input: 1000 }, new Date(Date.now() - 5 * 60 * 1000).toISOString()),
   ]);
-  const stamped = [];
-  await CyberbossApp.prototype.handleStatusCommand.call(
-    statusApp({ sent: stamped, configRoot: root, threadId: "sess-1", memoryContext: null }),
-    STATUS_MESSAGE,
-  );
-  assert.match(stamped[0], /📦 context: approx 1k\/200k \| 100% left \| 5m ago/);
+  const sent = [];
 
-  // The in-memory fallback carries no timestamp: say nothing rather than imply now.
-  const unstamped = [];
   await CyberbossApp.prototype.handleStatusCommand.call(
-    statusApp({
-      sent: unstamped,
-      configRoot: root,
-      threadId: "absent",
-      memoryContext: { runtimeId: "claudecode", currentTokens: 1000 },
-    }),
+    statusApp({ sent, configRoot: root, threadId: "sess-1", memoryContext: null }),
     STATUS_MESSAGE,
   );
-  assert.doesNotMatch(unstamped[0], /ago/);
+
+  // Owner 2026-08-07: the stamp was clutter once the figure itself became right.
+  assert.match(sent[0], /📦 context: approx 1k\/200k \| 100% left$/m);
+  assert.doesNotMatch(sent[0], /ago/);
   fs.rmSync(root, { recursive: true, force: true });
 });

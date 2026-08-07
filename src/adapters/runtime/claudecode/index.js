@@ -855,6 +855,25 @@ function createClaudeCodeRuntimeAdapter(config) {
           await client.close().catch(() => {});
           throw new Error("claudecode process exited during launch");
         }
+        // A child was just born for this slot. Since D37 that happens mid-
+        // conversation (escalation relaunches on the turn boundary, TTL recovery
+        // puts the narrow face back) and the Owner had no way to see it happen.
+        // Announced out of band, after the lock: consumers send Telegram messages,
+        // and nothing inside a process lock should wait on the network.
+        const launched = {
+          type: "runtime.process.launched",
+          payload: {
+            threadId: normalizedThreadId || normalizeThreadId(client.sessionId),
+            laneKey: route.lane?.laneKey || "",
+            profileId: route.launchProfile?.profileId || "",
+            model: route.model || "",
+            effort: route.effort || "",
+            resumed: Boolean(normalizedThreadId),
+          },
+        };
+        setImmediate(() => {
+          if (globalListener) globalListener(launched, null);
+        });
       }
 
       await retireIdleStaleProcesses(route, processKey);

@@ -2159,6 +2159,57 @@ class CyberbossApp {
     };
   }
 
+  // Tell the Owner when a fresh child takes over her lane (Owner 2026-08-07).
+  // Escalation and TTL recovery both swap the process mid-conversation and used
+  // to be invisible. Chat lane only: a Route 1 worker runs under a different
+  // launch profile and is not her window, so it must never announce itself here.
+  // Fail-open throughout — a missed notice must not disturb the lane.
+  async announceProcessLaunch(payload) {
+    try {
+      const laneKey = normalizeText(payload?.laneKey);
+      const threadId = normalizeText(payload?.threadId);
+      if (!laneKey || !threadId) {
+        return;
+      }
+      const sessionStore = this.runtimeAdapter.getSessionStore();
+      const senderId = resolvePreferredSenderId({
+        config: this.config,
+        accountId: this.activeAccountId,
+        sessionStore,
+      });
+      const workspaceRoot = resolvePreferredWorkspaceRoot({
+        config: this.config,
+        accountId: this.activeAccountId,
+        senderId,
+        sessionStore,
+      });
+      if (!senderId || !workspaceRoot) {
+        return;
+      }
+      const chatProfileId = normalizeText(this.telegramProfileRouter?.select?.(laneKey)?.profileId);
+      const launchedProfileId = normalizeText(payload?.profileId);
+      // No chat profile resolvable for this lane, or a different profile than the
+      // one this lane chats with: not her window. Say nothing.
+      if (!chatProfileId || !launchedProfileId || chatProfileId !== launchedProfileId) {
+        return;
+      }
+      const lines = [
+        "♻️ 新的子进程接管了这条 lane",
+        `🤖 model: ${normalizeText(payload?.model) || "(default)"}`,
+        `⚡ effort: ${resolveEffortLevel(normalizeText(payload?.effort))}`,
+        payload?.resumed ? "🧵 已 --resume 原会话，上下文没有丢" : "🧵 新会话",
+      ];
+      await this.channelAdapter.sendText({
+        userId: senderId,
+        text: lines.join("\n"),
+        contextToken: this.channelAdapter.getKnownContextTokens?.()[senderId] || "",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[cyberboss] process launch notice failed: ${message}`);
+    }
+  }
+
   // Read the live context usage for a thread out of the runtime's own session
   // transcript. claudecode only; returns null whenever it cannot be established,
   // so every caller keeps its previous fallback.
@@ -2218,7 +2269,7 @@ class CyberbossApp {
       `📊 status: ${describeThreadStatus(threadState?.status)}`,
       `🤖 runtime: ${runtimeName}`,
       `🤖 model: ${effectiveModel || "(default)"}`,
-      `🤖 effort: ${effectiveEffort}`,
+      `⚡ effort: ${effectiveEffort}`,
       `🤖 provider: ${storedModelProvider || "(default)"}`,
     ];
     lines.push(formatContextStatusLine({
@@ -3399,6 +3450,10 @@ class CyberbossApp {
     if (event?.type === "runtime.context.updated") {
       this.desireUsageByRunKey.set(buildRunKey(event?.payload?.threadId, event?.payload?.turnId), event.payload);
     }
+    if (event?.type === "runtime.process.launched") {
+      await this.announceProcessLaunch(event.payload);
+      return;
+    }
     const failureReplyTarget = event?.type === "runtime.turn.failed"
       ? this.streamDelivery.resolveReplyTargetForRun({
           threadId: event?.payload?.threadId,
@@ -4253,27 +4308,6 @@ function describeThreadStatus(status) {
   return gloss ? `${token} · ${gloss}` : token;
 }
 
-// The figure is always "as of the last message the child answered" — nothing
-// measures it continuously. Stamping it keeps that honest instead of letting a
-// number from before a relaunch read as a live one. Omitted when the source did
-// not carry a timestamp, rather than guessing "now".
-function formatContextAsOf(at) {
-  const stamp = Number(at);
-  if (!Number.isFinite(stamp) || stamp <= 0) {
-    return "";
-  }
-  const seconds = Math.max(0, Math.floor((Date.now() - stamp) / 1000));
-  if (seconds < 60) {
-    return ` | ${seconds}s ago`;
-  }
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) {
-    return ` | ${minutes}m ago`;
-  }
-  const hours = Math.floor(minutes / 60);
-  return ` | ${hours}h ago`;
-}
-
 function formatContextStatusLine({ runtimeName, context, claudeContextWindow, claudeMaxOutputTokens }) {
   if (runtimeName === "claudecode") {
     const configuredWindow = Number(claudeContextWindow);
@@ -4289,11 +4323,10 @@ function formatContextStatusLine({ runtimeName, context, claudeContextWindow, cl
       return "📦 context: unavailable";
     }
     const summary = formatContextUsage(Number(context.currentTokens), availableMessageWindow);
-    const asOf = formatContextAsOf(context.at);
     if (reservedOutputTokens > 0) {
-      return `📦 context: approx ${summary} | reserve ${formatCompactNumber(reservedOutputTokens)}${asOf}`;
+      return `📦 context: approx ${summary} | reserve ${formatCompactNumber(reservedOutputTokens)}`;
     }
-    return `📦 context: approx ${summary}${asOf}`;
+    return `📦 context: approx ${summary}`;
   }
   if (!context) {
     return "📦 context: unavailable";

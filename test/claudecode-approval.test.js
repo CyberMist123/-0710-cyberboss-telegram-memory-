@@ -2080,7 +2080,7 @@ test("handleStatusCommand reports the window override effort", async () => {
 
   await CyberbossApp.prototype.handleStatusCommand.call(withAppPrototype(appLike), STATUS_NORMALIZED);
 
-  assert.match(sent[0], /🤖 effort: high/);
+  assert.match(sent[0], /⚡ effort: high/);
 });
 
 test("handleStatusCommand falls back to the stored effort when no window override is active", async () => {
@@ -2095,7 +2095,7 @@ test("handleStatusCommand falls back to the stored effort when no window overrid
 
   await CyberbossApp.prototype.handleStatusCommand.call(withAppPrototype(appLike), STATUS_NORMALIZED);
 
-  assert.match(sent[0], /🤖 effort: low/);
+  assert.match(sent[0], /⚡ effort: low/);
 });
 
 test("handleStatusCommand never prints an empty effort", async () => {
@@ -2110,7 +2110,7 @@ test("handleStatusCommand never prints an empty effort", async () => {
 
   await CyberbossApp.prototype.handleStatusCommand.call(withAppPrototype(appLike), STATUS_NORMALIZED);
 
-  assert.match(sent[0], /🤖 effort: (minimal|low|medium|high)/);
+  assert.match(sent[0], /⚡ effort: (minimal|low|medium|high)/);
 });
 
 // Owner could not tell whether "idle" described the lane or described her.
@@ -2148,6 +2148,117 @@ test("handleStatusCommand passes an unknown status token through rather than mis
   await CyberbossApp.prototype.handleStatusCommand.call(withAppPrototype(appLike), STATUS_NORMALIZED);
 
   assert.match(sent[0], /📊 status: some_future_state$/m);
+});
+
+// ---------------------------------------------------------------------------
+// runtime.process.launched notice (Owner 2026-08-07: "开新进程自动发status").
+//
+// Since D37 a child is swapped mid-conversation — escalation relaunches on the
+// turn boundary, TTL recovery puts the narrow face back — and that used to be
+// entirely invisible to her. The hard constraint is the audience: a Route 1
+// worker also spawns a child, under a different launch profile, and that one is
+// not her window. It must never announce itself into her chat.
+// ---------------------------------------------------------------------------
+function launchNoticeApp({ sent, chatProfileId, throwOnSend = false }) {
+  return Object.setPrototypeOf({
+    config: { channel: "telegram", telegramAllowedUserIds: ["owner-1"], workspaceRoot: "/workspace" },
+    activeAccountId: "account-1",
+    runtimeAdapter: {
+      getSessionStore: () => ({ buildBindingKey: () => "binding-1" }),
+    },
+    telegramProfileRouter: {
+      select: () => (chatProfileId ? { status: "matched", profileId: chatProfileId } : { status: "unmapped" }),
+    },
+    channelAdapter: {
+      getKnownContextTokens: () => ({ "owner-1": "ctx-owner" }),
+      sendText: async (payload) => {
+        if (throwOnSend) {
+          throw new Error("telegram unreachable");
+        }
+        sent.push(payload);
+      },
+    },
+  }, CyberbossApp.prototype);
+}
+
+const LAUNCH_PAYLOAD = {
+  threadId: "sess-1",
+  laneKey: "tg/fable-chat",
+  profileId: "fable-chat",
+  model: "claude-opus-4-6",
+  effort: "high",
+  resumed: true,
+};
+
+test("a new child on her own lane announces itself with what it came back as", async () => {
+  const sent = [];
+  await CyberbossApp.prototype.announceProcessLaunch.call(
+    launchNoticeApp({ sent, chatProfileId: "fable-chat" }),
+    LAUNCH_PAYLOAD,
+  );
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].userId, "owner-1");
+  assert.equal(sent[0].contextToken, "ctx-owner");
+  assert.match(sent[0].text, /♻️ 新的子进程接管了这条 lane/);
+  assert.match(sent[0].text, /🤖 model: claude-opus-4-6/);
+  assert.match(sent[0].text, /⚡ effort: high/);
+  assert.match(sent[0].text, /已 --resume 原会话/);
+});
+
+test("a brand new session says so instead of claiming the context survived", async () => {
+  const sent = [];
+  await CyberbossApp.prototype.announceProcessLaunch.call(
+    launchNoticeApp({ sent, chatProfileId: "fable-chat" }),
+    { ...LAUNCH_PAYLOAD, resumed: false },
+  );
+
+  assert.match(sent[0].text, /🧵 新会话/);
+  assert.doesNotMatch(sent[0].text, /resume/);
+});
+
+test("a Route 1 worker's child never announces itself into her chat", async () => {
+  const sent = [];
+  await CyberbossApp.prototype.announceProcessLaunch.call(
+    launchNoticeApp({ sent, chatProfileId: "fable-chat" }),
+    { ...LAUNCH_PAYLOAD, profileId: "work-engineering" },
+  );
+
+  assert.equal(sent.length, 0, "the engineering worker is not her window");
+});
+
+test("the launch notice stays silent when the lane has no chat profile mapped", async () => {
+  const sent = [];
+  await CyberbossApp.prototype.announceProcessLaunch.call(
+    launchNoticeApp({ sent, chatProfileId: "" }),
+    LAUNCH_PAYLOAD,
+  );
+
+  assert.equal(sent.length, 0);
+});
+
+test("the launch notice stays silent on an incomplete payload", async () => {
+  for (const payload of [
+    { ...LAUNCH_PAYLOAD, laneKey: "" },
+    { ...LAUNCH_PAYLOAD, threadId: "" },
+    {},
+    undefined,
+  ]) {
+    const sent = [];
+    await CyberbossApp.prototype.announceProcessLaunch.call(
+      launchNoticeApp({ sent, chatProfileId: "fable-chat" }),
+      payload,
+    );
+    assert.equal(sent.length, 0);
+  }
+});
+
+test("a failed launch notice never propagates into the lane", async () => {
+  // Fail-open: a diagnostic courtesy must not become a way to break her chat.
+  await CyberbossApp.prototype.announceProcessLaunch.call(
+    launchNoticeApp({ sent: [], chatProfileId: "fable-chat", throwOnSend: true }),
+    LAUNCH_PAYLOAD,
+  );
 });
 
 async function waitForFileText(filePath, pattern, timeoutMs = 1000) {

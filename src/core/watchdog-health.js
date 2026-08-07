@@ -82,10 +82,13 @@ function formatWatchdogStatusLine(health) {
   const state = health?.state;
   const age = typeof health?.ageSeconds === "number" ? formatAge(health.ageSeconds) : null;
   switch (state) {
+    // Alive is the boring case: say so and stop. The heartbeat age was noise on
+    // every healthy read (Owner 2026-08-07). It stays on the LOST line, where how
+    // long it has been gone is the whole diagnostic.
     case "alive":
-      return `🐕 watchdog: alive · last healthy ${age} ago`;
+      return "🐕 watchdog: alive";
     case "lost":
-      return `🐕 watchdog: LOST · last healthy ${age} ago (no heartbeat > ${WATCHDOG_STALE_SECONDS}s)`;
+      return `🐕 watchdog: LOST · 已 ${age} 没有心跳（阈值 ${WATCHDOG_STALE_SECONDS}s）`;
     case "unreadable":
       return "🐕 watchdog: unknown · health log unreadable";
     case "unknown":

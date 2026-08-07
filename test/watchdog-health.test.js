@@ -56,7 +56,9 @@ test("fresh healthy heartbeat => alive with age", () => {
     const health = readWatchdogHealth(file, { now: base.getTime() + 45_000 });
     assert.equal(health.state, "alive");
     assert.equal(health.ageSeconds, 45);
-    assert.match(formatWatchdogStatusLine(health), /alive · last healthy 45s ago/);
+    // The age is still computed (the LOST line needs it) but deliberately not
+    // rendered when healthy — it was noise on every normal read.
+    assert.equal(formatWatchdogStatusLine(health), "🐕 watchdog: alive");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -68,7 +70,7 @@ test("stale heartbeat beyond threshold => lost", () => {
   try {
     const health = readWatchdogHealth(file, { now: base.getTime() + (WATCHDOG_STALE_SECONDS + 60) * 1000 });
     assert.equal(health.state, "lost");
-    assert.match(formatWatchdogStatusLine(health), /LOST · last healthy/);
+    assert.match(formatWatchdogStatusLine(health), /LOST · 已 4m 没有心跳/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -151,7 +153,7 @@ test("/status renders the watchdog line and human-readable idle state", async ()
     contextToken: "ctx-1",
   });
 
-  assert.match(sent[0], /🐕 watchdog: alive · last healthy/);
+  assert.match(sent[0], /🐕 watchdog: alive$/m);
   assert.match(sent[0], /📊 status: idle · 空闲，这条 lane 没有正在跑的回合/);
   fs.rmSync(dir, { recursive: true, force: true });
 });
