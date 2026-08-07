@@ -5,7 +5,9 @@ const os = require("os");
 const path = require("path");
 
 const { ConversationRecorder } = require("../src/services/conversation-recorder");
-const { buildSubjectSourceRef } = require("../src/core/app");
+const { CyberbossApp, buildSubjectSourceRef } = require("../src/core/app");
+const { createTelegramChannelAdapter } = require("../src/adapters/channel/telegram");
+const { buildInboundDraft } = require("../src/core/inbound-turn");
 const { locateSourceRef } = require("../src/continuity/continuity-pipeline");
 const { SubjectSigningBroker } = require("../src/continuity/subject-signing-ipc");
 const { createSubjectRoute } = require("../src/continuity/subject-route");
@@ -215,4 +217,97 @@ test("memory_candidate_submit no longer asks the model for provenance", () => {
   // rejection instead of a silently ignored field.
   assert.equal(tool.inputSchema.additionalProperties, false);
   assert.equal(JSON.stringify(tool.inputSchema).includes("sha256"), false);
+});
+
+// The four previous wiring debts on this chain all shared one shape: the fix
+// landed somewhere a hand-built fixture could reach, while the path production
+// actually runs went untested. This one was the same -- provenance was taken in
+// `handleIncomingMessage` (weixin) and Telegram, the only live channel, entered
+// through `handleTelegramMessage` and never touched it. These two tests drive
+// the real entry point so that gap cannot reopen silently.
+function telegramInboundApp({ dirPath, subjectSigningEnabled }) {
+  const adapter = createTelegramChannelAdapter({
+    telegramBotToken: "fake",
+    telegramStateFile: path.join(dirPath, "telegram-state.json"),
+  });
+  const normalized = adapter.normalizeIncomingMessage({
+    update_id: 1,
+    message: {
+      message_id: 7,
+      date: 1,
+      chat: { id: 5, type: "private" },
+      from: { id: 5 },
+      text: "今天下午在江边走了很久",
+    },
+  });
+  assert.ok(normalized, "the adapter must accept this update");
+
+  const prepared = [];
+  const app = {
+    config: { channel: "telegram", stateDir: dirPath, subjectSigningEnabled },
+    conversationRecorder: new ConversationRecorder({ dirPath }),
+    runtimeAdapter: {
+      getSessionStore: () => ({
+        buildBindingKey: () => "binding-provenance",
+        getThreadIdForWorkspace: () => THREAD_ID,
+      }),
+    },
+    resolveWorkspaceRoot: () => dirPath,
+    logTelegramDebug() {},
+    recordInboundMessage: CyberbossApp.prototype.recordInboundMessage,
+    async handlePreparedMessage(message) { prepared.push(message); },
+  };
+  return { app, normalized, prepared };
+}
+
+test("the Telegram entry point takes provenance for the turn it just recorded", async () => {
+  const dirPath = tempDir("cyberboss-provenance-telegram-");
+  const { app, normalized, prepared } = telegramInboundApp({
+    dirPath,
+    subjectSigningEnabled: true,
+  });
+
+  await CyberbossApp.prototype.handleTelegramMessage.call(app, normalized);
+
+  // Without this the capability is never issued and every subject turn dies at
+  // `subject_source_entry_id_missing` -- which is exactly what production was
+  // logging on every message.
+  assert.match(normalized.subjectSourceEntryId, /\S/u, "Telegram inbound must carry a source entry id");
+  assert.ok(normalized.subjectSourceEvidence, "Telegram inbound must carry recorder evidence");
+
+  // The evidence has to be good enough for Review to locate the row, not just present.
+  const sourceRef = buildSubjectSourceRef({
+    sourceEntryId: normalized.subjectSourceEntryId,
+    evidence: normalized.subjectSourceEvidence,
+  });
+  assert.ok(sourceRef, "recorder evidence must build a source_ref");
+  assert.equal(locateSourceRef(sourceRef), true);
+
+  // Non-enumerable, and it must survive the rebuild `handlePreparedMessage` does.
+  assert.equal(Object.keys(normalized).includes("subjectSourceEntryId"), false);
+  assert.equal(JSON.parse(JSON.stringify(normalized)).subjectSourceEntryId, undefined);
+  assert.equal(prepared.length, 1);
+  assert.equal(
+    buildInboundDraft(prepared[0]).subjectSourceEntryId,
+    normalized.subjectSourceEntryId,
+  );
+
+  fs.rmSync(dirPath, { recursive: true, force: true });
+});
+
+test("the Telegram entry point takes no provenance while signing is disabled", async () => {
+  const dirPath = tempDir("cyberboss-provenance-telegram-off-");
+  const { app, normalized } = telegramInboundApp({
+    dirPath,
+    subjectSigningEnabled: false,
+  });
+
+  await CyberbossApp.prototype.handleTelegramMessage.call(app, normalized);
+
+  assert.equal(normalized.subjectSourceEntryId, undefined);
+  assert.equal(normalized.subjectSourceEvidence, undefined);
+  // Recording itself is not gated by the signing switch -- only the evidence is.
+  assert.equal(fs.readdirSync(dirPath).some((name) => name.endsWith(".jsonl")), true);
+
+  fs.rmSync(dirPath, { recursive: true, force: true });
 });

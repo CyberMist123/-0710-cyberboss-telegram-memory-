@@ -682,23 +682,7 @@ class CyberbossApp {
       return;
     }
 
-    const recorded = this.recordInboundMessage(normalized);
-    if (this.config.subjectSigningEnabled === true && recorded?.id) {
-      Object.defineProperty(normalized, "subjectSourceEntryId", {
-        value: recorded.id,
-        enumerable: false,
-      });
-      // The provenance of a subject candidate is what the recorder just wrote,
-      // not what the model says it is. Capturing it here — where the file and
-      // the exact bytes are known — is what lets `memory_candidate_submit`
-      // drop `source_ref` from its input schema entirely.
-      Object.defineProperty(normalized, "subjectSourceEvidence", {
-        value: recorded.sourceFile && recorded.sourceLineSha256
-          ? { file: recorded.sourceFile, sha256: recorded.sourceLineSha256 }
-          : null,
-        enumerable: false,
-      });
-    }
+    this.recordInboundMessage(normalized);
     this.updateSleepModeFromInboundMessage(normalized);
     this.primeDeferredRepliesForSender(normalized);
     await this.handlePreparedMessage(normalized, { allowCommands: true });
@@ -3649,7 +3633,7 @@ class CyberbossApp {
     const routeSession = resolveRouteSessionFor(this, {
       bindingKey, workspaceRoot, lane, normalized,
     });
-    return this.conversationRecorder.record({
+    const recorded = this.conversationRecorder.record({
       type: "user",
       timestamp: normalizeIsoTime(normalized.receivedAt) || new Date().toISOString(),
       threadId: routeSession.threadId,
@@ -3666,6 +3650,14 @@ class CyberbossApp {
         attachments: Array.isArray(normalized.attachments) ? normalized.attachments : [],
       },
     });
+    // Attached here, not at the call sites: the two inbound entry points are
+    // per-channel (`handleIncomingMessage` for weixin, `handleTelegramMessage`
+    // for telegram) and only the weixin one ever carried this block, so on the
+    // channel that actually runs in production the provenance was never taken
+    // and every subject turn died at `subject_source_entry_id_missing`.
+    // Recording is the one step both entry points share.
+    attachSubjectProvenance(this.config, normalized, recorded);
+    return recorded;
   }
 
   recordRuntimeEvent(event) {
@@ -5295,6 +5287,34 @@ function resolveEventRoute(app, event) {
   }
   const linked = app.runtimeAdapter.getSessionStore().findBindingForThreadId(payload.threadId);
   return linked?.bindingKey ? { ...linked, laneKey: "", sessionSlotKey: "", processKey: "" } : null;
+}
+
+// Subject provenance for the turn being recorded. A module-level function
+// rather than a method: the inbound recorder is exercised by fixtures that call
+// `CyberbossApp.prototype.recordInboundMessage` against a plain stub, and a
+// `this.`-method dependency would make every one of those fixtures grow a
+// method it does not otherwise need.
+function attachSubjectProvenance(config, normalized, recorded) {
+  if (config?.subjectSigningEnabled !== true || !normalized || !recorded?.id) {
+    return normalized;
+  }
+  Object.defineProperty(normalized, "subjectSourceEntryId", {
+    value: recorded.id,
+    enumerable: false,
+    configurable: true,
+  });
+  // The provenance of a subject candidate is what the recorder just wrote,
+  // not what the model says it is. Capturing it here — where the file and
+  // the exact bytes are known — is what lets `memory_candidate_submit`
+  // drop `source_ref` from its input schema entirely.
+  Object.defineProperty(normalized, "subjectSourceEvidence", {
+    value: recorded.sourceFile && recorded.sourceLineSha256
+      ? { file: recorded.sourceFile, sha256: recorded.sourceLineSha256 }
+      : null,
+    enumerable: false,
+    configurable: true,
+  });
+  return normalized;
 }
 
 function buildRecorderRouteSnapshot({ bindingKey = "", lane = null, routeSession = null } = {}) {
