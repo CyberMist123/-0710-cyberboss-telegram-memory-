@@ -612,7 +612,19 @@ class ContinuityPipeline {
           });
           continue;
         }
-        if (publishedPublicationKeys.has(intent.publication_key)) {
+        // Two ways to already be in canon. The publication key only exists on
+        // rows this outbox wrote; canon rows from the older mechanism carry
+        // `candidate_id` + `decision_id` and nothing else, so keying the guard
+        // on the key alone made them invisible here. `publishedCandidates` is
+        // rebuilt from the canon rows themselves and sees both.
+        //
+        // 2026-08-07 live evidence: the first time
+        // `CYBERBOSS_REVIEW_ARTIFACTS_ENABLED` was switched on in production,
+        // Review minted fresh intents for long-published accepted decisions and
+        // this guard waved them through -- two July episodes and one self-note
+        // were written into her canon a second time.
+        if (publishedPublicationKeys.has(intent.publication_key)
+          || publishedCandidates.has(candidate.candidate_id)) {
           applied.add(decision.decision_id);
           publishedCandidates.add(candidate.candidate_id);
           publishedLineageRoots.add(lineageRootId(intent));

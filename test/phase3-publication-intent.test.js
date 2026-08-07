@@ -106,6 +106,55 @@ test("History writer-state replay reconstructs the publication key from canon", 
   assert.equal(state.intent_consumptions[0].status, "already_published");
 });
 
+// The cold start this pipeline was never run through: canon that predates the
+// outbox. Rows written by the older mechanism carry `candidate_id` and
+// `decision_id` but no `publication_key`, so a guard keyed on the key alone
+// cannot see them. 2026-08-07 production evidence: the first time
+// `CYBERBOSS_REVIEW_ARTIFACTS_ENABLED` was enabled, two July episodes and one
+// self-note were published into her canon a second time.
+test("canon written before the outbox existed is still recognised as published", () => {
+  const fixture = createFixture("legacy-canon");
+  const decision = fixture.pipeline.runReview({ env: localReviewEnv() }).decisions[0];
+  assert.equal(decision.result, "accepted");
+  fixture.pipeline.runHistoryWriter();
+  const canonRows = readJsonl(fixture.pipeline.paths.episodes);
+  assert.equal(canonRows.length, 1);
+
+  // Rewind to the legacy shape: the row is in canon, but it carries no
+  // publication key, and neither the writer state nor the intent ledger
+  // remembers it -- exactly the production starting position.
+  const legacyRow = { ...canonRows[0] };
+  delete legacyRow.publication_key;
+  assert.equal(legacyRow.candidate_id, fixture.candidate.candidate_id);
+  fs.writeFileSync(fixture.pipeline.paths.episodes, `${JSON.stringify(legacyRow)}\n`, "utf8");
+  fs.rmSync(fixture.pipeline.paths.writerState, { force: true });
+  fs.rmSync(fixture.pipeline.paths.publicationIntents, { force: true });
+
+  // Review still mints an intent -- that ledger is the audit trail of what
+  // Review decided, and suppressing it would hide the decision rather than
+  // record that History declined it.
+  const rereview = fixture.pipeline.runReview({
+    env: localReviewEnv(),
+    retryCandidateId: fixture.candidate.candidate_id,
+  });
+  assert.equal(rereview.publication_intent_complete, true);
+  assert.equal(rereview.publication_intent_ids.length, 1);
+
+  // History is where exactly-once has to hold. The publication key is gone from
+  // the legacy row, so only the candidate-id side of the guard can catch this.
+  const history = fixture.pipeline.runHistoryWriter();
+  assert.equal(history.written.length, 0);
+  assert.deepEqual(
+    history.skipped.map((item) => item.reason),
+    ["candidate_already_published"],
+  );
+  assert.equal(
+    readJsonl(fixture.pipeline.paths.episodes).length,
+    1,
+    "canon must still hold exactly one copy",
+  );
+});
+
 test("an accepted intent becomes stale when a later rejected decision supersedes it", () => {
   const fixture = createFixture("stale-decision");
   const accepted = fixture.pipeline.runReview({ env: localReviewEnv() }).decisions[0];
