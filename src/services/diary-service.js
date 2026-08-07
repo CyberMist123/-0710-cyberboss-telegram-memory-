@@ -36,6 +36,71 @@ class DiaryService {
       body,
     };
   }
+
+  // Reading her own diary back. `append` alone made the diary write-only from
+  // her side: the directory sits under `runtime/`, outside the chat profile's
+  // workspace, so the built-in Read tool cannot reach it either.
+  async read({ date = "" } = {}) {
+    const dateString = date || formatDate(new Date(), this.config.automationTimezone);
+    assertDateKey(dateString);
+    const filePath = path.join(this.config.diaryDir, `${dateString}.md`);
+    if (!fs.existsSync(filePath)) {
+      return { filePath, date: dateString, exists: false, text: "" };
+    }
+    return {
+      filePath,
+      date: dateString,
+      exists: true,
+      text: fs.readFileSync(filePath, "utf8"),
+    };
+  }
+
+  // Editing an entry she already wrote.
+  //
+  // Deliberately an exact-match replacement rather than a whole-file write: the
+  // diary is hers, and a full rewrite makes it far too easy for one bad call to
+  // erase a day. `find` must match exactly once, or nothing is written.
+  async edit({ date = "", find = "", replace = "" } = {}) {
+    const dateString = date || formatDate(new Date(), this.config.automationTimezone);
+    assertDateKey(dateString);
+    const needle = String(find || "");
+    if (!needle.trim()) {
+      throw new Error("Diary edit needs `find` text to locate the passage.");
+    }
+    const filePath = path.join(this.config.diaryDir, `${dateString}.md`);
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`No diary file for ${dateString}.`);
+    }
+    const original = fs.readFileSync(filePath, "utf8");
+    const occurrences = original.split(needle).length - 1;
+    if (occurrences === 0) {
+      throw new Error(`That passage is not in the ${dateString} diary.`);
+    }
+    if (occurrences > 1) {
+      throw new Error(`That passage appears ${occurrences} times in ${dateString}; include more context so it matches once.`);
+    }
+    const next = original.replace(needle, String(replace ?? ""));
+    // Same-day backup before the first edit of the day, so a bad replacement is
+    // recoverable without going to the whole-memory snapshot.
+    const backupPath = `${filePath}.bak-${dateString}`;
+    if (!fs.existsSync(backupPath)) {
+      fs.writeFileSync(backupPath, original, "utf8");
+    }
+    fs.writeFileSync(filePath, next, "utf8");
+    return {
+      filePath,
+      date: dateString,
+      replaced: 1,
+      removed: !String(replace ?? "").trim(),
+      backupPath,
+    };
+  }
+}
+
+function assertDateKey(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(String(value || ""))) {
+    throw new Error("Diary date must be YYYY-MM-DD.");
+  }
 }
 
 function buildDiaryEntry({ timeString, title, body, sourceLabel = "" }) {

@@ -637,6 +637,49 @@ const PROJECT_TOOLS = [
     },
   },
   {
+    name: "cyberboss_diary_read",
+    description: "Read back one day of the Cyberboss local diary.",
+    shortHint: "Read a diary day by date.",
+    topics: ["diary"],
+    inputSchema: {
+      type: "object",
+      properties: {
+        date: { type: "string", description: "Date in YYYY-MM-DD. Defaults to today." },
+      },
+      additionalProperties: false,
+    },
+    async handler({ services, args }) {
+      const result = await services.diary.read(args);
+      return {
+        text: result.exists ? result.text : `No diary entry for ${result.date}.`,
+        data: { filePath: result.filePath, date: result.date, exists: result.exists },
+      };
+    },
+  },
+  {
+    name: "cyberboss_diary_edit",
+    description: "Revise a passage she already wrote in the local diary.",
+    shortHint: "Replace an exact passage in one diary day.",
+    topics: ["diary"],
+    inputSchema: {
+      type: "object",
+      required: ["find"],
+      properties: {
+        date: { type: "string", description: "Date in YYYY-MM-DD. Defaults to today." },
+        find: { type: "string", description: "Exact existing passage. Must match exactly once." },
+        replace: { type: "string", description: "Replacement text. Omit or leave empty to delete the passage." },
+      },
+      additionalProperties: false,
+    },
+    async handler({ services, args }) {
+      const result = await services.diary.edit(args);
+      return {
+        text: `${result.removed ? "Removed" : "Revised"} one passage in ${result.date}.`,
+        data: result,
+      };
+    },
+  },
+  {
     name: "cyberboss_reminder",
     description: "Manage reminders in Cyberboss with a command field.",
     shortHint: "Create, update, or delete a reminder by command.",

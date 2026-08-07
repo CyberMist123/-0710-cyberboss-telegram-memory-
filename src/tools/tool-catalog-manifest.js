@@ -4,7 +4,16 @@ const { envFlagEnabled } = require("../core/env-flag");
 
 const CATEGORIES = ["memory", "tool", "mcp", "skill"];
 const RESIDENT_NAMES = ["cyberboss_system_send", "cyberboss_time"];
-const TOOLSETS = { "chat-core@1": ["memory_lookup", "memory_note", "cyberboss_reminder", "cyberboss_diary_append", "cyberboss_system_send", "cyberboss_time"] };
+// The toolset is the fail-closed authorization whitelist: a tool outside it is
+// visible in the catalog but refused at call time. The diary is hers, so
+// reading and revising it belong on the same footing as writing it.
+const TOOLSETS = {
+  "chat-core@1": [
+    "memory_lookup", "memory_note", "cyberboss_reminder",
+    "cyberboss_diary_append", "cyberboss_diary_read", "cyberboss_diary_edit",
+    "cyberboss_system_send", "cyberboss_time",
+  ],
+};
 const TOOL_THEMES = Object.freeze({
   github_repo_create: "工程派活", github_file_upload: "工程派活", github_issue_open: "工程派活", github_pr_open: "工程派活",
   route1_dispatch: "工程派活", route1_task_status: "工程派活", route1_task_result: "工程派活",
@@ -12,6 +21,7 @@ const TOOL_THEMES = Object.freeze({
   location_debug_snapshot: "感知", location_event_dashboard: "感知",
   memory_note: "记忆", memory_lookup: "记忆", memory_candidate_submit: "记忆",
   cyberboss_time: "感知", cyberboss_diary_append: "生活记录", cyberboss_reminder: "生活记录",
+  cyberboss_diary_read: "生活记录", cyberboss_diary_edit: "生活记录",
   cyberboss_system_send: "表达行动", cyberboss_sleep_mode: "作息", weather: "感知",
   cyberboss_channel_send_file: "表达行动", cyberboss_telegram_send: "表达行动",
   cyberboss_telegram_send_file: "表达行动", cyberboss_telegram_send_voice: "表达行动",
@@ -43,6 +53,9 @@ const CATALOG_INPUT_SCHEMA = Object.freeze({
 const TOOL_RISKS = Object.freeze({
   memory_lookup: "read", memory_note: "append", memory_candidate_submit: "append",
   cyberboss_channel_send_file: "send", cyberboss_diary_append: "append", cyberboss_reminder: "append",
+  // Reading her own diary back is a read; revising a passage she already wrote
+  // rewrites a file in place, which is the same risk class as sticker_update.
+  cyberboss_diary_read: "read", cyberboss_diary_edit: "mutate",
   cyberboss_sleep_mode: "mutate", cyberboss_sticker_delete: "mutate", cyberboss_sticker_pick: "read",
   cyberboss_sticker_save_from_inbox: "append", cyberboss_sticker_send: "send", cyberboss_sticker_tags: "read",
   cyberboss_sticker_update: "mutate", cyberboss_system_send: "send", cyberboss_telegram_send: "send",

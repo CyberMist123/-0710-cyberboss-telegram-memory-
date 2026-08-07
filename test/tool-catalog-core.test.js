@@ -24,7 +24,7 @@ const themeSnapshot = [
   "表达行动(8)   想跟你说话、发文件、发语音、发贴纸时来这——她伸出手的那一面",
   "感知(7)   你和世界的状态：天气、位置；将来健康、手机使用、可穿戴、日常活动 MCP 全进这",
   "记忆(2)   翻过去（Episodes/账本都从这个把手进）、留笔记",
-  "生活记录(2)   记日记、设提醒",
+  "生活记录(4)   记日记、设提醒",
   "作息(1)   睡眠模式",
   "工程派活(4)   GitHub 操作；将来 Route 1 派工程车也在这",
   "维护调试(3)   平时不碰",
@@ -449,8 +449,10 @@ test("T-B catalog on/off context swing stays at three broadcast tools", () => {
   const resident = buildResidentCatalog();
   assert.equal(resident.totals.resident_item_count, 3);
   assert.equal(resident.totals.resident_schema_chars, 373);
-  // 15810 -> 12962：移除时间线工具包后的全量面。常驻面本身（3 项 / 373 字）未变。
-  assert.equal(resident.full_surface.schema_chars, 12962);
+  // 15810 -> 12962：移除时间线工具包后的全量面。
+  // 12962 -> 13459：日记补上 read/edit 两个工具（她此前只能写、读不回来）。
+  // 常驻面本身（3 项 / 373 字）未变——这正是目录化要守住的那个数。
+  assert.equal(resident.full_surface.schema_chars, 13459);
 });
 
 test("manifest policy and privacy canary are explicit and private-text-free", () => withEnv({ CATALOG_TEST_SECRET: plantedValue, CYBERBOSS_SUBJECT_SIGNING_ENABLED: undefined }, () => {

@@ -6,7 +6,7 @@
       "item_count": 4
     },
     "tool": {
-      "item_count": 32
+      "item_count": 34
     },
     "mcp": {
       "item_count": 5
@@ -26,7 +26,7 @@
       "item_count": 2
     },
     "生活记录": {
-      "item_count": 2
+      "item_count": 4
     },
     "作息": {
       "item_count": 1
@@ -190,6 +190,34 @@
       "schema_chars": 349,
       "schema_bytes": 349,
       "description_chars": 46,
+      "has_max_result_bytes": false,
+      "max_result_bytes": null
+    },
+    {
+      "category": "tool",
+      "theme": "生活记录",
+      "name": "cyberboss_diary_edit",
+      "namespace": "cyberboss",
+      "hidden": false,
+      "deprecated": false,
+      "alias_of": null,
+      "schema_chars": 356,
+      "schema_bytes": 356,
+      "description_chars": 42,
+      "has_max_result_bytes": false,
+      "max_result_bytes": null
+    },
+    {
+      "category": "tool",
+      "theme": "生活记录",
+      "name": "cyberboss_diary_read",
+      "namespace": "cyberboss",
+      "hidden": false,
+      "deprecated": false,
+      "alias_of": null,
+      "schema_chars": 141,
+      "schema_bytes": 141,
+      "description_chars": 25,
       "has_max_result_bytes": false,
       "max_result_bytes": null
     },
@@ -615,12 +643,12 @@
     }
   ],
   "totals": {
-    "item_count": 41,
-    "schema_chars": 12962,
-    "schema_bytes": 12978,
-    "catalog_chars": 10998,
-    "catalog_bytes": 11278
+    "item_count": 43,
+    "schema_chars": 13459,
+    "schema_bytes": 13475,
+    "catalog_chars": 11504,
+    "catalog_bytes": 11800
   },
-  "items_hash": "sha256:90bd5597f0643d5835ece9c018a1923eb32801a5c2387d51724f4d953fa26a72",
-  "catalog_hash": "sha256:31f3722b8e5fcab72cc7eb0dc5c8ceeee30c6974fc18b9221569b88a9974e415"
+  "items_hash": "sha256:c7b1fbfbdb8de5cb7209147ae979d91840a3c83ec79774f062f8cc919cf89739",
+  "catalog_hash": "sha256:320d04f608b5fdca8599b2d79fe9d75123de537a4bd9672fd2d0cd3efd24ff2b"
 }
