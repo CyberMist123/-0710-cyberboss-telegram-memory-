@@ -60,7 +60,7 @@ token 求和公式抽成 `events.js` 的 `summarizeUsageTokens`，事件流与 t
 ## 真机验收（Owner 在场，2026-08-07）
 
 ```
-📁 workspace: C:\Users\18717\Documents\cyberlink
+📁 workspace: <CYBERLINK_ROOT>            ← 真机输出为绝对路径，此处按可移植性规则改写
 🧵 thread: f576654b-4d1a-4b84-ae16-d8348ca3e710
 💤 status: idle · 空闲
 🧠 runtime: claudecode
