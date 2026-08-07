@@ -141,23 +141,33 @@ function truncateCommand(text, maxLines = 6, maxLineLength = 100) {
   return result;
 }
 
-function normalizeClaudeContextPayload(message, raw) {
-  const usage = raw?.message?.usage && typeof raw.message.usage === "object"
-    ? raw.message.usage
-    : (message?.usage && typeof message.usage === "object" ? message.usage : {});
-  const inputTokens = numberOrZero(usage.input_tokens);
-  const cacheCreationInputTokens = numberOrZero(usage.cache_creation_input_tokens);
-  const cacheReadInputTokens = numberOrZero(usage.cache_read_input_tokens);
-  const outputTokens = numberOrZero(usage.output_tokens);
+// One place that turns a Claude usage block into the number /status prints. The
+// live event stream and the on-disk session transcript both go through here: they
+// describe the same thing, so two copies of the arithmetic would only ever drift.
+function summarizeUsageTokens(usage) {
+  const block = usage && typeof usage === "object" ? usage : {};
+  const inputTokens = numberOrZero(block.input_tokens);
+  const cacheCreationInputTokens = numberOrZero(block.cache_creation_input_tokens);
+  const cacheReadInputTokens = numberOrZero(block.cache_read_input_tokens);
+  const outputTokens = numberOrZero(block.output_tokens);
   return {
-    runtimeId: "claudecode",
-    threadId: normalizeString(message?.sessionId),
-    turnId: normalizeString(message?.turnId),
     inputTokens,
     cacheCreationInputTokens,
     cacheReadInputTokens,
     outputTokens,
     currentTokens: inputTokens + cacheCreationInputTokens + cacheReadInputTokens + outputTokens,
+  };
+}
+
+function normalizeClaudeContextPayload(message, raw) {
+  const usage = raw?.message?.usage && typeof raw.message.usage === "object"
+    ? raw.message.usage
+    : (message?.usage && typeof message.usage === "object" ? message.usage : {});
+  return {
+    runtimeId: "claudecode",
+    threadId: normalizeString(message?.sessionId),
+    turnId: normalizeString(message?.turnId),
+    ...summarizeUsageTokens(usage),
   };
 }
 
@@ -169,4 +179,4 @@ function numberOrZero(value) {
   return Number.isFinite(Number(value)) ? Number(value) : 0;
 }
 
-module.exports = { mapClaudeCodeMessageToRuntimeEvent };
+module.exports = { mapClaudeCodeMessageToRuntimeEvent, summarizeUsageTokens };

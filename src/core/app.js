@@ -43,6 +43,7 @@ const {
   normalizeEffort,
   resolveEffortLevel,
 } = require("../adapters/runtime/claudecode/process-client");
+const { readSessionContextUsage } = require("../adapters/runtime/claudecode/session-transcript");
 const { CheckinConfigStore, parseCheckinRangeMinutes, resolveDefaultCheckinRange } = require("./checkin-config-store");
 const { resolvePreferredSenderId, resolvePreferredWorkspaceRoot } = require("./default-targets");
 const { StreamDelivery, createSystemReplyPolicy, resolveSystemReplyDelivery } = require("./stream-delivery");
@@ -2158,6 +2159,23 @@ class CyberbossApp {
     };
   }
 
+  // Read the live context usage for a thread out of the runtime's own session
+  // transcript. claudecode only; returns null whenever it cannot be established,
+  // so every caller keeps its previous fallback.
+  resolveSessionContextUsage({ runtimeName, threadId, lane }) {
+    if (runtimeName !== "claudecode" || !threadId) {
+      return null;
+    }
+    const configRoot = this.resolveLaunchProfileForLane?.(lane)?.configRoot
+      || process.env.CLAUDE_CONFIG_DIR
+      || "";
+    if (!configRoot) {
+      return null;
+    }
+    const usage = readSessionContextUsage({ configRoot, sessionId: threadId });
+    return usage ? { ...usage, runtimeId: runtimeName } : null;
+  }
+
   async handleStatusCommand(normalized) {
     const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
       workspaceId: normalized.workspaceId,
@@ -2170,9 +2188,17 @@ class CyberbossApp {
     const threadId = resolveRouteSessionFor(this, { bindingKey, workspaceRoot, lane: commandLane, normalized }).threadId;
     const threadState = threadId ? this.threadStateStore.getThreadState(threadId) : null;
     const runtimeName = this.runtimeAdapter.describe().id || "runtime";
-    const context = threadState?.context?.runtimeId === runtimeName
-      ? threadState.context
-      : this.threadStateStore.getLatestContext(runtimeName);
+    // The in-memory reading exists only from the moment the child last answered
+    // something, and it does not survive a bot restart — after one, /status showed
+    // nothing until the Owner sent another message. Claude Code's own session
+    // transcript does survive, and a relaunch is `--resume` of that same
+    // transcript, so its last recorded usage is what the *current* child is
+    // carrying. Prefer it; fall back to the in-memory reading when it cannot be
+    // read (other runtimes, no profile, unreadable file).
+    const context = this.resolveSessionContextUsage({ runtimeName, threadId, lane: commandLane })
+      || (threadState?.context?.runtimeId === runtimeName
+        ? threadState.context
+        : this.threadStateStore.getLatestContext(runtimeName));
     const runtimeParams = sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
     const storedModelProvider = runtimeParams.modelProvider || this.runtimeAdapter.describe().modelProvider || "";
     const effectiveModel = this.resolveWindowScopedRuntimeParam("model", {
@@ -4227,6 +4253,27 @@ function describeThreadStatus(status) {
   return gloss ? `${token} · ${gloss}` : token;
 }
 
+// The figure is always "as of the last message the child answered" — nothing
+// measures it continuously. Stamping it keeps that honest instead of letting a
+// number from before a relaunch read as a live one. Omitted when the source did
+// not carry a timestamp, rather than guessing "now".
+function formatContextAsOf(at) {
+  const stamp = Number(at);
+  if (!Number.isFinite(stamp) || stamp <= 0) {
+    return "";
+  }
+  const seconds = Math.max(0, Math.floor((Date.now() - stamp) / 1000));
+  if (seconds < 60) {
+    return ` | ${seconds}s ago`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return ` | ${minutes}m ago`;
+  }
+  const hours = Math.floor(minutes / 60);
+  return ` | ${hours}h ago`;
+}
+
 function formatContextStatusLine({ runtimeName, context, claudeContextWindow, claudeMaxOutputTokens }) {
   if (runtimeName === "claudecode") {
     const configuredWindow = Number(claudeContextWindow);
@@ -4242,10 +4289,11 @@ function formatContextStatusLine({ runtimeName, context, claudeContextWindow, cl
       return "📦 context: unavailable";
     }
     const summary = formatContextUsage(Number(context.currentTokens), availableMessageWindow);
+    const asOf = formatContextAsOf(context.at);
     if (reservedOutputTokens > 0) {
-      return `📦 context: approx ${summary} | reserve ${formatCompactNumber(reservedOutputTokens)}`;
+      return `📦 context: approx ${summary} | reserve ${formatCompactNumber(reservedOutputTokens)}${asOf}`;
     }
-    return `📦 context: approx ${summary}`;
+    return `📦 context: approx ${summary}${asOf}`;
   }
   if (!context) {
     return "📦 context: unavailable";
