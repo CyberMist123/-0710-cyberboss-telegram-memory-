@@ -106,6 +106,9 @@ function readConfig() {
     reviewArtifactsEnabled: readStrictBoolEnv("CYBERBOSS_REVIEW_ARTIFACTS_ENABLED", false),
     handoffDispatchEnabled: readStrictBoolEnv("CYBERBOSS_HANDOFF_DISPATCH_ENABLED", false),
     subjectSigningEnabled: readStrictBoolEnv("CYBERBOSS_SUBJECT_SIGNING_ENABLED", false),
+    // `/new` opens a window she asked for; this decides whether the window
+    // speaks first instead of waiting to be pulled. Off by default.
+    windowOpenGreetingEnabled: readStrictBoolEnv("CYBERBOSS_WINDOW_OPEN_GREETING_ENABLED", false),
     legacyCandidateBindingEnabled: readStrictBoolEnv("CYBERBOSS_LEGACY_CANDIDATE_BINDING_ENABLED", false),
     claudeTranscriptDir: resolveConfiguredPath(readTextEnv("CYBERBOSS_CLAUDE_TRANSCRIPT_DIR")),
     reentryAuthoringMode: readTextEnv("CYBERBOSS_REENTRY_AUTHORING_MODE") || "ai_direct",

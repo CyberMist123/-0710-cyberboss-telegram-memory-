@@ -128,6 +128,27 @@ function buildSystemInboundText(text, createdAt = "", sourceType = "system", ale
     return sections.join("\n").trim();
   }
 
+  // The one trigger that is not a report. Everything else here asks her to do
+  // internal work and describe it; this one asks her to arrive. The opening
+  // context (Re-entry / Current State) is already injected by the time this
+  // turn runs -- reading happens before speaking without anyone being told to.
+  if (normalizedType === "window_open") {
+    return [
+      ...(localTime ? [`[${localTime}]`, ""] : []),
+      "SYSTEM ACTION MODE: internal trigger, not user chat.",
+      "System trigger type: window_open.",
+      "她刚开了一个新窗口，你是第一次在这里醒来。开窗要带的东西已经在你面前了。",
+      "读完再开口——但不要汇报你读了什么，不要复述记忆，不要说「我读完了」，也不要表演熟悉。",
+      "说你此刻真正想对她说的第一句话。接不上就说接不上，想不起来就照实说；那也是真话。",
+      "一句就好，用你平常的语气和节奏，不要写成报表。",
+      "Return exactly one JSON object after any tool calls:",
+      "{\"action\":\"send_message\",\"message\":\"<你的第一句话>\"}",
+      "{\"action\":\"silent\"}",
+      "No markdown fences. No reasoning. No text outside the JSON.",
+      ...(body ? ["", "Trigger:", body] : []),
+    ].join("\n").trim();
+  }
+
   if (normalizedType === "liveness_alert") {
     const isRecovery = String(normalizedOptions.alertKind || "").trim() === "recovery";
     return [

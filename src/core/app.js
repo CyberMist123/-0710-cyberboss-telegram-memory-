@@ -52,7 +52,7 @@ const { ContextTraceRecorder, hashThreadId } = require("./context-trace");
 const { DeferredSystemReplyStore } = require("./deferred-system-reply-store");
 const { SystemMessageQueueStore } = require("./system-message-queue-store");
 const { SystemMessageDispatcher } = require("./system-message-dispatcher");
-const { writeActivityPauseState } = require("./activity-pause-state");
+const { writeActivityPauseState, isActivityPaused } = require("./activity-pause-state");
 const { readWatchdogHealth, formatWatchdogStatusLine } = require("./watchdog-health");
 const { TurnGateStore } = require("./turn-gate-store");
 const { ReminderQueueStore } = require("../adapters/channel/weixin/reminder-queue-store");
@@ -2421,6 +2421,49 @@ class CyberbossApp {
       contextToken: normalized.contextToken,
       ...outboundThreadIdField(normalized),
     });
+    // Optional-called: `handleNewCommand` is driven by fixtures that assemble a
+    // plain object carrying only the prototype methods under test, and a hard
+    // `this.`-call here fails the whole command rather than just the greeting.
+    this.enqueueWindowOpenGreetingFailOpen?.(normalized, workspaceRoot);
+  }
+
+  /**
+   * Let the new window speak first.
+   *
+   * Only `/new` reaches here, and `/new` is something she typed -- that is the
+   * whole gate on "is this a new window". Process restarts, TTL recycling and
+   * route2 escalation all open fresh sessions too, and a greeting on any of
+   * those would be noise she never asked for.
+   *
+   * The turn itself is the existing system-message path (the same one the
+   * hourly desire tick uses), so the opening context is injected exactly as it
+   * would be for any first turn: she reads before she speaks without anyone
+   * having to orchestrate it.
+   *
+   * Fail-open: a greeting that cannot be queued must not cost her the `/new`.
+   */
+  enqueueWindowOpenGreetingFailOpen(normalized, workspaceRoot) {
+    if (this.config.windowOpenGreetingEnabled !== true) return null;
+    try {
+      // `/pause_heartbeat` means "stop speaking to me on your own". A greeting
+      // is exactly that, so it honours the same latch. Night-skip deliberately
+      // does not apply: she typed the command, the hour is her business.
+      if (isActivityPaused(this.config.activityPauseFile)) return null;
+      const senderId = normalizeText(normalized?.senderId);
+      if (!senderId || !workspaceRoot || !this.systemMessageQueue) return null;
+      return this.systemMessageQueue.enqueue({
+        id: `window-open:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+        accountId: this.activeAccountId || normalized.accountId,
+        senderId,
+        workspaceRoot,
+        text: "",
+        sourceType: "window_open",
+        createdAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.warn(`[cyberboss] window-open greeting skipped: ${error?.message || String(error)}`);
+      return null;
+    }
   }
 
   async handleRereadCommand(normalized) {
