@@ -154,6 +154,6 @@ test("/status renders the watchdog line and human-readable idle state", async ()
   });
 
   assert.match(sent[0], /🐕 watchdog: alive$/m);
-  assert.match(sent[0], /📊 status: idle · 空闲，这条 lane 没有正在跑的回合/);
+  assert.match(sent[0], /💤 status: idle · 空闲/);
   fs.rmSync(dir, { recursive: true, force: true });
 });

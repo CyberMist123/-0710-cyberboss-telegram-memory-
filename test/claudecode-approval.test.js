@@ -2116,10 +2116,10 @@ test("handleStatusCommand never prints an empty effort", async () => {
 // Owner could not tell whether "idle" described the lane or described her.
 test("handleStatusCommand glosses the thread status token in plain language", async () => {
   const cases = [
-    ["idle", /📊 status: idle · 空闲，这条 lane 没有正在跑的回合/],
-    ["running", /📊 status: running · 正在跑一个回合/],
-    ["waiting_approval", /📊 status: waiting_approval · 卡在等你批准/],
-    ["failed", /📊 status: failed · 上一个回合失败了/],
+    ["idle", /💤 status: idle · 空闲/],
+    ["running", /🟢 status: running · 运行中/],
+    ["waiting_approval", /✋ status: waiting_approval · 等你批准/],
+    ["failed", /❌ status: failed · 上一轮失败/],
   ];
   for (const [status, expected] of cases) {
     const sent = [];
@@ -2147,7 +2147,9 @@ test("handleStatusCommand passes an unknown status token through rather than mis
 
   await CyberbossApp.prototype.handleStatusCommand.call(withAppPrototype(appLike), STATUS_NORMALIZED);
 
+  // Unknown token: neutral icon, and the token itself rather than a wrong gloss.
   assert.match(sent[0], /📊 status: some_future_state$/m);
+  assert.doesNotMatch(sent[0], /provider/);
 });
 
 // ---------------------------------------------------------------------------

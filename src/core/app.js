@@ -2234,7 +2234,6 @@ class CyberbossApp {
       senderId: normalized.senderId,
     });
     const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
-    const sessionStore = this.runtimeAdapter.getSessionStore();
     const commandLane = resolveRouteLaneFor(normalized, bindingKey);
     const threadId = resolveRouteSessionFor(this, { bindingKey, workspaceRoot, lane: commandLane, normalized }).threadId;
     const threadState = threadId ? this.threadStateStore.getThreadState(threadId) : null;
@@ -2250,8 +2249,6 @@ class CyberbossApp {
       || (threadState?.context?.runtimeId === runtimeName
         ? threadState.context
         : this.threadStateStore.getLatestContext(runtimeName));
-    const runtimeParams = sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
-    const storedModelProvider = runtimeParams.modelProvider || this.runtimeAdapter.describe().modelProvider || "";
     const effectiveModel = this.resolveWindowScopedRuntimeParam("model", {
       bindingKey, workspaceRoot, lane: commandLane, senderId: normalized.senderId,
     }).value || this.runtimeAdapter.describe().model || "";
@@ -2261,16 +2258,19 @@ class CyberbossApp {
       bindingKey, workspaceRoot, lane: commandLane, senderId: normalized.senderId,
     }).value);
 
+    // One icon per line, each one meaning something different — the old block ran
+    // 🤖 three times over runtime/model/provider, so nothing stood out. `provider`
+    // is gone entirely (Owner 2026-08-07): it restated the runtime and was
+    // "(default)" in every real reading.
     const lines = [
-      `📍 workspace: ${workspaceRoot}`,
+      `📁 workspace: ${workspaceRoot}`,
       // Empty thread/status are honest cold-start values, not bugs: render them as
       // plain language while leaving the underlying value tokens intact.
       `🧵 thread: ${threadId || "(none · 尚未绑定线程)"}`,
-      `📊 status: ${describeThreadStatus(threadState?.status)}`,
-      `🤖 runtime: ${runtimeName}`,
+      `${threadStatusIcon(threadState?.status)} status: ${describeThreadStatus(threadState?.status)}`,
+      `🧠 runtime: ${runtimeName}`,
       `🤖 model: ${effectiveModel || "(default)"}`,
       `⚡ effort: ${effectiveEffort}`,
-      `🤖 provider: ${storedModelProvider || "(default)"}`,
     ];
     lines.push(formatContextStatusLine({
       runtimeName,
@@ -4293,10 +4293,19 @@ function resolveDesireAvailableActionsSafe(app) {
 // (2026-08-06 Owner report). Unknown tokens pass through untranslated rather than
 // being flattened into a wrong gloss.
 const THREAD_STATUS_GLOSS = {
-  idle: "空闲，这条 lane 没有正在跑的回合",
-  running: "正在跑一个回合",
-  waiting_approval: "卡在等你批准",
-  failed: "上一个回合失败了",
+  idle: "空闲",
+  running: "运行中",
+  waiting_approval: "等你批准",
+  failed: "上一轮失败",
+};
+
+// The status line carries its own state as the icon, so the state is legible
+// before the words are read. Unknown tokens keep the neutral one.
+const THREAD_STATUS_ICON = {
+  idle: "💤",
+  running: "🟢",
+  waiting_approval: "✋",
+  failed: "❌",
 };
 
 function describeThreadStatus(status) {
@@ -4306,6 +4315,11 @@ function describeThreadStatus(status) {
   }
   const gloss = THREAD_STATUS_GLOSS[token];
   return gloss ? `${token} · ${gloss}` : token;
+}
+
+function threadStatusIcon(status) {
+  const token = typeof status === "string" ? status.trim() : "";
+  return THREAD_STATUS_ICON[token || "idle"] || "📊";
 }
 
 function formatContextStatusLine({ runtimeName, context, claudeContextWindow, claudeMaxOutputTokens }) {
