@@ -10,6 +10,7 @@ const { CyberbossApp } = require("../src/core/app");
 const { readConfig } = require("../src/core/config");
 const { buildSystemInboundText } = require("../src/core/system-message-dispatcher");
 const { writeActivityPauseState } = require("../src/core/activity-pause-state");
+const { SystemMessageQueueStore } = require("../src/core/system-message-queue-store");
 
 const WORKSPACE = "C:\\fixture\\workspace";
 
@@ -80,6 +81,31 @@ test("a queue that throws costs her the greeting, never the /new", () => {
   };
   assert.doesNotThrow(() => app.enqueueWindowOpenGreetingFailOpen(INBOUND, WORKSPACE));
   assert.equal(app.enqueueWindowOpenGreetingFailOpen(INBOUND, WORKSPACE), null);
+});
+
+// The first version of this feature shipped broken and the fake queue above is
+// why: it accepted anything, while the real store rejects a message with an
+// empty body outright. Production logged `window-open greeting skipped: invalid
+// system message` and she never heard a word. Drive the real store.
+test("the queued trigger survives the real queue store's own validation", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-greeting-queue-"));
+  const store = new SystemMessageQueueStore({ filePath: path.join(dir, "system-message-queue.json") });
+  const app = {
+    config: { windowOpenGreetingEnabled: true, activityPauseFile: "" },
+    activeAccountId: "telegram",
+    systemMessageQueue: store,
+    enqueueWindowOpenGreetingFailOpen: CyberbossApp.prototype.enqueueWindowOpenGreetingFailOpen,
+  };
+
+  const queued = app.enqueueWindowOpenGreetingFailOpen(INBOUND, WORKSPACE);
+  assert.ok(queued, "the real store must accept the trigger, not reject it");
+
+  const pending = store.listForAccount ? store.listForAccount("telegram") : store.state.messages;
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].sourceType, "window_open");
+  assert.match(pending[0].text, /\S/u, "an empty body is what the store rejects");
+
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test("the window-open trigger asks her to arrive, not to file a report", () => {

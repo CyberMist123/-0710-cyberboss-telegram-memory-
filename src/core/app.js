@@ -2456,7 +2456,10 @@ class CyberbossApp {
         accountId: this.activeAccountId || normalized.accountId,
         senderId,
         workspaceRoot,
-        text: "",
+        // The store rejects an empty body outright, so the trigger needs one
+        // even though `window_open` carries its whole instruction in the
+        // dispatcher. It lands under "Trigger:" at the end of that block.
+        text: "她刚敲了 /new，这是这个窗口的第一轮。",
         sourceType: "window_open",
         createdAt: new Date().toISOString(),
       });
