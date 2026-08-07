@@ -25,24 +25,23 @@ test("empty lookup is honest and only documented triggers are accepted", () => {
   const empty = service.lookup({ query: "missing", trigger: "user_pull", reason: "explicit question" }, context());
   assert.deepEqual(empty.hits, []);
   assert.equal(empty.empty, true);
-  assert.equal(empty.budget_left, 4);
+  assert.equal(empty.budget_left, null);
   assert.deepEqual(service.lookup({ query: "memory", trigger: "unknown", reason: "not allowed" }, context()), { error: "invalid_trigger" });
   const logs = readJsonl(path.join(root, "recall_log.jsonl"));
   assert.equal(logs.length, 1);
   assert.equal(logs[0].trigger, "user_pull");
 });
 
-test("resonance and stakes share one persisted session budget while repair remains fault-guarded", () => {
+test("memory lookup is uncapped for every trigger and survives restart (D39)", () => {
   const { root, service } = fixture([{ ep_id: "ep-1", body: "resonant old thread" }]);
-  const first = service.lookup({ query: "resonant", trigger: "resonance", reason: "fixture" }, context());
-  assert.equal(first.error, undefined);
-  assert.deepEqual(service.lookup({ query: "resonant", trigger: "stakes", reason: "fixture" }, context()), { error: "budget_exhausted" });
-  for (let index = 0; index < 4; index += 1) {
+  for (const trigger of ["resonance", "stakes", "repair", "user_pull"]) {
+    assert.equal(service.lookup({ query: "resonant", trigger, reason: "fixture" }, context()).error, undefined);
+  }
+  for (let index = 0; index < 10; index += 1) {
     assert.equal(service.lookup({ query: "resonant", trigger: "repair", reason: "fixture" }, context()).error, undefined);
   }
-  assert.deepEqual(service.lookup({ query: "resonant", trigger: "repair", reason: "fixture" }, context()), { error: "budget_exhausted" });
   const restarted = new MemoryLookupService({ continuityDir: root });
-  assert.deepEqual(restarted.lookup({ query: "resonant", trigger: "resonance", reason: "fixture" }, context()), { error: "budget_exhausted" });
+  assert.equal(restarted.lookup({ query: "resonant", trigger: "resonance", reason: "fixture" }, context()).error, undefined);
   assert.deepEqual(readJsonl(path.join(root, "recall_log.jsonl")).slice(0, 2).map((row) => row.trigger), ["resonance", "stakes"]);
 });
 
@@ -59,25 +58,14 @@ test("lookup searches relationship timeline and topic aliases without reading hi
   assert.match(result.hits[0].body, /老桥/u);
 });
 
-test("session budget is channel+account+thread scoped and survives restart", () => {
+test("user_pull lookups never exhaust, across restart and scopes (D39)", () => {
   const { root, service } = fixture([]);
-  for (let index = 0; index < 5; index += 1) {
+  for (let index = 0; index < 12; index += 1) {
     assert.equal(service.lookup({ query: "none", trigger: "user_pull", reason: "fixture" }, context()).error, undefined);
   }
   const restarted = new MemoryLookupService({ continuityDir: root });
-  assert.deepEqual(restarted.lookup({ query: "none", trigger: "user_pull", reason: "fixture" }, context()), { error: "budget_exhausted" });
-  assert.notEqual(restarted.lookup(
-    { query: "none", trigger: "user_pull", reason: "fixture" },
-    context({ provider: "weixin" }),
-  ).error, "budget_exhausted");
-  assert.notEqual(restarted.lookup(
-    { query: "none", trigger: "user_pull", reason: "fixture" },
-    context({ accountId: "account-2" }),
-  ).error, "budget_exhausted");
-  assert.notEqual(restarted.lookup(
-    { query: "none", trigger: "user_pull", reason: "fixture" },
-    context({ threadId: "thread-2" }),
-  ).error, "budget_exhausted");
+  assert.equal(restarted.lookup({ query: "none", trigger: "user_pull", reason: "fixture" }, context()).error, undefined);
+  assert.equal(restarted.lookup({ query: "none", trigger: "user_pull", reason: "fixture" }, context({ provider: "weixin" })).error, undefined);
 });
 
 test("lookup is capped, truncates bodies, and returns superseding corrections together", () => {

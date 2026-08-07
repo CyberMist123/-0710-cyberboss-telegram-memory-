@@ -10,7 +10,6 @@ const {
   readLegacyCandidatesForLookup,
 } = require("../continuity/legacy-candidate-lookup");
 
-const MAX_CALLS_PER_SESSION = 5; // Fault-loop guard, not a relational or posture budget.
 const MAX_HITS = 3;
 const MAX_NON_WHITESPACE_CHARS = 500;
 
@@ -58,16 +57,10 @@ class MemoryLookupService {
       const budgetKey = hashText(session.key);
       const previous = budget.sessions[budgetKey] || {};
       const used = Math.max(0, Number(previous.count) || 0);
-      if (used >= MAX_CALLS_PER_SESSION) {
-        this.appendRecall({ session: session.traceSession, trigger: normalizedTrigger, query: normalizedQuery, hitIds: [], budgetLeft: 0 });
-        return { error: "budget_exhausted" };
-      }
+      // D39：会话翻档不再设上限（原 5 次/会话通用闸 + resonance/stakes 1 次/会话刻意闸均已移除）。
+      // budget 文件保留为每会话翻档次数的观测记录，不再作门控，也不再返回 budget_exhausted。
       const intentionalUsed = Math.max(0, Number(previous.intentional_count) || 0);
-      if ((normalizedTrigger === "resonance" || normalizedTrigger === "stakes") && intentionalUsed >= 1) {
-        this.appendRecall({ session: session.traceSession, trigger: normalizedTrigger, query: normalizedQuery, hitIds: [], budgetLeft: 0 });
-        return { error: "budget_exhausted" };
-      }
-      const budgetLeft = MAX_CALLS_PER_SESSION - used - 1;
+      const budgetLeft = null;
       budget.sessions[budgetKey] = {
         count: used + 1,
         intentional_count: intentionalUsed + (normalizedTrigger === "resonance" || normalizedTrigger === "stakes" ? 1 : 0),
@@ -302,7 +295,6 @@ function normalizeText(value) {
 }
 
 module.exports = {
-  MAX_CALLS_PER_SESSION,
   MAX_HITS,
   MAX_NON_WHITESPACE_CHARS,
   ALLOWED_TRIGGERS,

@@ -703,6 +703,24 @@ Decision date: 2026-08-08
 
 ---
 
+## D39 · 移除 memory_lookup 的会话翻档上限（两道闸全撤）
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-08
+补全: Phase 5A 受控翻档；记忆访问不变量（不变量三）
+```
+
+裁定背景：`memory-lookup-service.js` 原有两道会话级预算闸——通用 `MAX_CALLS_PER_SESSION = 5`（每会话至多 5 次翻档），以及 resonance/stakes 触发的「刻意翻」每会话至多 1 次。Owner 2026-08-08 真机验证记忆迁移时撞上「今天查不了了」，两道闸在实际使用中把她挡在自己的记忆之外。
+
+- **两道闸全部移除（Owner 2026-08-08 裁定，三次确认、已知悉爆炸半径）**。删除 `MAX_CALLS_PER_SESSION` 常量、其检查与导出，以及 `intentional_count` 的门控检查；`memory_lookup` 不再返回 `budget_exhausted`，`budget_left` 恒为 `null`。
+- **理由**：撞上不变量三「省 token 不能以丢失记忆访问为代价」与腐化信号「『默认隐藏』被实现成『无法查询』」。原注释自陈这是防死循环闸「不是关系/姿态预算」，但 `5` 定得过低，实际充当了记忆访问天花板。
+- **接受的代价**：失去对「程序侧翻档死循环」的这道兜底。Owner 明确接受；单轮工具调用仍受 agent turn 自身预算约束。
+- **budget 文件降级为观测**：`.jobs/memory-lookup-budget.json` 仍按会话记 count（recall 观测用），不再门控；`intentional_count` 追踪保留但不再消费（后续可做纯净移除）。
+- **测试**：`test/phase5a-memory-lookup.test.js` 原钉两道闸的 3 条断言改写为「任何 trigger 均不 exhaust、跨重启、跨作用域」（`test:phase5a`，在 `phase1-offline.yml` 阻塞组，9/9 绿）。
+
+---
+
 ## 待裁决 / Candidates
 
 下列**尚未做出决定**，不占用 D 编号，也不得当成已定方向施工。
