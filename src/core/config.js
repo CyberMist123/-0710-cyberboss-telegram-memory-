@@ -24,6 +24,17 @@ function readConfig() {
   // 行 env 就整体切换（仓库纪律：新能力默认关、关闭时逐字兼容）。
   const chatAssetsDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_CHAT_ASSETS_DIR")) || stateDir;
   const diaryDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_DIARY_DIR")) || joinIfBase(chatAssetsDir, "diary");
+  // 三类聊天资产各自的独立根：聊天原文、收到的媒体、表情包。`chatAssetsDir` 只能把
+  // 四类整体指向一处，而 manifest 要把它们分头安置（raw / ledger\media / Fluffy 的
+  // stickers）。不设这三行时各自回落到 chatAssetsDir 的现有派生，与加它们之前逐字节
+  // 一致；设某一行只搬那一类，互不牵连（仓库纪律：新能力默认关、关闭时逐字兼容）。
+  const conversationsDir =
+    resolveConfiguredPath(readTextEnv("CYBERBOSS_CONVERSATIONS_DIR")) || joinIfBase(chatAssetsDir, "conversations");
+  const mediaDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_MEDIA_DIR")) || joinIfBase(chatAssetsDir, "media");
+  // 表情包这一根同时管住素材/索引/标签（见下方 stickerAssetsDir 等）——出口与素材必须
+  // 同根，否则播种闸（sticker-service `ensureStickerCatalogFilesSync` 以 stickersDir 是否
+  // 存在为准）会在出口新建、素材留旧处时早退，表情库瘸掉。模板种子仍留仓库 templates\。
+  const stickersDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_STICKERS_DIR")) || joinIfBase(chatAssetsDir, "stickers");
   // 系统触发提示词的可编辑覆盖目录（一个 sourceType 一个 md）。不设或读不到就
   // 用内置文本，见 `core/trigger-prompts.js`。
   const triggerPromptsDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_TRIGGER_PROMPTS_DIR"));
@@ -69,13 +80,13 @@ function readConfig() {
     deferredSystemReplyQueueFile: joinIfBase(stateDir, "deferred-system-replies.json"),
     checkinConfigFile: joinIfBase(stateDir, "checkin-config.json"),
     sleepWindowFile: joinIfBase(stateDir, "sleep-window.json"),
-    conversationDir: joinIfBase(chatAssetsDir, "conversations"),
+    conversationDir: conversationsDir,
     telegramBotToken: readTextEnv("CYBERBOSS_TELEGRAM_BOT_TOKEN"),
     telegramAllowedUserIds: readListEnv("CYBERBOSS_TELEGRAM_ALLOWED_USER_IDS"),
     telegramStateFile: joinIfBase(stateDir, "telegram-state.json"),
     voiceKitDir: resolveConfiguredPath(readTextEnv("CYBERBOSS_VOICE_KIT_DIR")),
-    voiceMediaDir: joinIfBase(chatAssetsDir, "media", "voice"),
-    photoMediaDir: joinIfBase(chatAssetsDir, "media", "photos"),
+    voiceMediaDir: joinIfBase(mediaDir, "voice"),
+    photoMediaDir: joinIfBase(mediaDir, "photos"),
     mediaInboxMaxBytes: readBoundedIntEnv("CYBERBOSS_MEDIA_INBOX_MAX_BYTES", 20 * 1024 * 1024, 1, 500 * 1024 * 1024),
     localWhisperEnabled,
     localWhisperPythonCommand: readTextEnv("CYBERBOSS_LOCAL_WHISPER_PYTHON") || "python",
@@ -134,10 +145,10 @@ function readConfig() {
     legacyMemoryRetrieval: readBoolEnv("CYBERBOSS_MEMORY_RETRIEVAL"),
     legacyMemoryBackgroundWrite: readBoolEnv("CYBERBOSS_MEMORY_BACKGROUND_WRITE"),
     legacyMemoryReplyTransform: readBoolEnv("CYBERBOSS_MEMORY_REPLY_TRANSFORM"),
-    stickersDir: joinIfBase(chatAssetsDir, "stickers"),
-    stickerAssetsDir: joinIfBase(stateDir, "stickers", "assets"),
-    stickersIndexFile: joinIfBase(stateDir, "stickers", "index.json"),
-    stickerTagsFile: joinIfBase(stateDir, "stickers", "tags.json"),
+    stickersDir,
+    stickerAssetsDir: joinIfBase(stickersDir, "assets"),
+    stickersIndexFile: joinIfBase(stickersDir, "index.json"),
+    stickerTagsFile: joinIfBase(stickersDir, "tags.json"),
     stickersTemplateDir: path.resolve(__dirname, "..", "..", "templates", "stickers"),
     stickersTemplateIndexFile: path.resolve(__dirname, "..", "..", "templates", "stickers", "index.json"),
     stickerTagsTemplateFile: path.resolve(__dirname, "..", "..", "templates", "stickers", "tags.json"),

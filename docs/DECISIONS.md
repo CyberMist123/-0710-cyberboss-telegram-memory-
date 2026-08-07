@@ -687,6 +687,22 @@ Decision date: 2026-08-06
 
 ---
 
+## D38 · 聊天资产按类分根；表情库素材/索引/标签跟随出口同根（逻辑分层，内核不动）
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-08
+补全: 批次 B（CHAT_ASSETS_DIR 单根外置）；Fluffy-SelfHood manifest 的资产归位
+```
+
+裁定背景：memory/continuity 已经 `CYBERBOSS_MEMORY_DIR` / `..._CONTINUITY_DIR` 迁进 `Fluffy-SelfHood\04-memory`（2026-08-07 夜，真机验过）。剩下的聊天资产（聊天原文 / 媒体 / 表情包）此前只能被单一 `CYBERBOSS_CHAT_ASSETS_DIR` 整体指向一处，喂不出 manifest 要的三个不同根（raw / ledger\media / Fluffy 的 stickers）。
+
+- **记忆「分层」定为逻辑分层（选 A，Owner 2026-08-08 裁定）**。记忆文件物理上仍全留 `04-memory` 一根，02/03/04「层」是 `manifest.csv` 记录的概念归属，不物理搬进独立文件夹。理由：`config.js` 的连续性单根不变量（`startup-preflight.js` 强制 `CONTINUITY_DIR == MEMORY_DIR`，单 writer 锁 / closeout / janitor 都扫单目录）是一级不变量，物理分层要解耦它、碰 preflight，风险远高于收益。故 reentry 留 `04-memory\reentry.md`（`config.js` `reentryFile = continuityDir/reentry.md` 不改），diary 由既有 `CYBERBOSS_DIARY_DIR` 覆盖、无需改码。
+- **聊天资产新增三个独立根 env**：`CYBERBOSS_CONVERSATIONS_DIR` / `CYBERBOSS_MEDIA_DIR`（下辖 voice/photos）/ `CYBERBOSS_STICKERS_DIR`。各自缺省回落到 `chatAssetsDir` 的现派生，**不设时逐字节兼容**（回归 `test/chat-assets-dir.test.js` 钉住，在 `test:phase1` 阻塞组）。默认关、按需一行开——符合「新能力默认关」。
+- **表情库素材/索引/标签跟随出口同根（工程窗 item 2 裁决）**。`stickerAssetsDir` / `stickersIndexFile` / `stickerTagsFile` 此前钉死在 `stateDir\stickers\...`，而出口 `stickersDir` 从 `chatAssetsDir` 派生——两者一旦分家，`sticker-service.ensureStickerCatalogFilesSync` 以 `stickersDir` 是否存在为播种闸，会在出口新建、素材留旧处时早退，表情库瘸掉。改为三者全从 `stickersDir` 派生：它们是「她的东西」（存的 gif、目录、标签），机器状态只是 pid/session/cursor/lock。模板种子仍留仓库 `templates\stickers\`（`stickersTemplateDir` 等不动）。生产当前未设 `CHAT_ASSETS_DIR`，故此改动在活配置下逐字节等价。
+
+---
+
 ## 待裁决 / Candidates
 
 下列**尚未做出决定**，不占用 D 编号，也不得当成已定方向施工。
