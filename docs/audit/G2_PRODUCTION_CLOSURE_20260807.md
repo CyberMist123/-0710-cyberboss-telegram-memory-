@@ -1,9 +1,10 @@
 # G2 生产闭环：episode 写链首次真机全链通过
 
 ```text
-Status: audit
+Status: active
 Date: 2026-08-07
 Base SHA: 9060b75（main）；上机 SHA 见下方各次交付
+Audited SHA: 9060b75
 Current authority: docs/CURRENT_STATUS.md
 ```
 
@@ -68,7 +69,7 @@ D35 把候选出处改成主进程随记随取证，但那段只写在 `handleIn
 |---|---|
 | `CYBERBOSS_REVIEW_ARTIFACTS_ENABLED=1` | 任务书批次 A 明列 |
 | `MEM_PROVIDER` / `DS_API_KEY` / `DS_MODEL=deepseek-v4-flash` | Auto Review 模型；同批删去 `CYBERBOSS_AUTO_REVIEW_MODEL=off` |
-| `CYBERBOSS_WINDOW_OPEN_GREETING_ENABLED=1` | `/new` 主动第一句 |
+| `CYBERBOSS_WINDOW_OPEN_GREETING_ENABLED` | `/new` 主动第一句；**当晚发现路由错误后改回 0**——系统消息走独立 sys lane（legacy profile），那句话没有人格也没有开窗上下文，详见 `workdesk\20260807-window-handover-w20.md` |
 | `CYBERBOSS_TRIGGER_PROMPTS_DIR` | 触发提示词可编辑目录 |
 
 **首次跑 Review 的追溯效应**：122 条遗留 deferred 决定一次性 materialize
