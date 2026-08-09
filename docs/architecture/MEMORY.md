@@ -200,6 +200,10 @@ D28 旧后台候选同属第三档：只读 join 原候选与 G2-7 companion，�
 - 不需要每天重建；
 - 原始事件和修正关系始终可追溯。
 
+写入（D43）：候选 type `timeline` 走完整 候选→Review→History 链，History writer 的
+`publishTimeline()` append-only 追加 `relationship_timeline.md`（双 marker 幂等、与其余
+publish 分支共享同一把 writer lease）。事实追加，日期缺失拒发布。
+
 ### Rereadings
 
 保存对旧 Episode 的新理解：
@@ -291,12 +295,17 @@ dispatcher、注入与 ack 回路不由 artifact 物化器实现。
 
 ### Reflect / Consolidation
 
-低频运行，有足够新证据时才做：
+由她自己在触发的对话轮里做，不是后台批处理（D42；`weekly-reflect.js` 的
+runtime.reflect 批处理方向已被取代，代码保留为孤儿）：
 
-- 重新理解旧 Episode；
-- 回读近期 Self-note，发现延续、矛盾或修正；
-- 追加 Rereading；
-- 更新 Timeline 或 Portrait 视图。
+- **整理（consolidation）**：并入八维唤醒菜单——desire_checkin 文本带一句「想安静整理
+  可以翻翻 episodes / 记记账本 / 看看观察池」，她每小时醒来自然有想整理的时候；另有
+  每日专用闹钟（`CYBERBOSS_CONSOLIDATION_TRIGGER_ENABLED`）代码在、默认关。
+- **Reflect（专用敲门，每 N 天）**：`subject-beat-scheduler` 按
+  `CYBERBOSS_REFLECT_INTERVAL_DAYS`（生产 3）敲一次 `sourceType=reflect` 系统触发，
+  只找「跨窗口反复出现」；观察落资产区观察池（一行一条+证据指针，她原生 Write，
+  无发布链），晋升 portrait 的防漂移三闸（重复门槛/证据指针/证据限速）由触发提示词
+  治理。两类节拍都被 `/pause_heartbeat` 总闩管住。
 
 无变化是正常结果。
 
