@@ -121,6 +121,27 @@ test("paused activity and same-source pending messages skip the beat", async () 
   }
 });
 
+// 2026-08-09 真机复盘：到点却没敲成（暂停/重叠）时 next 停在过去，差值取 0 就成了
+// setTimeout(0) 忙转。回归钉住：过期重排必须垫非零延迟。
+test("overdue reschedule uses a non-zero retry delay instead of spinning", async () => {
+  const value = fixture();
+  try {
+    value.config.reflectTriggerEnabled = true;
+    const delays = [];
+    const owner = scheduler(value, {
+      clock: { now: () => Date.parse("2026-08-09T23:00:00Z") },
+      timers: { setTimeout(fn, ms) { delays.push(ms); return delays.length; }, clearTimeout() {} },
+    });
+    writeActivityPauseState(value.config.activityPauseFile, true, { now: Date.parse("2026-08-09T23:00:00Z") });
+    assert.equal(owner.start(), true);
+    assert.equal(delays.length, 1);
+    assert.ok(delays[0] >= 60_000, `expected >=60s retry delay, got ${delays[0]}`);
+    await owner.stop();
+  } finally {
+    cleanup(value.root);
+  }
+});
+
 test("subject beat dispatcher uses override first and otherwise gives non-metric opportunities", () => {
   const consolidation = buildSystemInboundText("到整理节拍了。", "2026-08-09T21:30:00Z", "consolidation", "failure", { promptOverride: "fixture override" });
   assert.match(consolidation, /fixture override/u);

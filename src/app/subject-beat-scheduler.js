@@ -128,10 +128,16 @@ class SubjectBeatScheduler {
         })
         .filter(Number.isFinite);
       const next = candidates.length ? Math.min(...candidates) : Number(now) + this.pollIntervalMs;
+      // 到点却没敲成（暂停中 / 队列重叠 / 目标不可用）时 next 停留在过去，
+      // 差值取 0 会变成 setTimeout(0) 忙转（2026-08-09 真机实测：暂停 14 分钟
+      // 自旋烧了可观 CPU）。过期一律垫 1 分钟重试：敲门不是急事，恢复心跳后
+      // 最多迟到一分钟。
+      const OVERDUE_RETRY_MS = 60_000;
+      const delayMs = next - Number(now);
       this.timer = this.timers.setTimeout(() => {
         this.timer = null;
         void this.runScheduledTick();
-      }, Math.max(0, next - Number(now)));
+      }, delayMs > 0 ? delayMs : OVERDUE_RETRY_MS);
     } catch (error) {
       console.warn(`[automation] subject beat scheduling failed: ${error?.message || String(error)}`);
       this.timer = this.timers.setTimeout(() => {
