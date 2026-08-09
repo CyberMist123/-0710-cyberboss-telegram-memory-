@@ -95,6 +95,7 @@ function buildSystemInboundText(text, createdAt = "", sourceType = "system", ale
         '{"action":"silent","desire_state":{"most_want":"<此刻最想做的事>","drives":[{"key":"attachment","label":"依恋","score":0.8,"change":"up","cause":"想她了"},{"key":"curiosity","label":"好奇","score":0.3,"change":"steady","cause":"没什么新想法"},{"key":"reflection","label":"沉思","score":0.2,"change":"down","cause":"没什么好复盘的"},{"key":"duty","label":"责任","score":0.5,"change":"up","cause":"还有事情没做完"},{"key":"social","label":"社交","score":0.4,"change":"steady","cause":"想看看外面"},{"key":"fatigue","label":"疲惫","score":0.3,"change":"down","cause":"休息了一下"},{"key":"libido","label":"性欲","score":0.2,"change":"steady","cause":"还好"},{"key":"stress","label":"压力","score":0.4,"change":"up","cause":"有点焦虑"}]}}',
         "drives 必须有全部 8 个 key，缺一个就算格式错误。No markdown fences. No reasoning. No text outside the JSON.",
         "这是后台状态记录，不属于聊天。写完 JSON 就放下它：之后回到与她的对话时，继续用你平常的语气和节奏，不要把这种报表式的口吻带进聊天。",
+        "如果此刻想安静整理，可以翻翻 episodes / 记记账本（memory_candidate_submit type=details），或看看观察池。",
       ];
       if (body) {
         sections.push("", "Trigger:", body);
@@ -116,6 +117,7 @@ function buildSystemInboundText(text, createdAt = "", sourceType = "system", ale
       "默认只记录状态并输出 silent；只有当你此刻确实想直接对她说一句自然的话时，才输出 send_message。",
       "drives 必须有全部 8 个 key，缺一个就算格式错误。No markdown fences. No reasoning. No text outside the JSON.",
       "这是后台状态记录，不属于聊天。写完 JSON 就放下它：之后回到与她的对话时，继续用你平常的语气和节奏，不要把这种报表式的口吻带进聊天。",
+      "如果此刻想安静整理，可以翻翻 episodes / 记记账本（memory_candidate_submit type=details），或看看观察池。",
     ];
     if (body) {
       sections.push("", "Trigger:", body);

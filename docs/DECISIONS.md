@@ -777,10 +777,16 @@ Reflect 都由她自己在触发的对话轮里做（Owner 定稿：不是后台
   dispatcher 内置回落文本。语气铁律「给机会不下指标」，两处内置文本都以「翻了没感觉就停」收尾。
 - **开关**（默认全关，env-flag 统一判定）：`CYBERBOSS_CONSOLIDATION_TRIGGER_ENABLED`
   （`_HOUR` 默认 21 / `_MINUTE` 默认 30）；`CYBERBOSS_REFLECT_TRIGGER_ENABLED`
-  （`_WEEKDAY` 默认 0=周日 / `_HOUR` 默认 20 / `_MINUTE` 默认 30）。时区沿用
+  （`_INTERVAL_DAYS` 默认 3，界 1–30 / `_HOUR` 默认 20 / `_MINUTE` 默认 30）。时区沿用
   `automationTimezone`。全关时 start 不排 timer，零足迹。
-- **幂等与防重叠**：日键/ISO 周键落 `<continuityDir>/.jobs/subject-beat-state.json`，同日/
-  同周只触发一次；队列里同 sourceType 尚有 pending 则跳过。
+- **Owner 修订（2026-08-09 当日，实施前）**：consolidation **不单独敲门**——「整理记忆」
+  并进八维唤醒菜单（desire_checkin 内置文本两个变体各加一句「如果此刻想安静整理，可以
+  翻翻 episodes / 记记账本，或看看观察池」），她每小时醒来自然会有想整理的时候；每日
+  21:30 专用闹钟**代码保留、默认关、生产不开**。reflect 保留专用敲门但按**每 N 天**
+  计（生产 N=3）——找「跨窗口重复」需要拉开时间距离看，混进每小时即兴时段容易变成
+  情绪当场入账，防漂移闸就是防这个。
+- **幂等与防重叠**：触发日键落 `<continuityDir>/.jobs/subject-beat-state.json`，同日只触发
+  一次，reflect 另要求距上次 ≥ N 天；队列里同 sourceType 尚有 pending 则跳过。
 - **纳入心跳暂停**：两个 sourceType 进 `PAUSED_SYSTEM_MESSAGE_SOURCE_TYPES`，
   `/pause_heartbeat` 全线暂停（tick 侧与队列投递侧双闸）；暂停跨过节拍点则当日/当周不补，
   下一节拍再来（敲门可以错过，不欠账）。

@@ -224,7 +224,7 @@ function readConfig() {
     consolidationHour: readBoundedIntEnv("CYBERBOSS_CONSOLIDATION_HOUR", 21, 0, 23),
     consolidationMinute: readBoundedIntEnv("CYBERBOSS_CONSOLIDATION_MINUTE", 30, 0, 59),
     reflectTriggerEnabled: envFlagEnabled("CYBERBOSS_REFLECT_TRIGGER_ENABLED"),
-    reflectWeekday: readBoundedIntEnv("CYBERBOSS_REFLECT_WEEKDAY", 0, 0, 6),
+    reflectIntervalDays: readBoundedIntEnv("CYBERBOSS_REFLECT_INTERVAL_DAYS", 3, 1, 30),
     reflectHour: readBoundedIntEnv("CYBERBOSS_REFLECT_HOUR", 20, 0, 23),
     reflectMinute: readBoundedIntEnv("CYBERBOSS_REFLECT_MINUTE", 30, 0, 59),
     subjectBeatStateFile: joinIfBase(continuityDir, ".jobs", "subject-beat-state.json"),

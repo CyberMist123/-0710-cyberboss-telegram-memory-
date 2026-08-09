@@ -25,7 +25,7 @@ const BEATS = Object.freeze({
     hour: "reflectHour",
     minute: "reflectMinute",
     text: "到 Reflect 节拍了。",
-    key: "weekKey",
+    key: "dateKey",
   }),
 });
 
@@ -34,37 +34,21 @@ function isScheduleDue(now, hour, minute, timeZone) {
   return Boolean(parts && parts.hour * 60 + parts.minute >= Number(hour) * 60 + Number(minute));
 }
 
-function nextScheduleAt(now, hour, minute, timeZone, weekday = null) {
+function nextScheduleAt(now, hour, minute, timeZone, options = {}) {
   const start = new Date(now);
   if (!Number.isFinite(start.getTime())) return NaN;
-  let dateKey = localDateKey(start, timeZone);
-  if (!dateKey) return NaN;
-  for (let offset = 0; offset <= (weekday === null ? 2 : 8); offset += 1) {
-    const candidateDateKey = offset ? shiftDateKey(dateKey, offset) : dateKey;
-    if (!candidateDateKey) continue;
-    if (weekday !== null && weekdayForDateKey(candidateDateKey) !== Number(weekday)) continue;
-    const candidate = instantForLocalTime(candidateDateKey, timeZone, hour, minute);
-    if (Number.isFinite(candidate) && candidate >= start.getTime()) return candidate;
-  }
-  return NaN;
-}
-
-function weekdayForDateKey(dateKey) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateKey || ""));
-  if (!match) return NaN;
-  return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))).getUTCDay();
-}
-
-function isoWeekKey(dateKey) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateKey || ""));
-  if (!match) return "";
-  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
-  const day = date.getUTCDay() || 7;
-  date.setUTCDate(date.getUTCDate() + 4 - day);
-  const year = date.getUTCFullYear();
-  const yearStart = new Date(Date.UTC(year, 0, 1));
-  const week = Math.ceil((((date - yearStart) / 86_400_000) + 1) / 7);
-  return `${year}-W${String(week).padStart(2, "0")}`;
+  const normalizedOptions = typeof options === "number"
+    ? { intervalDays: options }
+    : (options && typeof options === "object" ? options : {});
+  const intervalDays = Math.max(1, Number(normalizedOptions.intervalDays) || 1);
+  const today = localDateKey(start, timeZone);
+  if (!today) return NaN;
+  const afterLast = normalizedOptions.lastDateKey
+    ? shiftDateKey(normalizedOptions.lastDateKey, intervalDays)
+    : today;
+  const candidateDateKey = afterLast && afterLast > today ? afterLast : today;
+  const candidate = instantForLocalTime(candidateDateKey, timeZone, hour, minute);
+  return Number.isFinite(candidate) ? candidate : NaN;
 }
 
 function readState(filePath) {
@@ -126,15 +110,22 @@ class SubjectBeatScheduler {
     if (this.stopped || !this.enabled) return;
     try {
       const now = this.clock.now();
+      const state = readState(this.config.subjectBeatStateFile);
       const candidates = Object.values(BEATS)
         .filter((beat) => this.config[beat.enabled] === true)
-        .map((beat) => nextScheduleAt(
-          now,
-          this.config[beat.hour],
-          this.config[beat.minute],
-          this.config.automationTimezone,
-          beat === BEATS.reflect ? this.config.reflectWeekday : null,
-        ))
+        .map((beat) => {
+          const sourceType = beat === BEATS.reflect ? "reflect" : "consolidation";
+          return nextScheduleAt(
+            now,
+            this.config[beat.hour],
+            this.config[beat.minute],
+            this.config.automationTimezone,
+            {
+              intervalDays: sourceType === "reflect" ? this.config.reflectIntervalDays : 1,
+              lastDateKey: state[sourceType]?.dateKey,
+            },
+          );
+        })
         .filter(Number.isFinite);
       const next = candidates.length ? Math.min(...candidates) : Number(now) + this.pollIntervalMs;
       this.timer = this.timers.setTimeout(() => {
@@ -193,14 +184,19 @@ class SubjectBeatScheduler {
       return { status: "skipped", reason: "not_due" };
     }
     const dateKey = localDateKey(now, this.config.automationTimezone);
-    const weekKey = isoWeekKey(dateKey);
-    if (!dateKey || (sourceType === "reflect" && weekdayForDateKey(dateKey) !== Number(this.config.reflectWeekday))) {
+    if (!dateKey) {
       return { status: "skipped", reason: "not_due" };
     }
-    const key = sourceType === "reflect" ? weekKey : dateKey;
     const state = readState(this.config.subjectBeatStateFile);
-    if (state[sourceType]?.[beat.key] === key) {
-      return { status: "skipped", reason: "already_triggered", key };
+    const lastDateKey = state[sourceType]?.dateKey || "";
+    if (lastDateKey === dateKey) {
+      return { status: "skipped", reason: "already_triggered", key: dateKey };
+    }
+    if (sourceType === "reflect" && lastDateKey) {
+      const elapsedDays = dateKeyDistance(lastDateKey, dateKey);
+      if (!Number.isFinite(elapsedDays) || elapsedDays < Number(this.config.reflectIntervalDays)) {
+        return { status: "skipped", reason: "interval_not_reached", key: dateKey };
+      }
     }
     if (!this.queueStore || !this.accountId || !this.senderId || !this.workspaceRoot) {
       return { status: "skipped", reason: "target_unavailable" };
@@ -210,7 +206,7 @@ class SubjectBeatScheduler {
     })) {
       return { status: "skipped", reason: "overlap" };
     }
-    const id = `subject-beat:${sourceType}:${key}:${crypto.randomUUID()}`;
+    const id = `subject-beat:${sourceType}:${dateKey}:${crypto.randomUUID()}`;
     this.queueStore.enqueue({
       id,
       accountId: this.accountId,
@@ -222,16 +218,28 @@ class SubjectBeatScheduler {
     });
     writeState(this.config.subjectBeatStateFile, {
       ...state,
-      [sourceType]: { ...state[sourceType], [beat.key]: key },
+      [sourceType]: { ...state[sourceType], [beat.key]: dateKey },
     });
-    return { status: "queued", id, key };
+    return { status: "queued", id, key: dateKey };
   }
+}
+
+function dateKeyDistance(fromDateKey, toDateKey) {
+  const from = parseDateKey(fromDateKey);
+  const to = parseDateKey(toDateKey);
+  if (!from || !to) return NaN;
+  return Math.floor((to - from) / 86_400_000);
+}
+
+function parseDateKey(dateKey) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateKey || ""));
+  if (!match) return null;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return Number.isFinite(date.getTime()) ? date : null;
 }
 
 module.exports = {
   SubjectBeatScheduler,
-  isoWeekKey,
   isScheduleDue,
   nextScheduleAt,
-  weekdayForDateKey,
 };
