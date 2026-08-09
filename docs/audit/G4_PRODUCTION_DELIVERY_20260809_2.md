@@ -15,7 +15,7 @@ D41 慢层注入面：agreements / ai-portrait / wandering 三项开窗小预算
 ## 预交付测试（真 Windows 本机）
 
 全部 `test:*` 分组绿；唯一红 = release-manifest 9 条 tar 用例（Git Bash tar 环境噪声，
-与历次交付一致）。关键组：phase2 36/36（含新 6 条）、route-lanes 346/346、phase3 222/222、
+与历次交付一致）。关键组：phase2 36/36（含新 6 条）、route-lanes 346/346、phase3 189/189（首版误引 Codex 沙箱计数 222，2026-08-09 本机复核为 189）、
 catalog-metering 44/44、telegram-media 42/42、phase4 25/25、orchestration 110/119（9 红即上述）。
 注：Codex 沙箱首跑曾误报 orchestration/phase4/telegram-media 失败（其沙箱拦
 PowerShell/CIM/CScript），本机复跑全绿，勿引用那份结果。

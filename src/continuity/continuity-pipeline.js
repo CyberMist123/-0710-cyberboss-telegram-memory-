@@ -85,6 +85,7 @@ class ContinuityPipeline {
       details: detailsFileFor(this.continuityDir),
       reentry: path.join(this.continuityDir, "reentry.md"),
       selfNotes: path.join(this.continuityDir, "ai_self_notes.md"),
+      relationshipTimeline: path.join(this.continuityDir, "relationship_timeline.md"),
       jobs: path.join(this.continuityDir, ".jobs"),
       backups: path.join(this.continuityDir, ".backups"),
       writerState: path.join(this.continuityDir, ".jobs", "history-writer-state.json"),
@@ -662,6 +663,7 @@ class ContinuityPipeline {
         if (candidate.type === "self_note") this.publishSelfNote(candidate, decision, intent);
         if (candidate.type === "reentry_draft") this.publishReentry(candidate, decision, intent);
         if (candidate.type === "details") this.publishDetails(candidate, decision, intent);
+        if (candidate.type === "timeline") this.publishTimeline(candidate, decision, intent);
         applied.add(decision.decision_id);
         publishedCandidates.add(candidate.candidate_id);
         publishedPublicationKeys.add(intent.publication_key);
@@ -759,6 +761,22 @@ class ContinuityPipeline {
     fs.appendFileSync(
       this.paths.selfNotes,
       `${current ? "\n" : ""}${publicationMarker}\n${marker}\n${candidate.body}\n`,
+      "utf8",
+    );
+  }
+
+  publishTimeline(candidate, decision, intent) {
+    const publicationMarker = `<!-- publication:${intent.publication_key} intent:${intent.publication_intent_id} -->`;
+    const decisionMarker = `<!-- decision:${decision.decision_id} -->`;
+    const current = safeReadText(this.paths.relationshipTimeline);
+    if (current.includes(publicationMarker) || current.includes(decisionMarker)) return;
+    const date = timelineDate(candidate, decision);
+    if (!date) throw new Error("timeline candidate date is required");
+    backupFile(this.paths.relationshipTimeline, this.paths.backups);
+    fs.mkdirSync(path.dirname(this.paths.relationshipTimeline), { recursive: true });
+    fs.appendFileSync(
+      this.paths.relationshipTimeline,
+      `${current ? "\n" : ""}${publicationMarker}\n${decisionMarker}\n- ${date} · ${candidate.body}\n`,
       "utf8",
     );
   }
@@ -1215,6 +1233,18 @@ function normalizeTimestamp(value) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) throw new Error("now() must return a valid date");
   return date.toISOString();
+}
+
+function timelineDate(candidate = {}, decision = {}) {
+  const values = [candidate.date, candidate.ts, decision.date, decision.ts, decision.created_at, decision.createdAt];
+  for (const value of values) {
+    const text = normalizeBody(value);
+    const match = /^(\d{4}-\d{2}-\d{2})/.exec(text);
+    if (match) return match[1];
+    const parsed = Date.parse(text);
+    if (Number.isFinite(parsed)) return new Date(parsed).toISOString().slice(0, 10);
+  }
+  return "";
 }
 
 function requireText(value, label) {

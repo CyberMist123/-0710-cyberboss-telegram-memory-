@@ -547,7 +547,7 @@ const PROJECT_TOOLS = [
       type: "object",
       required: ["type", "body", "origin"],
       properties: {
-        type: { type: "string", enum: ["episode", "self_note", "reentry_draft", "details"] },
+        type: { type: "string", enum: ["episode", "self_note", "reentry_draft", "details", "timeline"] },
         body: { type: "string" },
         origin: { type: "string", enum: ["live_subject", "closeout_materials_then_subject", "subject_rewrite"] },
         material_pack_id: { type: "string" },

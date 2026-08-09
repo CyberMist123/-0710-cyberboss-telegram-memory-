@@ -760,6 +760,69 @@ Decision date: 2026-08-09
 
 ---
 
+## D42 · 主体节拍调度（E2）：consolidation 日节拍 + reflect 周节拍，系统触发走既有队列
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-09
+```
+
+裁定背景：soft structure 二期通电顺序「心跳 → 整理节拍 → Reflect 节拍」的调度落地。整理与
+Reflect 都由她自己在触发的对话轮里做（Owner 定稿：不是后台批处理），调度器只负责按节拍
+敲门，不产出任何内容。
+
+- **实现**：`src/app/subject-beat-scheduler.js`，setTimeout 单发递归（照 closeout-liveness
+  样板），到点向既有 SystemMessageQueueStore enqueue `sourceType="consolidation"` /
+  `"reflect"`；提示词经既有 trigger-prompts override（资产区 `prompts/<sourceType>.md`）或
+  dispatcher 内置回落文本。语气铁律「给机会不下指标」，两处内置文本都以「翻了没感觉就停」收尾。
+- **开关**（默认全关，env-flag 统一判定）：`CYBERBOSS_CONSOLIDATION_TRIGGER_ENABLED`
+  （`_HOUR` 默认 21 / `_MINUTE` 默认 30）；`CYBERBOSS_REFLECT_TRIGGER_ENABLED`
+  （`_WEEKDAY` 默认 0=周日 / `_HOUR` 默认 20 / `_MINUTE` 默认 30）。时区沿用
+  `automationTimezone`。全关时 start 不排 timer，零足迹。
+- **幂等与防重叠**：日键/ISO 周键落 `<continuityDir>/.jobs/subject-beat-state.json`，同日/
+  同周只触发一次；队列里同 sourceType 尚有 pending 则跳过。
+- **纳入心跳暂停**：两个 sourceType 进 `PAUSED_SYSTEM_MESSAGE_SOURCE_TYPES`，
+  `/pause_heartbeat` 全线暂停（tick 侧与队列投递侧双闸）；暂停跨过节拍点则当日/当周不补，
+  下一节拍再来（敲门可以错过，不欠账）。
+- **fail-open**：任何异常 warn 后继续下一轮调度，不影响主进程。
+- **测试**：`test/subject-beat-scheduler.test.js`（默认关零足迹/到点入队/幂等/暂停/重叠，
+  真实 SystemMessageQueueStore 夹具）进 `test:phase1`（阻塞主 CI）。
+- **孤儿 weekly-reflect.js 不动**：它的 runtime.reflect() 后台批处理方向已被本裁定取向
+  取代，但按纪律不顺手拆，能力表该行维持 ORPHAN 注记。
+
+---
+
+## D43 · 慢层写路径（E3）：timeline 走发布链；portrait 观察池与 details producer 提示词治理
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-09
+```
+
+裁定背景：慢层四件套的写侧落地。设计稿「蒸馏进 timeline / 画像（也经各自 writer）」按文件
+性质拆成两种形态：事实追加走发布链，观察沉淀走她的原生写。
+
+- **timeline = 事实追加，经完整发布链**：新候选 type `"timeline"`（subject-signing
+  SUBJECT_CANDIDATE_TYPES、candidate-authority SUBJECT_AUTHORED_TYPES、
+  `memory_candidate_submit` enum 三处同步），History writer 新 `publishTimeline()` 分支按
+  `publishSelfNote` 样板 append-only 写 `<continuityDir>/relationship_timeline.md`（双 marker
+  幂等、backup 先行、共享同一把 writer lease 与 writer state）。行格式
+  `- YYYY-MM-DD · 正文`；日期取候选/decision 时间字段，缺失拒发布。Review 祈使句门不豁免
+  timeline（事实行本就不该有祈使句）。`memory_lookup` 读侧原样（本就读 timeline）。
+- **portrait 观察池 = 她的原生写，无发布链**：`03-evolving-self（画像+日记记录）\
+  portrait-observations.md`（资产区），一行一条+证据指针，进池不限量；晋升
+  `ai_self_portrait.md` 的防漂移三闸（重复门槛/证据指针/证据限速 ≥3 证据跨 ≥2 周、
+  单周 ≤3 保险丝）**由 reflect 触发提示词治理，不造 repo 机器**——与 wandering 同一
+  先例（原生 Write、无发布链、她是唯一 writer）。repo 侧对这两份文件零代码。
+- **details producer = 提示词入口**：`memory_candidate_submit` 的 `type:"details"` 通路
+  2026-08-07 起本就完整（工具/权限门/History publishDetails/lookup 读侧俱在），缺的只是
+  没人告诉她。consolidation 触发提示词（资产区 + dispatcher 内置文本）现明示账本与
+  timeline 的候选提交入口。不另造低摩擦直写工具——是否需要 `memory_note` 形态的
+  轻量版，等真实使用摩擦出现再议（Candidates 不立项）。
+- **agreements 不在本裁定内**：确认升格（对话点头才入档）无需代码，D41 注入面已就位。
+
+---
+
 ## 待裁决 / Candidates
 
 下列**尚未做出决定**，不占用 D 编号，也不得当成已定方向施工。

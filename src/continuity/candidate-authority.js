@@ -19,7 +19,7 @@ const VALID_AUTHORITIES = new Set(["high", "medium", "none"]);
  * 内容、写入权归当前窗口 AI」，后台代理与提取器只能提候选、必须过主体复核。
  * 门槛没有放宽，只是把一个原先无处可落的类型接进同一套闸门。
  */
-const SUBJECT_AUTHORED_TYPES = Object.freeze(["self_note", "reentry_draft", "details"]);
+const SUBJECT_AUTHORED_TYPES = Object.freeze(["self_note", "reentry_draft", "details", "timeline"]);
 
 function normalizeCandidateMetadata(candidate = {}) {
   const type = normalizeText(candidate.type);

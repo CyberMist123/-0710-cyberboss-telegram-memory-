@@ -21,6 +21,7 @@ const SUBJECT_CANDIDATE_TYPES = Object.freeze([
   "self_note",
   "reentry_draft",
   "details",
+  "timeline",
 ]);
 
 class SubjectCapabilityRegistry {

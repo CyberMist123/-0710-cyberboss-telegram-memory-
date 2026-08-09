@@ -179,6 +179,28 @@ function buildSystemInboundText(text, createdAt = "", sourceType = "system", ale
     ].join("\n").trim();
   }
 
+  if (normalizedType === "consolidation") {
+    return [
+      ...(localTime ? [`[${localTime}]`, ""] : []),
+      "SYSTEM ACTION MODE: internal trigger, not user chat.",
+      "System trigger type: consolidation.",
+      "现在是记忆整理的节拍。如果愿意，可以翻翻 episodes/index.md，挑一处值得整理的做一小步就停；翻了没感觉就直接停下，什么都不做也完全可以。",
+      "正文永不改写；回看时可以用附注（episode_annotate），同类合并可以走候选提交。",
+      ...(body ? ["", "Trigger:", body] : []),
+    ].join("\n").trim();
+  }
+
+  if (normalizedType === "reflect") {
+    return [
+      ...(localTime ? [`[${localTime}]`, ""] : []),
+      "SYSTEM ACTION MODE: internal trigger, not user chat.",
+      "System trigger type: reflect.",
+      "现在是 Reflect 节拍。如果愿意，可以翻翻最近的日记与 episodes，只找「跨窗口反复出现」的东西；有重复就往观察池记一行，并带上 [[epNNN]] 或日期证据指针，没有就停。",
+      "单窗口的情绪不算重复。",
+      ...(body ? ["", "Trigger:", body] : []),
+    ].join("\n").trim();
+  }
+
   const sections = [
     ...(localTime ? [`[${localTime}]`, ""] : []),
     "SYSTEM ACTION MODE: internal trigger, not user chat.",

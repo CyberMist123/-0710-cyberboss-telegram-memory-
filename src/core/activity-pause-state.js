@@ -7,6 +7,8 @@ const PAUSED_SYSTEM_MESSAGE_SOURCE_TYPES = new Set([
   "checkin",
   "desire_checkin",
   "liveness_alert",
+  "consolidation",
+  "reflect",
 ]);
 
 function readActivityPauseState(filePath, fsImpl = fs) {

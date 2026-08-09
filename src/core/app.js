@@ -81,6 +81,7 @@ const {
 const { runSystemCheckinPoller } = require("../app/system-checkin-poller");
 const { runHourlyDesirePoller } = require("../app/hourly-desire-poller");
 const { CloseoutLivenessAutomation, MAX_ALERT_DELIVERY_ATTEMPTS } = require("../app/closeout-liveness");
+const { SubjectBeatScheduler } = require("../app/subject-beat-scheduler");
 const { persistReportedDesireState } = require("./desire-state-persistence");
 const { loadContextGates } = require("./hard-context");
 const { createProjectTooling } = require("../tools/create-project-tooling");
@@ -266,6 +267,7 @@ class CyberbossApp {
     this.turnBoundaryScopeKeys = new Set();
     this.systemMessageDispatcher = null;
     this.closeoutLivenessAutomation = null;
+    this.subjectBeatScheduler = null;
     this.streamDelivery = new StreamDelivery({
       channelAdapter: this.channelAdapter,
       telegramChannelAdapter: this.telegramChannelAdapter,
@@ -421,10 +423,21 @@ class CyberbossApp {
     if (this.closeoutLivenessAutomation.start()) {
       console.log("[automation] closeout/liveness owner started");
     }
+    this.subjectBeatScheduler = new SubjectBeatScheduler({
+      config: this.config,
+      queueStore: this.systemMessageQueue,
+      accountId: account.accountId,
+      senderId: automationSenderId,
+      workspaceRoot: automationWorkspaceRoot,
+    });
+    if (this.subjectBeatScheduler.start()) {
+      console.log("[automation] subject beat scheduler started");
+    }
 
     const shutdown = createShutdownController(async () => {
       this.clearPendingImageInboundTimers();
       await this.closeoutLivenessAutomation?.stop();
+      await this.subjectBeatScheduler?.stop();
       await this.closeLocationServer();
       await this.runtimeAdapter.close();
     });
@@ -2837,12 +2850,12 @@ class CyberbossApp {
     const text = paused
       ? [
           "⏸️ Autonomous activity paused.",
-          "Paused: Desire hourly ticks, scheduled check-ins, closeout/liveness scheduling, and delivery of their queued proactive messages.",
+          "Paused: Desire hourly ticks, scheduled check-ins, consolidation/Reflect beats, closeout/liveness scheduling, and delivery of their queued proactive messages.",
           "Still active: window chat and user-set reminders.",
         ].join("\n")
       : [
           "▶️ Autonomous activity resumed.",
-          "Resumed: Desire hourly ticks, scheduled check-ins, closeout/liveness scheduling, and delivery of their queued proactive messages.",
+          "Resumed: Desire hourly ticks, scheduled check-ins, consolidation/Reflect beats, closeout/liveness scheduling, and delivery of their queued proactive messages.",
           "Still active throughout: window chat and user-set reminders.",
         ].join("\n");
     await this.channelAdapter.sendText({
