@@ -197,6 +197,11 @@ function readConfig() {
     visionApiKey: readTextEnv("CYBERBOSS_VISION_API_KEY"),
     visionModel: readTextEnv("CYBERBOSS_VISION_MODEL"),
     visionTimeoutMs: readIntEnv("CYBERBOSS_VISION_TIMEOUT_MS") || 30_000,
+    visionQwenApiBaseUrl: readTextEnv("CYBERBOSS_VISION_QWEN_API_BASE_URL"),
+    visionQwenApiKey: readTextEnv("CYBERBOSS_VISION_QWEN_API_KEY")
+      || readCsvValue(resolveConfiguredPath(readTextEnv("CYBERBOSS_VISION_QWEN_API_KEY_FILE")), "apiKey"),
+    visionQwenModel: readTextEnv("CYBERBOSS_VISION_QWEN_MODEL"),
+    visionQwenTimeoutMs: readIntEnv("CYBERBOSS_VISION_QWEN_TIMEOUT_MS") || 90_000,
     desireDriven: resolveDesireDriven(),
     desireLoopMinimalEnabled: readStrictBoolEnv("CYBERBOSS_DESIRE_LOOP_MINIMAL_ENABLED", false),
     desireCoupling: resolveFeatureGate("CYBERBOSS_DESIRE_COUPLING"),
@@ -431,6 +436,16 @@ function readIntEnv(name) {
   }
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function readCsvValue(filePath, key) {
+  if (!filePath || !key) return "";
+  try {
+    const line = fs.readFileSync(filePath, "utf8").split(/\r?\n/).find((item) => item.startsWith(`${key},`));
+    return line ? line.slice(key.length + 1).trim() : "";
+  } catch {
+    return "";
+  }
 }
 
 function readKnownPlacesEnv() {

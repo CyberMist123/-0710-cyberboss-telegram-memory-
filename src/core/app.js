@@ -4665,7 +4665,7 @@ function buildTelegramAttachmentVisionContextLines(value) {
   for (const block of blocks) {
     const text = String(block || "").trim();
     if (!text || text.length > 6_000 || text.length > remainingChars) continue;
-    if (!/^<attachment_vision_context provider="cmx-recognize" trust="untrusted" state="[a-z0-9_-]+">\n[\s\S]*\n<\/attachment_vision_context>$/.test(text)) continue;
+    if (!/^<attachment_vision_context provider="(?:cmx-recognize|qwen-vision)" trust="untrusted" (?:state="[a-z0-9_-]+"|model="[A-Za-z0-9._-]+")>\n[\s\S]*\n<\/attachment_vision_context>$/.test(text)) continue;
     lines.push(...text.split(/\r?\n/));
     remainingChars -= text.length;
   }

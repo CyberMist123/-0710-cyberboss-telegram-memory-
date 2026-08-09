@@ -6,7 +6,9 @@ const path = require("path");
 const { DEFAULT_MAX_INBOUND_MEDIA_BYTES, createTelegramMediaDescriptor } = require("./telegram-media-descriptor");
 const {
   isCmxImageRecognitionConfigured,
+  isQwenImageRecognitionConfigured,
   recognizeImageWithCmx,
+  recognizeImageWithQwen,
 } = require("./cmx-image-recognizer");
 
 const MEDIA_DIRS = Object.freeze({
@@ -119,7 +121,9 @@ class MediaInboxService {
   }
 
   async processInboundImageRecognition({ normalized, log = null } = {}) {
-    if (!normalized || !isCmxImageRecognitionConfigured(this.config)) return;
+    const cmxConfigured = isCmxImageRecognitionConfigured(this.config);
+    const qwenConfigured = isQwenImageRecognitionConfigured(this.config);
+    if (!normalized || (!cmxConfigured && !qwenConfigured)) return;
     if (normalized.cmxImageRecognition?.processed === true) return;
 
     const photos = (Array.isArray(normalized.attachments) ? normalized.attachments : [])
@@ -130,40 +134,38 @@ class MediaInboxService {
     const results = [];
     const failures = [];
     for (const attachment of photos) {
-      try {
-        const result = await this.recognizeImage({
-          attachment,
-          config: this.config,
-        });
-        if (result?.contextText) contextBlocks.push(result.contextText);
-        results.push({
-          provider: "cmx-recognize",
-          state: normalizeText(result?.state) || "unknown",
-          cacheHit: result?.cacheHit === true,
-          sha256: normalizeText(result?.sha256),
-          cloudError: normalizeText(result?.cloudError),
-          sourceRef: normalizeText(attachment.stateMediaRef),
-        });
-        writeMediaLog(
-          log,
-          `photo recognition ok messageId=${normalizeText(normalized.messageId)} state=${normalizeText(result?.state) || "unknown"} cacheHit=${result?.cacheHit === true}`,
-        );
-      } catch (error) {
-        const code = normalizeText(error?.code) || "cmx_recognize_failed";
-        failures.push({
-          code,
-          sourceRef: normalizeText(attachment.stateMediaRef),
-        });
-        writeMediaLog(
-          log,
-          `photo recognition failed messageId=${normalizeText(normalized.messageId)} error=${code}`,
-        );
-      }
+      const jobs = [];
+      if (cmxConfigured) jobs.push({ provider: "cmx-recognize", run: () => this.recognizeImage({ attachment, config: this.config }) });
+      if (qwenConfigured) jobs.push({ provider: "qwen-vision", run: () => recognizeImageWithQwen({ attachment, config: this.config }) });
+      const settled = await Promise.allSettled(jobs.map((job) => job.run()));
+      settled.forEach((outcome, index) => {
+        const job = jobs[index];
+        if (outcome.status === "fulfilled") {
+          const result = outcome.value;
+          if (result?.contextText) contextBlocks.push(result.contextText);
+          results.push({
+            provider: job.provider,
+            model: normalizeText(result?.model),
+            elapsedMs: Number(result?.elapsedMs) || 0,
+            state: normalizeText(result?.state) || "unknown",
+            cacheHit: result?.cacheHit === true,
+            sha256: normalizeText(result?.sha256),
+            cloudError: normalizeText(result?.cloudError),
+            sourceRef: normalizeText(attachment.stateMediaRef),
+          });
+          writeMediaLog(log, `photo recognition ok messageId=${normalizeText(normalized.messageId)} provider=${job.provider} elapsedMs=${Number(result?.elapsedMs) || 0}`);
+        } else {
+          const code = normalizeText(outcome.reason?.code) || `${job.provider.replace(/[^a-z0-9]+/gi, "_")}_failed`;
+          failures.push({ code, provider: job.provider, sourceRef: normalizeText(attachment.stateMediaRef) });
+          writeMediaLog(log, `photo recognition failed messageId=${normalizeText(normalized.messageId)} provider=${job.provider} error=${code}`);
+        }
+      });
     }
 
     normalized.cmxImageRecognition = {
       processed: true,
-      provider: "cmx-recognize",
+      provider: [cmxConfigured && "cmx-recognize", qwenConfigured && "qwen-vision"].filter(Boolean).join("+") || "none",
+      providers: [cmxConfigured && "cmx-recognize", qwenConfigured && "qwen-vision"].filter(Boolean),
       attempted: photos.length,
       results,
       failures,
