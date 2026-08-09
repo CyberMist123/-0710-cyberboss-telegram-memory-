@@ -46,6 +46,14 @@ ALLOWED_FAKE_BLOBS = {
     # (renamed to plantedValue with a non-key-shaped value); the old blob stays
     # reachable in history because main forbids history rewrites.
     "ca55a87958b9a9307f3c8ab332d2dae48587d14a",
+    # src/services/cmx-image-recognizer.js as committed by local WIP be1f193
+    # (batch/lookup-uncap, unpushed). Flagged line 36 is `apiKey:
+    # config.visionQwenApiKey,` -- a 37-byte config *reference*, no literal
+    # credential (verified 2026-08-09 while it blocked an unrelated push via
+    # rev-list --all). The pattern itself must still be renamed on that branch
+    # before its own push: any edit to the file produces a new blob and trips
+    # the gate again, which is intended.
+    "64ce076198cc85670dab69b318df17741cb60fda",
 }
 
 PLACEHOLDER_MARKERS = (
