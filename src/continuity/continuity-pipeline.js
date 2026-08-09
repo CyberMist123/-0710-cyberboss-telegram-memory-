@@ -12,6 +12,7 @@ const {
   normalizeCandidateMetadata,
 } = require("./candidate-authority");
 const { createDetailEntry, detailsFileFor } = require("./detail-ledger");
+const { materializeEpisode } = require("./episode-materializer");
 const { IMPERATIVE_STYLE_REASON, detectImperativeStyle } = require("./imperative-style");
 const {
   EFFECTIVE_DECISION_AMBIGUOUS,
@@ -700,7 +701,7 @@ class ContinuityPipeline {
     if (existing.some((item) => item.publication_key === intent.publication_key)) return;
     backupFile(this.paths.episodes, this.paths.backups);
     const canonSupersedes = normalizeBody(candidate.canon_supersedes);
-    appendJsonlUnique(this.paths.episodes, [{
+    const record = {
       ep_id: `ep-${sha256(intent.publication_key).slice(0, 16)}`,
       ts: candidate.ts,
       type: canonSupersedes ? "correction" : "episode",
@@ -716,7 +717,14 @@ class ContinuityPipeline {
       author_model: candidate.author_model,
       context_scope: candidate.context_scope,
       semantic_authority: candidate.semantic_authority,
-    }], "publication_key");
+    };
+    appendJsonlUnique(this.paths.episodes, [record], "publication_key");
+    // 人面视图（md 单条 + index 目录）在 canon 落账后物化；失败只记 .jobs，不打断发布。
+    materializeEpisode({
+      episodesDir: path.join(this.continuityDir, "episodes"),
+      jobsDir: this.paths.jobs,
+      record,
+    });
   }
 
   /**

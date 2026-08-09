@@ -23,7 +23,7 @@ const privatePatterns = [/[A-Za-z]:[\\/]/, /\/home\/[A-Za-z0-9_.-]+/, /\/Users\/
 const themeSnapshot = [
   "表达行动(8)   想跟你说话、发文件、发语音、发贴纸时来这——她伸出手的那一面",
   "感知(7)   你和世界的状态：天气、位置；将来健康、手机使用、可穿戴、日常活动 MCP 全进这",
-  "记忆(2)   翻过去（Episodes/账本都从这个把手进）、留笔记",
+  "记忆(3)   翻过去（Episodes/账本都从这个把手进）、留笔记",
   "生活记录(4)   记日记、设提醒",
   "作息(1)   睡眠模式",
   "工程派活(4)   GitHub 操作；将来 Route 1 派工程车也在这",
@@ -145,7 +145,7 @@ test("A3 theme index is an exact seven-line snapshot and excludes aliases and hi
 test("A4 theme lists are canonical-only with risk while hidden/deprecated handles remain queryable and marked", async () => enabled(async () => {
   const catalog = host();
   const memory = await catalog.invokeTool("cyberboss_catalog", { theme: "记忆" });
-  assert.deepEqual(memory.data.map((entry) => entry.id), ["memory_lookup", "memory_note"]);
+  assert.deepEqual(memory.data.map((entry) => entry.id), ["episode_annotate", "memory_lookup", "memory_note"]);
   assert.ok(memory.data.every((entry) => entry.risk));
   const expression = await catalog.invokeTool("cyberboss_catalog", { theme: "表达行动" });
   assert.ok(expression.data.some((entry) => entry.id === "cyberboss_telegram_send"));
@@ -305,7 +305,7 @@ test("deployment form =1 is honoured by every reader, in-process and across the 
     assert.equal(registeredProjectTools().some((tool) => tool.name === "memory_candidate_submit"), true);
     assert.deepEqual(
       manifest().filter((entry) => entry.theme === "记忆" && !entry.alias_of).map((entry) => entry.id).sort(),
-      ["memory_candidate_submit", "memory_lookup", "memory_note"],
+      ["episode_annotate", "memory_candidate_submit", "memory_lookup", "memory_note"],
     );
   });
   // 真跨进程：与生产同形状（env 写 =1）起一个真的 tool server 问目录
@@ -451,8 +451,9 @@ test("T-B catalog on/off context swing stays at three broadcast tools", () => {
   assert.equal(resident.totals.resident_schema_chars, 373);
   // 15810 -> 12962：移除时间线工具包后的全量面。
   // 12962 -> 13459：日记补上 read/edit 两个工具（她此前只能写、读不回来）。
+  // 13459 -> 13675：episode_annotate 附注工具加入全量面（batch/episode-md）。
   // 常驻面本身（3 项 / 373 字）未变——这正是目录化要守住的那个数。
-  assert.equal(resident.full_surface.schema_chars, 13459);
+  assert.equal(resident.full_surface.schema_chars, 13675);
 });
 
 test("manifest policy and privacy canary are explicit and private-text-free", () => withEnv({ CATALOG_TEST_SECRET: plantedValue, CYBERBOSS_SUBJECT_SIGNING_ENABLED: undefined }, () => {

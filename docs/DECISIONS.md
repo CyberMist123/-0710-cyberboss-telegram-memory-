@@ -721,6 +721,24 @@ Decision date: 2026-08-08
 
 ---
 
+## D40 · Episode 人面视图：一条一 md + 自动目录 + 附注通道；jsonl 仍是唯一 canon
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-09
+```
+
+裁定背景：Owner 2026-08-09 裁定 episodes 需要「可翻的目录 + 一条一文件 + 回看可留评论」的形态（参照 DS 时代 md 记忆的可维护性），同时既有 episodes 正式档按 Owner 指示弃置、从空档重新生长。
+
+- **canon 不动**：`episodes.jsonl` 仍是唯一正式档与唯一真相；签名守卫、reentry 元数据、`memory_lookup`、liveness 全部照旧读它。D5（候选/正式分离）、D16（正文不改写）边界不变。
+- **人面视图在发布后物化**（`episode-materializer.js`，由 `publishEpisode` 调用）：每条发布长出 `episodes/epNNN-标题.md`（frontmatter：`seq/ep_id/title/time/status/tags/…`，正文逐字），**写一次永不重生成**——正文本就不可变，故无双真相同步问题；`episodes/index.md` 目录每次发布全量重建（按月分组、superseded 划线沉底、pinned 标记），手改无效。物化失败只记 `.jobs/episode-materializer-errors.jsonl`，绝不打断发布（fail-open 到视图层）。
+- **标题约定**：候选正文第一个非空行作标题（文件名 slug / 目录行 / `# 标题`），不改候选 schema；guide 落 `04-memory/tools/episode-writing-guide.md`（资产区，不在本仓库）。
+- **附注是第三类内容**：`episode_annotate` 工具（theme 记忆 / risk append）把带时间戳的旁批追加进单条 md 的「附注」区；不进 jsonl、不进注入通路、不抢 History/memory_note 的 lease。正文是过去的话，附注是现在对过去的话——两者物理同文件、写权分离。
+- **`status` 字段为二期整理预留**：`active|superseded|pinned|archived` 只影响目录呈现，任何状态都不删除文件；二期整理（心跳节拍内由主体执行）的沉降/合并动作再另行裁定。
+- **测试**：`test/episode-materializer.test.js` 7 条（物化/幂等/序号/目录呈现/失败旁路/发布集成/附注）；目录快照基线随新工具重生成（`catalog-metering` 组 44/44 绿）。
+
+---
+
 ## 待裁决 / Candidates
 
 下列**尚未做出决定**，不占用 D 编号，也不得当成已定方向施工。

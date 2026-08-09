@@ -3,7 +3,7 @@
   "generated_by": "scripts/audit/catalog-metering.js",
   "categories": {
     "memory": {
-      "item_count": 4
+      "item_count": 5
     },
     "tool": {
       "item_count": 34
@@ -23,7 +23,7 @@
       "item_count": 7
     },
     "记忆": {
-      "item_count": 2
+      "item_count": 3
     },
     "生活记录": {
       "item_count": 4
@@ -106,6 +106,20 @@
       "schema_chars": 291,
       "schema_bytes": 291,
       "description_chars": 165,
+      "has_max_result_bytes": false,
+      "max_result_bytes": null
+    },
+    {
+      "category": "memory",
+      "theme": "记忆",
+      "name": "episode_annotate",
+      "namespace": "cyberboss",
+      "hidden": false,
+      "deprecated": false,
+      "alias_of": null,
+      "schema_chars": 216,
+      "schema_bytes": 216,
+      "description_chars": 47,
       "has_max_result_bytes": false,
       "max_result_bytes": null
     },
@@ -643,12 +657,12 @@
     }
   ],
   "totals": {
-    "item_count": 43,
-    "schema_chars": 13459,
-    "schema_bytes": 13475,
-    "catalog_chars": 11504,
-    "catalog_bytes": 11800
+    "item_count": 44,
+    "schema_chars": 13675,
+    "schema_bytes": 13691,
+    "catalog_chars": 11753,
+    "catalog_bytes": 12053
   },
-  "items_hash": "sha256:c7b1fbfbdb8de5cb7209147ae979d91840a3c83ec79774f062f8cc919cf89739",
-  "catalog_hash": "sha256:320d04f608b5fdca8599b2d79fe9d75123de537a4bd9672fd2d0cd3efd24ff2b"
+  "items_hash": "sha256:be7bb46bc9ec81ded041f32fd4247f47c96a7434141fe371c86e0660afe8306c",
+  "catalog_hash": "sha256:33cd7a17b3e8154dd0a9a7c2d1c2194bfc83859dd4b639cd481a96d8a538154f"
 }

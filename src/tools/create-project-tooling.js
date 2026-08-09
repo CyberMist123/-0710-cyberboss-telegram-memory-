@@ -12,6 +12,7 @@ const { VoiceService } = require("../services/voice-service");
 const { createWeatherService } = require("../services/weather-service");
 const { MemoryLookupService } = require("../services/memory-lookup-service");
 const { MemoryNoteService } = require("../services/memory-note-service");
+const { EpisodeAnnotateService } = require("../services/episode-annotate-service");
 const { GithubService } = require("../services/github-service");
 const { createAmapClient } = require("../location/amap-client");
 const { LocationEventStore } = require("../location/event-store");
@@ -95,6 +96,8 @@ function createProjectTooling(config, options = {}) {
       continuityDir: config.continuityDir,
       writerLeaseFile: config.writerLeaseFile,
     }),
+    // 附注只动单条 md 的「附注」区，不碰 canon jsonl，不与 History/memory_note 抢 lease。
+    episodeAnnotate: new EpisodeAnnotateService({ continuityDir: config.continuityDir }),
     ...(subjectCandidateOwner ? {
       subjectCandidate: options.subjectCandidate || new SubjectCandidateService({
         continuityDir: config.continuityDir,

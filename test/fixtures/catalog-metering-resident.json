@@ -23,7 +23,7 @@
   "directory_entries": {
     "表达行动": 8,
     "感知": 7,
-    "记忆": 2,
+    "记忆": 3,
     "生活记录": 4,
     "作息": 1,
     "工程派活": 4,
@@ -37,9 +37,9 @@
     "tools_list_bytes": 798
   },
   "full_surface": {
-    "item_count": 43,
-    "schema_chars": 13459,
-    "tools_list_chars": 11068
+    "item_count": 44,
+    "schema_chars": 13675,
+    "tools_list_chars": 11317
   },
-  "resident_hash": "sha256:e49ae01020845656d9f154ad788bf62d38818af37a596449917d06c7ce0decb8"
+  "resident_hash": "sha256:07d61810e0b34b652090de9d02224d14cd0a2c26241f9e30e727ad8d2d6c7a8e"
 }

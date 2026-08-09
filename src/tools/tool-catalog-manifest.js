@@ -9,7 +9,7 @@ const RESIDENT_NAMES = ["cyberboss_system_send", "cyberboss_time"];
 // reading and revising it belong on the same footing as writing it.
 const TOOLSETS = {
   "chat-core@1": [
-    "memory_lookup", "memory_note", "cyberboss_reminder",
+    "memory_lookup", "memory_note", "episode_annotate", "cyberboss_reminder",
     "cyberboss_diary_append", "cyberboss_diary_read", "cyberboss_diary_edit",
     "cyberboss_system_send", "cyberboss_time",
   ],
@@ -19,7 +19,7 @@ const TOOL_THEMES = Object.freeze({
   route1_dispatch: "工程派活", route1_task_status: "工程派活", route1_task_result: "工程派活",
   route2_escalate: "工程派活",
   location_debug_snapshot: "感知", location_event_dashboard: "感知",
-  memory_note: "记忆", memory_lookup: "记忆", memory_candidate_submit: "记忆",
+  memory_note: "记忆", memory_lookup: "记忆", memory_candidate_submit: "记忆", episode_annotate: "记忆",
   cyberboss_time: "感知", cyberboss_diary_append: "生活记录", cyberboss_reminder: "生活记录",
   cyberboss_diary_read: "生活记录", cyberboss_diary_edit: "生活记录",
   cyberboss_system_send: "表达行动", cyberboss_sleep_mode: "作息", weather: "感知",
@@ -51,7 +51,7 @@ const CATALOG_INPUT_SCHEMA = Object.freeze({
 // Explicit policy data: risk is reviewed per canonical tool, never inferred from
 // spelling at runtime. Aliases inherit their canonical target's value.
 const TOOL_RISKS = Object.freeze({
-  memory_lookup: "read", memory_note: "append", memory_candidate_submit: "append",
+  memory_lookup: "read", memory_note: "append", memory_candidate_submit: "append", episode_annotate: "append",
   cyberboss_channel_send_file: "send", cyberboss_diary_append: "append", cyberboss_reminder: "append",
   // Reading her own diary back is a read; revising a passage she already wrote
   // rewrites a file in place, which is the same risk class as sticker_update.

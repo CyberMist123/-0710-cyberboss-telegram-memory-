@@ -566,6 +566,25 @@ const PROJECT_TOOLS = [
     },
   },
   {
+    name: "episode_annotate",
+    description: "Append a timestamped annotation to one published episode's 附注 section; the canonical body is never modified.",
+    shortHint: "Append one annotation onto a published episode.",
+    topics: ["memory", "continuity"],
+    inputSchema: {
+      type: "object",
+      required: ["episode", "text"],
+      properties: {
+        episode: { type: "string", description: "Episode seq (ep001) or ep_id (ep-hash)." },
+        text: { type: "string", maxLength: 500 },
+      },
+      additionalProperties: false,
+    },
+    async handler({ services, args }) {
+      const result = services.episodeAnnotate?.append(args) || { error: "annotate_unavailable" };
+      return { text: result.error ? `Episode annotate ${result.error}.` : `Annotation appended to ${result.file}.`, data: result };
+    },
+  },
+  {
     name: "memory_lookup",
     description: "Call memory.lookup only when the user explicitly pulls on an earlier event. This is a user_pull string lookup, not automatic retrieval. Say that you checked the record; never present a lookup-only hit as something you continuously remembered.",
     shortHint: "Look up old episodes only after an explicit user_pull; never call for ordinary chat.",
