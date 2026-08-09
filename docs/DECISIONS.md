@@ -739,6 +739,27 @@ Decision date: 2026-08-09
 
 ---
 
+## D41 · 慢层注入面（E1）：agreements / ai-portrait / wandering 开窗小预算缝入
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-09
+```
+
+裁定背景：soft structure 人格积累层设计定稿（Owner 与工程 2026-08-09，见资产区 `prompts/consolidation.md` 注释块）中「慢层四件套小预算缝入每个新窗」的第一步。本批只做注入面（E1）；consolidation 触发/调度（E2）与 Reflect 证据升格、timeline 复活（E3）等注入内容的生产方另行施工。
+
+- **注入点与 reentry 同层**：只在 `prepareOpeningContext` 开窗一次装配（`src/core/slow-layer-loader.js`），不进热路径；claudecode 与 codex 两个 runtime 适配器经同一 `buildOpeningTurnText` 共享。
+- **三项独立开关，默认全关**：`CYBERBOSS_INJECT_AGREEMENTS` / `_PORTRAIT` / `_WANDERING`（经 `env-flag.js` 统一真值判定，`=1` 开）。全关时零足迹：不读文件、不出块、trace 形状与指纹与本批之前逐字节一致。
+- **文件位置**：portrait 缺省 `<memoryDir>/ai_self_portrait.md`，可用 `CYBERBOSS_AI_PORTRAIT_FILE` 覆盖；agreements / wandering 必须显式给 `CYBERBOSS_AGREEMENTS_FILE` / `CYBERBOSS_WANDERING_FILE`（资产区目录名含全角括号，不做路径猜测），没给 = 该项静默跳过。
+- **预算与优先级**：三项合计 ≤800 非空白字，按 agreements（共同约定，操作性最强）≥ portrait（姿态背景）≥ wandering（悬置问题）admit，装不下**整项跳过**（`over_budget`），永不截断改写正文（D16/D19 延续）。wandering 只取最上面 ≤3 条非注释行、约 100 非空白字（第一条无条件收）——这是选择不是改写。
+- **fail-open 全程**：文件缺失/为空/全是 `<!-- -->` 注释 → 该项静默跳过（`missing`）；任何异常吞掉只 warn。宁可本轮不注入，不可炸开窗（不变量 5）。
+- **只读**：本注入面对三份文件永不回写；三份文件的 writer 仍是她自己（原生 Write/Edit），单 writer 不变式不受影响。
+- **语气纪律（认领原则）**：块导语只说明来处与只读性，不指挥使用——portrait 前缀标注「7 月版画像，认领与否由你」；wandering 语气为「你上次留了这几个问号」。给机会不下指标。
+- **指纹语义**：任一开关开着时，该文件内容进入 `computeHardContextFingerprint`（与 reentry 同一套轮换语义：文件变了新窗拿到新内容）；全关时不加任何键，存量 slot 不因升级被判 `context_changed`。
+- **测试**：`test/slow-layer-inject.test.js` 6 条（默认关零足迹 / 三块顺序与导语 / 缺失静默 / wandering 选行 / 预算降级不改源文件 / 指纹开关语义），接入 `test:phase2`（`phase1-offline.yml` 阻塞组）。
+
+---
+
 ## 待裁决 / Candidates
 
 下列**尚未做出决定**，不占用 D 编号，也不得当成已定方向施工。

@@ -2017,6 +2017,14 @@ function computeHardContextFingerprint(config = {}) {
     reentry: gates.reentry ? fileContentHash(config.reentryFile) : "off",
     current_state_override: gates.current_state ? fileContentHash(config.currentStateOverrideFile) : "off",
   };
+  // 慢层注入面（E1）：任一开关开着时，其文件内容进入指纹——文件变了新窗才拿到新
+  // 内容，与 reentry 同一套轮换语义。三个开关全关时**不加任何键**，指纹与本批次
+  // 之前逐字节相同，默认关 = 零行为变化（存量 slot 不因升级被判 context_changed）。
+  if (config.injectAgreements || config.injectPortrait || config.injectWandering) {
+    files.slow_agreements = config.injectAgreements ? fileContentHash(config.agreementsFile) : "off";
+    files.slow_portrait = config.injectPortrait ? fileContentHash(config.aiPortraitFile) : "off";
+    files.slow_wandering = config.injectWandering ? fileContentHash(config.wanderingFile) : "off";
+  }
   return crypto.createHash("sha256").update(JSON.stringify({
     reentry: gates.reentry,
     current_state: gates.current_state,
@@ -2048,7 +2056,7 @@ function resolveAgentCwd(agentCwd, workspaceRoot) {
   return normalizeText(agentCwd) || normalizeText(workspaceRoot);
 }
 
-module.exports = { IndeterminateTurnWriteError, createClaudeCodeRuntimeAdapter, resolveAgentCwd };
+module.exports = { IndeterminateTurnWriteError, computeHardContextFingerprint, createClaudeCodeRuntimeAdapter, resolveAgentCwd };
 
 function normalizeThreadId(value) {
   return typeof value === "string" ? value.replace(/\s+/g, "").trim() : "";

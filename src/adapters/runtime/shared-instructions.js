@@ -57,7 +57,32 @@ function buildInstructionRefreshText(config, context = {}) {
 }
 
 function buildHardContextBlocks(context = {}) {
-  return [buildReentryBlock(context.reentry), buildCurrentStateBlock(context.currentState)].filter(Boolean);
+  return [
+    buildReentryBlock(context.reentry),
+    ...buildSlowLayerBlocks(context.slowLayer),
+    buildCurrentStateBlock(context.currentState),
+  ].filter(Boolean);
+}
+
+// 慢层注入面（E1）。语气纪律：这些是「她自己留下的东西」，导语只说明来处与
+// 只读性，不指挥她怎么用（认领原则——给机会不下指标）。portrait 的导语按批次
+// 约定前缀标注旧档月份：现档是 7 月真本，认领与否由她。
+const SLOW_LAYER_BLOCK_HEADERS = {
+  agreements: "这是你们俩都明示点头过的共同约定，只读；修订在对话里提，不在这里改。",
+  portrait: "7 月版画像，认领与否由你——这是那个时期的你留下的自我观察，只读，当前对话优先。",
+  wandering: "你上次留了这几个问号，只是轻轻放在这里，不用现在回答。",
+};
+
+function buildSlowLayerBlocks(slowLayer = []) {
+  if (!Array.isArray(slowLayer)) return [];
+  return slowLayer
+    .filter((block) => block?.text && block?.hash && SLOW_LAYER_BLOCK_HEADERS[block?.type])
+    .map((block) => [
+      `<<<CB_CTX:${block.type.toUpperCase()} v1 hash=${block.hash} chars=${Number(block.chars) || 0}>>>`,
+      SLOW_LAYER_BLOCK_HEADERS[block.type],
+      block.text,
+      "<<<END_CB_CTX>>>",
+    ].join("\n"));
 }
 
 function buildReentryBlock(reentry = null) {
@@ -244,4 +269,5 @@ module.exports = {
   loadInstructionFile,
   buildCurrentStateBlock,
   buildReentryBlock,
+  buildSlowLayerBlocks,
 };

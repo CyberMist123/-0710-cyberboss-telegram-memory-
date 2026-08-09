@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { loadCurrentState } = require("./current-state");
 const { countNonWhitespace, loadReentry, reentrySnapshotFileFor } = require("./reentry-loader");
+const { loadSlowLayer } = require("./slow-layer-loader");
 
 // Runtime-adjustable context gates. 520 console (or any tool) can write
 // CYBERBOSS_STATE_DIR/context-gates.json to toggle which hard-context blocks
@@ -67,6 +68,22 @@ function prepareOpeningContext({ config = {}, sessionStore, threadId, reason = "
     }
   }
 
+  // 慢层注入面（E1）：与 reentry 同层，只在开窗这一次装配。三个开关全关时
+  // loadSlowLayer 零足迹（blocks/skipped 都空），trace 形状与之前逐字节一致。
+  // 任何异常整体吞掉——宁可本轮不注入，不可炸开窗（不变量 5）。
+  let slowLayer = { blocks: [], skipped: [] };
+  try {
+    slowLayer = loadSlowLayer({ config });
+  } catch (error) {
+    console.warn(`[continuity] slow-layer load failed: ${error.message || String(error)}`);
+  }
+  for (const block of slowLayer.blocks) {
+    blocks.push({ type: block.type, loaded: true, reason, ...pickEvidence(block) });
+  }
+  for (const miss of slowLayer.skipped) {
+    skipped.push({ type: miss.type, reason: miss.reason, configured: "on", effective: "none" });
+  }
+
   const currentState = gates.current_state
     ? loadCurrentState({ filePath: config.desireStateFile, overrideFilePath: config.currentStateOverrideFile })
     : { skipped: "gated_off" };
@@ -75,7 +92,15 @@ function prepareOpeningContext({ config = {}, sessionStore, threadId, reason = "
   } else {
     skipped.push({ type: "current_state", reason: currentState?.skipped || "missing" });
   }
-  return { opening: true, reason, reentry, currentState: currentState?.text ? currentState : null, blocks, skipped };
+  return {
+    opening: true,
+    reason,
+    reentry,
+    slowLayer: slowLayer.blocks,
+    currentState: currentState?.text ? currentState : null,
+    blocks,
+    skipped,
+  };
 }
 
 function prepareRefreshContext({ config = {}, reason = "refresh" } = {}) {

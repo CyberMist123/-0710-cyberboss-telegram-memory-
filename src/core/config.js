@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { parseStrictBoolean } = require("./bounded-json");
+const { envFlagEnabled } = require("./env-flag");
 const { normalizeNightlyMode } = require("../continuity/nightly-mode");
 
 function readConfig() {
@@ -136,6 +137,17 @@ function readConfig() {
     legacyCandidateBindingEnabled: readStrictBoolEnv("CYBERBOSS_LEGACY_CANDIDATE_BINDING_ENABLED", false),
     claudeTranscriptDir: resolveConfiguredPath(readTextEnv("CYBERBOSS_CLAUDE_TRANSCRIPT_DIR")),
     reentryAuthoringMode: readTextEnv("CYBERBOSS_REENTRY_AUTHORING_MODE") || "ai_direct",
+    // 慢层注入面（E1）：三项独立开关默认关，开着才在开窗时小预算缝入（与 reentry
+    // 同层，见 core/slow-layer-loader.js）。开关经 env-flag.js 统一真值判定（=1 开）。
+    // portrait 缺省跟 memoryDir（生产即 04-memory\ai_self_portrait.md）；agreements 与
+    // wandering 住在资产区的兄弟目录（目录名含全角括号，不做路径猜测），必须显式
+    // 给 env，没给 = 该项静默跳过（fail-open）。本进程对三份文件只读。
+    injectAgreements: envFlagEnabled("CYBERBOSS_INJECT_AGREEMENTS"),
+    injectPortrait: envFlagEnabled("CYBERBOSS_INJECT_PORTRAIT"),
+    injectWandering: envFlagEnabled("CYBERBOSS_INJECT_WANDERING"),
+    agreementsFile: resolveConfiguredPath(readTextEnv("CYBERBOSS_AGREEMENTS_FILE")),
+    aiPortraitFile: resolveConfiguredPath(readTextEnv("CYBERBOSS_AI_PORTRAIT_FILE")) || joinIfBase(memoryDir, "ai_self_portrait.md"),
+    wanderingFile: resolveConfiguredPath(readTextEnv("CYBERBOSS_WANDERING_FILE")),
     memoryStateFile: joinIfBase(memoryDir, "state.md"),
     memoryPendingPromisesFile: joinIfBase(memoryDir, "pending-promises.md"),
     memoryVectorFile: joinIfBase(memoryDir, "vectors.jsonl"),
