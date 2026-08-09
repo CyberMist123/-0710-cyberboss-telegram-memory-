@@ -28,6 +28,7 @@ Current status: docs/CURRENT_STATUS.md
 System Prompt
 + Role Card
 + 新线程首轮 Re-entry
++ 新线程首轮慢层（agreements / portrait / wandering，各自开关，默认关）
 + 轻量 Current State
 + 当前真实对话
 ```
@@ -37,6 +38,9 @@ System Prompt
 - System Prompt：核心能力、安全边界与最稳定人格来源；每轮存在。
 - Role Card：补充角色路径，不重复 System Prompt；通常在新线程或新 continuity epoch 加载。
 - Re-entry：只在重入首轮加载一次，告诉模型最近走到哪里；不是完整历史。
+- 慢层（D41）：与 Re-entry 同层、只在开窗装配一次；三项各挂独立 env 开关默认关，
+  合计 ≤800 非空白字，按 agreements ≥ portrait ≥ wandering admit，装不下整项跳过、
+  永不截断（`src/core/slow-layer-loader.js`，对源文件只读；导语只说明来处，不指挥使用）。
 - Current State：来自 Cyberboss desire runtime，只表达短期姿态，不定义人格。
 - 当前对话：最高优先级，冲突时旧记忆必须退让或求证。
 
@@ -46,7 +50,7 @@ System Prompt
 
 - Episodes；
 - Timeline；
-- Portrait；
+- Portrait（例外：`CYBERBOSS_INJECT_PORTRAIT` 开着时按 1.1 的慢层在开窗缝入，D41）；
 - Self-note；
 - Rereadings。
 
