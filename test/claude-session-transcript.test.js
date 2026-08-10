@@ -240,3 +240,83 @@ test("/status keeps the context line to the figure itself, with no age stamp", a
   assert.doesNotMatch(sent[0], /ago/);
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+// ---------------------------------------------------------------------------
+// /status must report the running child, not the stored intent.
+//
+// Owner 2026-08-11: /status 与 /model 报 claude-fable-5 整整五天，而子进程实际
+// 一直跑 claude-opus-4-6。两条命令都走 windowOverride → configuredModel 这条梯子，
+// 读的全是配置意图；覆盖被清掉而进程还活着时，显示就永久性地说假话。
+// 唯一说真话的是重启通知 —— 因为它报的是启动 argv。
+// ---------------------------------------------------------------------------
+
+test("/status prefers the model the child actually launched with, and names the drift", async () => {
+  const root = tempConfigRoot();
+  writeTranscript(root, "proj-a", "sess-1", [assistantEntry({ input: 1, cacheRead: 10 }, new Date().toISOString())]);
+  const sent = [];
+  const app = statusApp({ sent, configRoot: root, threadId: "sess-1", memoryContext: null });
+  // 配置说 fable-5（见 statusApp 的 describe），进程实际是 opus-4-6。
+  app.liveLaunchByLane = { get: () => ({ model: "claude-opus-4-6", effort: "high" }) };
+
+  await CyberbossApp.prototype.handleStatusCommand.call(app, STATUS_MESSAGE);
+
+  const text = sent.join("\n");
+  assert.match(text, /🤖 model: claude-opus-4-6/u, "报的必须是进程实际在跑的");
+  assert.doesNotMatch(text, /🤖 model: claude-fable-5/u, "配置值不能冒充实际值");
+  assert.match(text, /⚠️[^\n]*claude-fable-5/u, "分叉必须显式说出来，不能沉默");
+  assert.match(text, /重启后会跳回去/u);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("/status stays quiet when the child matches the configuration", async () => {
+  const root = tempConfigRoot();
+  writeTranscript(root, "proj-a", "sess-1", [assistantEntry({ input: 1, cacheRead: 10 }, new Date().toISOString())]);
+  const sent = [];
+  const app = statusApp({ sent, configRoot: root, threadId: "sess-1", memoryContext: null });
+  app.liveLaunchByLane = { get: () => ({ model: "claude-fable-5", effort: "medium" }) };
+
+  await CyberbossApp.prototype.handleStatusCommand.call(app, STATUS_MESSAGE);
+
+  const text = sent.join("\n");
+  assert.match(text, /🤖 model: claude-fable-5/u);
+  assert.doesNotMatch(text, /⚠️/u, "没分叉就不该有告警，否则告警会被当噪音");
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("/status falls back to the configured value when no launch has been recorded", async () => {
+  const root = tempConfigRoot();
+  writeTranscript(root, "proj-a", "sess-1", [assistantEntry({ input: 1, cacheRead: 10 }, new Date().toISOString())]);
+  const sent = [];
+  const app = statusApp({ sent, configRoot: root, threadId: "sess-1", memoryContext: null });
+  // bridge 刚起、还没有子进程启动过：退回旧行为，不能因此炸掉 /status。
+  app.liveLaunchByLane = new Map();
+
+  await CyberbossApp.prototype.handleStatusCommand.call(app, STATUS_MESSAGE);
+
+  const text = sent.join("\n");
+  assert.match(text, /🤖 model: claude-fable-5/u);
+  assert.doesNotMatch(text, /⚠️/u);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("announceProcessLaunch records the launch argv even for a lane it will not announce", async () => {
+  const recorded = new Map();
+  const app = Object.setPrototypeOf({
+    liveLaunchByLane: recorded,
+    runtimeAdapter: { getSessionStore: () => ({ buildBindingKey: () => "b" }) },
+    // 没有 telegramProfileRouter：走到"不是她的窗口"那条早退分支。
+    telegramProfileRouter: null,
+    config: {},
+    activeAccountId: "telegram",
+  }, CyberbossApp.prototype);
+
+  await CyberbossApp.prototype.announceProcessLaunch.call(app, {
+    laneKey: "v2|sys|system-message",
+    threadId: "t-1",
+    model: "claude-fable-5",
+    effort: "medium",
+  });
+
+  assert.equal(recorded.get("v2|sys|system-message")?.model, "claude-fable-5",
+    "记账必须发生在'要不要通知'的判断之前");
+});

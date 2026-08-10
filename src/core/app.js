@@ -270,6 +270,15 @@ class CyberbossApp {
     this.closeoutLivenessAutomation = null;
     this.subjectBeatScheduler = null;
     this.pipelineScheduler = null;
+    // 每条 lane 上"子进程实际拿到的" model/effort，按 laneKey 记。
+    //
+    // 为什么必须单独记：/status 与 /model 走的是 windowOverride → configuredModel
+    // 这条梯子，读的全是**存储的意图**，没有一环去问运行中的子进程实际在用什么。
+    // 两边一旦分叉（覆盖被清掉、而进程还活着），显示就会一直撒谎——2026-08-06
+    // 到 08-11 这五天，面板报 fable-5，实际跑的是 opus-4-6，Owner 全程不知情。
+    // 进程的启动参数只有 announceProcessLaunch 拿得到，这里把它留住。
+    // 内存态即可：bridge 重启会连子进程一起杀掉，记录跟着失效才是对的。
+    this.liveLaunchByLane = new Map();
     this.streamDelivery = new StreamDelivery({
       channelAdapter: this.channelAdapter,
       telegramChannelAdapter: this.telegramChannelAdapter,
@@ -2248,6 +2257,14 @@ class CyberbossApp {
       if (!laneKey || !threadId) {
         return;
       }
+      // 先记账再判断要不要通知：这是全局唯一能看到"进程实际启动参数"的地方，
+      // 不管是不是她的窗口都该记下来，/status 要靠它说真话。
+      // 可选链：这条通知是 fail-open 的，记账失败绝不能把通知本身吞掉。
+      this.liveLaunchByLane?.set(laneKey, {
+        model: normalizeText(payload?.model),
+        effort: normalizeText(payload?.effort),
+        at: new Date().toISOString(),
+      });
       const sessionStore = this.runtimeAdapter.getSessionStore();
       const senderId = resolvePreferredSenderId({
         config: this.config,
@@ -2326,14 +2343,22 @@ class CyberbossApp {
       || (threadState?.context?.runtimeId === runtimeName
         ? threadState.context
         : this.threadStateStore.getLatestContext(runtimeName));
-    const effectiveModel = this.resolveWindowScopedRuntimeParam("model", {
+    const configuredModel = this.resolveWindowScopedRuntimeParam("model", {
       bindingKey, workspaceRoot, lane: commandLane, senderId: normalized.senderId,
     }).value || this.runtimeAdapter.describe().model || "";
     // Same ladder as /effort, so the two can never disagree the way /model and
     // /status did. Falls back to the env default rather than printing nothing.
-    const effectiveEffort = resolveEffortLevel(this.resolveWindowScopedRuntimeParam("effort", {
+    const configuredEffort = resolveEffortLevel(this.resolveWindowScopedRuntimeParam("effort", {
       bindingKey, workspaceRoot, lane: commandLane, senderId: normalized.senderId,
     }).value);
+    // 上面那条梯子给的是**配置意图**。真正在跑的是子进程启动时拿到的参数，
+    // 两者会分叉（覆盖被清掉但进程还活着）。分叉时以实际为准，并把差异显式说出来
+    // ——沉默地报配置值，正是把 Owner 蒙了五天的那个 bug。
+    const live = this.liveLaunchByLane?.get(normalizeText(commandLane?.laneKey)) || null;
+    const effectiveModel = normalizeText(live?.model) || configuredModel;
+    const effectiveEffort = live?.effort ? resolveEffortLevel(live.effort) : configuredEffort;
+    const modelDrift = Boolean(normalizeText(live?.model)) && normalizeText(live.model) !== configuredModel;
+    const effortDrift = Boolean(normalizeText(live?.effort)) && resolveEffortLevel(live.effort) !== configuredEffort;
 
     // One icon per line, each one meaning something different — the old block ran
     // 🤖 three times over runtime/model/provider, so nothing stood out. `provider`
@@ -2349,6 +2374,14 @@ class CyberbossApp {
       `🤖 model: ${effectiveModel || "(default)"}`,
       `⚡ effort: ${effectiveEffort}`,
     ];
+    if (modelDrift || effortDrift) {
+      // 只在真分叉时出现：正在跑的进程和配置不是一回事，重启后会跳回配置值。
+      const drifted = [
+        modelDrift ? `model ${configuredModel || "(default)"}` : "",
+        effortDrift ? `effort ${configuredEffort}` : "",
+      ].filter(Boolean).join(" · ");
+      lines.push(`⚠️ 上面是这个进程实际在跑的；配置里写的是 ${drifted}，重启后会跳回去`);
+    }
     lines.push(formatContextStatusLine({
       runtimeName,
       context,
@@ -2993,9 +3026,15 @@ class CyberbossApp {
       // Prefer a populated session catalog (e.g. codex); otherwise fall back to
       // the runtime's advertised models (claudecode surfaces its 3-model menu here).
       const suggestedModels = (catalog?.models?.length ? catalog.models : (this.runtimeAdapter.describe().models || []));
+      // 同 /status：先说进程实际在跑的，配置值只在分叉时作为对照出现。
+      const configuredHere = currentModel || this.runtimeAdapter.describe().model || "";
+      const liveHere = normalizeText(this.liveLaunchByLane?.get(normalizeText(commandLane?.laneKey))?.model);
       const lines = [
-        `Current model: ${currentModel || this.runtimeAdapter.describe().model || "(default)"}`,
+        `Current model: ${liveHere || configuredHere || "(default)"}`,
       ];
+      if (liveHere && liveHere !== configuredHere) {
+        lines.push(`⚠️ 这是当前进程实际在跑的；配置里写的是 ${configuredHere || "(default)"}，重启后会跳回去`);
+      }
       if (suggestedModels.length) {
         lines.push(`Available models: ${suggestedModels.map((item) => item.model).join(", ")}`);
       } else {
