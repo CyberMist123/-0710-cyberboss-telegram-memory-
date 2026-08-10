@@ -47,7 +47,12 @@ if ($running.Count -gt 0) {
     exit 0
 }
 
-foreach ($line in Get-Content -LiteralPath $envFile) {
+# -Encoding UTF8 is required: telegram.env is UTF-8 without BOM, and Windows
+# PowerShell 5.1 decodes it as ANSI, so every value containing CJK turns into
+# mojibake. Victims: VOICE_KIT_DIR / VISION_QWEN_API_KEY_FILE / DIARY_DIR /
+# AGREEMENTS_FILE / WANDERING_FILE / CONTINUITY_WORKTREE. A mangled path fails
+# silently (loadVoiceKit catches and returns null), leaving nothing in the log.
+foreach ($line in Get-Content -LiteralPath $envFile -Encoding UTF8) {
     if ([string]::IsNullOrWhiteSpace($line)) {
         continue
     }
