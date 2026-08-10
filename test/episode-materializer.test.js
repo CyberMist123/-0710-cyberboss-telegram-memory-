@@ -7,6 +7,8 @@ const path = require("node:path");
 const {
   materializeEpisode,
   regenerateIndex,
+  ensureEmptyEpisodeIndex,
+  EMPTY_INDEX_TEXT,
   parseFrontmatter,
 } = require("../src/continuity/episode-materializer");
 const { ContinuityPipeline } = require("../src/continuity/continuity-pipeline");
@@ -66,6 +68,16 @@ test("同一 publication_key 第二次物化被跳过，不产生重复文件", 
   assert.equal(second.status, "skipped");
   const files = fs.readdirSync(episodesDir).filter((name) => name.startsWith("ep"));
   assert.equal(files.length, 1);
+});
+
+test("空 canon 只在缺失时种下 index，已有 canon 或 index 都不改", () => {
+  const { episodesDir } = makeDirs();
+  assert.equal(ensureEmptyEpisodeIndex({ episodesDir, canonRecords: [] }).status, "written");
+  assert.equal(fs.readFileSync(path.join(episodesDir, "index.md"), "utf8"), `${EMPTY_INDEX_TEXT}\n`);
+  fs.writeFileSync(path.join(episodesDir, "index.md"), "手写目录\n", "utf8");
+  assert.equal(ensureEmptyEpisodeIndex({ episodesDir, canonRecords: [] }).reason, "index_exists");
+  assert.equal(fs.readFileSync(path.join(episodesDir, "index.md"), "utf8"), "手写目录\n");
+  assert.equal(ensureEmptyEpisodeIndex({ episodesDir, canonRecords: [{}] }).reason, "canon_not_empty");
 });
 
 test("序号递增；文件名 slug 去掉危险字符；超长标题截断", () => {

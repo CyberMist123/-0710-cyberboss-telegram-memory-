@@ -12,7 +12,7 @@ const {
   normalizeCandidateMetadata,
 } = require("./candidate-authority");
 const { createDetailEntry, detailsFileFor } = require("./detail-ledger");
-const { materializeEpisode } = require("./episode-materializer");
+const { materializeEpisode, ensureEmptyEpisodeIndex } = require("./episode-materializer");
 const { IMPERATIVE_STYLE_REASON, detectImperativeStyle } = require("./imperative-style");
 const {
   EFFECTIVE_DECISION_AMBIGUOUS,
@@ -694,6 +694,7 @@ class ContinuityPipeline {
           diagnosticEvents,
         );
       }
+      ensureEmptyEpisodeIndex({ episodesDir: path.join(this.continuityDir, "episodes"), canonRecords: readJsonl(this.paths.episodes) });
       return { status: "success", written, skipped, diagnostics };
     });
   }

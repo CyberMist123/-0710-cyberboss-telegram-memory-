@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+require("./episode-materializer.test");
+require("./pipeline-scheduler.test");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");

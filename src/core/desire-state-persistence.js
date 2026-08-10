@@ -34,6 +34,13 @@ function persistReportedDesireState({ state, stateFile, historyFile = "", now = 
       time: now,
       most_want: String(state.most_want || state.intent?.want_action || "").trim(),
       note: "claude-runtime-reported",
+      drives: normalizedDrives.map((drive) => ({
+        key: String(drive.key || ""),
+        label: String(drive.label || ""),
+        score: normalizeScore(drive.score),
+        change: String(drive.change || ""),
+        cause: String(drive.cause || ""),
+      })),
     };
     for (const drive of normalizedDrives) row[drive.key] = normalizeScore(drive.score);
     fs.appendFileSync(targetHistory, `${JSON.stringify(row)}\n`, "utf8");

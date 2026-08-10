@@ -36,7 +36,7 @@ test("Claude reported octants persist realtime and one deduplicated history row"
   const historyFile = path.join(root, "desire-history.jsonl");
   const state = {
     most_want: "继续读书",
-    drives: DRIVE_KEYS.map((key, index) => ({ key, score: (index + 1) / 10, change: "steady" })),
+    drives: DRIVE_KEYS.map((key, index) => ({ key, label: `label-${key}`, score: (index + 1) / 10, change: "steady", cause: `cause-${key}` })),
   };
   const first = persistReportedDesireState({ state, stateFile, historyFile, now: "2026-07-12T06:00:00.000Z" });
   const duplicate = persistReportedDesireState({ state, stateFile, historyFile, now: "2026-07-12T06:00:01.000Z" });
@@ -50,6 +50,7 @@ test("Claude reported octants persist realtime and one deduplicated history row"
   assert.equal(rows[0].note, "claude-runtime-reported");
   assert.equal(rows[0].attachment, 0.1);
   assert.equal(rows[0].stress, 0.8);
+  assert.deepEqual(rows[0].drives[0], { key: "attachment", label: "label-attachment", score: 0.1, change: "steady", cause: "cause-attachment" });
 });
 
 

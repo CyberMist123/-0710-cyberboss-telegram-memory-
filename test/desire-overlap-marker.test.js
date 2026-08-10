@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { tryAcquireActiveMarker, releaseActiveMarker } = require("../src/app/hourly-desire-poller");
+const { tryAcquireActiveMarker, releaseActiveMarker, markerIsFresh } = require("../src/app/hourly-desire-poller");
 const { acquireWriterLease, releaseWriterLease } = require("../src/orchestration/writer-lease");
 
 test("overlap marker is exclusive and stale owner cannot remove replacement", () => {
@@ -65,4 +65,12 @@ test("a live marker lease prevents concurrent stale cleanup", () => {
     if (lease) releaseWriterLease(leaseFile, lease.lease_id);
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("fresh pid-owned marker is reclaimable when its owner is dead, but not when alive or indeterminate", () => {
+  const now = Date.now();
+  const marker = { owner: "4242:fixture", eventId: "event", startedAt: now };
+  assert.equal(markerIsFresh(marker, now, { isProcessAlive: () => false }), false);
+  assert.equal(markerIsFresh(marker, now, { isProcessAlive: () => true }), true);
+  assert.equal(markerIsFresh(marker, now, { isProcessAlive: () => null }), true);
 });

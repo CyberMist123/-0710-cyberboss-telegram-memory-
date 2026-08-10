@@ -9,6 +9,7 @@ const PAUSED_SYSTEM_MESSAGE_SOURCE_TYPES = new Set([
   "liveness_alert",
   "consolidation",
   "reflect",
+  "memory_receipt",
 ]);
 
 function readActivityPauseState(filePath, fsImpl = fs) {

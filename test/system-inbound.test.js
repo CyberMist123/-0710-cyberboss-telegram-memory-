@@ -45,6 +45,60 @@ Module._load = function patchedModuleLoad(request, parent, isMain) {
 const { CyberbossApp } = require("../src/core/app");
 const { buildSystemInboundText } = require("../src/core/system-message-dispatcher");
 const { runHourlyDesirePoller } = require("../src/app/hourly-desire-poller");
+const { buildTelegramRouteLane, buildSystemRouteLane } = require("../src/core/route-lane");
+
+test("only desire_checkin returns to its persisted Telegram lane; other system sources stay isolated", async () => {
+  const telegramLane = buildTelegramRouteLane({ accountId: "telegram", chatId: "42" });
+  const descriptor = {
+    bindingKey: "binding-1",
+    workspaceRoot: "/workspace",
+    laneKey: telegramLane.laneKey,
+    laneKind: "tg",
+    provider: "telegram",
+    accountId: "telegram",
+    chatId: "42",
+    messageThreadId: null,
+  };
+  const dispatched = [];
+  const appLike = {
+    config: { channel: "telegram" },
+    systemMessageDispatcher: { buildPreparedMessage: (message) => ({ workspaceId: "default", accountId: "telegram", senderId: message.senderId, workspaceRoot: "/workspace" }) },
+    runtimeAdapter: {
+      getSessionStore: () => ({ buildBindingKey: () => "binding-1" }),
+      listRestorableSlots: () => [{ route: descriptor }],
+      resolveRouteSession: () => ({ threadId: "telegram-thread" }),
+    },
+    isTurnDispatchBlocked: () => false,
+    dispatchPreparedTurn: async (value) => { dispatched.push(value); return true; },
+  };
+  for (const sourceType of ["desire_checkin", "reflect", "consolidation", "checkin", "liveness_alert"]) {
+    await CyberbossApp.prototype.dispatchSystemMessage.call(appLike, { id: sourceType, senderId: "42", sourceType });
+  }
+  assert.equal(dispatched[0].lane.laneKey, telegramLane.laneKey);
+  assert.equal(dispatched[0].gateLane.laneKey, telegramLane.laneKey);
+  for (const turn of dispatched.slice(1)) {
+    assert.equal(turn.lane.laneKey, buildSystemRouteLane("system-message").laneKey);
+    assert.equal(turn.gateLane, null);
+  }
+});
+
+test("desire_checkin falls back to the system lane when its saved route descriptor is unavailable", async () => {
+  let turn;
+  const appLike = {
+    config: { channel: "telegram" },
+    systemMessageDispatcher: { buildPreparedMessage: () => ({ workspaceId: "default", accountId: "telegram", senderId: "42", workspaceRoot: "/workspace" }) },
+    runtimeAdapter: {
+      getSessionStore: () => ({ buildBindingKey: () => "binding-1" }),
+      listRestorableSlots: () => [{ route: { bindingKey: "binding-1", workspaceRoot: "/workspace", laneKind: "tg" } }],
+      resolveRouteSession: () => ({ threadId: "" }),
+    },
+    isTurnDispatchBlocked: () => false,
+    dispatchPreparedTurn: async (value) => { turn = value; return true; },
+  };
+  await CyberbossApp.prototype.dispatchSystemMessage.call(appLike, { id: "desire", senderId: "42", sourceType: "desire_checkin" });
+  assert.equal(turn.lane.laneKey, buildSystemRouteLane("system-message").laneKey);
+  assert.equal(turn.gateLane, null);
+});
 
 test("system messages bypass normal inbound wrapping", async () => {
   const prepared = await CyberbossApp.prototype.prepareIncomingMessageForRuntime.call({}, {
@@ -216,7 +270,7 @@ test("desire checkin prompt stays byte-identical when minimal loop gate is off",
     "{\"action\":\"silent\",\"desire_state\":{\"most_want\":\"<此刻最想做的事>\",\"drives\":[{\"key\":\"attachment\",\"label\":\"依恋\",\"score\":0.8,\"change\":\"up\",\"cause\":\"想她了\"},{\"key\":\"curiosity\",\"label\":\"好奇\",\"score\":0.3,\"change\":\"steady\",\"cause\":\"没什么新想法\"},{\"key\":\"reflection\",\"label\":\"沉思\",\"score\":0.2,\"change\":\"down\",\"cause\":\"没什么好复盘的\"},{\"key\":\"duty\",\"label\":\"责任\",\"score\":0.5,\"change\":\"up\",\"cause\":\"还有事情没做完\"},{\"key\":\"social\",\"label\":\"社交\",\"score\":0.4,\"change\":\"steady\",\"cause\":\"想看看外面\"},{\"key\":\"fatigue\",\"label\":\"疲惫\",\"score\":0.3,\"change\":\"down\",\"cause\":\"休息了一下\"},{\"key\":\"libido\",\"label\":\"性欲\",\"score\":0.2,\"change\":\"steady\",\"cause\":\"还好\"},{\"key\":\"stress\",\"label\":\"压力\",\"score\":0.4,\"change\":\"up\",\"cause\":\"有点焦虑\"}]}}",
     "drives 必须有全部 8 个 key，缺一个就算格式错误。No markdown fences. No reasoning. No text outside the JSON.",
     "这是后台状态记录，不属于聊天。写完 JSON 就放下它：之后回到与她的对话时，继续用你平常的语气和节奏，不要把这种报表式的口吻带进聊天。",
-    "如果此刻想安静整理，可以翻翻 episodes / 记记账本（memory_candidate_submit type=details），或看看观察池。",
+    "如果此刻想安静整理，在 desire_state 里加一个 \"want_consolidation\": true，我会另开一个安静窗口给你——别在这一轮里翻档案。这一轮看得见你们刚才的对话，带着它整理，等于让此刻的情绪当场入账。",
     "",
     "Trigger:",
     "测试 checkin",
@@ -1084,4 +1138,73 @@ test("location leave_home trigger and major move both enqueue system action mess
   assert.equal(queued[0].text, "User leaves home.");
   assert.equal(queued[1].id, "location-move:move-1");
   assert.match(queued[1].text, /location appears to have changed significantly/i);
+});
+
+// 整理的触发时机在八维菜单里，但整理本身必须在独处窗口做。
+// 这几条钉的是那道墙：八维这一轮只负责把意愿转成排队消息，
+// 真正的整理走 consolidation ——而 consolidation 仍旧固定在 system lane
+// （由本文件上面那条 lane 回归测试保证）。
+function buildDesireReplyApp(queued, { pending = false } = {}) {
+  return {
+    config: { desireStateFile: "", desireHistoryFile: "" },
+    automationTargets: { accountId: "telegram", senderId: "42", workspaceRoot: "/workspace" },
+    systemMessageQueue: {
+      hasPendingForAccount: () => pending,
+      enqueue: (message) => queued.push(message),
+    },
+  };
+}
+
+test("a checkin that asks to tidy up queues consolidation instead of tidying in the chat turn", () => {
+  const queued = [];
+  const result = CyberbossApp.prototype.maybeQueueConsolidationFromDesireReply.call(
+    buildDesireReplyApp(queued),
+    { want_consolidation: true }
+  );
+  assert.equal(result.queued, true);
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].sourceType, "consolidation");
+  assert.equal(queued[0].accountId, "telegram");
+  assert.equal(queued[0].senderId, "42");
+  assert.equal(queued[0].workspaceRoot, "/workspace");
+  assert.match(queued[0].id, /^desire-consolidation:/u);
+});
+
+test("a checkin that does not ask to tidy up queues nothing", () => {
+  for (const state of [{}, { want_consolidation: false }, { want_consolidation: "true" }, null]) {
+    const queued = [];
+    const result = CyberbossApp.prototype.maybeQueueConsolidationFromDesireReply.call(
+      buildDesireReplyApp(queued),
+      state
+    );
+    assert.equal(result.queued, false);
+    assert.equal(queued.length, 0);
+  }
+});
+
+test("a consolidation already waiting is not queued twice", () => {
+  const queued = [];
+  const result = CyberbossApp.prototype.maybeQueueConsolidationFromDesireReply.call(
+    buildDesireReplyApp(queued, { pending: true }),
+    { want_consolidation: true }
+  );
+  assert.equal(result.queued, false);
+  assert.equal(result.reason, "overlap");
+  assert.equal(queued.length, 0);
+});
+
+test("missing automation targets degrade quietly rather than throwing", () => {
+  const queued = [];
+  const app = buildDesireReplyApp(queued);
+  app.automationTargets = { accountId: "", senderId: "", workspaceRoot: "" };
+  const result = CyberbossApp.prototype.maybeQueueConsolidationFromDesireReply.call(app, { want_consolidation: true });
+  assert.equal(result.queued, false);
+  assert.equal(result.reason, "target_unavailable");
+  assert.equal(queued.length, 0);
+});
+
+test("the checkin prompt tells her to signal rather than open the archives in this turn", () => {
+  const text = buildSystemInboundText("", "2026-08-10T00:00:00.000Z", "desire_checkin", "failure");
+  assert.match(text, /want_consolidation/u);
+  assert.match(text, /别在这一轮里翻档案/u);
 });

@@ -102,16 +102,16 @@ function writePlanMarker(filePath, plannedAt) {
   } catch {}
 }
 
-function isActiveMarkerFresh(filePath, now = Date.now()) {
+function isActiveMarkerFresh(filePath, now = Date.now(), options = {}) {
   if (!filePath) return false;
   try {
-    return markerIsFresh(JSON.parse(fs.readFileSync(filePath, "utf8")), now);
+    return markerIsFresh(JSON.parse(fs.readFileSync(filePath, "utf8")), now, options);
   } catch {
     return false;
   }
 }
 
-function tryAcquireActiveMarker(filePath, marker, now = Date.now()) {
+function tryAcquireActiveMarker(filePath, marker, now = Date.now(), options = {}) {
   if (!filePath) return true;
   const result = withActiveMarkerLease(filePath, () => {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -121,7 +121,7 @@ function tryAcquireActiveMarker(filePath, marker, now = Date.now()) {
     } catch (error) {
       if (error?.code !== "ENOENT") return false;
     }
-    if (current && markerIsFresh(current, now)) return false;
+    if (current && markerIsFresh(current, now, options)) return false;
     if (current) {
       try {
         fs.unlinkSync(filePath);
@@ -191,14 +191,37 @@ function withActiveMarkerLease(filePath, action) {
   }
 }
 
-function markerIsFresh(marker, now = Date.now()) {
-  return Boolean(
+function markerIsFresh(marker, now = Date.now(), { isProcessAlive = probeProcessAlive } = {}) {
+  const timeFresh = Boolean(
     marker
     && marker.owner
     && marker.eventId
     && Number.isFinite(Number(marker.startedAt))
     && Number(now) - Number(marker.startedAt) <= ACTIVE_MARKER_STALE_MS
   );
+  if (!timeFresh) return false;
+  const pid = ownerPid(marker.owner);
+  if (!pid) return true;
+  const alive = isProcessAlive(pid);
+  // An unknown process state (permission/platform boundary) retains the old
+  // timestamp guard: waiting is safer than creating a second writer.
+  return alive !== false;
+}
+
+function ownerPid(owner) {
+  const match = /^(\d+):/u.exec(String(owner || "").trim());
+  const pid = match ? Number(match[1]) : NaN;
+  return Number.isSafeInteger(pid) && pid > 0 ? pid : 0;
+}
+
+function probeProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === "ESRCH") return false;
+    return null;
+  }
 }
 
 function resolveDesirePollerTargets({ config, sessionStore }) {
@@ -257,6 +280,9 @@ module.exports = {
   isActiveMarkerFresh,
   tryAcquireActiveMarker,
   releaseActiveMarker,
+  markerIsFresh,
+  ownerPid,
+  probeProcessAlive,
   buildDesireTriggerText,
   runHourlyDesireTick,
 };

@@ -149,7 +149,7 @@ test("subject beat dispatcher uses override first and otherwise gives non-metric
   const reflect = buildSystemInboundText("到 Reflect 节拍了。", "2026-08-09T20:30:00Z", "reflect");
   assert.match(reflect, /跨窗口反复出现/u);
   assert.match(reflect, /没有就停/u);
-  const menu = "如果此刻想安静整理，可以翻翻 episodes / 记记账本（memory_candidate_submit type=details），或看看观察池。";
+  const menu = "如果此刻想安静整理，在 desire_state 里加一个 \"want_consolidation\": true，我会另开一个安静窗口给你——别在这一轮里翻档案。这一轮看得见你们刚才的对话，带着它整理，等于让此刻的情绪当场入账。";
   for (const desireLoopMinimalEnabled of [false, true]) {
     const desire = buildSystemInboundText(
       "到 Desire 节拍了。",

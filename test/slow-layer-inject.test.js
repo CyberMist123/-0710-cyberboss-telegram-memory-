@@ -73,7 +73,7 @@ test("all three enabled slow-layer files render in order and carry trace evidenc
   ].map((marker) => rendered.indexOf(marker));
   assert.ok(positions.every((position) => position >= 0));
   assert.deepEqual([...positions].sort((a, b) => a - b), positions);
-  assert.match(rendered, /7 月版画像，认领与否由你/u);
+  assert.match(rendered, /这版画像，认领与否由你/u);
   assert.match(rendered, /你上次留了这几个问号/u);
 
   for (const type of ["agreements", "portrait", "wandering"]) {

@@ -17,6 +17,8 @@ const { countNonWhitespace } = require("./reentry-loader");
 // 三项合计的非空白字硬顶。超限按优先级逐项降级：agreements（共同约定，操作性最强）
 // ≥ portrait（姿态背景）≥ wandering（悬置问题），装不下的整项跳过。
 const SLOW_LAYER_TOTAL_BUDGET = 800;
+const SLOW_LAYER_TOTAL_BUDGET_MIN = 800;
+const SLOW_LAYER_TOTAL_BUDGET_MAX = 4_000;
 // wandering 只轻量点出最上面几条问号，不是把灰名单整个搬进来。
 const WANDERING_MAX_LINES = 3;
 const WANDERING_CHAR_BUDGET = 100;
@@ -35,7 +37,8 @@ function loadSlowLayer({ config = {} } = {}) {
   ];
   const blocks = [];
   const skipped = [];
-  let remaining = SLOW_LAYER_TOTAL_BUDGET;
+  const totalBudget = resolveSlowLayerTotalBudget(config.slowLayerTotalBudget);
+  let remaining = totalBudget;
   for (const item of items) {
     if (!item.enabled) continue;
     let loaded;
@@ -51,7 +54,7 @@ function loadSlowLayer({ config = {} } = {}) {
       continue;
     }
     if (loaded.chars > remaining) {
-      console.warn(`[continuity] slow-layer ${item.type} skipped reason=over_budget chars=${loaded.chars} remaining=${remaining} total_budget=${SLOW_LAYER_TOTAL_BUDGET}`);
+      console.warn(`[continuity] slow-layer ${item.type} skipped reason=over_budget chars=${loaded.chars} remaining=${remaining} total_budget=${totalBudget}`);
       skipped.push({ type: item.type, reason: "over_budget" });
       continue;
     }
@@ -59,6 +62,13 @@ function loadSlowLayer({ config = {} } = {}) {
     blocks.push({ type: item.type, ...loaded });
   }
   return { blocks, skipped };
+}
+
+function resolveSlowLayerTotalBudget(value) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= SLOW_LAYER_TOTAL_BUDGET_MIN && parsed <= SLOW_LAYER_TOTAL_BUDGET_MAX
+    ? parsed
+    : SLOW_LAYER_TOTAL_BUDGET;
 }
 
 // 读一份慢层文件并做**选择**（不是改写）：剥 <!-- --> 注释、去首尾空行；
@@ -110,6 +120,9 @@ function pickWanderingLines(text) {
 
 module.exports = {
   SLOW_LAYER_TOTAL_BUDGET,
+  SLOW_LAYER_TOTAL_BUDGET_MIN,
+  SLOW_LAYER_TOTAL_BUDGET_MAX,
+  resolveSlowLayerTotalBudget,
   WANDERING_CHAR_BUDGET,
   WANDERING_MAX_LINES,
   loadSlowLayer,

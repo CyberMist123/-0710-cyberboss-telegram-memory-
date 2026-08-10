@@ -18,6 +18,22 @@ const STATUSES = ["active", "superseded", "pinned", "archived"];
 // 文件名里标题截到这个长度：够认出是哪条，不至于生成没法看的长文件名。
 const SLUG_MAX_CHARS = 24;
 const TITLE_MAX_CHARS = 40;
+const EMPTY_INDEX_TEXT = "目录还空着。第一条从你开始——值得留的时刻用 memory_candidate_submit。";
+
+function ensureEmptyEpisodeIndex({ episodesDir, canonRecords = [] } = {}) {
+  if (!episodesDir || (Array.isArray(canonRecords) && canonRecords.length > 0)) {
+    return { status: "skipped", reason: "canon_not_empty" };
+  }
+  const indexPath = path.join(episodesDir, INDEX_FILE);
+  if (fs.existsSync(indexPath)) return { status: "skipped", reason: "index_exists" };
+  try {
+    fs.mkdirSync(episodesDir, { recursive: true });
+    fs.writeFileSync(indexPath, `${EMPTY_INDEX_TEXT}\n`, "utf8");
+    return { status: "written", file: INDEX_FILE };
+  } catch (error) {
+    return { status: "error", message: String(error?.message || error) };
+  }
+}
 
 function materializeEpisode({ episodesDir, jobsDir, record }) {
   try {
@@ -199,4 +215,4 @@ function recordMaterializerError(jobsDir, record, error) {
   }
 }
 
-module.exports = { materializeEpisode, regenerateIndex, ANNOTATIONS_HEADING, listEpisodeFiles, parseFrontmatter };
+module.exports = { materializeEpisode, regenerateIndex, ensureEmptyEpisodeIndex, EMPTY_INDEX_TEXT, ANNOTATIONS_HEADING, listEpisodeFiles, parseFrontmatter };

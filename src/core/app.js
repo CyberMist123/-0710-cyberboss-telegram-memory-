@@ -82,6 +82,7 @@ const { runSystemCheckinPoller } = require("../app/system-checkin-poller");
 const { runHourlyDesirePoller } = require("../app/hourly-desire-poller");
 const { CloseoutLivenessAutomation, MAX_ALERT_DELIVERY_ATTEMPTS } = require("../app/closeout-liveness");
 const { SubjectBeatScheduler } = require("../app/subject-beat-scheduler");
+const { PipelineScheduler } = require("../app/pipeline-scheduler");
 const { persistReportedDesireState } = require("./desire-state-persistence");
 const { loadContextGates } = require("./hard-context");
 const { createProjectTooling } = require("../tools/create-project-tooling");
@@ -268,6 +269,7 @@ class CyberbossApp {
     this.systemMessageDispatcher = null;
     this.closeoutLivenessAutomation = null;
     this.subjectBeatScheduler = null;
+    this.pipelineScheduler = null;
     this.streamDelivery = new StreamDelivery({
       channelAdapter: this.channelAdapter,
       telegramChannelAdapter: this.telegramChannelAdapter,
@@ -412,6 +414,13 @@ class CyberbossApp {
       senderId: automationSenderId,
       sessionStore,
     });
+    // 八维菜单里的「想整理」要落到一条排队消息上，而排队要账号/发件人/工作区。
+    // 调度器各自持有一份，回复回调里拿不到，所以在这里留一份给它用。
+    this.automationTargets = {
+      accountId: account.accountId,
+      senderId: automationSenderId,
+      workspaceRoot: automationWorkspaceRoot,
+    };
     this.closeoutLivenessAutomation = new CloseoutLivenessAutomation({
       config: this.config,
       queueStore: this.systemMessageQueue,
@@ -433,11 +442,22 @@ class CyberbossApp {
     if (this.subjectBeatScheduler.start()) {
       console.log("[automation] subject beat scheduler started");
     }
+    this.pipelineScheduler = new PipelineScheduler({
+      config: this.config,
+      queueStore: this.systemMessageQueue,
+      accountId: account.accountId,
+      senderId: automationSenderId,
+      workspaceRoot: automationWorkspaceRoot,
+    });
+    if (this.pipelineScheduler.start()) {
+      console.log("[automation] pipeline scheduler started");
+    }
 
     const shutdown = createShutdownController(async () => {
       this.clearPendingImageInboundTimers();
       await this.closeoutLivenessAutomation?.stop();
       await this.subjectBeatScheduler?.stop();
+      await this.pipelineScheduler?.stop();
       await this.closeLocationServer();
       await this.runtimeAdapter.close();
     });
@@ -2009,6 +2029,11 @@ class CyberbossApp {
       senderId: prepared.senderId,
     });
     const workspaceRoot = prepared.workspaceRoot || this.resolveWorkspaceRoot(bindingKey);
+    const systemLane = buildSystemRouteLane("system-message");
+    const desireLane = message?.sourceType === "desire_checkin"
+      ? resolveTelegramLaneForSystemMessage(this, bindingKey, workspaceRoot)
+      : null;
+    const lane = desireLane || systemLane;
     // Queued system turns yield to any lane that is mid-turn in this workspace.
     if (this.isTurnDispatchBlocked(bindingKey, workspaceRoot, { anyLane: true })) {
       return false;
@@ -2020,8 +2045,8 @@ class CyberbossApp {
       bindingKey,
       workspaceRoot,
       prepared,
-      lane: buildSystemRouteLane("system-message"),
-      gateLane: null,
+      lane,
+      gateLane: desireLane || null,
       pendingOperation: message?.sourceType === "desire_checkin"
         ? {
             kind: "desire_checkin",
@@ -2030,7 +2055,7 @@ class CyberbossApp {
             markerEventId: message.markerEventId,
             startedAt: Date.now(),
             reusedSession: Boolean(resolveRouteSessionFor(this, {
-              bindingKey, workspaceRoot, lane: buildSystemRouteLane("system-message"),
+              bindingKey, workspaceRoot, lane,
             }).threadId),
           }
         : (this.config?.desireLoopMinimalEnabled === true && message?.desireState
@@ -4054,7 +4079,38 @@ class CyberbossApp {
           historyFile: this.config.desireHistoryFile,
         });
       }
+      this.maybeQueueConsolidationFromDesireReply(state);
     } catch {}
+  }
+
+  // 整理的**触发时机**并进八维菜单（Owner 2026-08-09 修订），但整理**本身**
+  // 必须在独处窗口里做。八维这一轮跑在她的聊天 lane 上、看得见刚才的对话；
+  // 带着它翻档案就是「情绪当场入账」，正是防漂移闸要挡的事。
+  // 所以这里只把「她说想整理」转成一条 consolidation 排队消息——那条仍走
+  // system lane，没有聊天上下文。
+  maybeQueueConsolidationFromDesireReply(state) {
+    if (state?.want_consolidation !== true) return { queued: false, reason: "not_requested" };
+    const targets = this.automationTargets;
+    if (!this.systemMessageQueue || !targets?.accountId || !targets?.senderId || !targets?.workspaceRoot) {
+      return { queued: false, reason: "target_unavailable" };
+    }
+    if (this.systemMessageQueue.hasPendingForAccount(targets.accountId, {
+      shouldInclude: (message) => message?.sourceType === "consolidation",
+    })) {
+      return { queued: false, reason: "overlap" };
+    }
+    const id = `desire-consolidation:${crypto.randomUUID()}`;
+    this.systemMessageQueue.enqueue({
+      id,
+      accountId: targets.accountId,
+      senderId: targets.senderId,
+      workspaceRoot: targets.workspaceRoot,
+      text: DESIRE_CONSOLIDATION_TEXT,
+      sourceType: "consolidation",
+      createdAt: new Date().toISOString(),
+    });
+    console.log(`[desire] consolidation requested from checkin, queued id=${id}`);
+    return { queued: true, id };
   }
 
   handleCompletedRuntimeTurn(pendingOperation, payload = {}, deliveredHandoff = null) {
@@ -4178,6 +4234,10 @@ class CyberbossApp {
     }
   }
 }
+
+// 与 subject-beat-scheduler 的 consolidation 节拍同一句话：不管是定时敲门
+// 还是她自己从八维菜单里要的，进到那个安静窗口时看到的开场都一样。
+const DESIRE_CONSOLIDATION_TEXT = "到整理节拍了。";
 
 const DRIVE_KEY_ALIASES = {
   responsibility: "duty",
@@ -5378,6 +5438,20 @@ function resolveRouteSessionFor(app, { bindingKey, workspaceRoot, lane = null, n
     processAlive: false,
     profileId: "legacy",
   };
+}
+
+function resolveTelegramLaneForSystemMessage(app, bindingKey, workspaceRoot) {
+  if (app.config?.channel !== "telegram") return null;
+  try {
+    const listed = typeof app.runtimeAdapter?.listRestorableSlots === "function"
+      ? app.runtimeAdapter.listRestorableSlots()
+      : [];
+    const slots = Array.isArray(listed) ? listed : [];
+    const slot = slots.find((item) => item?.route?.bindingKey === bindingKey && item?.route?.workspaceRoot === workspaceRoot && item?.route?.laneKind === "tg");
+    return slot ? rebuildLaneFromDescriptor(slot.route) : null;
+  } catch {
+    return null;
+  }
 }
 
 // Route identity for a runtime event.
