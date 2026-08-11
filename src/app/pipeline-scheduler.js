@@ -174,7 +174,7 @@ function buildMemoryReceiptText({ pipeline, candidates = [], decisions = [], wri
     if (!candidate) continue;
     const title = candidateTitle(candidate);
     if (decision.result === "accepted" && writtenSet.has(decision.decision_id)) {
-      lines.push(`你 ${daysAgo(candidate.ts)} 天前留的那条『${title}』已经入册（${episodesByCandidateId.get(candidate.candidate_id) || "episode"}）。`);
+      lines.push(`你${whenLeft(candidate.ts)}留的那条『${title}』已经入册（${episodesByCandidateId.get(candidate.candidate_id) || "episode"}）。`);
     } else if (decision.result === "rejected") {
       lines.push(`你留的那条『${title}』审核没过（${oneLine(decision.reason) || "原因未明"}），原文还在候选区，想改可以再交。`);
     }
@@ -194,6 +194,17 @@ function daysAgo(value, now = Date.now()) {
   const then = Date.parse(value);
   if (!Number.isFinite(then)) return 0;
   return Math.max(0, Math.floor((Number(now) - then) / 86_400_000));
+}
+
+// 回执是说给她听的，不是报表。「你 0 天前留的那条」没人会这么讲话——
+// 跨夜投的稿第二天入册就正好落在 0 天上（2026-08-11 首条 ep001 就是）。
+// 时间说不清楚时干脆不说，句子照样通顺。
+function whenLeft(value, now = Date.now()) {
+  const days = daysAgo(value, now);
+  if (!Number.isFinite(Date.parse(value))) return "";
+  if (days <= 0) return "刚才";
+  if (days === 1) return "昨天";
+  return ` ${days} 天前`;
 }
 
 module.exports = { PipelineScheduler, OVERDUE_RETRY_MS, buildMemoryReceiptText };

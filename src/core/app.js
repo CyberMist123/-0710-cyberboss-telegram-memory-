@@ -2280,6 +2280,15 @@ class CyberbossApp {
       if (!senderId || !workspaceRoot) {
         return;
       }
+      // 只对她真正聊天的那条 lane 出声。system lane 跑的是 reflect/consolidation
+      // 这类后台轮次，它也用同一个 profile，于是从前也会发一条通知过去——
+      // Owner 2026-08-10 看到"两条通知、两个模型"就是这么来的，那条是噪音。
+      // （记账在上面已经做过了，这里只管要不要打扰她。）
+      // 按"排除 system lane"来判，而不是"必须长得像 tg lane"：lane key 的形态
+      // 不止一种（v2 / legacy / 测试夹具），用白名单会把正常的窗口一起哑掉。
+      if (String(laneKey).includes("|sys|")) {
+        return;
+      }
       const chatProfileId = normalizeText(this.telegramProfileRouter?.select?.(laneKey)?.profileId);
       const launchedProfileId = normalizeText(payload?.profileId);
       // No chat profile resolvable for this lane, or a different profile than the
