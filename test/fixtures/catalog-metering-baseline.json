@@ -6,7 +6,7 @@
       "item_count": 4
     },
     "tool": {
-      "item_count": 34
+      "item_count": 35
     },
     "mcp": {
       "item_count": 5
@@ -20,7 +20,7 @@
       "item_count": 8
     },
     "感知": {
-      "item_count": 7
+      "item_count": 8
     },
     "记忆": {
       "item_count": 2
@@ -517,6 +517,20 @@
     },
     {
       "category": "tool",
+      "theme": "感知",
+      "name": "cyberboss_voice_retranscribe",
+      "namespace": "cyberboss",
+      "hidden": false,
+      "deprecated": false,
+      "alias_of": null,
+      "schema_chars": 242,
+      "schema_bytes": 242,
+      "description_chars": 57,
+      "has_max_result_bytes": false,
+      "max_result_bytes": null
+    },
+    {
+      "category": "tool",
       "theme": "工程派活",
       "name": "github_file_upload",
       "namespace": "cyberboss",
@@ -643,12 +657,12 @@
     }
   ],
   "totals": {
-    "item_count": 43,
-    "schema_chars": 13459,
-    "schema_bytes": 13475,
-    "catalog_chars": 11504,
-    "catalog_bytes": 11800
+    "item_count": 44,
+    "schema_chars": 13701,
+    "schema_bytes": 13717,
+    "catalog_chars": 11763,
+    "catalog_bytes": 12063
   },
-  "items_hash": "sha256:c7b1fbfbdb8de5cb7209147ae979d91840a3c83ec79774f062f8cc919cf89739",
-  "catalog_hash": "sha256:320d04f608b5fdca8599b2d79fe9d75123de537a4bd9672fd2d0cd3efd24ff2b"
+  "items_hash": "sha256:474a4e08758ecaf8bf8abe30b58f02f5dbd25189c0b96dbc9961fb7fc8e9321f",
+  "catalog_hash": "sha256:fbc59b26878c2bade0cdab893d4475cf91e065f16d008f518e6539d5d8ecc320"
 }

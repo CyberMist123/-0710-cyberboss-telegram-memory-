@@ -25,6 +25,8 @@ const TOOL_THEMES = Object.freeze({
   cyberboss_system_send: "表达行动", cyberboss_sleep_mode: "作息", weather: "感知",
   cyberboss_channel_send_file: "表达行动", cyberboss_telegram_send: "表达行动",
   cyberboss_telegram_send_file: "表达行动", cyberboss_telegram_send_voice: "表达行动",
+  // Hearing a voice message again more carefully is perception, not expression.
+  cyberboss_voice_retranscribe: "感知",
   cyberboss_sticker_tags: "表达行动", cyberboss_sticker_pick: "表达行动", cyberboss_sticker_send: "表达行动",
   cyberboss_sticker_delete: "维护调试", cyberboss_sticker_save_from_inbox: "维护调试", cyberboss_sticker_update: "维护调试",
   whereabouts_current_stay: "感知", whereabouts_recent_moves: "感知", whereabouts_recent_stays: "感知",
@@ -60,6 +62,9 @@ const TOOL_RISKS = Object.freeze({
   cyberboss_sticker_save_from_inbox: "append", cyberboss_sticker_send: "send", cyberboss_sticker_tags: "read",
   cyberboss_sticker_update: "mutate", cyberboss_system_send: "send", cyberboss_telegram_send: "send",
   cyberboss_telegram_send_file: "send", cyberboss_telegram_send_voice: "send", cyberboss_time: "read",
+  // Reads an audio file that is already hers to read. It spends a paid API
+  // call, but it neither sends nor changes anything.
+  cyberboss_voice_retranscribe: "read",
   github_file_upload: "mutate",
   github_issue_open: "mutate", github_pr_open: "mutate", github_repo_create: "admin",
   route1_dispatch: "mutate", route1_task_status: "read", route1_task_result: "read",

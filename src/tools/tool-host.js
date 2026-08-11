@@ -939,6 +939,43 @@ const PROJECT_TOOLS = [
     },
   },
   {
+    name: "cyberboss_voice_retranscribe",
+    description: "Transcribe a voice message again with a stronger cloud model. Use it when the transcription you were given reads garbled, contradicts itself, or does not fit what the person was clearly saying — the local model is small and often mangles the end of a clause. Defaults to the most recent voice message, so call it with no arguments right after reading a suspicious transcription. It costs a paid API call and a few seconds, so do not call it on transcriptions that already read fine.",
+    shortHint: "Re-transcribe the last voice message with a better model.",
+    topics: ["channel"],
+    inputSchema: {
+      type: "object",
+      properties: {
+        engine: {
+          type: "string",
+          enum: ["cloud", "local"],
+          description: "Which engine to use. Defaults to cloud, which is the point of this tool; local only re-runs the on-device chain.",
+        },
+      },
+      additionalProperties: false,
+    },
+    async handler({ services, args }) {
+      if (!services.voice) {
+        return {
+          text: "Retranscription is not available: the voice service is not loaded.",
+          data: { error: "voice_service_missing" },
+        };
+      }
+      const result = await services.voice.retranscribe({ engine: args?.engine });
+      const notes = [`engine: ${result.engine || "unknown"}`];
+      if (result.emotion) notes.push(`tone: ${result.emotion}`);
+      if (result.cloudError) {
+        // The cloud call was asked for and did not happen. Saying so keeps the
+        // model from reading an unchanged local transcript as confirmation.
+        notes.push(`cloud unavailable (${result.cloudError}), this is the local result`);
+      }
+      return {
+        text: `Retranscription [${notes.join("; ")}]: ${result.text}`,
+        data: result,
+      };
+    },
+  },
+  {
     name: "cyberboss_sticker_tags",
     description: `Load the current sticker tag catalog and tagging rules only when you have decided a sticker is needed or an inbox image should be saved as a sticker. ${STICKER_TAG_GUIDANCE}`,
     shortHint: "Load sticker tags only when needed.",
