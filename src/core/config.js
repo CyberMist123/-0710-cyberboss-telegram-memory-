@@ -266,6 +266,10 @@ function readConfig() {
     // and throws on any defect, so a malformed mapping blocks startup instead of
     // degrading into a more permissive legacy launch.
     claudeLaunchProfilesJson: readLaunchProfilesSource(),
+    // 文件路径本身也要暴露：/model 与 /effort 现在把选择写回 profile（Owner 2026-08-11
+    // 裁定 (a)），而写回需要知道写哪个文件。只有走 _FILE 的部署才有这个能力；
+    // 用 _JSON 内联配置的部署拿到空串，命令会如实报"没有可写的 profile 文件"而不是偷偷失败。
+    claudeLaunchProfilesFile: resolveConfiguredPath(readTextEnv("CYBERBOSS_CLAUDE_LAUNCH_PROFILES_FILE")),
     telegramProfileMappingJson: readRawEnv("CYBERBOSS_TELEGRAM_PROFILE_MAPPING_JSON"),
     claudeLaunchProfileBaseDir: resolveConfiguredPath(
       readTextEnv("CYBERBOSS_CLAUDE_LAUNCH_PROFILE_BASE_DIR"),

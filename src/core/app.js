@@ -2380,7 +2380,7 @@ class CyberbossApp {
         modelDrift ? `model ${configuredModel || "(default)"}` : "",
         effortDrift ? `effort ${configuredEffort}` : "",
       ].filter(Boolean).join(" · ");
-      lines.push(`⚠️ 上面是这个进程实际在跑的；配置里写的是 ${drifted}，重启后会跳回去`);
+      lines.push(`⚠️ 上面是这个进程实际在跑的；配置里写的是 ${drifted}，下次重启按配置走`);
     }
     lines.push(formatContextStatusLine({
       runtimeName,
@@ -3033,7 +3033,7 @@ class CyberbossApp {
         `Current model: ${liveHere || configuredHere || "(default)"}`,
       ];
       if (liveHere && liveHere !== configuredHere) {
-        lines.push(`⚠️ 这是当前进程实际在跑的；配置里写的是 ${configuredHere || "(default)"}，重启后会跳回去`);
+        lines.push(`⚠️ 这是当前进程实际在跑的；配置里写的是 ${configuredHere || "(default)"}，下次重启按配置走`);
       }
       if (suggestedModels.length) {
         lines.push(`Available models: ${suggestedModels.map((item) => item.model).join(", ")}`);
@@ -3091,14 +3091,37 @@ class CyberbossApp {
     sessionStore.setRuntimeParamsForWorkspace(bindingKey, workspaceRoot, {
       model: matched.model,
     });
+    // 同时写回 profile：窗口覆盖按 slot 存，slot 一轮换就没了（Owner 08-06 设的
+    // opus-4-6 正是这样悄悄掉回缺省的）。profile 才是启动时的真相源。
+    const persisted = this.persistProfileRuntimeParam(commandLane, { model: matched.model });
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
-      text: windowResult?.applied
-        ? `✅ Model switched\nscope: window\nmodel: ${matched.model}`
-        : `✅ Model switched\nworkspace: ${workspaceRoot}\nmodel: ${matched.model}`,
+      text: [
+        "✅ Model switched",
+        windowResult?.applied ? "scope: window" : `workspace: ${workspaceRoot}`,
+        `model: ${matched.model}`,
+        ...describeProfilePersistence(persisted),
+      ].join("\n"),
       contextToken: normalized.contextToken,
       ...outboundThreadIdField(normalized),
     });
+  }
+
+  // 把 model/effort 落到该 lane 所属的 launch profile 上。失败只回报，不抛——
+  // 命令本身已经把窗口覆盖设好了，写不进 profile 顶多是"重启后会掉"，
+  // 不该让整条命令炸掉。
+  persistProfileRuntimeParam(lane, patch) {
+    try {
+      const { persistProfileRuntimeParams } = require("../adapters/runtime/claudecode/profile-runtime-params");
+      const profileId = normalizeText(this.resolveLaunchProfileForLane?.(lane)?.profileId);
+      return persistProfileRuntimeParams({
+        filePath: this.config?.claudeLaunchProfilesFile,
+        profileId,
+        patch,
+      });
+    } catch (error) {
+      return { saved: false, reason: `persist_threw:${error?.message || "unknown"}` };
+    }
   }
 
   async handleProfileCommand(normalized, command) {
@@ -3232,11 +3255,15 @@ class CyberbossApp {
     sessionStore.setRuntimeParamsForWorkspace(bindingKey, workspaceRoot, {
       effort: matched,
     });
+    const persistedEffort = this.persistProfileRuntimeParam(commandLane, { effort: matched });
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
-      text: windowResult?.applied
-        ? `✅ Effort switched\nscope: window\neffort: ${matched}`
-        : `✅ Effort switched\nworkspace: ${workspaceRoot}\neffort: ${matched}`,
+      text: [
+        "✅ Effort switched",
+        windowResult?.applied ? "scope: window" : `workspace: ${workspaceRoot}`,
+        `effort: ${matched}`,
+        ...describeProfilePersistence(persistedEffort),
+      ].join("\n"),
       contextToken: normalized.contextToken,
       ...outboundThreadIdField(normalized),
     });
@@ -5675,6 +5702,20 @@ function routeScopeKeyFor(lane, bindingKey, workspaceRoot) {
 
 // Outbound Telegram topic field. Omitted entirely when there is no topic, so a
 // non-Telegram payload keeps exactly the shape it had before v2.
+// 把"写没写进 profile"如实说给她听。写成功要说清楚何时生效（不是立刻——
+// 子进程握着自己的启动参数，要等下次拉起）；写失败要说清楚后果（重启后会掉），
+// 而不是含糊一句成功了事。
+function describeProfilePersistence(result) {
+  if (result?.saved) {
+    return [`已写入 profile「${result.profileId}」，持久生效（当前进程仍是旧值，下次重启后换过来）`];
+  }
+  const reason = normalizeText(result?.reason);
+  if (reason === "profiles_file_not_configured") {
+    return ["⚠️ 本次只对当前窗口生效：这套部署用内联 profile，没有可写的文件"];
+  }
+  return [`⚠️ 本次只对当前窗口生效，重启后会掉回缺省（写 profile 失败：${reason || "unknown"}）`];
+}
+
 function outboundThreadIdField(source) {
   const value = CyberbossApp.resolveOutboundThreadIdFor(source);
   return value === null || value === undefined ? {} : { messageThreadId: value };

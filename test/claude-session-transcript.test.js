@@ -264,7 +264,7 @@ test("/status prefers the model the child actually launched with, and names the 
   assert.match(text, /🤖 model: claude-opus-4-6/u, "报的必须是进程实际在跑的");
   assert.doesNotMatch(text, /🤖 model: claude-fable-5/u, "配置值不能冒充实际值");
   assert.match(text, /⚠️[^\n]*claude-fable-5/u, "分叉必须显式说出来，不能沉默");
-  assert.match(text, /重启后会跳回去/u);
+  assert.match(text, /下次重启按配置走/u);
   fs.rmSync(root, { recursive: true, force: true });
 });
 
