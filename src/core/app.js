@@ -1819,21 +1819,38 @@ class CyberbossApp {
     }
 
     const latest = queued[queued.length - 1];
+    // originalText first: that is the field every downstream reader prefers
+    // (assembleRuntimeTurnText, formatTelegramRuntimeText). `text` stays as the
+    // fallback because not every inbound path fills originalText in.
     const blocks = queued
-      .map((message) => String(message.text || "").trim())
+      .map((message) => String(message.originalText || message.text || "").trim())
       .filter(Boolean);
+    const mergedText = [
+      "Multiple newer user messages arrived while you were still handling the previous turn.",
+      "Treat the following blocks as one ordered batch of fresh user input and respond once after considering all of them.",
+      "",
+      blocks.join("\n\n"),
+    ].join("\n").trim();
 
     return {
       prepared: {
         bindingKey: draft.bindingKey,
         workspaceRoot: draft.workspaceRoot,
         ...latest,
-        text: [
-          "Multiple newer user messages arrived while you were still handling the previous turn.",
-          "Treat the following blocks as one ordered batch of fresh user input and respond once after considering all of them.",
-          "",
-          blocks.join("\n\n"),
-        ].join("\n").trim(),
+        // Fix (2026-08-12): `...latest` carries the NEWEST message's
+        // originalText, and readers prefer originalText over text, so setting
+        // only `text` threw away every earlier queued message -- send three
+        // while a turn is running and only the third arrived. Write the merged
+        // batch to both fields, the way buildMergedInboundPrepared does.
+        originalText: mergedText,
+        text: mergedText,
+        // Same leak, same cause: only the newest message's attachments survived,
+        // so photos and voice notes ahead of it were dropped without a trace.
+        attachments: queued.flatMap((message) => (Array.isArray(message.attachments) ? message.attachments : [])),
+        attachmentFailures: queued.flatMap((message) => (Array.isArray(message.attachmentFailures) ? message.attachmentFailures : [])),
+        attachmentVisionContexts: queued
+          .flatMap((message) => (Array.isArray(message.attachmentVisionContexts) ? message.attachmentVisionContexts : []))
+          .slice(0, 10),
       },
       remainingMessages: [],
     };
