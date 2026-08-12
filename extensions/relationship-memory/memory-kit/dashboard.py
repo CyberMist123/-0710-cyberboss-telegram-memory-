@@ -3403,6 +3403,10 @@ PAGE = r"""<!doctype html>
     <div class="tab secondary" data-view="care">关怀</div>
     <div class="tab secondary" data-view="theater">剧场</div>
     <div class="tab secondary" data-view="files">文件</div>
+    <!-- 7821 是实物结构地图（manifest+文件系统实时渲染），与 520 各管一摊：
+         520 管记忆/八维/上下文，7821 管目录与资产。桥接不合并——两套代码
+         合库会重演刚裁定掉的双真源漂移。 -->
+    <div class="tab secondary" onclick="window.open('http://127.0.0.1:7821','_blank')" title="实物结构地图（独立服务）">结构地图 ↗</div>
     <div class="spacer"></div>
     <div id="auto-indicator" onclick="toggleAutoRefresh()" title="20 秒自动刷新中(点击暂停)" style="cursor:pointer;font-size:14px;padding:0 10px;user-select:none;">●</div>
     <div class="hint">记忆面板 v3 · 127.0.0.1:520</div>
