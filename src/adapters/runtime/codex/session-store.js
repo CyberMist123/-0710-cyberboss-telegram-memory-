@@ -327,13 +327,20 @@ class SessionStore {
       return null;
     }
     const normalizedRuntimeId = normalizeValue(runtimeId);
+    // System lanes mirror under `<runtime>#sys` so they cannot clobber the chat
+    // lane's thread pointer; the reverse lookup still has to resolve both.
+    const runtimeIds = normalizedRuntimeId && !normalizedRuntimeId.endsWith("#sys")
+      ? [normalizedRuntimeId, `${normalizedRuntimeId}#sys`]
+      : [normalizedRuntimeId];
     for (const [bindingKey, binding] of Object.entries(this.state.bindings || {})) {
-      for (const [workspaceRoot, candidateThreadId] of Object.entries(getThreadMapForRuntime(binding, normalizedRuntimeId))) {
-        if (normalizeValue(candidateThreadId) === normalizedThreadId) {
-          return {
-            bindingKey,
-            workspaceRoot: normalizeValue(workspaceRoot),
-          };
+      for (const scopedRuntimeId of runtimeIds) {
+        for (const [workspaceRoot, candidateThreadId] of Object.entries(getThreadMapForRuntime(binding, scopedRuntimeId))) {
+          if (normalizeValue(candidateThreadId) === normalizedThreadId) {
+            return {
+              bindingKey,
+              workspaceRoot: normalizeValue(workspaceRoot),
+            };
+          }
         }
       }
     }

@@ -26,6 +26,10 @@ class VoiceService {
         automationTimezone: this.config.automationTimezone,
       })
       : null;
+    // The most recent inbound voice note, so a retranscribe tool call does not
+    // have to be handed a file path. Exposing paths to the model would put
+    // them in the prompt and in every conversation log that follows.
+    this.lastInbound = null;
   }
 
   describe() {
@@ -57,6 +61,11 @@ class VoiceService {
       // Transcription not configured yet: keep the original marker/caption.
       return;
     }
+    this.lastInbound = {
+      filePath: saved.absolutePath,
+      mimeType: voice.mimeType || "audio/ogg",
+      at: new Date().toISOString(),
+    };
     let result;
     try {
       result = this.kit?.sttEnabled()
@@ -67,16 +76,66 @@ class VoiceService {
       return;
     }
     if (result.ok) {
-      normalized.text = `${normalizeText(normalized.text) || VOICE_PLACEHOLDER}\n[语音转写: ${result.text}]`;
+      // The engine name is only surfaced to the model when the good engine did
+      // NOT serve the request. Naming it every time would put a machine detail
+      // into every voice line of the conversation log and the episodes built
+      // from it; naming it on degradation is what lets the AI know a
+      // retranscribe is worth trying.
+      const engine = normalizeText(result.model);
+      const degraded = Boolean(engine) && /whisper/i.test(engine);
+      const body = degraded ? `语音转写（降级到 ${engine}，可能不准）` : "语音转写";
+      normalized.text = `${normalizeText(normalized.text) || VOICE_PLACEHOLDER}\n[${body}: ${result.text}]`;
       normalized.voiceTranscription = {
         provider: result.provider,
-        model: result.model,
+        model: engine,
+        engine,
+        degraded,
         elapsedMs: result.elapsedMs,
       };
     } else {
       normalized.text = `${normalizeText(normalized.text) || VOICE_PLACEHOLDER}（转写失败）`;
       normalized.voiceTranscription = { error: result.error, provider: result.provider };
     }
+  }
+
+  /**
+   * Transcribe a voice note again, by default the most recent inbound one and
+   * by default with the paid cloud engine.
+   *
+   * This exists because the resident 1.7B model garbles clause endings often
+   * enough that a transcript can read fluent and still say the wrong thing.
+   * Only the AI reading the conversation can notice that, so the retry is a
+   * tool it calls, not something this service decides on its own.
+   *
+   * Throws on failure so the tool handler surfaces the reason to the model.
+   */
+  async retranscribe({ filePath = "", engine = "cloud" } = {}) {
+    if (!this.kit || !this.kit.sttEnabled()) {
+      throw new Error("stt_not_configured: retranscribe needs the CMX voice provider");
+    }
+    const target = normalizeText(filePath) || normalizeText(this.lastInbound?.filePath);
+    if (!target) {
+      throw new Error("no_recent_voice: nothing has been transcribed in this session yet");
+    }
+    const result = await this.kit.transcribe({
+      filePath: target,
+      mimeType: normalizeText(this.lastInbound?.mimeType) || "audio/ogg",
+      language: normalizeText(this.config.voiceSttLanguage),
+      engine: normalizeText(engine) || "cloud",
+    });
+    if (!result.ok) {
+      throw new Error(`retranscribe failed: ${result.error}`);
+    }
+    return {
+      text: result.text,
+      engine: normalizeText(result.model),
+      detectedLanguage: normalizeText(result.detectedLanguage),
+      emotion: normalizeText(result.emotion),
+      // Present only when the cloud engine was asked for and could not run;
+      // the text above then came from the local chain after all.
+      cloudError: normalizeText(result.cloudError),
+      elapsedMs: result.elapsedMs,
+    };
   }
 
   /**

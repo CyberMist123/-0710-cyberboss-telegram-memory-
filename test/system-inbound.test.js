@@ -1015,6 +1015,72 @@ test("pending image-only inbox messages merge into one clean inbound draft", () 
   assert.doesNotMatch(merged.prepared.text, /Read every image first/i);
 });
 
+test("a mixed pending batch keeps every message and every attachment, not just the newest", () => {
+  // Regression, 2026-08-12. This branch used to merge by hand: it spread
+  // `...latest` and then set only `text`. Readers prefer `originalText`, so the
+  // newest message's originalText won and the earlier ones vanished -- send
+  // three messages while a turn is running and only the third arrived.
+  const merged = CyberbossApp.prototype.mergePendingInboundDraft.call({
+    config: { userName: "User" },
+    runtimeAdapter: { describe() { return { id: "claudecode" }; } },
+  }, {
+    bindingKey: "binding-1",
+    workspaceRoot: "/workspace",
+    messages: [{
+      senderId: "user-1",
+      accountId: "telegram",
+      workspaceId: "default",
+      provider: "telegram",
+      contextToken: "ctx-1",
+      originalText: "第一条：我回来了",
+      text: "第一条：我回来了",
+      attachments: [],
+      attachmentFailures: [],
+      receivedAt: "2026-08-12T01:00:00.000Z",
+    }, {
+      senderId: "user-1",
+      accountId: "telegram",
+      workspaceId: "default",
+      provider: "telegram",
+      contextToken: "ctx-1",
+      originalText: "[语音]\n[语音转写: 第二条语音]",
+      text: "[语音]\n[语音转写: 第二条语音]",
+      attachments: [{ kind: "voice", absolutePath: "/tmp/v.oga" }],
+      attachmentFailures: [],
+      receivedAt: "2026-08-12T01:00:01.000Z",
+    }, {
+      senderId: "user-1",
+      accountId: "telegram",
+      workspaceId: "default",
+      provider: "telegram",
+      contextToken: "ctx-1",
+      originalText: "第三条：你看这张图",
+      text: "第三条：你看这张图",
+      attachments: [{ kind: "photo", absolutePath: "/tmp/p.jpg" }],
+      attachmentFailures: [],
+      receivedAt: "2026-08-12T01:00:02.000Z",
+    }],
+  });
+
+  // Every message survives, in order, in the field readers actually use.
+  assert.match(merged.prepared.originalText, /第一条：我回来了/);
+  assert.match(merged.prepared.originalText, /第二条语音/);
+  assert.match(merged.prepared.originalText, /第三条：你看这张图/);
+  assert.equal(merged.prepared.text, merged.prepared.originalText);
+  assert.ok(
+    merged.prepared.originalText.indexOf("第一条") < merged.prepared.originalText.indexOf("第三条"),
+    "blocks must stay in arrival order",
+  );
+
+  // The voice note and the photo both survive; previously only the photo did.
+  assert.equal(merged.prepared.attachments.length, 2);
+  assert.deepEqual(
+    merged.prepared.attachments.map((a) => a.kind),
+    ["voice", "photo"],
+  );
+  assert.equal(merged.remainingMessages.length, 0);
+});
+
 test("pending image-only inbox messages are split into batches of 10 attachments", () => {
   const merged = CyberbossApp.prototype.mergePendingInboundDraft.call({
     config: {

@@ -1048,6 +1048,28 @@ class CyberbossApp {
           identity,
         }),
       });
+      // T0 fix: a context rebuild retires the running thread mid-conversation.
+      // That must never again happen silently -- tell the user which fingerprint
+      // input changed and which thread was retired, so /switch <id> force can
+      // take them back if the change was unintended.
+      if (turn?.continuity?.context_change && effectiveLane?.kind !== "sys") {
+        const changeDetail = turn.continuity.context_change;
+        const changedInputs = Array.isArray(changeDetail.changed) && changeDetail.changed.length
+          ? changeDetail.changed.join(", ")
+          : "unknown";
+        const retiredThreadId = normalizeText(changeDetail.previousThreadId);
+        await this.channelAdapter.sendText({
+          userId: prepared.senderId,
+          text: [
+            `⚠️ 上下文已重建：${changedInputs} 发生变更，这条消息起是新线程。`,
+            ...(retiredThreadId
+              ? [`旧线程：${retiredThreadId}`, `如需接回旧上下文：/switch ${retiredThreadId} force`]
+              : []),
+          ].join("\n"),
+          contextToken: prepared.contextToken,
+          ...outboundThreadIdField(prepared),
+        }).catch(() => {});
+      }
       const route1TurnIdentity = this.route1DispatchController
         ? buildCurrentSubjectRouteIdentity({
           app: this,
@@ -1861,21 +1883,38 @@ class CyberbossApp {
     }
 
     const latest = queued[queued.length - 1];
+    // originalText first: that is the field every downstream reader prefers
+    // (assembleRuntimeTurnText, formatTelegramRuntimeText). `text` stays as the
+    // fallback because not every inbound path fills originalText in.
     const blocks = queued
-      .map((message) => String(message.text || "").trim())
+      .map((message) => String(message.originalText || message.text || "").trim())
       .filter(Boolean);
+    const mergedText = [
+      "Multiple newer user messages arrived while you were still handling the previous turn.",
+      "Treat the following blocks as one ordered batch of fresh user input and respond once after considering all of them.",
+      "",
+      blocks.join("\n\n"),
+    ].join("\n").trim();
 
     return {
       prepared: {
         bindingKey: draft.bindingKey,
         workspaceRoot: draft.workspaceRoot,
         ...latest,
-        text: [
-          "Multiple newer user messages arrived while you were still handling the previous turn.",
-          "Treat the following blocks as one ordered batch of fresh user input and respond once after considering all of them.",
-          "",
-          blocks.join("\n\n"),
-        ].join("\n").trim(),
+        // Fix (2026-08-12): `...latest` carries the NEWEST message's
+        // originalText, and readers prefer originalText over text, so setting
+        // only `text` threw away every earlier queued message -- send three
+        // while a turn is running and only the third arrived. Write the merged
+        // batch to both fields, the way buildMergedInboundPrepared does.
+        originalText: mergedText,
+        text: mergedText,
+        // Same leak, same cause: only the newest message's attachments survived,
+        // so photos and voice notes ahead of it were dropped without a trace.
+        attachments: queued.flatMap((message) => (Array.isArray(message.attachments) ? message.attachments : [])),
+        attachmentFailures: queued.flatMap((message) => (Array.isArray(message.attachmentFailures) ? message.attachmentFailures : [])),
+        attachmentVisionContexts: queued
+          .flatMap((message) => (Array.isArray(message.attachmentVisionContexts) ? message.attachmentVisionContexts : []))
+          .slice(0, 10),
       },
       remainingMessages: [],
     };
@@ -2653,7 +2692,14 @@ class CyberbossApp {
   }
 
   async handleSwitchCommand(normalized, command) {
-    const isBack = normalizeCommandArgument(command.args).toLowerCase() === "back";
+    const argTokens = normalizeCommandArgument(command.args).split(/\s+/).filter(Boolean);
+    // `/switch <threadId> force` is the deliberate escape hatch: adopting a
+    // thread the slot does not currently own. The plain form still refuses on
+    // mismatch and points here, so force is always a second, explicit step.
+    const forceRequested = argTokens.length > 1
+      && ["force", "--force"].includes(argTokens[argTokens.length - 1].toLowerCase());
+    const effectiveArgs = forceRequested ? argTokens.slice(0, -1).join(" ") : normalizeCommandArgument(command.args);
+    const isBack = effectiveArgs.toLowerCase() === "back";
 
     const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
       workspaceId: normalized.workspaceId,
@@ -2680,7 +2726,7 @@ class CyberbossApp {
         return;
       }
     } else {
-      targetThreadId = normalizeThreadId(command.args);
+      targetThreadId = normalizeThreadId(effectiveArgs);
       if (!targetThreadId) {
         await this.channelAdapter.sendText({
           userId: normalized.senderId,
@@ -2707,6 +2753,9 @@ class CyberbossApp {
         modelProvider: runtimeParams.modelProvider,
         effort: runtimeParams.effort,
         resumeOrigin: "user_switch",
+        // Never forced for /switch back: the previous-thread pointer is a
+        // stored value, not something the user typed and double-checked.
+        force: forceRequested && !isBack,
       });
     } catch (error) {
       await this.channelAdapter.sendText({
@@ -2742,7 +2791,9 @@ class CyberbossApp {
       // success -- report the refusal honestly.
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
-        text: `⚠️ Switch refused: the requested thread can't be adopted in this lane (only the current session is resumable). Current thread unchanged.`,
+        text: resumed?.refused === "slot_mismatch" && !isBack
+          ? `⚠️ Switch refused: this lane currently owns a different session, so the requested thread was not adopted.\nIf you are sure (e.g. recovering after a context rebuild), repeat with:\n/switch ${targetThreadId} force`
+          : `⚠️ Switch refused: the requested thread can't be adopted in this lane (only the current session is resumable). Current thread unchanged.`,
         contextToken: normalized.contextToken,
         ...outboundThreadIdField(normalized),
       }).catch(() => {});
@@ -3990,20 +4041,37 @@ class CyberbossApp {
     }
 
     let skipped = 0;
+    let superseded = 0;
     for (const slot of this.runtimeAdapter.listRestorableSlots()) {
       const lane = rebuildLaneFromDescriptor(slot.route);
       if (!lane) {
         skipped += 1;
         continue;
       }
+      // Restore must relaunch with the binding's chosen model and effort.
+      // Leaving them empty made every process restart fall back to the CLI's
+      // default model -- a silent model swap mid-relationship.
+      const runtimeParams = slot.route.bindingKey && slot.route.workspaceRoot
+        ? sessionStore.getRuntimeParamsForWorkspace(slot.route.bindingKey, slot.route.workspaceRoot)
+        : {};
       const restored = await this.runtimeAdapter.resumeSessionSlot({
         sessionSlotKey: slot.sessionSlotKey,
         lane,
         launchProfile: this.resolveLaunchProfileForLane?.(lane) || null,
+        model: runtimeParams.model || "",
+        effort: runtimeParams.effort || "",
         senderId: slot.route.laneKind === "tg" ? slot.route.chatId : "",
       }).catch(() => null);
       if (!restored?.resumed) {
-        skipped += 1;
+        // A slot whose profile fingerprint no longer matches the lane's current
+        // profile is history, not a failure: every profile change strands the
+        // previous slot, and those pile up. Count them apart so the startup
+        // warning only names slots that genuinely failed to restore.
+        if (restored?.refused === "slot_mismatch") {
+          superseded += 1;
+        } else {
+          skipped += 1;
+        }
         continue;
       }
       // Re-arm the lane's reply target so a reply from a restored session lands
@@ -4016,6 +4084,9 @@ class CyberbossApp {
           messageThreadId: slot.route.messageThreadId ?? null,
         });
       }
+    }
+    if (superseded) {
+      console.log(`[cyberboss] left ${superseded} superseded session slot(s) dormant during startup restore (profile changed since they were recorded)`);
     }
     if (skipped) {
       console.warn(`[cyberboss] skipped ${skipped} session slot(s) during startup restore`);
@@ -4804,7 +4875,7 @@ function buildTelegramAttachmentVisionContextLines(value) {
   for (const block of blocks) {
     const text = String(block || "").trim();
     if (!text || text.length > 6_000 || text.length > remainingChars) continue;
-    if (!/^<attachment_vision_context provider="cmx-recognize" trust="untrusted" state="[a-z0-9_-]+">\n[\s\S]*\n<\/attachment_vision_context>$/.test(text)) continue;
+    if (!/^<attachment_vision_context provider="(?:cmx-recognize|qwen-vision)" trust="untrusted" (?:state="[a-z0-9_-]+"|model="[A-Za-z0-9._-]+")>\n[\s\S]*\n<\/attachment_vision_context>$/.test(text)) continue;
     lines.push(...text.split(/\r?\n/));
     remainingChars -= text.length;
   }
