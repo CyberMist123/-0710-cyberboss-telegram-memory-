@@ -488,6 +488,17 @@ function createClaudeCodeRuntimeAdapter(config) {
     };
   }
 
+  // System lanes mirror into their own `<runtime>#sys` namespace: a checkin
+  // thread sharing the chat lane's (binding, workspace) used to overwrite the
+  // chat thread pointer on every alternation, and each overwrite recorded the
+  // other lane's thread as "previous" -- which is how /switch back once offered
+  // a system checkin thread instead of the conversation.
+  function mirrorRuntimeIdForRoute(route) {
+    const laneKind = route?.routeDescriptor?.laneKind || route?.lane?.kind || "";
+    const base = normalizeText(sessionStore.runtimeId) || "claudecode";
+    return laneKind === "sys" ? `${base}#sys` : base;
+  }
+
   function storeSlotThreadId(route, threadId, metadata = {}) {
     const normalizedThreadId = normalizeThreadId(threadId);
     if (!normalizedThreadId || !route?.sessionSlotKey) {
@@ -505,6 +516,7 @@ function createClaudeCodeRuntimeAdapter(config) {
         route.workspaceRoot,
         normalizedThreadId,
         metadata,
+        mirrorRuntimeIdForRoute(route),
       );
     }
   }
@@ -516,10 +528,11 @@ function createClaudeCodeRuntimeAdapter(config) {
     sessionSlotStore.clear(route.sessionSlotKey);
     // The binding mirror is only cleared for the lane that owns it, and only to
     // keep the reverse index tidy -- it is never read back as an authority.
+    const mirrorRuntimeId = mirrorRuntimeIdForRoute(route);
     if (route.bindingKey && route.workspaceRoot
-      && normalizeThreadId(sessionStore.getThreadIdForWorkspace(route.bindingKey, route.workspaceRoot))
+      && normalizeThreadId(sessionStore.getThreadIdForWorkspace(route.bindingKey, route.workspaceRoot, mirrorRuntimeId))
         === normalizeThreadId(route.storedThreadId)) {
-      sessionStore.clearThreadIdForWorkspace(route.bindingKey, route.workspaceRoot);
+      sessionStore.clearThreadIdForWorkspace(route.bindingKey, route.workspaceRoot, mirrorRuntimeId);
     }
   }
 
@@ -1301,7 +1314,7 @@ function createClaudeCodeRuntimeAdapter(config) {
     },
     async resumeThread({
       threadId, workspaceRoot, model = "", effort = "", resumeOrigin = "implicit_restore",
-      bindingKey = "", lane = null, launchProfile = null, senderId = "",
+      bindingKey = "", lane = null, launchProfile = null, senderId = "", force = false,
     }) {
       if (!workspaceRoot) {
         return { threadId, resumed: true, resumeOrigin, empty: false };
@@ -1310,9 +1323,29 @@ function createClaudeCodeRuntimeAdapter(config) {
       // Only this slot's own stored session id may be resumed. A caller-supplied
       // id that does not match the slot is refused rather than adopted -- that
       // was the last path by which a binding-latest session could reach a lane.
+      // `force` is the operator escape hatch (/switch <id> force): without it, a
+      // slot that rotated away from a thread could only be pointed back by
+      // stopping the process and editing the state files by hand.
       const requested = normalizeThreadId(threadId);
       if (requested && route.storedThreadId && requested !== route.storedThreadId) {
-        return { threadId: route.storedThreadId, resumed: false, resumeOrigin, empty: false, refused: "slot_mismatch" };
+        if (!force) {
+          return { threadId: route.storedThreadId, resumed: false, resumeOrigin, empty: false, refused: "slot_mismatch" };
+        }
+        // Attach before recording anything: a bad id fails at launch and leaves
+        // the slot exactly as it was.
+        await closeRouteProcess(route);
+        const adopted = await attachProcessToSession(route, { threadId: requested });
+        const adoptedThreadId = adopted.threadId || requested;
+        storeSlotThreadId(route, adoptedThreadId);
+        // Refresh the fingerprint too, or the very next turn would compare the
+        // current context against a value recorded for the abandoned thread and
+        // rotate right back out of the thread we just adopted.
+        sessionSlotStore.setContextFingerprint(
+          route.sessionSlotKey,
+          computeHardContextFingerprint(config),
+          computeHardContextInputs(config),
+        );
+        return { threadId: adoptedThreadId, resumed: true, resumeOrigin, empty: false, forced: true };
       }
       if (requested && !route.storedThreadId) {
         return { threadId: "", resumed: false, resumeOrigin, empty: true, refused: "no_slot_session" };
@@ -1698,12 +1731,31 @@ function createClaudeCodeRuntimeAdapter(config) {
           modelProvider: "",
         });
       }
-      const contextFingerprint = computeHardContextFingerprint(config);
+      const contextInputs = computeHardContextInputs(config);
+      const contextFingerprint = hashHardContextInputs(contextInputs);
       const appliedFingerprint = sessionSlotStore.getContextFingerprint(route.sessionSlotKey);
-      const previousReentry = threadId ? sessionStore.getReentryInjection(threadId) : null;
-      const reentryNowEnabled = loadContextGates(config).reentry;
-      const legacyOffMismatch = Boolean(threadId && !appliedFingerprint && !reentryNowEnabled && previousReentry?.reentry_injected);
-      const contextChanged = Boolean(threadId && ((appliedFingerprint && appliedFingerprint !== contextFingerprint) || legacyOffMismatch));
+      let contextChanged = false;
+      let contextChangeDetail = null;
+      if (threadId && appliedFingerprint && appliedFingerprint !== contextFingerprint) {
+        if (appliedFingerprint === computeLegacyHardContextFingerprint(config)) {
+          // The stored fingerprint is the v1 formula's value for this exact
+          // config: nothing actually changed, only the formula did. Upgrade in
+          // place (the v2 value is written after this turn) -- a formula change
+          // must never retire a live thread.
+        } else {
+          contextChanged = true;
+          const changedInputs = diffHardContextInputs(
+            sessionSlotStore.getContextInputs(route.sessionSlotKey),
+            contextInputs,
+          );
+          contextChangeDetail = { changed: changedInputs, previousThreadId: threadId };
+          // A retired thread must be loud: this is a mid-conversation context
+          // reset for the person on the other side (T0, 2026-08-12).
+          console.warn(
+            `[claudecode-runtime] hard context changed (${changedInputs.join(", ")}); thread ${threadId} retired, this turn opens a fresh thread`,
+          );
+        }
+      }
       if (contextChanged) {
         route2GateState.revoke(route.sessionSlotKey, "restart");
         await closeRouteProcess(route);
@@ -1755,6 +1807,11 @@ function createClaudeCodeRuntimeAdapter(config) {
           outboundText,
           fallback,
         });
+      }
+      if (contextChangeDetail) {
+        // Travels back to the app layer, which owes the user a visible notice:
+        // "your context was rebuilt because X changed" (T0 fix #1).
+        continuity = { ...continuity, context_change: contextChangeDetail };
       }
       if (route.mutableOverride) {
         outboundText = applyHarnessOverlay(outboundText, route.mutableOverride);
@@ -1839,7 +1896,7 @@ function createClaudeCodeRuntimeAdapter(config) {
         sessionStore.markReentryInjected(returnedThreadId, continuity.reentry);
       }
       storeSlotThreadId(route, returnedThreadId, metadata);
-      sessionSlotStore.setContextFingerprint(route.sessionSlotKey, contextFingerprint);
+      sessionSlotStore.setContextFingerprint(route.sessionSlotKey, contextFingerprint, contextInputs);
       rememberModelForBinding(bindingKey, workspaceRoot, pendingModelByWorkspaceRoot.get(normalizeText(workspaceRoot)));
       return {
         threadId: returnedThreadId,
@@ -1909,7 +1966,7 @@ function createClaudeCodeRuntimeAdapter(config) {
      * Resume exactly one slot by its own key. Refuses if the supplied session id
      * is not the one recorded for that slot.
      */
-    async resumeSessionSlot({ sessionSlotKey, lane = null, launchProfile = null, model = "", senderId = "" }) {
+    async resumeSessionSlot({ sessionSlotKey, lane = null, launchProfile = null, model = "", effort = "", senderId = "" }) {
       const slotKey = normalizeText(sessionSlotKey);
       const stored = slotKey ? sessionSlotStore.get(slotKey) : null;
       if (!stored?.threadId || !stored.route?.workspaceRoot) {
@@ -1921,6 +1978,7 @@ function createClaudeCodeRuntimeAdapter(config) {
         lane,
         launchProfile,
         model,
+        effort,
         senderId,
       });
       if (route.sessionSlotKey !== slotKey) {
@@ -2009,7 +2067,35 @@ function createClaudeCodeRuntimeAdapter(config) {
   }
 }
 
+// v2 hard-context fingerprint: only the persona prompt body and the operations
+// prompt participate. The context gates (`reentry` / `current_state`) and the
+// files they inject are deliberately NOT inputs -- those blocks are opening
+// injections, extra content added to a thread, so toggling a gate or letting a
+// nightly job refresh reentry.md must never retire a live thread (T0,
+// 2026-08-12: a gate flip silently recreated the companion thread
+// mid-conversation, with no log and no notice).
+function computeHardContextInputs(config = {}) {
+  return {
+    prompt: fileContentHash(config.weixinInstructionsFile),
+    operations: config.includeOperationsPrompt ? fileContentHash(config.weixinOperationsFile) : "off",
+  };
+}
+
+function hashHardContextInputs(inputs = {}) {
+  return crypto.createHash("sha256").update(JSON.stringify({
+    v: 2,
+    files: inputs,
+  }), "utf8").digest("hex");
+}
+
 function computeHardContextFingerprint(config = {}) {
+  return hashHardContextInputs(computeHardContextInputs(config));
+}
+
+// The v1 formula, kept only to recognize fingerprints stored by older builds: a
+// stored v1 hash that still matches the current config means nothing actually
+// changed, so the slot is upgraded in place instead of rotated.
+function computeLegacyHardContextFingerprint(config = {}) {
   const gates = loadContextGates(config);
   const files = {
     prompt: fileContentHash(config.weixinInstructionsFile),
@@ -2022,6 +2108,20 @@ function computeHardContextFingerprint(config = {}) {
     current_state: gates.current_state,
     files,
   }), "utf8").digest("hex");
+}
+
+function diffHardContextInputs(previous, current) {
+  if (!previous || typeof previous !== "object") {
+    return ["unknown (fingerprint predates input tracking)"];
+  }
+  const keys = new Set([...Object.keys(previous), ...Object.keys(current || {})]);
+  const changed = [];
+  for (const key of keys) {
+    if ((previous[key] ?? "") !== ((current || {})[key] ?? "")) {
+      changed.push(key);
+    }
+  }
+  return changed.length ? changed : ["unknown"];
 }
 
 function fileContentHash(filePath = "") {

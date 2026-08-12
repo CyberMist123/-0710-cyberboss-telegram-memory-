@@ -163,6 +163,7 @@ class SessionSlotStore {
         state.slots[key] = {
           threadId: normalizeSessionId(entry.threadId),
           contextFingerprint: normalizeText(entry.contextFingerprint),
+          ...(cloneJsonObject(entry.contextInputs) ? { contextInputs: cloneJsonObject(entry.contextInputs) } : {}),
           ...(windowOverride ? { windowOverride } : {}),
           ...(cloneJsonObject(entry.route2Gate) ? { route2Gate: cloneJsonObject(entry.route2Gate) } : {}),
           updatedAt: normalizeText(entry.updatedAt),
@@ -211,6 +212,12 @@ class SessionSlotStore {
     return this.get(slotKey)?.contextFingerprint || "";
   }
 
+  // The fingerprint's raw inputs, kept beside the hash so a mismatch can name
+  // exactly which input changed instead of reporting an opaque hash flip.
+  getContextInputs(slotKey) {
+    return cloneJsonObject(this.get(slotKey)?.contextInputs);
+  }
+
   getWindowOverride(slotKey) {
     return cloneJsonObject(this.get(slotKey)?.windowOverride);
   }
@@ -234,6 +241,7 @@ class SessionSlotStore {
     this.state.slots[key] = {
       threadId: normalizedThreadId,
       contextFingerprint: current.contextFingerprint || "",
+      ...(current.contextInputs ? { contextInputs: cloneJsonObject(current.contextInputs) } : {}),
       ...(current.windowOverride ? { windowOverride: cloneJsonObject(current.windowOverride) } : {}),
       ...(current.route2Gate ? { route2Gate: cloneJsonObject(current.route2Gate) } : {}),
       updatedAt: new Date().toISOString(),
@@ -243,13 +251,17 @@ class SessionSlotStore {
     this.save();
   }
 
-  setContextFingerprint(slotKey, fingerprint) {
+  setContextFingerprint(slotKey, fingerprint, inputs = null) {
     const key = normalizeText(slotKey);
     const current = key ? this.state.slots[key] : null;
     if (!current) {
       return;
     }
     current.contextFingerprint = normalizeText(fingerprint);
+    const normalizedInputs = cloneJsonObject(inputs);
+    if (normalizedInputs) {
+      current.contextInputs = normalizedInputs;
+    }
     current.updatedAt = new Date().toISOString();
     this.save();
   }
@@ -262,6 +274,7 @@ class SessionSlotStore {
     this.state.slots[key] = {
       threadId: current.threadId || "",
       contextFingerprint: current.contextFingerprint || "",
+      ...(current.contextInputs ? { contextInputs: cloneJsonObject(current.contextInputs) } : {}),
       ...(windowOverride ? { windowOverride } : {}),
       ...(current.route2Gate ? { route2Gate: cloneJsonObject(current.route2Gate) } : {}),
       updatedAt: new Date().toISOString(),
