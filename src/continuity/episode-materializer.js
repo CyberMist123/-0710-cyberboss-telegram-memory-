@@ -72,11 +72,12 @@ function regenerateIndex({ episodesDir }) {
     "<!-- History writer 发布时自动重生成，手改会被覆盖。想留话请写进各条的「附注」区。 -->",
     "",
   ];
-  for (const [month, monthEntries] of [...byMonth.entries()].sort((a, b) => b[0].localeCompare(a[0]))) {
-    lines.push(`## ${month}`, "");
-    for (const entry of monthEntries) lines.push(indexLine(entry));
-    lines.push("");
-  }
+  // 不按月分组、行尾也不再缀日期（Owner 2026-08-11：目录是给她翻的，日期已经在
+  // 标题里，重复一遍只是多花 token）。顺带解决两个由空 ts 引出的毛病：
+  // 分组标题变成「未知月份」、行尾留一个孤零零的破折号。
+  const active = [...byMonth.values()].flat();
+  for (const entry of active) lines.push(indexLine(entry));
+  if (active.length) lines.push("");
   if (retired.length) {
     lines.push("## 已沉降（superseded / archived）", "");
     for (const entry of retired) lines.push(indexLine(entry));
@@ -86,11 +87,11 @@ function regenerateIndex({ episodesDir }) {
 }
 
 function indexLine(entry) {
-  const { seq, status, day } = entry.frontmatter;
+  const { seq, status } = entry.frontmatter;
   const marker = status === "pinned" ? "📌 " : "";
   const label = `${seq} · ${entry.frontmatter.title}`;
   const text = status === "superseded" ? `~~${label}~~` : label;
-  return `- ${marker}[${text}](${encodeURI(entry.fileName)}) — ${day}`;
+  return `- ${marker}[${text}](${encodeURI(entry.fileName)})`;
 }
 
 function renderEpisode({ seq, title, record }) {

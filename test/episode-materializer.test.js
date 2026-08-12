@@ -56,9 +56,14 @@ test("materializeEpisode 写出 ep001 文件：frontmatter、正文逐字保留�
   assert.ok(text.includes("测试场景里，我们把一次约定记成了常量。这条是虚构夹具。"));
   assert.match(text, /## 附注/);
   const index = fs.readFileSync(path.join(episodesDir, "index.md"), "utf8");
-  assert.match(index, /## 2026-08/);
   assert.ok(index.includes(`](${encodeURI(result.file)})`));
   assert.ok(index.includes("ep001 · 窗台上的常量"));
+  // 目录不再按月分组、行尾也不缀日期（Owner 2026-08-11：日期已经在标题里，
+  // 目录重复一遍只是多花 token）。这条同时钉住"空 ts 不会渲染出「未知月份」
+  // 和一个孤零零的破折号"。
+  assert.doesNotMatch(index, /## 2026-/u, "不该再有按月分组的小标题");
+  assert.doesNotMatch(index, /未知月份/u);
+  assert.doesNotMatch(index, /—\s*$/mu, "行尾不该留下空日期的破折号");
 });
 
 test("同一 publication_key 第二次物化被跳过，不产生重复文件", () => {
