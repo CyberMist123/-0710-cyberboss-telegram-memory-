@@ -4210,10 +4210,33 @@ class CyberbossApp {
       if (state && this.config.desireStateFile) {
         const drives = normalizeDesireDrives(state?.drives);
         const intent = normalizeDesireIntent(state?.intent);
+        // Provenance for the history ledger: a checkin that ran on her live
+        // chat thread (D44) is a different kind of row from one that ran in
+        // the context-free solo window — the 520 panel shows which.
+        let contextLane = "";
+        const reportingThreadId = normalizeText(threadId);
+        if (reportingThreadId) {
+          try {
+            const linked = this.runtimeAdapter.getSessionStore().findBindingForThreadId(reportingThreadId);
+            if (linked?.bindingKey && linked?.workspaceRoot) {
+              const chatThreadId = normalizeText(
+                this.runtimeAdapter.getSessionStore().getThreadIdForWorkspace(linked.bindingKey, linked.workspaceRoot),
+              );
+              contextLane = chatThreadId === reportingThreadId ? "chat" : "solo";
+            } else {
+              // A thread no binding mirror knows is by definition not her
+              // chat thread: a solo/system window.
+              contextLane = "solo";
+            }
+          } catch {
+            contextLane = "";
+          }
+        }
         persistReportedDesireState({
           state: { ...state, drives, intent },
           stateFile: this.config.desireStateFile,
           historyFile: this.config.desireHistoryFile,
+          contextLane,
         });
       }
       this.maybeQueueConsolidationFromDesireReply(state);

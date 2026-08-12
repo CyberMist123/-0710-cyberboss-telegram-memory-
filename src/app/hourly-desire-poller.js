@@ -25,7 +25,8 @@ async function runHourlyDesirePoller(config = {}) {
     return;
   }
 
-  let plannedAt = nextPlannedAt(null, 55, Date.now());
+  // First plan honors the configured cadence too, not a pinned 55.
+  let plannedAt = nextPlannedAt(null, loadDesireSchedule(config.desireScheduleFile).intervalMinutes, Date.now());
   writePlanMarker(config.desirePlanFile, plannedAt);
   console.log(`[desire] poller starts, next planned tick in ${Math.round(Math.max(0, plannedAt - Date.now()) / 60000)}m`);
   while (true) {

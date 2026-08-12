@@ -635,8 +635,12 @@ def load_desire_schedule_config():
                 config[key] = raw[key]
     if not _valid_schedule_timezone(config.get("timezone")):
         config["timezone"] = DESIRE_SCHEDULE_DEFAULTS["timezone"]
-    if config.get("interval_minutes") != 55:
-        config["interval_minutes"] = 55
+    # Cadence is configurable within [15, 240] since 2026-08-12; anything else
+    # (including the historical pin artifacts) falls back to the default. Must
+    # mirror normalizeIntervalMinutes in src/core/desire-schedule.js.
+    if not (isinstance(config.get("interval_minutes"), int)
+            and 15 <= config["interval_minutes"] <= 240):
+        config["interval_minutes"] = DESIRE_SCHEDULE_DEFAULTS["interval_minutes"]
     for key in ("night_start", "night_end"):
         if not _valid_schedule_clock(config.get(key)):
             config[key] = DESIRE_SCHEDULE_DEFAULTS[key]
@@ -666,8 +670,12 @@ def validate_desire_schedule_body(obj):
     for key in ("night_start", "night_end"):
         if key in obj and not _valid_schedule_clock(obj.get(key)):
             return False, f"{key} 必须是 HH:mm"
-    if "interval_minutes" in obj and obj.get("interval_minutes") != 55:
-        return False, "interval_minutes 当前固定为 55"
+    if "interval_minutes" in obj and not (
+        isinstance(obj.get("interval_minutes"), int)
+        and not isinstance(obj.get("interval_minutes"), bool)
+        and 15 <= obj["interval_minutes"] <= 240
+    ):
+        return False, "interval_minutes 必须是 15–240 的整数分钟"
     for key in ("enabled", "night_skip_enabled"):
         if key in obj and not isinstance(obj[key], bool):
             return False, f"{key} 必须是 true/false"
@@ -1297,7 +1305,20 @@ def normalize_desire_history_row(row):
         "time": normalize_utc_iso(raw_time) or str(raw_time),
         "most_want": str(row.get("most_want") or "").strip(),
         "note": str(row.get("note") or row.get("source") or "runtime desire-history").strip(),
+        # "chat" = checkin ran inside her live conversation thread (D44);
+        # "solo" = context-free system window; "" = row predates provenance.
+        "context_lane": str(row.get("context_lane") or "").strip(),
     }
+    causes = {}
+    drives = row.get("drives")
+    if isinstance(drives, list):
+        for drive in drives:
+            key = str((drive or {}).get("key") or "").strip()
+            cause = str((drive or {}).get("cause") or "").strip()
+            if key and cause:
+                causes[key] = cause
+    if causes:
+        out["causes"] = causes
     for key, label in DESIRE_HISTORY_DIM_TO_LABEL.items():
         score = row.get(key)
         if score is None and isinstance(row.get("drive"), dict):
@@ -1377,6 +1398,33 @@ def load_octant_history_rows(limit=None):
         "row_count": len(rows),
         "fallback": True,
     }
+
+
+def read_chat_thread_pointer():
+    """Current chat-lane thread from the runtime slot store (read-only).
+
+    The slot store is the runtime's single resume authority; the tg-lane slot
+    with the newest updatedAt is the live conversation. Only a short prefix is
+    exposed — enough to correlate with ops tooling, not a resume handle.
+    """
+    try:
+        state_dir = resolve_runtime_state_dir()
+        slots = read_json_file(Path(state_dir) / "claude-session-slots.json", default={})
+        best = None
+        for entry in (slots.get("slots") or {}).values():
+            route = entry.get("route") or {}
+            if route.get("laneKind") != "tg" or not entry.get("threadId"):
+                continue
+            if best is None or str(entry.get("updatedAt") or "") > str(best.get("updatedAt") or ""):
+                best = entry
+        if not best:
+            return {}
+        return {
+            "thread_short": str(best["threadId"])[:8],
+            "updated_at": str(best.get("updatedAt") or ""),
+        }
+    except Exception:
+        return {}
 
 
 def read_env_file(path):
@@ -3074,6 +3122,25 @@ PAGE = r"""<!doctype html>
   table.octant tr.gap td { background:#2a1d20; }
   table.octant tr.live td { background:#182334; }
   table.octant .gaptag { color:#d98a8a; font-size:10px; }
+  table.octant tr.octrow { cursor:pointer; }
+  table.octant tr.octrow:hover td { background:#1d202b; }
+  .octstrip { display:inline-flex; align-items:flex-end; gap:2px; height:16px; }
+  .octstrip i { display:inline-block; width:9px; border-radius:1px 1px 0 0; }
+  .lanebadge { font-size:10px; padding:1px 6px; border-radius:999px; border:1px solid transparent; }
+  .lanebadge.chat { color:#7fd4a2; border-color:#2e5b40; background:#16261c; }
+  .lanebadge.solo { color:#9aa7e0; border-color:#39406b; background:#181b2b; }
+  .lanebadge.frozen { color:#8f96a8; border-color:#2b2f3b; background:#181a22; }
+  .lanebadge.live { color:#7fb8e8; border-color:#2b4a66; background:#14202e; }
+  .lanebadge.unknown { color:#6b7080; border-color:#242734; background:#161822; }
+  tr.octdetail td { background:#151720; border-bottom:1px solid #202230; padding:10px 12px; white-space:normal; }
+  .octdetail-want { color:#e7e9ef; font-size:12.5px; line-height:1.6; margin-bottom:8px; }
+  .octdetail-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:6px; }
+  .octdetail-dim { background:#1b1d27; border:1px solid #262939; border-radius:6px; padding:6px 8px; font-size:11px; }
+  .octdetail-dim strong { display:block; margin-bottom:2px; font-size:11px; }
+  .octdetail-dim span { color:#8f96a8; line-height:1.5; }
+  #octant-context .ctxline { color:#c7c9d4; font-size:12px; line-height:1.7; margin-bottom:4px; }
+  #octant-context .ctxline.dim { color:#8f96a8; }
+  #octant-context code { background:#11131a; border:1px solid #262939; border-radius:4px; padding:1px 6px; color:#c9b458; }
   table.octant .livetag { color:#8fb4ff; font-size:10px; }
   .spark-row { display:flex; gap:10px; margin:10px 0 18px; flex-wrap:wrap; }
   .spark-item { background:#1e2029; border:1px solid #2a2d38; border-radius:6px; padding:6px 10px; }
@@ -3445,7 +3512,7 @@ PAGE = r"""<!doctype html>
       <div class="hcard" id="desire-schedule-card" style="margin:12px 0;">
         <h3>八维调度设置</h3>
         <div class="form-row"><label>启用状态</label><input type="checkbox" id="desire-schedule-enabled"></div>
-        <div class="form-row"><label>Cadence</label><input type="text" value="55 分钟" disabled id="desire-schedule-interval"></div>
+        <div class="form-row"><label>Cadence（分钟）</label><input type="number" min="15" max="240" step="5" id="desire-schedule-interval"></div>
         <div class="form-row"><label>夜间跳过</label><input type="checkbox" id="desire-schedule-night-enabled"></div>
         <div class="form-row"><label>夜间开始</label><input type="time" id="desire-schedule-night-start"></div>
         <div class="form-row"><label>夜间结束</label><input type="time" id="desire-schedule-night-end"></div>
@@ -3453,6 +3520,10 @@ PAGE = r"""<!doctype html>
         <div id="desire-schedule-current" class="meta">读取中…</div>
         <div id="desire-schedule-status" class="form-status"></div>
         <div style="margin-top:10px;"><button onclick="saveDesireSchedule()">保存调度设置</button></div>
+      </div>
+      <div class="hcard" id="octant-context" style="margin:12px 0;">
+        <h3>通到哪个上下文</h3>
+        <div id="octant-context-body" class="meta">读取中…</div>
       </div>
       <div id="octant-source"></div>
       <div id="octant-live"></div>
@@ -4265,6 +4336,7 @@ async function loadOctant() {
   octRows = liveRow ? historyRows.concat([liveRow]) : historyRows;
   renderOctantRealtime(d.realtime || {}, historyLastTime, historySource);
   renderOctantSource(d, historyRows, liveRow);
+  renderOctantContext(d, historyRows);
   const archiveNote = document.getElementById('octant-archive-note');
   if (historySource === 'desire_history') {
     archiveNote.textContent =
@@ -4293,28 +4365,91 @@ async function loadOctant() {
     sparkRow.appendChild(makeSparkItem(dim, vals));
   }
 
-  // 表格:最近 30 行
+  // 表格:最近 30 行。默认一行只给时间、八维迷你条、来源徽章和断档——
+  // most_want/causes 是点开才看的细节，不再整列铺开（Owner 2026-08-12：太臃肿）。
   const table = document.getElementById('octant-table');
-  let head = '<tr><th>时间</th>';
-  for (const dim of dims) head += '<th>' + dim + '</th>';
-  head += '<th>most_want</th><th>note</th><th>断档</th></tr>';
+  let head = '<tr><th>时间</th><th>八维</th><th>来源</th><th>状态</th></tr>';
   let body = '';
-  for (const r of tableRows) {
-    const rowClasses = [];
+  tableRows.forEach((r, idx) => {
+    const rowClasses = ['octrow'];
     if (r._gap) rowClasses.push('gap');
     if (r._realtime) rowClasses.push('live');
-    let gapCell = '';
-    if (r._gap && r._gap_hours != null) gapCell += '<span class="gaptag">断档 ' + r._gap_hours + 'h</span>';
-    if (r._realtime) gapCell += (gapCell ? '<br>' : '') + '<span class="livetag">实时</span>';
-    body += '<tr class="' + rowClasses.join(' ') + '">';
+    let stateCell = '';
+    if (r._gap && r._gap_hours != null) stateCell += '<span class="gaptag">断档 ' + r._gap_hours + 'h</span>';
+    if (r._realtime) stateCell += (stateCell ? ' ' : '') + '<span class="livetag">实时</span>';
+    let strip = '<span class="octstrip">';
+    for (const dim of dims) {
+      const v = r[dim] == null ? null : Number(r[dim]);
+      const h = v == null ? 2 : Math.max(2, Math.round(v * 16));
+      strip += '<i title="' + esc(dim + ' ' + (v == null ? '?' : v)) + '" style="height:' + h + 'px;background:'
+        + (v == null ? '#3a3d49' : OCT_COLORS[dim]) + '"></i>';
+    }
+    strip += '</span>';
+    body += '<tr class="' + rowClasses.join(' ') + '" onclick="toggleOctantDetail(' + idx + ')">';
     body += '<td>' + esc(formatScheduleTime(r.time, desireSchedulePayload && desireSchedulePayload.timezone)) + '</td>';
-    for (const dim of dims) body += '<td>' + esc(r[dim] == null ? '' : r[dim]) + '</td>';
-    body += '<td>' + esc(r.most_want || '') + '</td>';
-    body += '<td>' + esc(r.note || '') + '</td>';
-    body += '<td>' + gapCell + '</td>';
+    body += '<td>' + strip + '</td>';
+    body += '<td>' + octantLaneBadge(r) + '</td>';
+    body += '<td>' + stateCell + '</td>';
     body += '</tr>';
-  }
+    body += '<tr class="octdetail" id="octdetail-' + idx + '" style="display:none;"><td colspan="4">'
+      + octantDetailHtml(r, dims) + '</td></tr>';
+  });
   table.innerHTML = head + body;
+}
+
+function octantLaneBadge(r) {
+  if (r._realtime) return '<span class="lanebadge live">快照</span>';
+  if (r.context_lane === 'chat') return '<span class="lanebadge chat">对话内</span>';
+  if (r.context_lane === 'solo') return '<span class="lanebadge solo">独处</span>';
+  if ((r.note || '').indexOf('state_log') >= 0) return '<span class="lanebadge frozen">旧档</span>';
+  return '<span class="lanebadge unknown">—</span>';
+}
+
+function octantDetailHtml(r, dims) {
+  let html = '';
+  if (r.most_want) html += '<div class="octdetail-want">' + esc(r.most_want) + '</div>';
+  const causes = r.causes || {};
+  const KEY_BY_LABEL = {'依恋':'attachment','好奇':'curiosity','沉思':'reflection','责任':'duty',
+    '社交':'social','疲惫':'fatigue','性欲':'libido','压力':'stress'};
+  const parts = [];
+  for (const dim of dims) {
+    const v = r[dim] == null ? '?' : r[dim];
+    const cause = causes[KEY_BY_LABEL[dim]] || '';
+    parts.push('<div class="octdetail-dim"><strong style="color:' + OCT_COLORS[dim] + '">' + esc(dim) + ' ' + esc(String(v)) + '</strong>'
+      + (cause ? '<span>' + esc(cause) + '</span>' : '') + '</div>');
+  }
+  html += '<div class="octdetail-grid">' + parts.join('') + '</div>';
+  return html || '<span class="meta">这行没有更多细节。</span>';
+}
+
+function toggleOctantDetail(idx) {
+  const row = document.getElementById('octdetail-' + idx);
+  if (row) row.style.display = row.style.display === 'none' ? '' : 'none';
+}
+
+function renderOctantContext(d, historyRows) {
+  const box = document.getElementById('octant-context-body');
+  if (!box) return;
+  const sched = desireSchedulePayload || {};
+  const interval = sched.interval_minutes || 55;
+  const night = sched.now && sched.now.is_night_skip;
+  const chat = d.chat_thread || {};
+  let lastLane = '';
+  let lastTime = '';
+  for (let i = historyRows.length - 1; i >= 0; i--) {
+    if (historyRows[i].context_lane) { lastLane = historyRows[i].context_lane; lastTime = historyRows[i].time; break; }
+  }
+  const laneText = lastLane === 'chat' ? '对话内（她当时的聊天线程）'
+    : lastLane === 'solo' ? '独处窗口（无聊天上下文）'
+    : '旧机制行（2026-08-12 前无出处标记）';
+  box.innerHTML =
+    '<div class="ctxline">checkin 每 <strong>' + esc(String(interval)) + ' 分钟</strong>在<strong>她当前的聊天线程里</strong>自查'
+    + '（D44：能取到聊天路由就进对话，取不到才退独处窗口），夜间 '
+    + esc((sched.night_start || '22:00') + '–' + (sched.night_end || '06:00')) + ' 跳过'
+    + (night ? '——<strong>现在正处于夜间跳过区间</strong>。' : '。') + '</div>'
+    + '<div class="ctxline">当前聊天线程：<code>' + esc(chat.thread_short || '未知') + '</code>'
+    + ' · 最近一次带出处的 checkin：' + (lastLane ? esc(formatScheduleTime(lastTime, sched.timezone)) + ' · ' + laneText : '还没有（新行落盘后这里会亮）') + '</div>'
+    + '<div class="ctxline dim">整理（consolidation）与反思（reflect）不进对话——它们在独处窗口翻档案，防止情绪当场入账；这是闸门设计。</div>';
 }
 
 let desireSchedulePayload = null;
@@ -4331,6 +4466,7 @@ async function loadDesireSchedule() {
   const set = (id, value) => { const el = document.getElementById(id); if (el != null) el.value = value; };
   document.getElementById('desire-schedule-enabled').checked = data.enabled !== false;
   document.getElementById('desire-schedule-night-enabled').checked = data.night_skip_enabled !== false;
+  set('desire-schedule-interval', data.interval_minutes);
   set('desire-schedule-night-start', data.night_start); set('desire-schedule-night-end', data.night_end); set('desire-schedule-timezone', data.timezone);
   const list = document.getElementById('desire-timezone-options');
   list.innerHTML = (data.timezone_options || []).map(item => `<option value="${esc(item.iana)}">${esc(item.label)} · ${esc(item.iana)}</option>`).join('');
@@ -4345,7 +4481,7 @@ async function saveDesireSchedule() {
   const status = document.getElementById('desire-schedule-status');
   const body = {
     enabled: document.getElementById('desire-schedule-enabled').checked,
-    interval_minutes: 55,
+    interval_minutes: parseInt(document.getElementById('desire-schedule-interval').value, 10) || 55,
     night_skip_enabled: document.getElementById('desire-schedule-night-enabled').checked,
     night_start: document.getElementById('desire-schedule-night-start').value,
     night_end: document.getElementById('desire-schedule-night-end').value,
@@ -5523,6 +5659,7 @@ class H(BaseHTTPRequestHandler):
                     "history_row_count": history["row_count"],
                     "history_fallback": history["fallback"],
                     "realtime": load_desire_state(),
+                    "chat_thread": read_chat_thread_pointer(),
                 }, ensure_ascii=False))
             except Exception as e:
                 self._send(500, json.dumps({"err": str(e)}, ensure_ascii=False))

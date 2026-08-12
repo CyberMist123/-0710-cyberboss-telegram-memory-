@@ -7,7 +7,7 @@ const DRIVE_KEYS = [
   "social", "fatigue", "libido", "stress",
 ];
 
-function persistReportedDesireState({ state, stateFile, historyFile = "", now = new Date().toISOString(), appendHistory = true }) {
+function persistReportedDesireState({ state, stateFile, historyFile = "", now = new Date().toISOString(), appendHistory = true, contextLane = "" }) {
   if (!stateFile || !state || !Array.isArray(state.drives)) return { saved: false, reason: "invalid_state" };
   const normalizedDrives = state.drives.filter((drive) => drive && DRIVE_KEYS.includes(String(drive.key || "")));
   if (normalizedDrives.length !== DRIVE_KEYS.length) return { saved: false, reason: "incomplete_drives" };
@@ -34,6 +34,10 @@ function persistReportedDesireState({ state, stateFile, historyFile = "", now = 
       time: now,
       most_want: String(state.most_want || state.intent?.want_action || "").trim(),
       note: "claude-runtime-reported",
+      // Where this checkin actually ran: "chat" = inside her live conversation
+      // thread (D44), "solo" = the context-free system lane fallback. Absent on
+      // rows written before 2026-08-12 or when the caller cannot tell.
+      ...(contextLane ? { context_lane: contextLane } : {}),
       drives: normalizedDrives.map((drive) => ({
         key: String(drive.key || ""),
         label: String(drive.label || ""),

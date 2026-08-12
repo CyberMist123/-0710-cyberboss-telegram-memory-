@@ -37,10 +37,21 @@ class DesireScheduleTests(unittest.TestCase):
         assert len(cfg["timezone_options"]) > 4
         assert any(item["iana"] == "Asia/Shanghai" and "北京" in item["label"] for item in cfg["timezone_options"])
         assert dashboard.validate_desire_schedule_body({"timezone": "Not/AZone"})[0] is False
+        # Cadence is configurable within [15, 240] since 2026-08-12; bounds and
+        # non-integers are rejected, and a bad stored value degrades to default.
+        assert dashboard.validate_desire_schedule_body({"interval_minutes": 40})[0] is True
+        assert dashboard.validate_desire_schedule_body({"interval_minutes": 10})[0] is False
+        assert dashboard.validate_desire_schedule_body({"interval_minutes": 241})[0] is False
+        assert dashboard.validate_desire_schedule_body({"interval_minutes": "40"})[0] is False
+        assert dashboard.validate_desire_schedule_body({"interval_minutes": True})[0] is False
+        dashboard.DESIRE_SCHEDULE_FILE.write_text(json.dumps({**cfg, "interval_minutes": 999}), encoding="utf-8")
+        assert dashboard.load_desire_schedule_config()["interval_minutes"] == 55
+        dashboard.DESIRE_SCHEDULE_FILE.write_text(json.dumps({**cfg, "interval_minutes": 40}), encoding="utf-8")
+        assert dashboard.load_desire_schedule_config()["interval_minutes"] == 40
         dashboard.DESIRE_SCHEDULE_FILE.write_text(json.dumps(cfg), encoding="utf-8")
         saved = dashboard.save_desire_schedule_config({
             "enabled": True,
-            "interval_minutes": 55,
+            "interval_minutes": 40,
             "night_skip_enabled": True,
             "night_start": "23:00",
             "night_end": "06:00",

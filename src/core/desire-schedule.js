@@ -15,13 +15,25 @@ function loadDesireSchedule(filePath = "") {
   return normalizeDesireSchedule(parsed);
 }
 
+// The cadence is genuinely configurable (was pinned to 55 end-to-end until
+// 2026-08-12). Out-of-range or unparseable values fall back to the default so
+// a hand-edited file can degrade the cadence but never break the loop.
+const MIN_INTERVAL_MINUTES = 15;
+const MAX_INTERVAL_MINUTES = 240;
+
+function normalizeIntervalMinutes(value) {
+  const minutes = Number(value);
+  return Number.isFinite(minutes) && minutes >= MIN_INTERVAL_MINUTES && minutes <= MAX_INTERVAL_MINUTES
+    ? Math.round(minutes)
+    : DEFAULT_DESIRE_SCHEDULE.intervalMinutes;
+}
+
 function normalizeDesireSchedule(value = {}) {
   const input = value && typeof value === "object" ? value : {};
   const timezone = isValidTimeZone(input.timezone) ? input.timezone : DEFAULT_DESIRE_SCHEDULE.timezone;
-  const intervalMinutes = Number(input.intervalMinutes ?? input.desire_interval_minutes);
   return {
     enabled: input.enabled !== false,
-    intervalMinutes: intervalMinutes === 55 ? 55 : DEFAULT_DESIRE_SCHEDULE.intervalMinutes,
+    intervalMinutes: normalizeIntervalMinutes(input.intervalMinutes ?? input.interval_minutes ?? input.desire_interval_minutes),
     nightSkipEnabled: input.nightSkipEnabled ?? input.night_skip_enabled ?? DEFAULT_DESIRE_SCHEDULE.nightSkipEnabled,
     nightStart: validClock(input.nightStart ?? input.night_start) ? (input.nightStart ?? input.night_start) : DEFAULT_DESIRE_SCHEDULE.nightStart,
     nightEnd: validClock(input.nightEnd ?? input.night_end) ? (input.nightEnd ?? input.night_end) : DEFAULT_DESIRE_SCHEDULE.nightEnd,
@@ -46,8 +58,8 @@ function isNightSkipAt(date, schedule) {
   return start > end ? current >= start || current < end : current >= start && current < end;
 }
 
-function nextPlannedAt(previousPlannedAt, intervalMinutes = 55, now = Date.now()) {
-  const intervalMs = 55 * 60 * 1000;
+function nextPlannedAt(previousPlannedAt, intervalMinutes = DEFAULT_DESIRE_SCHEDULE.intervalMinutes, now = Date.now()) {
+  const intervalMs = normalizeIntervalMinutes(intervalMinutes) * 60 * 1000;
   const previous = Number(previousPlannedAt);
   if (!Number.isFinite(previous)) return Number(now) + intervalMs;
   let next = previous + intervalMs;
