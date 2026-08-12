@@ -1,5 +1,12 @@
 # REVIEW: TG Chat 路由、上下文与 Token 减负 — 架构可行性审查
 
+```text
+Status: completed
+Date: 2026-07-25
+Audited SHA: c531cda（fix/p0-fable-chat-profile = main 0480be7 + 2 份文档）
+Current authority: docs/CURRENT_STATUS.md
+```
+
 状态：**Fable 只读审查结论（无生产代码改动，未触碰 live TG，无 PR）**
 分支：`fix/p0-fable-chat-profile` @ `c531cda`（main `0480be7` + 2 份文档，与 main 代码零差异）
 关联：Issue #15、`DESIGN-TG-CHAT-ROUTING-CONTEXT-BUDGET.md`、`HANDOFF-P0-FABLE-CHAT-PROFILE.md`
