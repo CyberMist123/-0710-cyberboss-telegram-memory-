@@ -4416,13 +4416,18 @@ function octantDetailHtml(r, dims) {
   const KEY_BY_LABEL = {'依恋':'attachment','好奇':'curiosity','沉思':'reflection','责任':'duty',
     '社交':'social','疲惫':'fatigue','性欲':'libido','压力':'stress'};
   const parts = [];
+  let causeCount = 0;
   for (const dim of dims) {
     const v = r[dim] == null ? '?' : r[dim];
     const cause = causes[KEY_BY_LABEL[dim]] || '';
+    if (cause) causeCount++;
     parts.push('<div class="octdetail-dim"><strong style="color:' + OCT_COLORS[dim] + '">' + esc(dim) + ' ' + esc(String(v)) + '</strong>'
       + (cause ? '<span>' + esc(cause) + '</span>' : '') + '</div>');
   }
   html += '<div class="octdetail-grid">' + parts.join('') + '</div>';
+  if (!causeCount) {
+    html += '<div class="meta" style="margin-top:6px;">这行没有每维理由：它是 2026-08-12 合流部署之前的旧代码写的（当时不落 drives 明细）。此后的新行都会带理由。</div>';
+  }
   return html || '<span class="meta">这行没有更多细节。</span>';
 }
 
@@ -4531,6 +4536,17 @@ function buildOctantRealtimeRow(ds, historyLastTime, historySource) {
     _gap_hours: null,
     _realtime: true,
   };
+  // desire-state.json 的 drives 自带每维 cause——实时行也要能点开看理由，
+  // 不能只有历史行有细节。键按 drive key 存，与历史行的 causes 同构。
+  if (Array.isArray(data.drives)) {
+    const causes = {};
+    for (const drive of data.drives) {
+      const key = String((drive || {}).key || '').trim();
+      const cause = String((drive || {}).cause || '').trim();
+      if (key && cause) causes[key] = cause;
+    }
+    if (Object.keys(causes).length) row.causes = causes;
+  }
   let found = false;
   for (const label of OCT_DIMS) {
     const score = Number(dimensions[label]);
