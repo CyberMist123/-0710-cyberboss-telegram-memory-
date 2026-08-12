@@ -178,7 +178,11 @@ test("over-budget admission skips the lower-priority portrait without rewriting 
   assert.equal(countNonWhitespace(agreements), 700);
 });
 
-test("enabled file changes affect the hard-context fingerprint, while disabled changes do not", () => {
+test("slow-layer file changes never rotate the thread; only the persona prompt does", () => {
+  // T0（2026-08-12）之后的收敛语义：注入类内容（慢层、reentry、current_state
+  // 与它们的门）一律不进硬上下文指纹——开关门、日常刷新这些文件都不得静默
+  // 重建线程。会轮换的只剩人格提示词正文与 operations 提示词。慢层键仍留在
+  // computeLegacyHardContextFingerprint 里，用于识别旧版存量指纹后原地升级。
   const root = fixtureRoot();
   const filePath = path.join(root, "agreements.md");
   fs.writeFileSync(filePath, "示例约定：版本一", "utf8");
@@ -190,7 +194,14 @@ test("enabled file changes affect the hard-context fingerprint, while disabled c
   const onConfig = { agreementsFile: filePath, injectAgreements: true };
   const onBefore = computeHardContextFingerprint(onConfig);
   fs.writeFileSync(filePath, "示例约定：版本三", "utf8");
-  assert.notEqual(computeHardContextFingerprint(onConfig), onBefore);
+  assert.equal(computeHardContextFingerprint(onConfig), onBefore);
+
+  const promptPath = path.join(root, "persona.md");
+  fs.writeFileSync(promptPath, "人格提示词：版本一", "utf8");
+  const promptConfig = { weixinInstructionsFile: promptPath };
+  const promptBefore = computeHardContextFingerprint(promptConfig);
+  fs.writeFileSync(promptPath, "人格提示词：版本二", "utf8");
+  assert.notEqual(computeHardContextFingerprint(promptConfig), promptBefore);
 });
 
 function slowLayerFiles(root) {
