@@ -43,6 +43,7 @@
     "test:memory-services": "node --test test/memory-note-service.test.js test/memory-resolver.test.js test/memory-service-cleanup.test.js test/memory-service-formal.test.js test/memory-validator.test.js test/memory-command-router.test.js test/memory-command.test.js test/memory-seven-day-cleanup.test.js test/memory-validator-integration.test.js test/memory-legacy-lookup.test.js test/memory-backup-restore.test.js",
     "test:reflect": "node --test test/weekly-reflect.test.js",
     "test:520-endpoints": "python extensions/relationship-memory/memory-kit/tests/test_dashboard_blackbox_uncovered.py && python extensions/relationship-memory/memory-kit/tests/test_dashboard_route_catalog.py && python extensions/relationship-memory/memory-kit/tests/test_dashboard_runtime_prompt.py && python extensions/relationship-memory/memory-kit/tests/test_deepseek_env_key.py && python extensions/relationship-memory/memory-kit/tests/test_dashboard_writer_lease.py",
+    "test:claude-config-panel": "python tools/claude-config-panel/tests/test_claude_config_panel.py",
     "continuity:phase3": "node ./scripts/continuity/run-phase3.js"
   },
   "dependencies": {

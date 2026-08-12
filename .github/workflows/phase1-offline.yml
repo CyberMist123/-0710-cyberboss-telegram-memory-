@@ -109,6 +109,12 @@ jobs:
         id: dash520
         run: ./scripts/ci/run-annotated.ps1 -Name 520-endpoints -Command 'npm run test:520-endpoints'
 
+      # Claude Code 工作站配置面板（tools/claude-config-panel）：纯 stdlib，
+      # 测试全部在临时目录上自搭配置，不依赖 runner 上的真实 Claude 配置。
+      - name: Claude config panel tests
+        id: ccpanel
+        run: ./scripts/ci/run-annotated.ps1 -Name claude-config-panel -Command 'npm run test:claude-config-panel'
+
       - name: Route lanes tests
         id: route_lanes
         run: ./scripts/ci/run-annotated.ps1 -Name route-lanes -Command 'npm run test:route-lanes'
@@ -144,7 +150,7 @@ jobs:
             "p4=${{ steps.p4.outcome }}", "p5a=${{ steps.p5a.outcome }}",
             "p0_liveness=${{ steps.p0_liveness.outcome }}",
             "memory_services=${{ steps.memory_services.outcome }}", "reflect=${{ steps.reflect.outcome }}",
-            "dash520=${{ steps.dash520.outcome }}",
+            "dash520=${{ steps.dash520.outcome }}", "ccpanel=${{ steps.ccpanel.outcome }}",
             "route_lanes=${{ steps.route_lanes.outcome }}", "catalog_metering=${{ steps.catalog_metering.outcome }}", "telegram_media=${{ steps.telegram_media.outcome }}",
             "orch=${{ steps.orch.outcome }}", "diff=${{ steps.diff.outcome }}"
           ) -join ' | '
