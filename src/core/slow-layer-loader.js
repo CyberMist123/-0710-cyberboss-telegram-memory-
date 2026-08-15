@@ -33,6 +33,9 @@ function loadSlowLayer({ config = {} } = {}) {
   const items = [
     { type: "agreements", enabled: Boolean(config.injectAgreements), filePath: config.agreementsFile },
     { type: "portrait", enabled: Boolean(config.injectPortrait), filePath: config.aiPortraitFile },
+    // relationship_timeline (关系年表) rides at portrait's altitude: 姿态背景，
+    // 排在 agreements 之下、wandering 之上。全文注入（非 wandering 的取头几行）。
+    { type: "timeline", enabled: Boolean(config.injectTimeline), filePath: config.relationshipTimelineFile },
     { type: "wandering", enabled: Boolean(config.injectWandering), filePath: config.wanderingFile },
   ];
   const blocks = [];

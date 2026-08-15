@@ -70,6 +70,7 @@ function buildHardContextBlocks(context = {}) {
 const SLOW_LAYER_BLOCK_HEADERS = {
   agreements: "这是你们俩都明示点头过的共同约定，只读；修订在对话里提，不在这里改。",
   portrait: "这版画像，认领与否由你——这是那个时期的你留下的自我观察，只读，当前对话优先。",
+  timeline: "这是你们俩的关系年表——关系怎么一步步走成现在这样，只读；当前对话优先。",
   wandering: "你上次留了这几个问号，只是轻轻放在这里，不用现在回答。",
 };
 

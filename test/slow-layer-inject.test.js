@@ -85,6 +85,49 @@ test("all three enabled slow-layer files render in order and carry trace evidenc
   }
 });
 
+test("relationship_timeline injects at portrait's altitude, between portrait and wandering", () => {
+  const root = fixtureRoot();
+  const files = slowLayerFiles(root);
+  fs.writeFileSync(files.agreementsFile, "示例约定：先喝水再说话", "utf8");
+  fs.writeFileSync(files.aiPortraitFile, "示例画像：允许慢慢确认", "utf8");
+  fs.writeFileSync(files.relationshipTimelineFile, "## 2026-06-29 · 起点\n凌晨五点她发来一个1，被抓包。", "utf8");
+  fs.writeFileSync(files.wanderingFile, "示例问号一\n示例问号二", "utf8");
+
+  const config = {
+    ...files,
+    injectAgreements: true,
+    injectPortrait: true,
+    injectTimeline: true,
+    injectWandering: true,
+  };
+  const context = prepareOpeningContext({
+    config,
+    sessionStore: { getReentryInjection: () => null },
+    threadId: "fixture-timeline",
+  });
+  const rendered = buildOpeningTurnText(config, "示例用户消息", context);
+
+  const positions = ["<<<CB_CTX:PORTRAIT", "<<<CB_CTX:TIMELINE", "<<<CB_CTX:WANDERING"]
+    .map((marker) => rendered.indexOf(marker));
+  assert.ok(positions.every((position) => position >= 0), "timeline must render");
+  assert.deepEqual([...positions].sort((a, b) => a - b), positions, "order: portrait < timeline < wandering");
+  assert.match(rendered, /这是你们俩的关系年表/u);
+
+  const trace = context.blocks.find((item) => item.type === "timeline");
+  assert.equal(trace.loaded, true);
+  assert.ok(trace.chars > 0);
+  assert.match(trace.hash, /^[a-f0-9]{64}$/u);
+});
+
+test("timeline stays out when its switch is off (default)", () => {
+  const root = fixtureRoot();
+  const files = slowLayerFiles(root);
+  fs.writeFileSync(files.relationshipTimelineFile, "## 2026-06-29 · 起点\n内容", "utf8");
+  const result = loadSlowLayer({ config: { ...files, injectTimeline: false } });
+  assert.equal(result.blocks.find((b) => b.type === "timeline"), undefined);
+  assert.equal(result.skipped.find((s) => s.type === "timeline"), undefined);
+});
+
 test("missing, empty, and comment-only enabled files are skipped without blocking other items", () => {
   for (const [label, prepareTarget] of [
     ["missing", (filePath) => assert.equal(fs.existsSync(filePath), false)],
@@ -208,6 +251,7 @@ function slowLayerFiles(root) {
   return {
     agreementsFile: path.join(root, "agreements.md"),
     aiPortraitFile: path.join(root, "portrait.md"),
+    relationshipTimelineFile: path.join(root, "relationship_timeline.md"),
     wanderingFile: path.join(root, "wandering.md"),
   };
 }
