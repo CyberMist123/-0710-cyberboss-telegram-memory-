@@ -142,6 +142,13 @@ const COMMAND_GROUPS = [
         hidden: true,
       },
       {
+        action: "system.desire_probe",
+        summary: "Fire one proactive desire self-check now (手动激发一次八维自查·主动态)",
+        terminal: [],
+        weixin: ["/probe"],
+        status: "active",
+      },
+      {
         action: "channel.chunk_min",
         summary: "Adjust the minimum short-chunk merge size for WeChat replies",
         terminal: [],

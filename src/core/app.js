@@ -2152,6 +2152,9 @@ class CyberbossApp {
       case "checkin":
         await this.handleCheckinCommand(normalized, command);
         return;
+      case "probe":
+        await this.handleProbeCommand(normalized);
+        return;
       case "chunk":
         await this.handleChunkCommand(normalized, command);
         return;
@@ -2944,6 +2947,39 @@ class CyberbossApp {
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
       text: `✅ Check-in interval reset to ${parsedRange.minMinutes}-${parsedRange.maxMinutes} minutes and will apply on the next polling cycle.`,
+      contextToken: normalized.contextToken,
+      ...outboundThreadIdField(normalized),
+    });
+  }
+
+  // /probe：手动激发一次八维自查（主动态）。无视夜跳窗口与定时节奏，随时可测。
+  // checkin 提示词已是主动态，她会记录八维，此刻想做什么（发消息/刷论坛/整理）就去做。
+  async handleProbeCommand(normalized) {
+    const targets = this.automationTargets;
+    if (!this.systemMessageQueue || !targets?.accountId || !targets?.senderId || !targets?.workspaceRoot) {
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: "❌ 暂时激发不了八维自查：自动化目标还没就绪（poller 可能刚起，稍等再试）。",
+        contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
+      });
+      return;
+    }
+    const { buildDesireTriggerText } = require("../app/hourly-desire-poller");
+    const id = `probe:${crypto.randomUUID()}`;
+    this.systemMessageQueue.enqueue({
+      id,
+      accountId: targets.accountId,
+      senderId: targets.senderId,
+      workspaceRoot: targets.workspaceRoot,
+      text: buildDesireTriggerText(this.config),
+      sourceType: "desire_checkin",
+      createdAt: new Date().toISOString(),
+    });
+    console.log(`[probe] manual desire checkin queued id=${id}`);
+    await this.channelAdapter.sendText({
+      userId: normalized.senderId,
+      text: "🧪 已激发一次八维自查（主动态）。她会回顾八维、更新状态；此刻想做点什么——给你发条消息、刷 X / Reddit / 长毛象、整理记忆——就会去做。稍等片刻。",
       contextToken: normalized.contextToken,
       ...outboundThreadIdField(normalized),
     });
