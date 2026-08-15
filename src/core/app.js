@@ -235,6 +235,12 @@ class CyberbossApp {
         // own `escalatedBuiltInTools` once the lease is active.
       });
     });
+    // After a Route 2/3 escalation's deferred relaunch actually lands, auto-open
+    // her next turn (wide face) so she can continue without the Owner having to
+    // send a message. Same self-triggered system-turn path as the hourly tick.
+    this.runtimeAdapter.onEscalationRelaunched?.((origin = {}) => {
+      this.enqueueRoute2ContinueFailOpen?.(origin);
+    });
     this.runtimeAdapter.onSubjectSigningRequest?.((request) => (
       this.subjectSigningBroker.submit(request)
     ));
@@ -2587,6 +2593,47 @@ class CyberbossApp {
       });
     } catch (error) {
       console.warn(`[cyberboss] window-open greeting skipped: ${error?.message || String(error)}`);
+      return null;
+    }
+  }
+
+  /**
+   * Auto-continue after a Route 2/3 escalation relaunch.
+   *
+   * The wide tool face only opens on a fresh child, and the relaunch is deferred
+   * to the turn boundary (retiring it mid-turn would kill the very reply that
+   * asked for it). Without this, that fresh turn would wait for an inbound
+   * message — i.e. the Owner. This enqueues a one-shot self-trigger so she opens
+   * the wide-face turn herself and continues the work she escalated for.
+   *
+   * Deliberately NOT gated on /pause_heartbeat: this completes an action she
+   * herself initiated (the escalation), not a proactive reach-out. Deduped so a
+   * burst of relaunch signals cannot stack multiple continuations. Fail-open.
+   */
+  enqueueRoute2ContinueFailOpen(origin = {}) {
+    try {
+      const senderId = normalizeText(origin?.senderId);
+      const workspaceRoot = normalizeText(origin?.workspaceRoot);
+      const accountId = this.activeAccountId || normalizeText(origin?.accountId);
+      if (!senderId || !workspaceRoot || !accountId || !this.systemMessageQueue) return null;
+      if (this.systemMessageQueue.hasPendingForAccount?.(accountId, {
+        shouldInclude: (message) => message?.sourceType === "route2_continue",
+      })) {
+        return null;
+      }
+      return this.systemMessageQueue.enqueue({
+        id: `route2-continue:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+        accountId,
+        senderId,
+        workspaceRoot,
+        // The store rejects an empty body; the real instruction lives in the
+        // dispatcher's route2_continue branch. This lands under "Trigger:".
+        text: "升级后的宽工具面已就绪。",
+        sourceType: "route2_continue",
+        createdAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.warn(`[cyberboss] route2 continue skipped: ${error?.message || String(error)}`);
       return null;
     }
   }

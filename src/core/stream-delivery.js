@@ -1027,11 +1027,31 @@ function buildDeliveryPreviewText(delivery) {
   return "";
 }
 
+// The stable system-reply protocol has exactly two actions: send_message and
+// silent. But the subject keeps intuiting natural verbs (`reach_out`, `message`,
+// `sent`, `chosen_silence` — all seen in production), and an unrecognised verb
+// discards the whole turn as "unsupported action" — a silently lost proactive
+// reach-out. These synonyms are semantically identical to a canonical action, so
+// honour them. Deliberately NARROW: only synonyms of send_message / silent.
+// Verbs like consolidate / browse / next_wake are NOT here — those are
+// desire_state fields or in-turn skill calls, and aliasing them to send_message
+// would mis-send her private intent to the Owner.
+const SYSTEM_ACTION_SYNONYMS = new Map([
+  ["reach_out", "send_message"], ["reach", "send_message"], ["reachout", "send_message"],
+  ["message", "send_message"], ["sent", "send_message"], ["send", "send_message"],
+  ["tell", "send_message"], ["say", "send_message"], ["reply", "send_message"],
+  ["respond", "send_message"],
+  ["chosen_silence", "silent"], ["choose_silence", "silent"], ["stay_silent", "silent"],
+  ["silence", "silent"], ["quiet", "silent"], ["none", "silent"],
+  ["do_nothing", "silent"], ["nothing", "silent"],
+]);
+
 function normalizeSystemActionName(value) {
-  return String(value || "")
+  const normalized = String(value || "")
     .trim()
     .toLowerCase()
     .replace(/\s+/g, "_");
+  return SYSTEM_ACTION_SYNONYMS.get(normalized) || normalized;
 }
 
 function normalizeRuntimeId(value) {

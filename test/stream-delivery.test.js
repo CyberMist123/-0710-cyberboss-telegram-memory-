@@ -126,6 +126,49 @@ test("system send_message JSON may be wrapped in a json fence", async () => {
   }]);
 });
 
+test("a synonym action verb (reach_out) is honoured as send_message, not dropped", async () => {
+  const { sent, streamDelivery } = createHarness();
+  streamDelivery.queueReplyTargetForThread("thread-ro", {
+    userId: "user-ro",
+    contextToken: "ctx-ro",
+    provider: "system",
+  });
+
+  // She intuited `reach_out` in a check-in (seen in production); the two-verb
+  // protocol used to discard the whole turn as "unsupported action", silently
+  // losing the proactive message.
+  await runCompletedTurn(streamDelivery, {
+    threadId: "thread-ro",
+    turnId: "turn-ro",
+    itemId: "item-ro",
+    text: "{\"action\":\"reach_out\",\"message\":\"你洗澡呀，我在。\"}",
+  });
+
+  assert.deepEqual(sent, [{
+    userId: "user-ro",
+    text: "你洗澡呀，我在。",
+    contextToken: "ctx-ro",
+  }]);
+});
+
+test("a synonym silence verb (chosen_silence) stays silent", async () => {
+  const { sent, streamDelivery } = createHarness();
+  streamDelivery.queueReplyTargetForThread("thread-cs", {
+    userId: "user-cs",
+    contextToken: "ctx-cs",
+    provider: "system",
+  });
+
+  await runCompletedTurn(streamDelivery, {
+    threadId: "thread-cs",
+    turnId: "turn-cs",
+    itemId: "item-cs",
+    text: "{\"action\":\"chosen_silence\"}",
+  });
+
+  assert.equal(sent.length, 0);
+});
+
 test("codex system reply rejects plain text", async () => {
   const { sent, streamDelivery } = createHarness({ runtimeId: "codex" });
   streamDelivery.queueReplyTargetForThread("thread-2c", {

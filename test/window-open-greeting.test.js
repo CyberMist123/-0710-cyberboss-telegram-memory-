@@ -120,3 +120,54 @@ test("the window-open trigger asks her to arrive, not to file a report", () => {
   assert.equal(text.includes("drives"), false);
   assert.equal(text.includes("desire_state"), false);
 });
+
+function continueApp() {
+  const queued = [];
+  return {
+    queued,
+    app: {
+      // A paused activity file is deliberately present: the auto-continue must
+      // still fire, because it finishes an action she herself initiated.
+      config: { activityPauseFile: "" },
+      activeAccountId: "telegram",
+      systemMessageQueue: {
+        enqueue(message) { queued.push(message); return message; },
+        hasPendingForAccount(_accountId, { shouldInclude } = {}) {
+          return queued.some((m) => (shouldInclude ? shouldInclude(m) : true));
+        },
+      },
+      enqueueRoute2ContinueFailOpen: CyberbossApp.prototype.enqueueRoute2ContinueFailOpen,
+    },
+  };
+}
+
+const ESC_ORIGIN = { senderId: "42", workspaceRoot: WORKSPACE, bindingKey: "default:telegram:42" };
+
+test("a route2 escalation relaunch auto-queues her continuation, no inbound message needed", () => {
+  const { app, queued } = continueApp();
+  app.enqueueRoute2ContinueFailOpen(ESC_ORIGIN);
+
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].sourceType, "route2_continue");
+  assert.equal(queued[0].senderId, "42");
+  assert.equal(queued[0].workspaceRoot, WORKSPACE);
+  assert.match(queued[0].text, /\S/u, "an empty body is what the store rejects");
+});
+
+test("a burst of relaunch signals still queues only one continuation", () => {
+  const { app, queued } = continueApp();
+  app.enqueueRoute2ContinueFailOpen(ESC_ORIGIN);
+  app.enqueueRoute2ContinueFailOpen(ESC_ORIGIN);
+  assert.equal(queued.length, 1, "the second dedupes against the pending one");
+});
+
+test("the route2_continue trigger tells her the wide face is ready and to continue", () => {
+  const text = buildSystemInboundText("", "2026-08-07T10:00:00.000Z", "route2_continue");
+
+  assert.match(text, /System trigger type: route2_continue\./u);
+  assert.match(text, /宽工具面/u);
+  assert.match(text, /继续/u);
+  assert.match(text, /\{"action":"silent"\}/u);
+  // Must not fall through to the generic branch (which still says "WeChat").
+  assert.equal(text.includes("WeChat"), false);
+});

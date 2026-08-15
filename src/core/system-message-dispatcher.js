@@ -220,6 +220,22 @@ function buildSystemInboundText(text, createdAt = "", sourceType = "system", ale
     ].join("\n").trim();
   }
 
+  if (normalizedType === "route2_continue") {
+    return [
+      ...(localTime ? [`[${localTime}]`, ""] : []),
+      "SYSTEM ACTION MODE: internal trigger, not user chat.",
+      "System trigger type: route2_continue.",
+      "你刚申请的更宽工具面（Bash / 子代理 / 完整工具）现在已经就绪，这一轮就带着它。",
+      "继续你升级前想做的那件事——不用等她开口，也不用重新解释，直接接着做。",
+      "做完照常收尾：用 send_message 简短自然地说一句你做了什么或结果如何；这一轮不需要做什么就 silent。",
+      "Return exactly one JSON object after any tool calls:",
+      "{\"action\":\"silent\"}",
+      "{\"action\":\"send_message\",\"message\":\"<一句自然的话>\"}",
+      "No markdown fences. No reasoning. No text outside the JSON.",
+      ...(body ? ["", "Trigger:", body] : []),
+    ].join("\n").trim();
+  }
+
   const sections = [
     ...(localTime ? [`[${localTime}]`, ""] : []),
     "SYSTEM ACTION MODE: internal trigger, not user chat.",

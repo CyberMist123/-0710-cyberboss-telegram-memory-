@@ -149,7 +149,9 @@ function createClaudeCodeRuntimeAdapter(config) {
   const pendingModelByWorkspaceRoot = new Map();
   // Process keys whose child must be retired once its current turn settles, so
   // the next launch picks up a freshly granted route2/route3 lease.
-  const pendingEscalationRelaunch = new Set();
+  // processKey -> escalation origin ({bindingKey, workspaceRoot, lane, senderId}),
+  // so the turn-boundary relaunch can hand the app what it needs to auto-continue.
+  const pendingEscalationRelaunch = new Map();
   const taskSessionRegistry = new TaskSessionRegistry();
   const taskSessionInputs = new Map();
   const taskWorktrees = new Map();
@@ -201,6 +203,10 @@ function createClaudeCodeRuntimeAdapter(config) {
   // would be a second "restore the route" authority that can drift from the
   // first. Without a listener the adapter refuses rather than guessing.
   let route2EscalateListener = null;
+  // Fired after a deferred Route 2/3 escalation relaunch actually completes at
+  // the turn boundary, so the app can auto-continue her into the wide-face turn
+  // without waiting for an inbound message from the Owner.
+  let escalationRelaunchedListener = null;
   let subjectSigningListener = null;
   const ipcSocketPath = path.join(
     stateDir,
@@ -959,8 +965,15 @@ function createClaudeCodeRuntimeAdapter(config) {
     // face, the lease was issued, and her reply died as
     // `Runtime process exited unexpectedly`. Deleting first keeps the nested
     // finishTurn inside closeProcessKey from re-entering.
-    if (pendingEscalationRelaunch.delete(processKey)) {
-      void processRegistry.withLock(processKey, () => closeProcessKey(processKey));
+    const escalationOrigin = pendingEscalationRelaunch.get(processKey);
+    if (escalationOrigin) {
+      pendingEscalationRelaunch.delete(processKey);
+      // Close (so the next turn relaunches wide) THEN notify the app, so the
+      // auto-continue trigger can only land after the wide-face child is the one
+      // that will answer it. Enqueuing before the close would race the narrow
+      // child that is still being torn down.
+      void processRegistry.withLock(processKey, () => closeProcessKey(processKey))
+        .then(() => { try { escalationRelaunchedListener?.(escalationOrigin); } catch { /* fail-open: a missed auto-continue just waits for her next message */ } });
     }
   }
 
@@ -1232,6 +1245,10 @@ function createClaudeCodeRuntimeAdapter(config) {
     onRoute2EscalateRequest(listener) {
       route2EscalateListener = typeof listener === "function" ? listener : null;
       return () => { if (route2EscalateListener === listener) route2EscalateListener = null; };
+    },
+    onEscalationRelaunched(listener) {
+      escalationRelaunchedListener = typeof listener === "function" ? listener : null;
+      return () => { if (escalationRelaunchedListener === listener) escalationRelaunchedListener = null; };
     },
     onRoute1TaskQueryRequest(listener) {
       route1TaskQueryListener = typeof listener === "function" ? listener : null;
@@ -1659,7 +1676,7 @@ function createClaudeCodeRuntimeAdapter(config) {
         // (`Runtime process exited unexpectedly`, lease issued, reply lost).
         // D33 already said escalation lands 在任务起点; this is that, honestly.
         const leasedProcessKey = computeProcessKey(leasedRoute);
-        pendingEscalationRelaunch.add(leasedProcessKey);
+        pendingEscalationRelaunch.set(leasedProcessKey, { bindingKey, workspaceRoot, lane, senderId });
         const attached = { threadId: initialRoute.storedThreadId };
         if (attached.threadId !== initialRoute.storedThreadId) throw new Error("route2_window_id_changed");
         route2GateState.begin({
