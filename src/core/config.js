@@ -223,6 +223,9 @@ function readConfig() {
     desireScheduleFile: joinIfBase(stateDir, "desire-schedule.json"),
     desireActiveFile: joinIfBase(stateDir, "desire-checkin-active.json"),
     desirePlanFile: joinIfBase(stateDir, "desire-checkin-plan.json"),
+    // 她在 checkin 里自填的下次唤醒时间（自主节奏）：绝对时间戳，poller 分片
+    // 轮询时读到就覆盖默认 cadence，用后即清。
+    desireWakeOverrideFile: joinIfBase(stateDir, "desire-wake-override.json"),
     desireTelemetry: resolveFeatureGate("CYBERBOSS_DESIRE_TELEMETRY"),
     desireTelemetryFile: resolveConfiguredPath(readTextEnv("CYBERBOSS_DESIRE_TELEMETRY_FILE")) || joinIfBase(stateDir, "desire-usage.jsonl"),
     consolidationTriggerEnabled: envFlagEnabled("CYBERBOSS_CONSOLIDATION_TRIGGER_ENABLED"),

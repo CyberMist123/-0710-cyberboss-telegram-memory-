@@ -4284,6 +4284,21 @@ class CyberbossApp {
           contextLane,
         });
       }
+      // 自主唤醒节奏：她在 checkin 里自填 next_wake_minutes（5–240），写入
+      // override 时间戳，poller 下一分片读到就用它替换默认 cadence（替换而非
+      // 叠加：她一旦排了节奏，原定的固定 55 分钟那一拍整条让位）。不填就照旧。
+      if (state && this.config.desireWakeOverrideFile) {
+        const nextWake = Math.round(Number(state?.next_wake_minutes));
+        if (Number.isFinite(nextWake) && nextWake >= 5 && nextWake <= 240) {
+          try {
+            const { writeWakeOverride } = require("../app/hourly-desire-poller");
+            writeWakeOverride(this.config.desireWakeOverrideFile, Date.now() + nextWake * 60_000);
+            console.log(`[desire] next_wake set by her: ${nextWake}min`);
+          } catch (error) {
+            console.warn(`[desire] next_wake write failed: ${error?.message || String(error)}`);
+          }
+        }
+      }
       this.maybeQueueConsolidationFromDesireReply(state);
     } catch {}
   }

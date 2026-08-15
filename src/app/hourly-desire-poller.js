@@ -29,8 +29,22 @@ async function runHourlyDesirePoller(config = {}) {
   let plannedAt = nextPlannedAt(null, loadDesireSchedule(config.desireScheduleFile).intervalMinutes, Date.now());
   writePlanMarker(config.desirePlanFile, plannedAt);
   console.log(`[desire] poller starts, next planned tick in ${Math.round(Math.max(0, plannedAt - Date.now()) / 60000)}m`);
+  // 分片轮询：每片最多睡 WAKE_POLL_SLICE_MS，既能按计划到点触发，又能读到
+  // 她上一轮 checkin 自填的 next_wake（她的回复晚于本轮 tick 落盘，只有下一
+  // 片才读得到）。不设 next_wake 时行为与固定 cadence 完全一致。
+  const WAKE_POLL_SLICE_MS = 60_000;
   while (true) {
-    await sleep(Math.max(0, plannedAt - Date.now()));
+    await sleep(Math.min(WAKE_POLL_SLICE_MS, Math.max(0, plannedAt - Date.now())));
+    // 她自填的下次唤醒优先于默认 cadence；只接受未来时刻，用后即清。
+    const overrideAt = readWakeOverrideAt(config.desireWakeOverrideFile);
+    if (overrideAt > Date.now()) {
+      plannedAt = overrideAt;
+      clearWakeOverride(config.desireWakeOverrideFile);
+      writePlanMarker(config.desirePlanFile, plannedAt);
+    }
+    if (Date.now() < plannedAt) {
+      continue;
+    }
     const tickTime = Date.now();
     const schedule = loadDesireSchedule(config.desireScheduleFile);
     runHourlyDesireTick({
@@ -45,6 +59,8 @@ async function runHourlyDesirePoller(config = {}) {
     // Advance from the planned start, not from completion, and skip missed
     // intervals after sleep/resume instead of replaying them in a burst.
     plannedAt = nextPlannedAt(plannedAt, schedule.intervalMinutes, Date.now());
+    // 清掉本轮之前可能残留的 override（她这一轮的回复尚未落盘，不受影响）。
+    clearWakeOverride(config.desireWakeOverrideFile);
     writePlanMarker(config.desirePlanFile, plannedAt);
   }
 }
@@ -100,6 +116,34 @@ function writePlanMarker(filePath, plannedAt) {
   try {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, JSON.stringify({ nextPlannedAt: new Date(plannedAt).toISOString() }), "utf8");
+  } catch {}
+}
+
+// 自主唤醒 override：她在 checkin 里自填的下次唤醒时刻（绝对时间戳）。
+// 由 app 层在解析她的回复时写入，poller 分片轮询时读取，用后即清。
+function readWakeOverrideAt(filePath) {
+  if (!filePath) return 0;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    const at = Date.parse(parsed?.nextWakeAt || "");
+    return Number.isFinite(at) ? at : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeWakeOverride(filePath, wakeAtMs) {
+  if (!filePath || !Number.isFinite(wakeAtMs)) return;
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify({ nextWakeAt: new Date(wakeAtMs).toISOString() }), "utf8");
+  } catch {}
+}
+
+function clearWakeOverride(filePath) {
+  if (!filePath) return;
+  try {
+    fs.rmSync(filePath, { force: true });
   } catch {}
 }
 
@@ -286,4 +330,5 @@ module.exports = {
   probeProcessAlive,
   buildDesireTriggerText,
   runHourlyDesireTick,
+  writeWakeOverride,
 };
