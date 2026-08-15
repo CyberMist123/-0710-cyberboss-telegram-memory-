@@ -65,6 +65,8 @@ PLACEHOLDER_MARKERS = (
     "test_token",
     "test-key",
     "fake_offline_token",
+    "fakefake",
+    "config.",
     "must-not-be-stored",
     "never-print-this",
     "crypto.randombytes",
@@ -156,6 +158,11 @@ def scan_repository() -> int:
 
         for detector, pattern in SECRET_PATTERNS:
             for match in pattern.finditer(text):
+                # 与 generic_secret_assignment 同一套白名单：占位符/测试假 key
+                # （sk-fakefake…）与变量引用（config.xxx）不算真凭据。
+                value = match.group(0).lower()
+                if any(marker in value for marker in PLACEHOLDER_MARKERS):
+                    continue
                 line_no = text.count("\n", 0, match.start()) + 1
                 for path in paths:
                     findings.add((path, detector, line_no, sha))
