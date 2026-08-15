@@ -455,7 +455,9 @@ test("T-B catalog on/off context swing stays at three broadcast tools", () => {
   // 13675 -> 13917：合流 batch/lookup-uncap，再加 cyberboss_voice_retranscribe
   //（本机小模型转糊时换云端重听一遍）；两侧各自 +1 工具，合并后全量面 45 项。
   // 常驻面本身（3 项 / 373 字）未变——这正是目录化要守住的那个数。
-  assert.equal(resident.full_surface.schema_chars, 13917);
+  // 13917 -> 13889：把工具描述里遗留的「WeChat」字样改成通道中性（Telegram build
+  // 上那是误导），四处各减 7 字。常驻面不变。
+  assert.equal(resident.full_surface.schema_chars, 13889);
 });
 
 test("manifest policy and privacy canary are explicit and private-text-free", () => withEnv({ CATALOG_TEST_SECRET: plantedValue, CYBERBOSS_SUBJECT_SIGNING_ENABLED: undefined }, () => {

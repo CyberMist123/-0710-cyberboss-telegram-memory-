@@ -38,8 +38,8 @@
   },
   "full_surface": {
     "item_count": 45,
-    "schema_chars": 13917,
+    "schema_chars": 13889,
     "tools_list_chars": 11576
   },
-  "resident_hash": "sha256:626f2e74c5a6fb700ee2b3f52cf8c82705b16dc1069931f6a8a315c3a77af467"
+  "resident_hash": "sha256:611fc0ea99888e4e4bcdd7e7cd2fb3b2a9e7276a853de6a5024cf2f6b54f6346"
 }

@@ -141,7 +141,7 @@ function buildSystemInboundText(text, createdAt = "", sourceType = "system", ale
       "If acting, let the top intent lead this proactive turn; use silent only if you do nothing.",
       "Return exactly one JSON object after any tool calls:",
       "{\"action\":\"silent\"}",
-      "{\"action\":\"send_message\",\"message\":\"<one short natural WeChat message>\"}",
+      "{\"action\":\"send_message\",\"message\":\"<one short natural message>\"}",
       "No markdown fences. No reasoning. No text outside the JSON.",
       "这是后台内部触发，不属于聊天。处理完就放下它：之后回到与她的对话时，继续用你平常的语气和节奏。",
     ];
@@ -244,7 +244,7 @@ function buildSystemInboundText(text, createdAt = "", sourceType = "system", ale
     "If you act, end with send_message that briefly and naturally reflects what you did or what changed; use silent only if you do nothing.",
     "Return exactly one JSON object after any tool calls:",
     "{\"action\":\"silent\"}",
-    "{\"action\":\"send_message\",\"message\":\"<one short natural WeChat message>\"}",
+    "{\"action\":\"send_message\",\"message\":\"<one short natural message>\"}",
     "No markdown fences. No reasoning. No text outside the JSON.",
     "这是后台内部触发，不属于聊天。处理完就放下它：之后回到与她的对话时，继续用你平常的语气和节奏。",
   ];

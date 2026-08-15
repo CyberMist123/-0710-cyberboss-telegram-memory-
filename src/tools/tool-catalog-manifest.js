@@ -12,6 +12,15 @@ const TOOLSETS = {
     "memory_lookup", "memory_note", "episode_annotate", "cyberboss_reminder",
     "cyberboss_diary_append", "cyberboss_diary_read", "cyberboss_diary_edit",
     "cyberboss_system_send", "cyberboss_time",
+    // Reaching out / expressing is core to her, not an "escalated" capability.
+    // These out-of-band send tools used to sit in no toolset, so they were only
+    // callable via self-escalation (present only under a window override). That
+    // made a basic "send her a second message / a voice note / a sticker" depend
+    // on override state. Authorize them on the base chat face. (This set is the
+    // authorization whitelist, not the resident schema face — no token bloat.)
+    "cyberboss_telegram_send", "cyberboss_telegram_send_voice", "cyberboss_telegram_send_file",
+    "cyberboss_channel_send_file",
+    "cyberboss_sticker_tags", "cyberboss_sticker_pick", "cyberboss_sticker_send",
   ],
 };
 const TOOL_THEMES = Object.freeze({

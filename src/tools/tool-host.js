@@ -724,7 +724,7 @@ const PROJECT_TOOLS = [
         textFile: { type: "string", description: "Optional file path containing reminder text." },
         delayMinutes: { type: "integer", description: "Minutes from now before the reminder fires." },
         dueAt: { type: "string", description: "Absolute time such as 2026-04-07T21:30+08:00." },
-        userId: { type: "string", description: "Optional explicit WeChat user id." },
+        userId: { type: "string", description: "Optional explicit user id." },
       },
       additionalProperties: false,
     },
@@ -873,8 +873,8 @@ const PROJECT_TOOLS = [
   },
   {
     name: "cyberboss_channel_send_file",
-    description: "Send an existing local file back to the current WeChat chat.",
-    shortHint: "Send a local file back to the current WeChat user.",
+    description: "Send an existing local file back to the current chat.",
+    shortHint: "Send a local file back to the current user.",
     topics: ["channel"],
     inputSchema: {
       type: "object",
@@ -1047,7 +1047,7 @@ const PROJECT_TOOLS = [
   },
   {
     name: "cyberboss_sticker_send",
-    description: "Send a saved sticker back to the current WeChat chat by sticker id.",
+    description: "Send a saved sticker back to the current chat by sticker id.",
     shortHint: "Send a saved sticker by id.",
     topics: ["sticker"],
     inputSchema: {
@@ -1055,7 +1055,7 @@ const PROJECT_TOOLS = [
       required: ["stickerId"],
       properties: {
         stickerId: { type: "string", description: "Sticker id such as stk_001." },
-        userId: { type: "string", description: "Optional explicit WeChat user id." },
+        userId: { type: "string", description: "Optional explicit user id." },
       },
       additionalProperties: false,
     },
@@ -1125,7 +1125,7 @@ const PROJECT_TOOLS = [
             additionalProperties: false,
           },
         },
-        userId: { type: "string", description: "Optional explicit WeChat user id." },
+        userId: { type: "string", description: "Optional explicit user id." },
       },
       additionalProperties: false,
     },

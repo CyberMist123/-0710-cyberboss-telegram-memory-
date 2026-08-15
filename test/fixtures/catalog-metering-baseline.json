@@ -189,7 +189,7 @@
       "alias_of": null,
       "schema_chars": 141,
       "schema_bytes": 141,
-      "description_chars": 50,
+      "description_chars": 43,
       "has_max_result_bytes": false,
       "max_result_bytes": null
     },
@@ -243,8 +243,8 @@
       "hidden": false,
       "deprecated": false,
       "alias_of": null,
-      "schema_chars": 693,
-      "schema_bytes": 693,
+      "schema_chars": 686,
+      "schema_bytes": 686,
       "description_chars": 48,
       "has_max_result_bytes": false,
       "max_result_bytes": null
@@ -257,8 +257,8 @@
       "hidden": false,
       "deprecated": false,
       "alias_of": "cyberboss_reminder",
-      "schema_chars": 693,
-      "schema_bytes": 693,
+      "schema_chars": 686,
+      "schema_bytes": 686,
       "description_chars": 48,
       "has_max_result_bytes": false,
       "max_result_bytes": null
@@ -411,8 +411,8 @@
       "hidden": false,
       "deprecated": false,
       "alias_of": null,
-      "schema_chars": 793,
-      "schema_bytes": 793,
+      "schema_chars": 786,
+      "schema_bytes": 786,
       "description_chars": 40,
       "has_max_result_bytes": false,
       "max_result_bytes": null
@@ -425,8 +425,8 @@
       "hidden": false,
       "deprecated": false,
       "alias_of": null,
-      "schema_chars": 237,
-      "schema_bytes": 237,
+      "schema_chars": 230,
+      "schema_bytes": 230,
       "description_chars": 27,
       "has_max_result_bytes": false,
       "max_result_bytes": null
@@ -672,11 +672,11 @@
   ],
   "totals": {
     "item_count": 45,
-    "schema_chars": 13917,
-    "schema_bytes": 13933,
+    "schema_chars": 13889,
+    "schema_bytes": 13905,
     "catalog_chars": 12012,
     "catalog_bytes": 12316
   },
-  "items_hash": "sha256:ea43ae4c7dedf743e2e9d44bbbe891dcfa2fcd879d47d41c393b717b4e207816",
-  "catalog_hash": "sha256:74255a282a7623404d19fe34a269948a2554768c5f78ee9b420228e48f341f56"
+  "items_hash": "sha256:7609be080300348a8eb88f0fe94cd676c0d32d86abf1511311208f08132aefb1",
+  "catalog_hash": "sha256:44fbd035f7886f8a18a90825595856cf8771510bca9bb78e1340456a1dd990e3"
 }
