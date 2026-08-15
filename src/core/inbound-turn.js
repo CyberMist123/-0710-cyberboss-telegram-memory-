@@ -258,6 +258,7 @@ module.exports = {
   assembleRuntimeTurnText,
   buildInboundDraft,
   buildMergedInboundPrepared,
+  carrySubjectProvenance,
   clonePreparedInboundMessage,
   isImageAttachmentItem,
   isPlainTextPreparedMessage,

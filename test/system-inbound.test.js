@@ -951,6 +951,42 @@ test("debounced image batches still hand off to the normal pending buffer when t
   assert.equal(buffered[0].prepared.attachments.length, 1);
 });
 
+test("mergePendingInboundDraft preserves the non-enumerable subject provenance", () => {
+  const ctx = { config: { userName: "User" }, runtimeAdapter: { describe() { return { id: "codex" }; } } };
+  const withProvenance = (msg, id) => {
+    // Mirror what recordInboundMessage's attachSubjectProvenance does: attach
+    // provenance as NON-enumerable so a naive {...spread} would drop it.
+    Object.defineProperty(msg, "subjectSourceEntryId", { value: id, enumerable: false, configurable: true });
+    Object.defineProperty(msg, "subjectSourceEvidence", {
+      value: { file: "06-raw/2026-08-15.jsonl", sha256: "a".repeat(64) }, enumerable: false, configurable: true,
+    });
+    return msg;
+  };
+  const baseMsg = (text, receivedAt) => ({
+    senderId: "u", accountId: "a", workspaceId: "default", provider: "telegram",
+    contextToken: "c", originalText: text, text, attachments: [], attachmentFailures: [], receivedAt,
+  });
+
+  // Single message: provenance survives the rebuild (this is the exact path that
+  // stranded the "你也不是人啊" draft with subject_signing_turn_unknown).
+  const single = CyberbossApp.prototype.mergePendingInboundDraft.call(ctx, {
+    bindingKey: "b", workspaceRoot: "/w",
+    messages: [withProvenance(baseMsg("你也不是人啊", "2026-08-15T07:46:53.000Z"), "user:2026-08-15T07:46:53.000Z:abc")],
+  });
+  assert.equal(single.prepared.subjectSourceEntryId, "user:2026-08-15T07:46:53.000Z:abc");
+  assert.equal(single.prepared.subjectSourceEvidence.sha256, "a".repeat(64));
+
+  // Merged batch: provenance follows the newest message.
+  const merged = CyberbossApp.prototype.mergePendingInboundDraft.call(ctx, {
+    bindingKey: "b", workspaceRoot: "/w",
+    messages: [
+      withProvenance(baseMsg("earlier", "2026-08-15T07:46:00.000Z"), "user:earlier"),
+      withProvenance(baseMsg("newest", "2026-08-15T07:47:00.000Z"), "user:2026-08-15T07:47:00.000Z:zzz"),
+    ],
+  });
+  assert.equal(merged.prepared.subjectSourceEntryId, "user:2026-08-15T07:47:00.000Z:zzz");
+});
+
 test("pending image-only inbox messages merge into one clean inbound draft", () => {
   const merged = CyberbossApp.prototype.mergePendingInboundDraft.call({
     config: {

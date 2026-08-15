@@ -27,6 +27,7 @@ const {
   assembleRuntimeTurnText,
   buildInboundDraft,
   buildMergedInboundPrepared,
+  carrySubjectProvenance,
   clonePreparedInboundMessage,
   isPlainTextPreparedMessage,
   shouldBatchImageOnlyInbound,
@@ -1879,11 +1880,17 @@ class CyberbossApp {
 
     if (queued.length === 1) {
       return {
-        prepared: {
+        // `...queued[0]` is an enumerable spread, which silently drops the
+        // non-enumerable subject provenance (subjectSourceEntryId /
+        // subjectSourceEvidence) the recorder attached. Without it no signing
+        // capability is issued and her memory_candidate_submit dies at
+        // `subject_signing_turn_unknown` -- the exact failure that stranded the
+        // "你也不是人啊" draft. Carry it back onto the rebuilt message.
+        prepared: carrySubjectProvenance({
           bindingKey: draft.bindingKey,
           workspaceRoot: draft.workspaceRoot,
           ...queued[0],
-        },
+        }, queued[0]),
         remainingMessages: [],
       };
     }
@@ -1903,7 +1910,10 @@ class CyberbossApp {
     ].join("\n").trim();
 
     return {
-      prepared: {
+      // Carry the newest message's subject provenance onto the merged batch:
+      // `...latest` is an enumerable spread and drops the non-enumerable
+      // provenance, same leak as the single-message branch above.
+      prepared: carrySubjectProvenance({
         bindingKey: draft.bindingKey,
         workspaceRoot: draft.workspaceRoot,
         ...latest,
@@ -1921,7 +1931,7 @@ class CyberbossApp {
         attachmentVisionContexts: queued
           .flatMap((message) => (Array.isArray(message.attachmentVisionContexts) ? message.attachmentVisionContexts : []))
           .slice(0, 10),
-      },
+      }, latest),
       remainingMessages: [],
     };
   }
