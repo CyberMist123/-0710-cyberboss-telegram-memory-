@@ -97,11 +97,19 @@ class VoiceService {
       const degraded = Boolean(engine) && /whisper/i.test(engine);
       const body = degraded ? `语音转写（降级到 ${engine}，可能不准）` : "语音转写";
       normalized.text = `${normalizeText(normalized.text) || VOICE_PLACEHOLDER}\n[${body}: ${result.text}]`;
+      // The observer's one-liner (语速/停顿/气声/背景) rides on its own line after
+      // the transcript, so the chat AI reads how it was said next to what was
+      // said. Empty for a plain transcript; then nothing is appended.
+      const voiceNote = normalizeText(result.voiceNote);
+      if (voiceNote) {
+        normalized.text = `${normalized.text}\n${voiceNote}`;
+      }
       normalized.voiceTranscription = {
         provider: result.provider,
         model: engine,
         engine,
         degraded,
+        voiceNote,
         elapsedMs: result.elapsedMs,
       };
     } else {
@@ -171,6 +179,8 @@ class VoiceService {
       engine: normalizeText(result.model),
       detectedLanguage: normalizeText(result.detectedLanguage),
       emotion: normalizeText(result.emotion),
+      // The observer's closed-vocabulary one-liner, when CMX ran it.
+      voiceNote: normalizeText(result.voiceNote),
       // Present only when the cloud engine was asked for and could not run;
       // the text above then came from the local chain after all.
       cloudError: normalizeText(result.cloudError),

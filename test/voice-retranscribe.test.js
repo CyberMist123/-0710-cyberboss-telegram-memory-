@@ -21,7 +21,14 @@ function stubKit(record) {
     ttsEnabled: () => false,
     transcribe: async (opts) => {
       record.push(opts);
-      return { ok: true, text: "云端结果", model: "qwen3-asr-flash", provider: "voice-kit", elapsedMs: 1 };
+      return {
+        ok: true,
+        text: "云端结果",
+        model: "qwen3-asr-flash",
+        provider: "voice-kit",
+        voiceNote: "[声音: 语速中等 · 背景安静]",
+        elapsedMs: 1,
+      };
     },
   };
 }
@@ -57,6 +64,25 @@ test("retranscribe reaches the last inbound voice across a separate process", as
   assert.strictEqual(result.text, "云端结果");
   assert.strictEqual(calls[0].filePath, audioPath, "retranscribe used the persisted audio path");
   assert.strictEqual(calls[0].engine, "cloud", "the cloud engine was requested");
+  assert.strictEqual(result.voiceNote, "[声音: 语速中等 · 背景安静]", "the observer note is surfaced");
+});
+
+test("processInboundVoice appends the observer note on its own line after the transcript", async () => {
+  const stateDir = tmpStateDir();
+  const audioPath = path.join(stateDir, "voice-note.ogg");
+  fs.writeFileSync(audioPath, "audio-bytes");
+  const svc = new VoiceService({ config: { stateDir } });
+  svc.kit = stubKit([]);
+  const normalized = {
+    text: "",
+    telegram: { voice: { mimeType: "audio/ogg" } },
+    attachments: [{ kind: "voice", absolutePath: audioPath }],
+  };
+  await svc.processInboundVoice({ normalized });
+  // Words first, then how it was said — each on its own line.
+  assert.ok(normalized.text.includes("[语音转写: 云端结果]"), "transcript line present");
+  assert.ok(normalized.text.includes("\n[声音: 语速中等 · 背景安静]"), "observer note on its own line");
+  assert.strictEqual(normalized.voiceTranscription.voiceNote, "[声音: 语速中等 · 背景安静]");
 });
 
 test("retranscribe still reports no_recent_voice when nothing was ever processed", async () => {
