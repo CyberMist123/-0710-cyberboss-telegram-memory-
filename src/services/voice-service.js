@@ -1,6 +1,7 @@
 "use strict";
 
 const path = require("path");
+const fs = require("fs");
 
 const { ConversationRecorder } = require("./conversation-recorder");
 const { LocalWhisperTranscriber } = require("./local-whisper-transcriber");
@@ -30,6 +31,16 @@ class VoiceService {
     // have to be handed a file path. Exposing paths to the model would put
     // them in the prompt and in every conversation log that follows.
     this.lastInbound = null;
+    // In-memory alone is not enough: processInboundVoice runs in the main app
+    // process, but the retranscribe tool runs in the SEPARATE tool-MCP-server
+    // process (index.js runToolMcpServer), which never handles inbound voice —
+    // so its this.lastInbound is forever null and every retranscribe returned
+    // no_recent_voice. Persist a server-only pointer both processes can read.
+    // The path still never reaches the model (only this service reads the file),
+    // and only processInboundVoice writes it, so the single-writer rule holds.
+    this.lastInboundFile = normalizeText(this.config.stateDir)
+      ? path.join(this.config.stateDir, "voice-last-inbound.json")
+      : null;
   }
 
   describe() {
@@ -66,6 +77,7 @@ class VoiceService {
       mimeType: voice.mimeType || "audio/ogg",
       at: new Date().toISOString(),
     };
+    this.rememberLastInbound(this.lastInbound);
     let result;
     try {
       result = this.kit?.sttEnabled()
@@ -99,6 +111,31 @@ class VoiceService {
   }
 
   /**
+   * Persist the most-recent-inbound pointer for the other process to read.
+   * Single writer (only processInboundVoice calls this) and fail-open: a lost
+   * pointer costs one retranscribe, never the message flow. The path lives only
+   * in this file and this service, never in the model's prompt.
+   */
+  rememberLastInbound(entry) {
+    if (!this.lastInboundFile || !entry) return;
+    try {
+      fs.mkdirSync(path.dirname(this.lastInboundFile), { recursive: true });
+      fs.writeFileSync(this.lastInboundFile, JSON.stringify(entry), "utf8");
+    } catch {}
+  }
+
+  /** Read the persisted pointer; null when absent or unreadable. */
+  readLastInbound() {
+    if (!this.lastInboundFile) return null;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(this.lastInboundFile, "utf8"));
+      return parsed && normalizeText(parsed.filePath) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Transcribe a voice note again, by default the most recent inbound one and
    * by default with the paid cloud engine.
    *
@@ -113,13 +150,16 @@ class VoiceService {
     if (!this.kit || !this.kit.sttEnabled()) {
       throw new Error("stt_not_configured: retranscribe needs the CMX voice provider");
     }
-    const target = normalizeText(filePath) || normalizeText(this.lastInbound?.filePath);
+    // this.lastInbound is null in the tool-server process; the persisted pointer
+    // is the cross-process fallback that makes retranscribe actually reachable.
+    const recent = this.lastInbound || this.readLastInbound();
+    const target = normalizeText(filePath) || normalizeText(recent?.filePath);
     if (!target) {
       throw new Error("no_recent_voice: nothing has been transcribed in this session yet");
     }
     const result = await this.kit.transcribe({
       filePath: target,
-      mimeType: normalizeText(this.lastInbound?.mimeType) || "audio/ogg",
+      mimeType: normalizeText(recent?.mimeType) || "audio/ogg",
       language: normalizeText(this.config.voiceSttLanguage),
       engine: normalizeText(engine) || "cloud",
     });
