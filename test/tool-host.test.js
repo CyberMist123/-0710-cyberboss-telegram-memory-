@@ -152,6 +152,8 @@ function createHost(options = {}) {
       ...(options.services || {}),
     },
     authorizationCeiling: options.authorizationCeiling || "",
+    toolset: options.toolset ?? null,
+    chatSelfEscalation: options.chatSelfEscalation === true,
     runtimeContextStore: {
       resolveActiveContext() {
         return {};
@@ -381,5 +383,42 @@ test("route2_escalate is gated by the route 2 flag and relays the grant verdict"
   } finally {
     if (previous === undefined) delete process.env.CYBERBOSS_ROUTE2_GATE_ENABLED;
     else process.env.CYBERBOSS_ROUTE2_GATE_ENABLED = previous;
+  }
+});
+
+test("chat self-escalation reports out-of-toolset tools as authorized (D27-1: chat lane has no hard tool ceiling)", () => {
+  const previous = process.env.CYBERBOSS_SUBJECT_SIGNING_ENABLED;
+  process.env.CYBERBOSS_SUBJECT_SIGNING_ENABLED = "true"; // so memory_candidate_submit registers
+  try {
+    const submitName = "memory_candidate_submit";
+    assert.equal(
+      registeredProjectTools().some((tool) => tool.name === submitName),
+      true,
+      "memory_candidate_submit should register when subject signing is on",
+    );
+
+    const entryFor = (host, name) => host.catalogState().entries
+      .find((entry) => (entry.alias_of || entry.id) === name);
+
+    // Without self-escalation the toolset gates it — this is the pre-fix display.
+    const gated = createHost({ toolset: "chat-core@1", chatSelfEscalation: false });
+    const gatedSubmit = entryFor(gated, submitName);
+    assert.ok(gatedSubmit, "submit tool must appear in the catalog");
+    assert.equal(gatedSubmit.authorized, false);
+
+    // With self-escalation on (the chat subject), the same out-of-toolset tool is
+    // authorized: the call path self-escalates and proceeds, so the catalog flag
+    // must not tell her she is blocked. This is the regression that stopped her
+    // from submitting episode candidates.
+    const chat = createHost({ toolset: "chat-core@1", chatSelfEscalation: true });
+    assert.equal(entryFor(chat, submitName).authorized, true);
+    // A member of the toolset stays authorized regardless.
+    assert.equal(entryFor(chat, "memory_note").authorized, true);
+    // No toolset at all (production default) is already full authority.
+    const open = createHost({ toolset: null, chatSelfEscalation: false });
+    assert.equal(entryFor(open, submitName).authorized, true);
+  } finally {
+    if (previous === undefined) delete process.env.CYBERBOSS_SUBJECT_SIGNING_ENABLED;
+    else process.env.CYBERBOSS_SUBJECT_SIGNING_ENABLED = previous;
   }
 });

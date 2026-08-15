@@ -35,8 +35,19 @@ class ProjectToolHost {
 
   catalogState() {
     const toolset = resolveToolset(this.toolset);
+    // `authorized` must tell the truth about what she can actually call. When
+    // self-escalation is on (the chat subject — D27-1: chat lane never carries a
+    // hard tool ceiling), a tool outside the toolset is still callable: the call
+    // path self-escalates and proceeds (see invokeTool). Reporting `authorized:
+    // false` here made the catalog lie — the subject read the flag on
+    // `memory_candidate_submit` and concluded she was blocked, so she never
+    // submitted an episode candidate. The toolset stays her initial resident face
+    // (token saving); it is not a call whitelist for the chat lane.
+    const authorizedFor = (entry) => !toolset
+      || toolset.members.has(entry.alias_of || entry.id)
+      || this.chatSelfEscalation;
     return { toolset, entries: buildManifest({ projectTools: registeredProjectTools(), aliases: TOOL_ALIASES, extraHosts: this.extraToolHosts, deprecatedNames: DEPRECATED_HIDDEN_TOOL_NAMES })
-      .map((entry) => ({ ...entry, authorized: !toolset || toolset.members.has(entry.alias_of || entry.id) })) };
+      .map((entry) => ({ ...entry, authorized: authorizedFor(entry) })) };
   }
 
   // args is optional and only consulted for a catalog invoke, where the budget
