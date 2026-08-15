@@ -970,3 +970,47 @@ Status: OPEN
   笔迹证据制/三土壤是否写入 reflect 提示词与分拣员规格；今晚已升画像的两条负向条目
   （「缩」「把自己写没了」）如何迁移（由下一个 reflect 轮的她处理，不由后台改写）。
 - **Not authorised**：裁决前不建自我觉察文件、不改 portrait 现有条目、不动 reflect 升格规则。
+
+---
+
+## D45 · 硬上下文指纹 v2：只看人格提示词 + operations，门与注入文件退出指纹
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-15
+```
+
+- 硬上下文指纹只含**人格提示词 + operations 两个文件哈希**；context gate（reentry / current_state）与其注入文件**退出指纹**——开关门、刷新 `reentry.md` 不再轮换线程。
+- 取代旧 v1 语义：旧指纹值按当前 config 复算，命中即原地升级，不因换算法而强制轮换。
+- 只有人格提示词正文 / operations 变更才轮换线程（轮换有 TG 提示 + `/switch <id> force` 逃生口）。
+
+## D46 · 工具触发提示词外置：`prompts/<sourceType>.md` 每次现读，即时生效
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-15
+```
+
+- 非人格的触发提示词放 `Fluffy-SelfHood/prompts/<sourceType>.md`，`loadTriggerPrompt` 每次触发**现读**（即时生效、不重启）；内置文本降为 fail-open 回退。
+- `desire_checkin` 是首个外置。
+- 运维类（`liveness_alert` / `memory_receipt` / `system`）**刻意不外置**——它们是动态变体 + fail-safe，外置反而失去内建保障。
+
+## D47 · 520 面板权威源 = cyberboss 仓 memory-kit；runtime 份只是部署目标
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-15
+```
+
+- cyberboss 仓 `extensions/relationship-memory/memory-kit` 为唯一开发真源。
+- `runtime/web/memory-kit` 只是部署目标（有 git 仓但只收部署提交）；改面板一律先改真源再同步部署份。
+
+## D48 · next_wake 自主唤醒：她自填下次唤醒间隔，替换默认 cadence
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-15
+```
+
+- 她在 checkin 自填 `next_wake_minutes`（5–240）定下次唤醒，**替换**默认 cadence（非叠加，时间轴去重）。
+- poller 60s 分片读 `desire-wake-override.json`；silent / 延后 = 拒绝主动的自由，是她的正当选择而非故障。

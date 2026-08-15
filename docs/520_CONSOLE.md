@@ -329,3 +329,13 @@ failed
 ## 八维页的数据源
 
 优先读 `desire-history.jsonl`（Desire 唯一 writer 追加）；只有连续历史不存在时才只读回退到冻结的 `state_log.jsonl`。页面显示数据源、路径、新鲜度、维度完整度与回退状态。八维曲线是内联 canvas 手绘，无外部 CDN。
+
+### 八维页重做（2026-08-15）
+
+- **「通到哪个上下文」卡**：显示这次 checkin 落在哪条线程（`chat_thread`）与哪条 lane（`context_lane` 徽章：对话内 chat / 独处 solo），并点亮「最近一次带出处的 checkin」。
+- **紧凑时间线**：每轮 checkin 一条迷你条 + 出处徽章；点某行展开 `most_want` 与八维各自的 `cause`（8 条理由）。
+- **cadence 可配 UI**：「八维调度设置」可改 cadence（15–240 分钟）并保存，写 `desire-schedule.json`，runtime 每轮重读、无需重启。
+
+### 导航桥
+
+- 顶部导航加「结构地图 ↗」外链桥到 7821（结构地图面板）。**桥接不合库**——只是一条外链，两个面板各自独立进程、各自权威，不共享数据源。
