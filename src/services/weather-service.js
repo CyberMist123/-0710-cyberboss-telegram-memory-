@@ -11,7 +11,7 @@ const DAY_INDEX_BY_NAME = {
   day_after_tomorrow: 2,
 };
 
-const { computeWeatherAlert, buildRetention } = require("./weather-brief");
+const { computeWeatherAlert, computeTomorrow, computeHourlyRain, buildRetention } = require("./weather-brief");
 
 function resolveProvider(config) {
   return normalizeText(config?.weatherProvider || "amap").toLowerCase();
@@ -74,17 +74,27 @@ function createWeatherService({ config }) {
       }
       const response = await fetchOpenMeteoForecast({ config: resolvedConfig });
       const daily = response.payload?.daily || {};
-      const todayISO = normalizeText(response.payload?.current?.time).slice(0, 10);
+      const hourly = response.payload?.hourly || {};
+      const nowISO = normalizeText(response.payload?.current?.time);
+      const todayISO = nowISO.slice(0, 10);
       const thresholds = {
         rainProbPct: normalizeNumber(resolvedConfig.weatherRainProbPct),
         tempDeltaC: normalizeNumber(resolvedConfig.weatherTempDeltaC),
       };
+      const alert = computeWeatherAlert({ daily, todayISO, thresholds });
+      const tomorrowRaw = computeTomorrow({ daily, todayISO, thresholds });
+      const tomorrow = tomorrowRaw.available
+        ? { ...tomorrowRaw, weather: describeWeatherCode(tomorrowRaw.weatherCode) }
+        : tomorrowRaw;
       return {
         provider: response.provider,
         location: buildOpenMeteoLocation(response),
         todayISO,
         current: buildOpenMeteoCurrent(response).current,
-        alert: computeWeatherAlert({ daily, todayISO, thresholds }),
+        alert,
+        hourlyRain: computeHourlyRain({ hourly, nowISO, thresholds }),
+        tomorrow,
+        notable: Boolean(alert.hasAlert || tomorrow.notable),
         retention: buildRetention({ daily, todayISO }),
       };
     },
@@ -402,6 +412,7 @@ async function fetchOpenMeteoForecast({ config }) {
     "daily",
     "temperature_2m_max,temperature_2m_min,apparent_temperature_max,precipitation_probability_max,precipitation_sum,weather_code",
   );
+  url.searchParams.set("hourly", "precipitation,precipitation_probability");
   url.searchParams.set("past_days", "7");
   url.searchParams.set("forecast_days", "8");
   url.searchParams.set("timezone", "auto");

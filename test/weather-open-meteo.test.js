@@ -9,7 +9,7 @@ function jsonResponse(body, ok = true, status = 200) {
   return { ok, status, async json() { return body; } };
 }
 
-function forecastPayload(overrides = {}) {
+function forecastPayload(overrides = {}, hourlyRain = {}) {
   return {
     timezone: "Australia/Sydney",
     current: {
@@ -35,7 +35,21 @@ function forecastPayload(overrides = {}) {
       weather_code: [1, 1, 0, 61, 2, 1, 0, 3, 61, 63, 2, 0, 0, 1, 2],
       ...overrides,
     },
+    hourly: hourlyBlock(hourlyRain),
   };
+}
+
+// 24 today hours (current.time is 18:00), calm by default.
+function hourlyBlock(rain = {}) {
+  const time = [];
+  const prob = [];
+  const precip = [];
+  for (let h = 0; h < 24; h += 1) {
+    time.push(`2026-08-18T${String(h).padStart(2, "0")}:00`);
+    prob.push(rain.prob?.[h] ?? 0);
+    precip.push(rain.precip?.[h] ?? 0);
+  }
+  return { time, precipitation_probability: prob, precipitation: precip };
 }
 
 function installFetch({ geocode, forecast } = {}) {
@@ -101,13 +115,13 @@ test("getForecast resolves today and tomorrow by date", async () => {
   assert.equal(tomorrow.forecast.rainProbPercent, 30);
 });
 
-test("getDailyBrief returns alert + 7d/7d retention", async () => {
+test("getDailyBrief returns alert, hourly rain, tomorrow, and 7d/7d retention", async () => {
   installFetch({
     forecast: jsonResponse(forecastPayload({
       // today (idx of 2026-08-18) high jumps +7 vs yesterday -> temp_swing
       temperature_2m_max: [20, 21, 20, 22, 21, 20, 19, 26, 18, 19, 20, 21, 20, 19, 18],
       precipitation_probability_max: [10, 5, 0, 20, 15, 10, 5, 80, 30, 40, 10, 0, 0, 5, 10],
-    })),
+    }, { prob: { 19: 65, 20: 80 }, precip: { 19: 0.4, 20: 1.2 } })),
   });
   const svc = createWeatherService({ config: { weatherProvider: "open_meteo", weatherCity: "Sydney" } });
   const brief = await svc.getDailyBrief();
@@ -115,6 +129,14 @@ test("getDailyBrief returns alert + 7d/7d retention", async () => {
   assert.equal(brief.alert.hasAlert, true);
   assert.ok(brief.alert.reasons.includes("rain"));
   assert.ok(brief.alert.reasons.includes("temp_swing"));
+  assert.equal(brief.notable, true);
+  // hourly rain window (current.time is 18:00, so 19:00-20:00 are upcoming)
+  assert.equal(brief.hourlyRain.hasRain, true);
+  assert.equal(brief.hourlyRain.startHour, "19:00");
+  assert.equal(brief.hourlyRain.peakProbPct, 80);
+  // tomorrow present
+  assert.equal(brief.tomorrow.available, true);
+  assert.equal(brief.tomorrow.date, "2026-08-19");
   assert.equal(brief.retention.observed.length, 7);
   assert.equal(brief.retention.observed[6].date, "2026-08-17");
   assert.equal(brief.retention.forecast[0].date, "2026-08-18");

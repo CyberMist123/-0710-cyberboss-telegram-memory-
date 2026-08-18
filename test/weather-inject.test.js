@@ -19,14 +19,17 @@ function tempRoot() {
 
 function alertBrief(overrides = {}) {
   return {
-    location: { city: "Sydney" },
+    location: { city: "Waterloo" },
     todayISO: "2026-08-18",
+    notable: true,
     alert: {
       hasAlert: true,
       reasons: ["rain", "temp_swing"],
       rain: { probPct: 80 },
       tempSwing: { todayHighC: 26, yesterdayHighC: 19 },
     },
+    hourlyRain: { hasRain: true, startHour: "14:00", endHour: "17:00", peakProbPct: 70, peakHour: "15:00" },
+    tomorrow: { available: true, notable: true, lowC: 12, highC: 20, willRain: true, rainProbPct: 65, weather: "Light rain" },
     ...overrides,
   };
 }
@@ -74,26 +77,46 @@ test("decideWeatherLine: off by default yields no line", () => {
   assert.equal(out.line, "");
 });
 
-test("decideWeatherLine: enabled but no alert yields no line", () => {
-  const brief = alertBrief({ alert: { hasAlert: false, reasons: [] } });
+test("decideWeatherLine: enabled but nothing notable yields no line", () => {
+  const brief = alertBrief({
+    notable: false,
+    alert: { hasAlert: false, reasons: [] },
+    hourlyRain: { hasRain: false },
+    tomorrow: { available: true, notable: false, lowC: 12, highC: 20, willRain: false, weather: "Clear" },
+  });
   const out = decideWeatherLine({ config: { weatherInjectEnabled: true, weatherInjectStateFile: "" }, weatherBrief: brief });
   assert.equal(out.line, "");
 });
 
-test("decideWeatherLine: enabled + alert + first today yields a line", () => {
+test("decideWeatherLine: enabled + notable + first today yields a line", () => {
   const out = decideWeatherLine({
     config: { weatherInjectEnabled: true, weatherInjectStateFile: "" },
     weatherBrief: alertBrief(),
   });
-  assert.ok(out.line.includes("Sydney"));
+  assert.ok(out.line.includes("Waterloo"));
   assert.equal(out.today, "2026-08-18");
 });
 
-test("formatWeatherLine renders rain probability and temp swing as facts", () => {
+test("decideWeatherLine fires when only tomorrow is notable (today calm)", () => {
+  const brief = alertBrief({
+    notable: true,
+    alert: { hasAlert: false, reasons: [] },
+    hourlyRain: { hasRain: false },
+  });
+  const out = decideWeatherLine({
+    config: { weatherInjectEnabled: true, weatherInjectStateFile: "" },
+    weatherBrief: brief,
+  });
+  assert.ok(out.line.includes("明天"));
+});
+
+test("formatWeatherLine renders today timeline, temp swing, and tomorrow", () => {
   const line = formatWeatherLine(alertBrief());
-  assert.ok(line.includes("降雨概率 80%"));
+  assert.ok(line.startsWith("[今明天气·可提醒她]"));
+  assert.ok(line.includes("14:00–17:00 有雨"));
   assert.ok(line.includes("19→26℃"));
-  assert.ok(line.startsWith("[今日天气·可提醒她]"));
+  assert.ok(line.includes("明天"));
+  assert.ok(line.includes("有雨（概率 65%）"));
 });
 
 test("delivered-date guard roundtrips", () => {
@@ -110,13 +133,13 @@ test("tick appends the weather line and marks delivered; second tick same day do
 
   const first = runTick(config, alertBrief());
   assert.equal(first.res.status, "queued");
-  assert.ok(first.queued[0].text.includes("[今日天气·可提醒她]"));
+  assert.ok(first.queued[0].text.includes("[今明天气·可提醒她]"));
   assert.equal(readWeatherDeliveredDate(config.weatherInjectStateFile), "2026-08-18");
 
   // 首次 gate：同一天第二次 tick 不再缝天气行。
   const second = runTick(config, alertBrief());
   assert.equal(second.res.status, "queued");
-  assert.equal(second.queued[0].text.includes("[今日天气"), false);
+  assert.equal(second.queued[0].text.includes("[今明天气"), false);
 });
 
 test("tick with the feature off is byte-identical to the plain trigger text", () => {

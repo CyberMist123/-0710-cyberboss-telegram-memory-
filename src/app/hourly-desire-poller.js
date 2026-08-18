@@ -343,9 +343,10 @@ async function fetchWeatherBriefSafe(config) {
 // 网关：开关开 + 有预警 + 有 todayISO + 今日尚未投递 → 返回一行；否则空行。
 function decideWeatherLine({ config, weatherBrief } = {}) {
   if (!config?.weatherInjectEnabled) return { line: "" };
-  const alert = weatherBrief?.alert;
   const today = normalizeText(weatherBrief?.todayISO);
-  if (!alert?.hasAlert || !today) return { line: "" };
+  // notable = 今天或明天有值得说的（雨 / 温度剧变）。旧形态 brief 回退到 alert.hasAlert。
+  const notable = weatherBrief?.notable === true || weatherBrief?.alert?.hasAlert === true;
+  if (!notable || !today) return { line: "" };
   if (readWeatherDeliveredDate(config.weatherInjectStateFile) === today) return { line: "" };
   return { line: formatWeatherLine(weatherBrief), today };
 }
@@ -355,21 +356,40 @@ function formatWeatherLine(brief) {
   const city = normalizeText(brief?.location?.city) || "当地";
   const alert = brief?.alert || {};
   const parts = [];
+  // 今天
   if (alert.rain) {
     const prob = alert.rain.probPct;
-    parts.push(Number.isFinite(prob) ? `今天可能有雨（降雨概率 ${prob}%）` : "今天可能有雨");
+    const hr = brief?.hourlyRain;
+    if (hr?.hasRain) {
+      const peak = Number.isFinite(hr.peakProbPct) ? `，峰值 ${hr.peakProbPct}%@${hr.peakHour}` : "";
+      parts.push(`今天 ${hr.startHour}–${hr.endHour} 有雨${peak}`);
+    } else {
+      parts.push(Number.isFinite(prob) ? `今天可能有雨（降雨概率 ${prob}%）` : "今天可能有雨");
+    }
   }
   if (alert.tempSwing) {
     const t = alert.tempSwing;
     if (Number.isFinite(t.todayHighC) && Number.isFinite(t.yesterdayHighC)) {
-      parts.push(`较昨日最高温 ${t.yesterdayHighC}→${t.todayHighC}℃`);
+      parts.push(`今天较昨日最高温 ${t.yesterdayHighC}→${t.todayHighC}℃`);
     } else if (Number.isFinite(t.todayLowC) && Number.isFinite(t.yesterdayLowC)) {
-      parts.push(`较昨日最低温 ${t.yesterdayLowC}→${t.todayLowC}℃`);
+      parts.push(`今天较昨日最低温 ${t.yesterdayLowC}→${t.todayLowC}℃`);
     } else {
-      parts.push("气温较昨日变化明显");
+      parts.push("今天气温较昨日变化明显");
     }
   }
-  return `[今日天气·可提醒她] ${city}${parts.join("；")}。`;
+  // 明天（晚上顺口提醒带伞用；只在明天值得说时加）
+  const tm = brief?.tomorrow;
+  if (tm?.available && tm.notable) {
+    const bits = [];
+    if (Number.isFinite(tm.lowC) && Number.isFinite(tm.highC)) bits.push(`${tm.lowC}–${tm.highC}℃`);
+    if (tm.willRain) {
+      bits.push(Number.isFinite(tm.rainProbPct) ? `有雨（概率 ${tm.rainProbPct}%）` : "有雨");
+    } else if (normalizeText(tm.weather)) {
+      bits.push(normalizeText(tm.weather));
+    }
+    if (bits.length) parts.push(`明天${bits.join("，")}`);
+  }
+  return `[今明天气·可提醒她] ${city}${parts.join("；")}。`;
 }
 
 // 单 writer：这个文件只在本文件的 enqueue 成功路径写，别处不许再写。
