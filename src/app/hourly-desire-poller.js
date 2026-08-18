@@ -47,6 +47,8 @@ async function runHourlyDesirePoller(config = {}) {
     }
     const tickTime = Date.now();
     const schedule = loadDesireSchedule(config.desireScheduleFile);
+    // 天气取用在同步 tick 之外先 await 完，fail-open：拿不到就当没有，绝不炸 checkin。
+    const weatherBrief = config.weatherInjectEnabled ? await fetchWeatherBriefSafe(config) : null;
     runHourlyDesireTick({
       config,
       queue,
@@ -55,6 +57,7 @@ async function runHourlyDesirePoller(config = {}) {
       workspaceRoot,
       tickTime,
       schedule,
+      weatherBrief,
     });
     // Advance from the planned start, not from completion, and skip missed
     // intervals after sleep/resume instead of replaying them in a burst.
@@ -73,6 +76,7 @@ function runHourlyDesireTick({
   workspaceRoot,
   tickTime = Date.now(),
   schedule = loadDesireSchedule(config.desireScheduleFile),
+  weatherBrief = null,
 } = {}) {
   if (isActivityPaused(config.activityPauseFile)) {
     console.log("[desire] hourly poller tick skipped: paused");
@@ -85,6 +89,10 @@ function runHourlyDesireTick({
       appendDesireTelemetry({ enabled: config.desireTelemetry, filePath: config.desireTelemetryFile, eventId: id, eventType: "overlap_skipped", outcome: "success", configuredTimezone: schedule.timezone, intervalMinutes: schedule.intervalMinutes });
       return { status: "skipped", reason: "overlap" };
     }
+    // 网关：当天 + 首次 + 有内容（有预警）→ 缝一行天气；否则不动 checkin 文本。
+    const weather = decideWeatherLine({ config, weatherBrief });
+    const triggerText = buildDesireTriggerText(config);
+    const text = weather.line ? `${triggerText}\n\n${weather.line}` : triggerText;
     try {
       queue.enqueue({
         id,
@@ -93,10 +101,14 @@ function runHourlyDesireTick({
         accountId,
         senderId,
         workspaceRoot,
-        text: buildDesireTriggerText(config),
+        text,
         sourceType: "desire_checkin",
         createdAt: new Date().toISOString(),
       });
+      // 只有确实缝了、且 enqueue 成功，才记「今日已投递」，保证一天一次幂等。
+      if (weather.line) {
+        writeWeatherDeliveredDate(config.weatherInjectStateFile, weather.today);
+      }
       console.log(`[desire] checkin queued id=${id} at=${new Date(tickTime).toISOString()}`);
       return { status: "queued", id };
     } catch (error) {
@@ -314,6 +326,70 @@ function isNaturalPreviousWant(value) {
   return !/^[a-z][a-z0-9_-]*$/i.test(normalized);
 }
 
+// fail-open：只在 open_meteo 且开关开时取；任何异常吞成 null，绝不炸 checkin（不变量 5）。
+async function fetchWeatherBriefSafe(config) {
+  try {
+    if (String(config?.weatherProvider || "").toLowerCase() !== "open_meteo") {
+      return null;
+    }
+    const { createWeatherService } = require("../services/weather-service");
+    return await createWeatherService({ config }).getDailyBrief();
+  } catch (error) {
+    console.warn(`[desire] weather brief skipped: ${error?.message || error}`);
+    return null;
+  }
+}
+
+// 网关：开关开 + 有预警 + 有 todayISO + 今日尚未投递 → 返回一行；否则空行。
+function decideWeatherLine({ config, weatherBrief } = {}) {
+  if (!config?.weatherInjectEnabled) return { line: "" };
+  const alert = weatherBrief?.alert;
+  const today = normalizeText(weatherBrief?.todayISO);
+  if (!alert?.hasAlert || !today) return { line: "" };
+  if (readWeatherDeliveredDate(config.weatherInjectStateFile) === today) return { line: "" };
+  return { line: formatWeatherLine(weatherBrief), today };
+}
+
+// 只给事实 + 一个「可提醒她」的姿态提示，不写台词（北极星：改姿态不改内容）。
+function formatWeatherLine(brief) {
+  const city = normalizeText(brief?.location?.city) || "当地";
+  const alert = brief?.alert || {};
+  const parts = [];
+  if (alert.rain) {
+    const prob = alert.rain.probPct;
+    parts.push(Number.isFinite(prob) ? `今天可能有雨（降雨概率 ${prob}%）` : "今天可能有雨");
+  }
+  if (alert.tempSwing) {
+    const t = alert.tempSwing;
+    if (Number.isFinite(t.todayHighC) && Number.isFinite(t.yesterdayHighC)) {
+      parts.push(`较昨日最高温 ${t.yesterdayHighC}→${t.todayHighC}℃`);
+    } else if (Number.isFinite(t.todayLowC) && Number.isFinite(t.yesterdayLowC)) {
+      parts.push(`较昨日最低温 ${t.yesterdayLowC}→${t.todayLowC}℃`);
+    } else {
+      parts.push("气温较昨日变化明显");
+    }
+  }
+  return `[今日天气·可提醒她] ${city}${parts.join("；")}。`;
+}
+
+// 单 writer：这个文件只在本文件的 enqueue 成功路径写，别处不许再写。
+function readWeatherDeliveredDate(filePath) {
+  if (!filePath) return "";
+  try {
+    return normalizeText(JSON.parse(fs.readFileSync(filePath, "utf8"))?.deliveredDate);
+  } catch {
+    return "";
+  }
+}
+
+function writeWeatherDeliveredDate(filePath, date) {
+  if (!filePath || !date) return;
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify({ deliveredDate: date }), "utf8");
+  } catch {}
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -331,4 +407,9 @@ module.exports = {
   buildDesireTriggerText,
   runHourlyDesireTick,
   writeWakeOverride,
+  fetchWeatherBriefSafe,
+  decideWeatherLine,
+  formatWeatherLine,
+  readWeatherDeliveredDate,
+  writeWeatherDeliveredDate,
 };

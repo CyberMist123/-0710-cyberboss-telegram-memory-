@@ -201,6 +201,9 @@ function readConfig() {
     weatherLon: readTextEnv("CYBERBOSS_WEATHER_LON"),
     weatherRainProbPct: readIntEnv("CYBERBOSS_WEATHER_RAIN_PROB_PCT"),
     weatherTempDeltaC: readIntEnv("CYBERBOSS_WEATHER_TEMP_DELTA_C"),
+    // 八维 checkin 天气注入：预警日每日首次缝一行到那跳（新能力默认关）。
+    weatherInjectEnabled: envFlagEnabled("CYBERBOSS_WEATHER_INJECT_ENABLED"),
+    weatherInjectStateFile: joinIfBase(stateDir, "weather-inject-state.json"),
     startWithLocationServer: resolveLocationServerEnabled({
       mode,
       enabled: readOptionalBoolEnv("CYBERBOSS_ENABLE_LOCATION_SERVER"),
