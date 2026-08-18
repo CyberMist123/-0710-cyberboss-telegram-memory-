@@ -103,6 +103,11 @@ jobs:
         id: reflect
         run: ./scripts/ci/run-annotated.ps1 -Name reflect -Command 'npm run test:reflect'
 
+      # weather-service: Open-Meteo provider + daily brief (alert / 7d-7d), all mock-fetch.
+      - name: Weather tests
+        id: weather
+        run: ./scripts/ci/run-annotated.ps1 -Name weather -Command 'npm run test:weather'
+
       # #80 的两个 520 安全网测试此前在 package.json / workflow / scripts 里一处引用
       # 都没有 —— 零 CI 信号。连同另两个 520 面板 python 孤儿一起接。
       - name: 520 endpoint safety-net tests
@@ -149,7 +154,7 @@ jobs:
             "p2=${{ steps.p2.outcome }}", "p3=${{ steps.p3.outcome }}",
             "p4=${{ steps.p4.outcome }}", "p5a=${{ steps.p5a.outcome }}",
             "p0_liveness=${{ steps.p0_liveness.outcome }}",
-            "memory_services=${{ steps.memory_services.outcome }}", "reflect=${{ steps.reflect.outcome }}",
+            "memory_services=${{ steps.memory_services.outcome }}", "reflect=${{ steps.reflect.outcome }}", "weather=${{ steps.weather.outcome }}",
             "dash520=${{ steps.dash520.outcome }}", "ccpanel=${{ steps.ccpanel.outcome }}",
             "route_lanes=${{ steps.route_lanes.outcome }}", "catalog_metering=${{ steps.catalog_metering.outcome }}", "telegram_media=${{ steps.telegram_media.outcome }}",
             "orch=${{ steps.orch.outcome }}", "diff=${{ steps.diff.outcome }}"

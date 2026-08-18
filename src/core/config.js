@@ -195,6 +195,12 @@ function readConfig() {
     weatherAdcode: readTextEnv("CYBERBOSS_WEATHER_ADCODE"),
     weatherCity: readTextEnv("CYBERBOSS_WEATHER_CITY"),
     weatherAddress: readTextEnv("CYBERBOSS_WEATHER_ADDRESS"),
+    // Open-Meteo location (city geocoded when lat/lon absent) and alert thresholds.
+    weatherCountry: readTextEnv("CYBERBOSS_WEATHER_COUNTRY"),
+    weatherLat: readTextEnv("CYBERBOSS_WEATHER_LAT"),
+    weatherLon: readTextEnv("CYBERBOSS_WEATHER_LON"),
+    weatherRainProbPct: readIntEnv("CYBERBOSS_WEATHER_RAIN_PROB_PCT"),
+    weatherTempDeltaC: readIntEnv("CYBERBOSS_WEATHER_TEMP_DELTA_C"),
     startWithLocationServer: resolveLocationServerEnabled({
       mode,
       enabled: readOptionalBoolEnv("CYBERBOSS_ENABLE_LOCATION_SERVER"),

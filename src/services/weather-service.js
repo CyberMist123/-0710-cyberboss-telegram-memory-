@@ -1,4 +1,7 @@
 const AMAP_WEATHER_URL = "https://restapi.amap.com/v3/weather/weatherInfo";
+const OPEN_METEO_GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search";
+const OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
+const USER_AGENT = "cyberboss-weather/0.1.0";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 800;
@@ -8,20 +11,44 @@ const DAY_INDEX_BY_NAME = {
   day_after_tomorrow: 2,
 };
 
+const { computeWeatherAlert, buildRetention } = require("./weather-brief");
+
+function resolveProvider(config) {
+  return normalizeText(config?.weatherProvider || "amap").toLowerCase();
+}
+
 function createWeatherService({ config }) {
   const resolvedConfig = config || {};
+  const isOpenMeteo = () => resolveProvider(resolvedConfig) === "open_meteo";
 
   return {
     async getCurrent() {
+      if (isOpenMeteo()) {
+        return buildOpenMeteoCurrent(await fetchOpenMeteoForecast({ config: resolvedConfig }));
+      }
       const response = await fetchAmapWeather({ config: resolvedConfig, extensions: "base" });
       return buildCurrentWeatherResult(response);
     },
     async getForecast(options = {}) {
+      if (isOpenMeteo()) {
+        return buildOpenMeteoForecast(await fetchOpenMeteoForecast({ config: resolvedConfig }), options);
+      }
       const response = await fetchAmapWeather({ config: resolvedConfig, extensions: "all" });
       return buildForecastWeatherResult(response, options);
     },
     async getSummary(options = {}) {
       const day = normalizeDay(options.day);
+      if (isOpenMeteo()) {
+        const response = await fetchOpenMeteoForecast({ config: resolvedConfig });
+        return {
+          provider: response.provider,
+          location: buildOpenMeteoLocation(response),
+          addressNote: response.addressNote,
+          day,
+          current: buildOpenMeteoCurrent(response).current,
+          forecast: buildOpenMeteoForecast(response, { day }).forecast,
+        };
+      }
       const [currentResponse, forecastResponse] = await Promise.all([
         fetchAmapWeather({ config: resolvedConfig, extensions: "base" }),
         fetchAmapWeather({ config: resolvedConfig, extensions: "all" }),
@@ -33,8 +60,33 @@ function createWeatherService({ config }) {
       });
     },
     async getRaw(options = {}) {
+      if (isOpenMeteo()) {
+        return fetchOpenMeteoForecast({ config: resolvedConfig });
+      }
       const extensions = normalizeExtensions(options.extensions);
       return fetchAmapWeather({ config: resolvedConfig, extensions });
+    },
+    // Daily brief = alert (rain / temp swing vs yesterday) + 7d observed / 7d forecast.
+    // Open-Meteo only (needs daily past+future rows). On-demand, nothing persisted here.
+    async getDailyBrief() {
+      if (!isOpenMeteo()) {
+        throw new Error("getDailyBrief requires the open_meteo provider.");
+      }
+      const response = await fetchOpenMeteoForecast({ config: resolvedConfig });
+      const daily = response.payload?.daily || {};
+      const todayISO = normalizeText(response.payload?.current?.time).slice(0, 10);
+      const thresholds = {
+        rainProbPct: normalizeNumber(resolvedConfig.weatherRainProbPct),
+        tempDeltaC: normalizeNumber(resolvedConfig.weatherTempDeltaC),
+      };
+      return {
+        provider: response.provider,
+        location: buildOpenMeteoLocation(response),
+        todayISO,
+        current: buildOpenMeteoCurrent(response).current,
+        alert: computeWeatherAlert({ daily, todayISO, thresholds }),
+        retention: buildRetention({ daily, todayISO }),
+      };
     },
   };
 }
@@ -85,7 +137,7 @@ async function fetchAmapWeather({ config, extensions }) {
   };
 }
 
-async function fetchWithRetry(url, options) {
+async function fetchWithRetry(url, options, label = "Amap weather") {
   let lastError = null;
   for (let attempt = 1; attempt <= DEFAULT_MAX_ATTEMPTS; attempt += 1) {
     try {
@@ -99,7 +151,7 @@ async function fetchWithRetry(url, options) {
     }
   }
   const detail = formatFetchError(lastError);
-  throw new Error(`Amap weather fetch failed after ${DEFAULT_MAX_ATTEMPTS} attempts: ${detail}`);
+  throw new Error(`${label} fetch failed after ${DEFAULT_MAX_ATTEMPTS} attempts: ${detail}`);
 }
 
 async function fetchWithTimeout(url, options, timeoutMs) {
@@ -265,10 +317,168 @@ function normalizeText(value) {
 }
 
 function normalizeNumber(value) {
-  const numeric = Number.parseFloat(String(value || "").trim());
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const numeric = Number.parseFloat(String(value).trim());
   return Number.isFinite(numeric) ? numeric : null;
+}
+
+// ---- Open-Meteo provider (key-free REST; suits Sydney/overseas) ----
+
+const WMO_WEATHER_TEXT = {
+  0: "Clear", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+  45: "Fog", 48: "Rime fog",
+  51: "Light drizzle", 53: "Drizzle", 55: "Heavy drizzle",
+  56: "Freezing drizzle", 57: "Freezing drizzle",
+  61: "Light rain", 63: "Rain", 65: "Heavy rain",
+  66: "Freezing rain", 67: "Freezing rain",
+  71: "Light snow", 73: "Snow", 75: "Heavy snow", 77: "Snow grains",
+  80: "Rain showers", 81: "Rain showers", 82: "Violent rain showers",
+  85: "Snow showers", 86: "Snow showers",
+  95: "Thunderstorm", 96: "Thunderstorm with hail", 99: "Thunderstorm with hail",
+};
+
+function describeWeatherCode(code) {
+  const numeric = normalizeNumber(code);
+  if (numeric == null) return "";
+  return WMO_WEATHER_TEXT[numeric] || `code ${numeric}`;
+}
+
+async function resolveOpenMeteoLocation({ config }) {
+  const lat = normalizeNumber(config.weatherLat);
+  const lon = normalizeNumber(config.weatherLon);
+  if (lat != null && lon != null) {
+    return {
+      latitude: lat,
+      longitude: lon,
+      name: normalizeText(config.weatherCity),
+      country: normalizeText(config.weatherCountry),
+    };
+  }
+
+  const city = normalizeText(config.weatherCity);
+  if (!city) {
+    throw new Error("CYBERBOSS_WEATHER_CITY or CYBERBOSS_WEATHER_LAT/LON is required for open_meteo.");
+  }
+  const url = new URL(OPEN_METEO_GEOCODE_URL);
+  url.searchParams.set("name", city);
+  url.searchParams.set("count", "1");
+  url.searchParams.set("language", "en");
+  url.searchParams.set("format", "json");
+
+  const response = await fetchWithRetry(
+    url,
+    { method: "GET", headers: { Accept: "application/json", "User-Agent": USER_AGENT } },
+    "Open-Meteo geocoding",
+  );
+  if (!response.ok) {
+    throw new Error(`Open-Meteo geocoding request failed: ${response.status}`);
+  }
+  const payload = await response.json();
+  const hit = Array.isArray(payload?.results) ? payload.results[0] : null;
+  if (!hit) {
+    throw new Error(`Open-Meteo geocoding: no match for "${city}".`);
+  }
+  return {
+    latitude: normalizeNumber(hit.latitude),
+    longitude: normalizeNumber(hit.longitude),
+    name: normalizeText(hit.name) || city,
+    country: normalizeText(hit.country_code),
+    timezone: normalizeText(hit.timezone),
+  };
+}
+
+async function fetchOpenMeteoForecast({ config }) {
+  const location = await resolveOpenMeteoLocation({ config });
+  const url = new URL(OPEN_METEO_FORECAST_URL);
+  url.searchParams.set("latitude", String(location.latitude));
+  url.searchParams.set("longitude", String(location.longitude));
+  url.searchParams.set(
+    "current",
+    "temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m",
+  );
+  url.searchParams.set(
+    "daily",
+    "temperature_2m_max,temperature_2m_min,apparent_temperature_max,precipitation_probability_max,precipitation_sum,weather_code",
+  );
+  url.searchParams.set("past_days", "7");
+  url.searchParams.set("forecast_days", "8");
+  url.searchParams.set("timezone", "auto");
+
+  const response = await fetchWithRetry(
+    url,
+    { method: "GET", headers: { Accept: "application/json", "User-Agent": USER_AGENT } },
+    "Open-Meteo forecast",
+  );
+  if (!response.ok) {
+    throw new Error(`Open-Meteo forecast request failed: ${response.status}`);
+  }
+  const payload = await response.json();
+  return {
+    provider: "open_meteo",
+    location,
+    addressNote: normalizeText(config.weatherAddress),
+    payload,
+  };
+}
+
+function buildOpenMeteoLocation(response) {
+  const loc = response?.location || {};
+  return {
+    city: normalizeText(loc.name),
+    country: normalizeText(loc.country),
+    latitude: normalizeNumber(loc.latitude),
+    longitude: normalizeNumber(loc.longitude),
+    timezone: normalizeText(loc.timezone) || normalizeText(response?.payload?.timezone),
+  };
+}
+
+function buildOpenMeteoCurrent(response) {
+  const current = response?.payload?.current || {};
+  return {
+    provider: response.provider,
+    location: buildOpenMeteoLocation(response),
+    addressNote: response.addressNote,
+    current: {
+      weather: describeWeatherCode(current.weather_code),
+      temperatureC: normalizeNumber(current.temperature_2m),
+      apparentTemperatureC: normalizeNumber(current.apparent_temperature),
+      humidityPercent: normalizeNumber(current.relative_humidity_2m),
+      windSpeed: normalizeNumber(current.wind_speed_10m),
+      reportTime: normalizeText(current.time),
+    },
+  };
+}
+
+function buildOpenMeteoForecast(response, options = {}) {
+  const day = normalizeDay(options.day);
+  const daily = response?.payload?.daily || {};
+  const times = Array.isArray(daily.time) ? daily.time : [];
+  const todayISO = normalizeText(response?.payload?.current?.time).slice(0, 10);
+  const todayIdx = times.indexOf(todayISO);
+  const baseIdx = todayIdx >= 0 ? todayIdx : 0;
+  const offset = DAY_INDEX_BY_NAME[day] ?? 0;
+  const idx = Math.max(0, Math.min(times.length - 1, baseIdx + offset));
+  return {
+    provider: response.provider,
+    location: buildOpenMeteoLocation(response),
+    addressNote: response.addressNote,
+    day,
+    dayIndex: offset,
+    forecast: {
+      date: normalizeText(times[idx]),
+      dayWeather: describeWeatherCode(daily.weather_code?.[idx]),
+      highC: normalizeNumber(daily.temperature_2m_max?.[idx]),
+      lowC: normalizeNumber(daily.temperature_2m_min?.[idx]),
+      apparentHighC: normalizeNumber(daily.apparent_temperature_max?.[idx]),
+      rainProbPercent: normalizeNumber(daily.precipitation_probability_max?.[idx]),
+      precipitationMm: normalizeNumber(daily.precipitation_sum?.[idx]),
+    },
+  };
 }
 
 module.exports = {
   createWeatherService,
+  describeWeatherCode,
 };
