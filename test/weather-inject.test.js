@@ -29,7 +29,10 @@ function alertBrief(overrides = {}) {
       tempSwing: { todayHighC: 26, yesterdayHighC: 19 },
     },
     hourlyRain: { hasRain: true, startHour: "14:00", endHour: "17:00", peakProbPct: 70, peakHour: "15:00" },
-    tomorrow: { available: true, notable: true, lowC: 12, highC: 20, willRain: true, rainProbPct: 65, weather: "Light rain" },
+    tomorrow: {
+      available: true, notable: true, lowC: 12, highC: 20, willRain: true, rainProbPct: 65, weather: "Light rain",
+      hourlyRain: { hasRain: true, startHour: "08:00", endHour: "11:00", peakProbPct: 80, peakHour: "09:00" },
+    },
     ...overrides,
   };
 }
@@ -116,7 +119,7 @@ test("formatWeatherLine renders today timeline, temp swing, and tomorrow", () =>
   assert.ok(line.includes("14:00–17:00 有雨"));
   assert.ok(line.includes("19→26℃"));
   assert.ok(line.includes("明天"));
-  assert.ok(line.includes("有雨（概率 65%）"));
+  assert.ok(line.includes("08:00–11:00 有雨"));
 });
 
 test("delivered-date guard roundtrips", () => {

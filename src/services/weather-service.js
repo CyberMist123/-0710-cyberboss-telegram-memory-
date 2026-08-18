@@ -84,7 +84,11 @@ function createWeatherService({ config }) {
       const alert = computeWeatherAlert({ daily, todayISO, thresholds });
       const tomorrowRaw = computeTomorrow({ daily, todayISO, thresholds });
       const tomorrow = tomorrowRaw.available
-        ? { ...tomorrowRaw, weather: describeWeatherCode(tomorrowRaw.weatherCode) }
+        ? {
+            ...tomorrowRaw,
+            weather: describeWeatherCode(tomorrowRaw.weatherCode),
+            hourlyRain: computeHourlyRain({ hourly, nowISO, targetDate: tomorrowRaw.date, thresholds }),
+          }
         : tomorrowRaw;
       return {
         provider: response.provider,

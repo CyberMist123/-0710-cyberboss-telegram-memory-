@@ -383,7 +383,13 @@ function formatWeatherLine(brief) {
     const bits = [];
     if (Number.isFinite(tm.lowC) && Number.isFinite(tm.highC)) bits.push(`${tm.lowC}–${tm.highC}℃`);
     if (tm.willRain) {
-      bits.push(Number.isFinite(tm.rainProbPct) ? `有雨（概率 ${tm.rainProbPct}%）` : "有雨");
+      const thr = tm.hourlyRain;
+      if (thr?.hasRain) {
+        const peak = Number.isFinite(thr.peakProbPct) ? `，峰值 ${thr.peakProbPct}%@${thr.peakHour}` : "";
+        bits.push(`${thr.startHour}–${thr.endHour} 有雨${peak}`);
+      } else {
+        bits.push(Number.isFinite(tm.rainProbPct) ? `有雨（概率 ${tm.rainProbPct}%）` : "有雨");
+      }
     } else if (normalizeText(tm.weather)) {
       bits.push(normalizeText(tm.weather));
     }

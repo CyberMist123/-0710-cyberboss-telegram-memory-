@@ -173,4 +173,28 @@ test("computeHourlyRain triggers on precipitation even below prob threshold", ()
   assert.equal(res.startHour, "20:00");
 });
 
+test("computeHourlyRain for a future targetDate covers the whole day", () => {
+  const time = [];
+  const prob = [];
+  const precip = [];
+  for (const d of ["2026-08-18", "2026-08-19"]) {
+    for (let h = 0; h < 24; h += 1) {
+      time.push(`${d}T${String(h).padStart(2, "0")}:00`);
+      prob.push(0);
+      precip.push(0);
+    }
+  }
+  const at = (d, h) => (d === "2026-08-19" ? 24 : 0) + h;
+  [8, 9, 10].forEach((h) => {
+    prob[at("2026-08-19", h)] = h === 9 ? 85 : 60;
+    precip[at("2026-08-19", h)] = 1;
+  });
+  const hourly = { time, precipitation_probability: prob, precipitation: precip };
+  const res = computeHourlyRain({ hourly, nowISO: "2026-08-18T18:00", targetDate: "2026-08-19" });
+  assert.equal(res.hasRain, true);
+  assert.equal(res.startHour, "08:00");
+  assert.equal(res.endHour, "11:00");
+  assert.equal(res.peakProbPct, 85);
+});
+
 module.exports = {};

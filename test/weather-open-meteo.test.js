@@ -39,15 +39,19 @@ function forecastPayload(overrides = {}, hourlyRain = {}) {
   };
 }
 
-// 24 today hours (current.time is 18:00), calm by default.
+// Hourly rows across today + tomorrow (current.time is 18:00), calm by default.
+// rain is keyed by date: { "2026-08-18": { prob:{h:v}, precip:{h:v} }, ... }.
 function hourlyBlock(rain = {}) {
   const time = [];
   const prob = [];
   const precip = [];
-  for (let h = 0; h < 24; h += 1) {
-    time.push(`2026-08-18T${String(h).padStart(2, "0")}:00`);
-    prob.push(rain.prob?.[h] ?? 0);
-    precip.push(rain.precip?.[h] ?? 0);
+  for (const date of ["2026-08-18", "2026-08-19"]) {
+    const r = rain[date] || {};
+    for (let h = 0; h < 24; h += 1) {
+      time.push(`${date}T${String(h).padStart(2, "0")}:00`);
+      prob.push(r.prob?.[h] ?? 0);
+      precip.push(r.precip?.[h] ?? 0);
+    }
   }
   return { time, precipitation_probability: prob, precipitation: precip };
 }
@@ -121,7 +125,10 @@ test("getDailyBrief returns alert, hourly rain, tomorrow, and 7d/7d retention", 
       // today (idx of 2026-08-18) high jumps +7 vs yesterday -> temp_swing
       temperature_2m_max: [20, 21, 20, 22, 21, 20, 19, 26, 18, 19, 20, 21, 20, 19, 18],
       precipitation_probability_max: [10, 5, 0, 20, 15, 10, 5, 80, 30, 40, 10, 0, 0, 5, 10],
-    }, { prob: { 19: 65, 20: 80 }, precip: { 19: 0.4, 20: 1.2 } })),
+    }, {
+      "2026-08-18": { prob: { 19: 65, 20: 80 }, precip: { 19: 0.4, 20: 1.2 } },
+      "2026-08-19": { prob: { 8: 70, 9: 85, 10: 60 }, precip: { 8: 0.5, 9: 1.5, 10: 0.3 } },
+    })),
   });
   const svc = createWeatherService({ config: { weatherProvider: "open_meteo", weatherCity: "Sydney" } });
   const brief = await svc.getDailyBrief();
@@ -130,13 +137,17 @@ test("getDailyBrief returns alert, hourly rain, tomorrow, and 7d/7d retention", 
   assert.ok(brief.alert.reasons.includes("rain"));
   assert.ok(brief.alert.reasons.includes("temp_swing"));
   assert.equal(brief.notable, true);
-  // hourly rain window (current.time is 18:00, so 19:00-20:00 are upcoming)
+  // today's hourly window (current.time is 18:00, so 19:00-20:00 are upcoming)
   assert.equal(brief.hourlyRain.hasRain, true);
   assert.equal(brief.hourlyRain.startHour, "19:00");
   assert.equal(brief.hourlyRain.peakProbPct, 80);
-  // tomorrow present
+  // tomorrow present, with its own whole-day hourly window
   assert.equal(brief.tomorrow.available, true);
   assert.equal(brief.tomorrow.date, "2026-08-19");
+  assert.equal(brief.tomorrow.hourlyRain.hasRain, true);
+  assert.equal(brief.tomorrow.hourlyRain.startHour, "08:00");
+  assert.equal(brief.tomorrow.hourlyRain.endHour, "11:00");
+  assert.equal(brief.tomorrow.hourlyRain.peakProbPct, 85);
   assert.equal(brief.retention.observed.length, 7);
   assert.equal(brief.retention.observed[6].date, "2026-08-17");
   assert.equal(brief.retention.forecast[0].date, "2026-08-18");

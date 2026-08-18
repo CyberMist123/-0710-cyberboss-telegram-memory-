@@ -120,23 +120,26 @@ function computeTomorrow({ daily, todayISO, thresholds } = {}) {
   };
 }
 
-// Upcoming rain timeline for today from `nowISO` onward, using hourly rows.
-// A rainy hour = precipitation > 0 or probability >= threshold. Returns the
-// span (first→last rainy hour) plus the peak probability and its hour.
-function computeHourlyRain({ hourly, nowISO, thresholds } = {}) {
+// Rain timeline for one day, using hourly rows. A rainy hour = precipitation > 0
+// or probability >= threshold. Returns the span (first→last rainy hour) plus the
+// peak probability and its hour. For the current day it starts from the current
+// hour (`nowISO`); for a future `targetDate` it covers that whole day.
+function computeHourlyRain({ hourly, nowISO, targetDate, thresholds } = {}) {
   const rainProbPct = toFiniteNumber(thresholds?.rainProbPct) ?? DEFAULT_RAIN_PROB_PCT;
   const times = Array.isArray(hourly?.time) ? hourly.time : [];
   const probs = Array.isArray(hourly?.precipitation_probability) ? hourly.precipitation_probability : [];
   const precs = Array.isArray(hourly?.precipitation) ? hourly.precipitation : [];
   const now = String(nowISO || "");
-  const today = now.slice(0, 10);
+  const nowDay = now.slice(0, 10);
+  const date = String(targetDate || nowDay);
+  const isToday = date === nowDay;
   const nowHour = now.slice(0, 13); // "YYYY-MM-DDTHH"
 
   const rainy = [];
   times.forEach((t, i) => {
     const iso = String(t);
-    if (iso.slice(0, 10) !== today) return;   // today only
-    if (iso.slice(0, 13) < nowHour) return;   // from the current hour onward
+    if (iso.slice(0, 10) !== date) return;            // the target day only
+    if (isToday && iso.slice(0, 13) < nowHour) return; // today: from the current hour onward
     const prob = toFiniteNumber(probs[i]);
     const mm = toFiniteNumber(precs[i]);
     const isRain = (mm != null && mm > 0) || (prob != null && prob >= rainProbPct);
