@@ -1028,3 +1028,17 @@ Decision date: 2026-08-18
 - 分寸：只给事实 + 「可提醒她」姿态提示，不写台词——守北极星（改姿态不改内容）。fail-open：取天气任何异常吞成 null，绝不炸 checkin（不变量 5）。默认关时 checkin 文本逐字节不变。
 - 单 writer：天气只多一个 writer（`weather-inject-state.json`，仅 poller enqueue 成功路径写）。
 - 生产：Waterloo 坐标（Owner 通勤 Waterloo↔City/USyd），`open_meteo`，注入开。2026-08-18 部署 `c459546`（deploy D5 逐字节校验 + 真 API 冒烟）；真机行为 canary 待 Owner 确认后升 `VERIFIED`。
+
+## D50 · Apple Watch 健康作为只读目录工具接入「感知」，Python 桥到 health_store，排除写路径
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-19
+```
+
+- 形状：Apple Watch 健康数据以**单个只读**工具 `health` 进 `cyberboss_catalog` 的「感知」主题（`SYSTEM_OVERVIEW` 第四节第三档「完全按需」，默认落第三档）。只暴露两条读路径——`now`→`health_store.health_now()`、`detail`→`execute_health_detail()`；`command` 枚举 `["now","detail"]`，detail 带 `metric`（heart_rate/heart_rate_variability/respiratory_rate/sleep）/`start`/`end`/`date`。
+- **单 writer（不变量 4）**：`measure_heart_rate` 明确**不接**——它经 `create_command` 写 `command.json`，是 health 存储的第二个 writer。目录工具是纯读侧，绝不下指令。这是本决定的硬边界。
+- 桥接：cyberboss 无 MCP client SDK，故走 spawn Python 桥（`src/services/health-service.js`，复用 `local-whisper-transcriber.js` 的 spawn 风格），cwd/PYTHONPATH 指向 Collar_watch `server/` 让 `import health_store` 成立，`HEALTH_DATA_DIR` 经子进程 env 透传。有界超时/有界 stdout/非零退出抛 clean coded Error；原始健康值绝不进抛出消息或日志。`health_now` 返回值已自带新鲜度串，工具描述强制「永不把陈旧读数当实时测量、非医疗诊断」（守北极星：改姿态不改内容 + 诚实）。
+- 默认关（第六节第 5 条）：挂显式 env 闸 `CYBERBOSS_HEALTH_ENABLED`（envFlagEnabled，=1/true/yes/on），未开时工具不注册、目录形状逐字节不变（感知计数 8，开时才 9）。与 `route1_*`/`route2_escalate`/`memory_candidate_submit` 同法在 `registeredProjectTools()` 门控。**不给别名**（`health_now`/`health_detail`）——`buildManifest` 要求别名目标恒为已注册工具，会 fail-closed，故两条读路径经 `command` 枚举到达，不经别名。
+- 公开仓无 secret：Python 路径 / server dir / 数据目录全走 env/config 缺省安全值，`.env.example` 只放占位注释。
+- 测试与生产：目录注册/主题/风险/schema 有 `test:catalog-metering`（阻塞 CI）钉住；Python 桥仅本机 stdio 冒烟（`now`/`detail` 取到真实数据）。分支 `feat/health-catalog` 未部署，生产接线 `NOT_WIRED`，待 Owner 部署 + 配 env + Telegram 真机验。

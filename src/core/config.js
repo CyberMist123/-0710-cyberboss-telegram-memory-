@@ -204,6 +204,14 @@ function readConfig() {
     // 八维 checkin 天气注入：预警日每日首次缝一行到那跳（新能力默认关）。
     weatherInjectEnabled: envFlagEnabled("CYBERBOSS_WEATHER_INJECT_ENABLED"),
     weatherInjectStateFile: joinIfBase(stateDir, "weather-inject-state.json"),
+    // Apple Watch health bridge (read-only `health` catalog tool). Default OFF:
+    // the tool only registers when CYBERBOSS_HEALTH_ENABLED is truthy. The bridge
+    // spawns Python against the Collar_watch `server/` dir (healthServerDir) so it
+    // can `import health_store`, and forwards HEALTH_DATA_DIR to the child.
+    healthEnabled: envFlagEnabled("CYBERBOSS_HEALTH_ENABLED"),
+    healthPython: readTextEnv("CYBERBOSS_HEALTH_PYTHON") || "python",
+    healthServerDir: resolveConfiguredPath(readTextEnv("CYBERBOSS_HEALTH_SERVER_DIR")),
+    healthDataDir: resolveConfiguredPath(readTextEnv("HEALTH_DATA_DIR")),
     startWithLocationServer: resolveLocationServerEnabled({
       mode,
       enabled: readOptionalBoolEnv("CYBERBOSS_ENABLE_LOCATION_SERVER"),

@@ -8,7 +8,7 @@ const { resolveAppTimezone } = require("../utils/app-timezone");
 const { formatAppTime } = require("../utils/app-time");
 const { route1DispatchEnabled } = require("../orchestration/route1-dispatch");
 const {
-  catalogEnabled, subjectSigningEnabled, route2GateEnabled, resolveToolset, buildManifest, findSchema, assertCapabilityLease,
+  catalogEnabled, healthEnabled, subjectSigningEnabled, route2GateEnabled, resolveToolset, buildManifest, findSchema, assertCapabilityLease,
   RESIDENT_NAMES, THEME_DEFINITIONS, CATALOG_INPUT_SCHEMA, catalogError,
 } = require("./tool-catalog-manifest");
 
@@ -272,6 +272,7 @@ function registeredProjectTools(env = process.env) {
     if (tool.name === "memory_candidate_submit") return subjectSigningEnabled(env);
     if (["route1_dispatch", "route1_task_status", "route1_task_result"].includes(tool.name)) return route1DispatchEnabled(env);
     if (tool.name === "route2_escalate") return route2GateEnabled(env);
+    if (tool.name === "health") return healthEnabled(env);
     return true;
   });
 }
@@ -872,6 +873,42 @@ const PROJECT_TOOLS = [
     },
   },
   {
+    name: "health",
+    description: "Read-only Apple Watch health data bridged from the CollarWatch store. `now` gives a compact snapshot (heart rate, resting HR, HRV, respiratory rate, last night's sleep, today's activity, a derived stress signal); `detail` queries one metric over a short window, or a night of sleep. Every value already carries its own freshness (for example \"97 bpm, 9 min ago\") -- report that freshness and never describe a stale reading as a live or current measurement. This is passive stored data, not an on-demand measurement, and never a medical diagnosis.",
+    shortHint: "Read stored Apple Watch health data; values carry their own freshness. Not a live measurement, not a diagnosis.",
+    topics: ["health"],
+    inputSchema: {
+      type: "object",
+      required: ["command"],
+      properties: {
+        command: { type: "string", enum: ["now", "detail"], description: "now = compact snapshot; detail = one metric over a window or a night of sleep." },
+        metric: { type: "string", enum: ["heart_rate", "heart_rate_variability", "respiratory_rate", "sleep"], description: "detail only: which metric to query." },
+        start: { type: "string", description: "detail only: window start, ISO 8601. Window is capped at 2 hours." },
+        end: { type: "string", description: "detail only: window end, ISO 8601." },
+        date: { type: "string", description: "detail + sleep only: night date YYYY-MM-DD; defaults to the most recent night." },
+      },
+      additionalProperties: false,
+    },
+    async handler({ services, args }) {
+      if (!services.health) {
+        throw new Error("health service unavailable");
+      }
+      const command = normalizeText(args.command).toLowerCase();
+      if (command === "now") {
+        const data = await services.health.now();
+        return { text: describeHealthNow(data), data };
+      }
+      if (command === "detail") {
+        const data = await services.health.detail({ metric: args.metric, start: args.start, end: args.end, date: args.date });
+        return {
+          text: `Health detail loaded (${normalizeText(args.metric) || "heart_rate"}); values carry their own freshness, not a live measurement.`,
+          data,
+        };
+      }
+      throw new Error(`Unsupported health command: ${args.command}`);
+    },
+  },
+  {
     name: "cyberboss_channel_send_file",
     description: "Send an existing local file back to the current chat.",
     shortHint: "Send a local file back to the current user.",
@@ -1204,10 +1241,27 @@ const TOOL_ALIASES = {
   cyberboss_sleep_mode_status: { name: "cyberboss_sleep_mode", command: "status" },
   weather_current: { name: "weather", command: "current" },
   weather_raw: { name: "weather", command: "raw" },
+  // No health_now / health_detail aliases: `health` is gated OFF by default, and
+  // buildManifest requires every alias target to be a registered tool (it fails
+  // closed with catalog_unclassified_entry otherwise). The two read paths are
+  // reached via the command enum (handle "tool/health", arguments {command}).
 };
 
 function normalizeText(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+// health_now returns either a compact dict or a short status string. The freshness
+// lives inside each value string ("97 bpm, 9 min ago"), so the human line stays
+// deliberately neutral about liveness and defers to the data.
+function describeHealthNow(data) {
+  if (typeof data === "string") {
+    return `Health: ${data}.`;
+  }
+  if (data && typeof data === "object" && typeof data.heart_rate === "string") {
+    return `Health snapshot loaded (latest heart rate ${data.heart_rate}); each value carries its own freshness, not a live measurement.`;
+  }
+  return "Health snapshot loaded; each value carries its own freshness, not a live measurement.";
 }
 
 function buildToolDescription(tool) {

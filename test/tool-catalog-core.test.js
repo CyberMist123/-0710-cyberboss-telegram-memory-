@@ -142,6 +142,35 @@ test("A3 theme index is an exact seven-line snapshot and excludes aliases and hi
   assert.equal(result.data.reduce((sum, item) => sum + item.count, 0), manifest().filter((entry) => !entry.alias_of && !entry.hidden).length);
 }));
 
+test("health tool is gated OFF by default and adds exactly one 感知 entry when CYBERBOSS_HEALTH_ENABLED is on", async () => {
+  // Default OFF: no CYBERBOSS_HEALTH_ENABLED => health absent, 感知 stays at 8
+  // and the theme index is byte-identical to the seven-line snapshot above.
+  await enabled(async () => {
+    assert.equal(registeredProjectTools().some((tool) => tool.name === "health"), false);
+    const off = await host().invokeTool("cyberboss_catalog", {});
+    assert.equal(off.text, themeSnapshot);
+    assert.equal(off.data.find((item) => item.name === "感知").count, 8);
+    await assert.rejects(
+      () => host().invokeTool("cyberboss_catalog", { handle: "tool/health" }),
+      (error) => assertCode(error, "catalog_unknown_handle"),
+    );
+  });
+  // Flag on: health registers, 感知 becomes 9, and the entry is a read tool
+  // under 感知 whose schema is loadable through the catalog.
+  await withEnv({ CYBERBOSS_TOOL_CATALOG_ENABLED: "true", CYBERBOSS_HEALTH_ENABLED: "1", CYBERBOSS_TOOL_CATALOG_TOOLSET: undefined, CYBERBOSS_SUBJECT_SIGNING_ENABLED: undefined }, async () => {
+    assert.equal(registeredProjectTools().some((tool) => tool.name === "health"), true);
+    const index = await host().invokeTool("cyberboss_catalog", {});
+    assert.equal(index.data.find((item) => item.name === "感知").count, 9);
+    const perception = await host().invokeTool("cyberboss_catalog", { theme: "感知" });
+    const health = perception.data.find((entry) => entry.id === "health");
+    assert.ok(health, "health entry present in 感知 when enabled");
+    assert.equal(health.risk, "read");
+    assert.equal(health.theme, "感知");
+    const loaded = await host().invokeTool("cyberboss_catalog", { handle: "tool/health" });
+    assert.deepEqual(loaded.data.inputSchema, PROJECT_TOOLS.find((tool) => tool.name === "health").inputSchema);
+  });
+});
+
 test("A4 theme lists are canonical-only with risk while hidden/deprecated handles remain queryable and marked", async () => enabled(async () => {
   const catalog = host();
   const memory = await catalog.invokeTool("cyberboss_catalog", { theme: "记忆" });

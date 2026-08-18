@@ -31,7 +31,7 @@ const TOOL_THEMES = Object.freeze({
   memory_note: "记忆", memory_lookup: "记忆", memory_candidate_submit: "记忆", episode_annotate: "记忆",
   cyberboss_time: "感知", cyberboss_diary_append: "生活记录", cyberboss_reminder: "生活记录",
   cyberboss_diary_read: "生活记录", cyberboss_diary_edit: "生活记录",
-  cyberboss_system_send: "表达行动", cyberboss_sleep_mode: "作息", weather: "感知",
+  cyberboss_system_send: "表达行动", cyberboss_sleep_mode: "作息", weather: "感知", health: "感知",
   cyberboss_channel_send_file: "表达行动", cyberboss_telegram_send: "表达行动",
   cyberboss_telegram_send_file: "表达行动", cyberboss_telegram_send_voice: "表达行动",
   // Hearing a voice message again more carefully is perception, not expression.
@@ -78,7 +78,7 @@ const TOOL_RISKS = Object.freeze({
   github_issue_open: "mutate", github_pr_open: "mutate", github_repo_create: "admin",
   route1_dispatch: "mutate", route1_task_status: "read", route1_task_result: "read",
   route2_escalate: "mutate",
-  location_debug_snapshot: "admin", location_event_dashboard: "admin", weather: "read",
+  location_debug_snapshot: "admin", location_event_dashboard: "admin", weather: "read", health: "read",
   whereabouts_current_stay: "read", whereabouts_recent_moves: "read", whereabouts_recent_stays: "read",
   whereabouts_snapshot: "read", whereabouts_summary: "read",
 });
@@ -88,6 +88,7 @@ const TOOL_RISKS = Object.freeze({
 const TOOL_MAX_RESULT_BYTES = Object.freeze({
   cyberboss_time: 2048,
   weather: 16384,
+  health: 16384,
   memory_lookup: 32768,
   cyberboss_sticker_tags: 8192,
   cyberboss_sticker_pick: 16384,
@@ -101,6 +102,7 @@ const TOOL_MAX_RESULT_BYTES = Object.freeze({
 // the env file writes `=1`, the bridge forwards `"true"`, and both forms mean
 // the same thing on either side of the process boundary.
 function catalogEnabled(env = process.env) { return envFlagEnabled("CYBERBOSS_TOOL_CATALOG_ENABLED", env); }
+function healthEnabled(env = process.env) { return envFlagEnabled("CYBERBOSS_HEALTH_ENABLED", env); }
 function subjectSigningEnabled(env = process.env) { return envFlagEnabled("CYBERBOSS_SUBJECT_SIGNING_ENABLED", env); }
 function route2GateEnabled(env = process.env) { return envFlagEnabled("CYBERBOSS_ROUTE2_GATE_ENABLED", env); }
 function resolveToolset(value, env = process.env, toolsets = TOOLSETS) {
@@ -166,6 +168,6 @@ function assertCapabilityLease(lease, toolName, now = Date.now()) {
 }
 module.exports = {
   CATEGORIES, RESIDENT_NAMES, TOOLSETS, TOOL_RISKS, TOOL_THEMES, TOOL_MAX_RESULT_BYTES, THEME_DEFINITIONS,
-  CATALOG_INPUT_SCHEMA, catalogEnabled, subjectSigningEnabled, route2GateEnabled, resolveToolset,
+  CATALOG_INPUT_SCHEMA, catalogEnabled, healthEnabled, subjectSigningEnabled, route2GateEnabled, resolveToolset,
   catalogError, classifyProjectTool, buildManifest, findSchema, assertCapabilityLease,
 };

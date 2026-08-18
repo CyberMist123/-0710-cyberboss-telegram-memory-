@@ -10,6 +10,7 @@ const { StickerService } = require("../services/sticker-service");
 const { SystemMessageService } = require("../services/system-message-service");
 const { VoiceService } = require("../services/voice-service");
 const { createWeatherService } = require("../services/weather-service");
+const { createHealthService } = require("../services/health-service");
 const { MemoryLookupService } = require("../services/memory-lookup-service");
 const { MemoryNoteService } = require("../services/memory-note-service");
 const { EpisodeAnnotateService } = require("../services/episode-annotate-service");
@@ -88,6 +89,9 @@ function createProjectTooling(config, options = {}) {
     channelFile,
     sticker: new StickerService({ config, channelAdapter, sessionStore, channelFileService: channelFile }),
     weather: createWeatherService({ config }),
+    // Always constructed like weather; the `health` tool itself is gated OFF by
+    // default and only registers when CYBERBOSS_HEALTH_ENABLED is truthy.
+    health: createHealthService({ config }),
     memoryLookup: new MemoryLookupService({ continuityDir: config.continuityDir }),
     // issue #74：Self-note 的第二个 writer。lease 文件必须和 History writer 用的
     // 同一个（`CYBERBOSS_WRITER_LEASE_FILE`，缺省 `<continuityDir>/.jobs/…`），
