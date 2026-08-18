@@ -1014,3 +1014,17 @@ Decision date: 2026-08-15
 
 - 她在 checkin 自填 `next_wake_minutes`（5–240）定下次唤醒，**替换**默认 cadence（非叠加，时间轴去重）。
 - poller 60s 分片读 `desire-wake-override.json`；silent / 延后 = 拒绝主动的自由，是她的正当选择而非故障。
+
+## D49 · 天气推送走 desire 主动态注入，不进 reentry 门控层
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-18
+```
+
+- 天气预警要「早晨/晚上收到」而非「刷新上下文收到」——Owner 明确它是**主动投递**问题，不是记忆注入问题。故落在 **desire 八维 checkin 那跳**（`hourly-desire-poller`），**不碰 reentry / continuity 门控层**（那里有字符预算、G1/G2 门、provenance，且注入面本就稀薄，见 `20260805-context-injection-health.md`）。
+- 数据：`weather-service` 加 Open-Meteo provider（与 AMap 并存，`CYBERBOSS_WEATHER_PROVIDER` 切换，默认 amap）。日简报含今日预警（rain / temp-swing vs 昨日）、**今明两天各自的逐小时降雨窗口**、7 天实测 + 7 天预报。纯 REST，无新常驻服务、无新 MCP（D13 零工具方案已废，但这里连查询 tool 都不加——注入靠 hook）。
+- 网关：`weatherInjectEnabled(默认关)` && `今天或明天 notable(雨/温度剧变)` && `今日首次`（单 writer 守卫 `weather-inject-state.json` 保每日一次）。`/probe` 也带（无守卫，预警日每次显示，便于验）。
+- 分寸：只给事实 + 「可提醒她」姿态提示，不写台词——守北极星（改姿态不改内容）。fail-open：取天气任何异常吞成 null，绝不炸 checkin（不变量 5）。默认关时 checkin 文本逐字节不变。
+- 单 writer：天气只多一个 writer（`weather-inject-state.json`，仅 poller enqueue 成功路径写）。
+- 生产：Waterloo 坐标（Owner 通勤 Waterloo↔City/USyd），`open_meteo`，注入开。2026-08-18 部署 `c459546`（deploy D5 逐字节校验 + 真 API 冒烟）；真机行为 canary 待 Owner 确认后升 `VERIFIED`。
