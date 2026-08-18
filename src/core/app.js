@@ -3022,14 +3022,22 @@ class CyberbossApp {
       });
       return;
     }
-    const { buildDesireTriggerText } = require("../app/hourly-desire-poller");
+    const { buildDesireTriggerText, fetchWeatherBriefSafe, decideWeatherLine } = require("../app/hourly-desire-poller");
     const id = `probe:${crypto.randomUUID()}`;
+    // /probe 与真 checkin 一致地带上天气行（便于随时验证）。手动探针不写「今日已投递」
+    // 守卫（传空 stateFile），每次预警日都可显示，不影响自动那跳的每日一次幂等。
+    const probeBrief = this.config.weatherInjectEnabled ? await fetchWeatherBriefSafe(this.config) : null;
+    const probeWeather = decideWeatherLine({
+      config: { ...this.config, weatherInjectStateFile: "" },
+      weatherBrief: probeBrief,
+    });
+    const probeTrigger = buildDesireTriggerText(this.config);
     this.systemMessageQueue.enqueue({
       id,
       accountId: targets.accountId,
       senderId: targets.senderId,
       workspaceRoot: targets.workspaceRoot,
-      text: buildDesireTriggerText(this.config),
+      text: probeWeather.line ? `${probeTrigger}\n\n${probeWeather.line}` : probeTrigger,
       sourceType: "desire_checkin",
       createdAt: new Date().toISOString(),
     });
