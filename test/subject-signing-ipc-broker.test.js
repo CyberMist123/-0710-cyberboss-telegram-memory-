@@ -122,6 +122,46 @@ test("6d/6e work-engineering schema read and direct call are both denied before 
   }
 });
 
+test("D51: profile allowlist * admits another chat window's signed route; the default broker still refuses it", () => {
+  const fixture = new SigningFixture();
+  try {
+    const workRoute = createSubjectRoute({
+      ...JSON.parse(JSON.stringify(fixture.route)),
+      session: {
+        ...fixture.route.session,
+        profile_id: "deepseek-chat",
+        profile_fingerprint: "deepseek-profile-fingerprint",
+      },
+    });
+    const sourceRef = fixture.byRunKey.get(`${THREAD_ID}:${TURN_ID}`).source_ref;
+    const arm = () => {
+      const capability = fixture.registry.issue({ subjectTurnId: TURN_ID, subjectRoute: workRoute });
+      fixture.byRunKey.set(`${THREAD_ID}:${TURN_ID}`, {
+        capability, subject_route: workRoute, source_ref: sourceRef,
+      });
+    };
+    arm();
+    assert.throws(
+      () => fixture.broker.submit({ requestId: "req-d50-default", args: candidateArgs(), coordinates: fixture.coordinates }),
+      { code: "subject_signing_identity_mismatch" },
+    );
+    const open = new SubjectSigningBroker({
+      enabled: true,
+      subjectCandidateService: fixture.service,
+      subjectCapabilityByRunKey: fixture.byRunKey,
+      runtimeContextStore: fixture.runtimeContextStore,
+      subjectProfileIds: ["*"],
+    });
+    arm();
+    const created = open.submit({ requestId: "req-d50-open", args: candidateArgs(), coordinates: fixture.coordinates });
+    assert.equal(created.status, "created");
+    // Provenance stays exact: the candidate carries the real window profile.
+    assert.equal(fixture.readCandidates()[0].subject_route.session.profile_id, "deepseek-chat");
+  } finally {
+    fixture.remove();
+  }
+});
+
 for (const terminalState of ["completed", "failed"]) {
   test(`6c/6e ${terminalState} turn rejects a later child submission without ending the tool server`, async () => {
     const fixture = new SigningFixture();

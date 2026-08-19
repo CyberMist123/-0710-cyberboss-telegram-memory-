@@ -1042,3 +1042,17 @@ Decision date: 2026-08-19
 - 默认关（第六节第 5 条）：挂显式 env 闸 `CYBERBOSS_HEALTH_ENABLED`（envFlagEnabled，=1/true/yes/on），未开时工具不注册、目录形状逐字节不变（感知计数 8，开时才 9）。与 `route1_*`/`route2_escalate`/`memory_candidate_submit` 同法在 `registeredProjectTools()` 门控。**不给别名**（`health_now`/`health_detail`）——`buildManifest` 要求别名目标恒为已注册工具，会 fail-closed，故两条读路径经 `command` 枚举到达，不经别名。
 - 公开仓无 secret：Python 路径 / server dir / 数据目录全走 env/config 缺省安全值，`.env.example` 只放占位注释。
 - 测试与生产：目录注册/主题/风险/schema 有 `test:catalog-metering`（阻塞 CI）钉住；Python 桥仅本机 stdio 冒烟（`now`/`detail` 取到真实数据）。分支 `feat/health-catalog` 未部署，生产接线 `NOT_WIRED`，待 Owner 部署 + 配 env + Telegram 真机验。
+
+## D51 · 记忆候选签名放开到所有 TG 聊天窗（profile 允许清单，路由记录保真）
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-19
+```
+
+- Owner 拍板：不再只有主 Chat（`fable-chat` profile）能签署 `memory_candidate_submit`——**所有 TG 端聊天窗**都可以提交记忆候选。动机：backfill 亲笔重写与日常记忆沉淀不该被窗口身份卡死（20260819 backfill 批次的遗留项 5）。
+- 实现最小切口：能力签发本就覆盖全部 tg lane（`app.js issueSubjectCapabilityForTurnFailOpen` 只挡 system/legacy lane），唯一的硬闸是 broker 的 `profile_id === "fable-chat"` 断言（`subject-signing-ipc.js assertAuthoritativeRoute`）。改为 env 允许清单 `CYBERBOSS_SUBJECT_PROFILE_IDS`（逗号分隔；`*` = 全部；**空 = 仅 `fable-chat`，与历史行为逐字节一致**，守「新能力默认关」）。
+- 不放松的部分：turn 活性、坐标一致性、route 指纹、body hash、一次性 capability、单 writer、Review 管线全部原样——放开的只是「哪个窗口的真实 turn 有资格签」，冒充仍然签不进。
+- 保真依据：`subject_route.session.profile_id` 逐条落在候选与 attestation 里，Review/审计随时可按窗口区分来源；撤销 = 改回 env，无迁移成本。
+- 测试：`subject-signing-ipc-broker.test.js` D51 用例钉住「默认拒外 profile、`*` 收外 profile 且候选记录真实 profile_id」（在 `test:route-lanes` / `test:catalog-metering`，阻塞 CI）。
+- 生产：`settings\secrets\telegram.env` 设 `CYBERBOSS_SUBJECT_PROFILE_IDS=*`。

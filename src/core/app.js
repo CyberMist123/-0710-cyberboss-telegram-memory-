@@ -165,6 +165,7 @@ class CyberbossApp {
       subjectCandidateService: this.projectServices.subjectCandidate,
       subjectCapabilityByRunKey: this.subjectCapabilityByRunKey,
       runtimeContextStore: this.runtimeContextStore,
+      subjectProfileIds: config.subjectProfileIds,
     });
     this.runtimeAdapter = createRuntimeAdapter(config);
     // Fail-closed: a malformed profile mapping throws here and startup stops.

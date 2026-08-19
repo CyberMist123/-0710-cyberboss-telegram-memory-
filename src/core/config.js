@@ -130,6 +130,9 @@ function readConfig() {
     reviewArtifactsEnabled: readStrictBoolEnv("CYBERBOSS_REVIEW_ARTIFACTS_ENABLED", false),
     handoffDispatchEnabled: readStrictBoolEnv("CYBERBOSS_HANDOFF_DISPATCH_ENABLED", false),
     subjectSigningEnabled: readStrictBoolEnv("CYBERBOSS_SUBJECT_SIGNING_ENABLED", false),
+    // D51: profiles allowed to sign memory candidates. Empty = fable-chat only
+    // (historical default); "*" = every TG chat window.
+    subjectProfileIds: readListEnv("CYBERBOSS_SUBJECT_PROFILE_IDS"),
     // `/new` opens a window she asked for; this decides whether the window
     // speaks first instead of waiting to be pulled. Off by default.
     windowOpenGreetingEnabled: readStrictBoolEnv("CYBERBOSS_WINDOW_OPEN_GREETING_ENABLED", false),

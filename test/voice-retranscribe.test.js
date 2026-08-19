@@ -95,8 +95,9 @@ test("an explicit path is respected without a persisted pointer", async () => {
   const svc = new VoiceService({ config: { stateDir: tmpStateDir() } });
   const calls = [];
   svc.kit = stubKit(calls);
-  const result = await svc.retranscribe({ filePath: "C:/tmp/explicit.ogg", engine: "local" });
+  const explicitPath = path.join(tmpStateDir(), "explicit.ogg");
+  const result = await svc.retranscribe({ filePath: explicitPath, engine: "local" });
   assert.strictEqual(result.text, "云端结果");
-  assert.strictEqual(calls[0].filePath, "C:/tmp/explicit.ogg");
+  assert.strictEqual(calls[0].filePath, explicitPath);
   assert.strictEqual(calls[0].engine, "local");
 });
