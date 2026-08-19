@@ -3,8 +3,12 @@
 # ——`.github/workflows/secret-audit.yml` 的 main push 触发只能事后兜底，
 # 而公开仓库上「事后」等于已经泄露。所以这里 fail-closed：扫不了 == 不许推。
 #
-# 本机实测全量扫描约 130 秒（4.5k 可达对象，逐 blob 起 git 子进程）。批次直推
-# 每天 1–2 次，这个代价可以接受，不要为了提速去改扫描器。
+# 扫描范围是**增量**的（D51）：git 通过 stdin 告诉本钩子这次要推哪些 tip，
+# 扫描器只查「这些 tip 可达、但 origin 尚未拥有」的对象——origin 上已有的
+# 内容本来就是公开的，重扫无收益。全量扫描（rev-list --all）由 CI 的
+# secret-audit.yml 在每次 main push 后兜底，保证增量模式不会漏出长期盲区。
+# 小改动的 push 应在几秒内过闸；若明显变慢，先怀疑 remote-tracking 引用过期
+# （git fetch 一次再推）。
 #
 # 打印的消息一律 ASCII 英文：钩子的输出落在跑 `git push` 的那个终端里，
 # 代码页可能是 GBK，最不该看不懂的就是"闸没过"这一句。
@@ -21,9 +25,25 @@ if ! command -v python >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "pre-push: scanning reachable git history for secrets (about 2 minutes)..."
+# stdin: one line per ref being pushed: <local_ref> <local_sha> <remote_ref> <remote_sha>
+# Collect the local tips; a deletion pushes the zero sha and scans nothing.
+zero=0000000000000000000000000000000000000000
+tips=""
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -z "$local_sha" ] && continue
+  [ "$local_sha" = "$zero" ] && continue
+  tips="$tips --push-tip $local_sha"
+done
+
+if [ -z "$tips" ]; then
+  echo "pre-push: nothing new to scan (deletion or empty push). Gate passed."
+  exit 0
+fi
+
+echo "pre-push: scanning objects new to origin for secrets (incremental)..."
 status=0
-python scripts/secret_audit_scan.py || status=$?
+# shellcheck disable=SC2086 -- $tips is a flat list of "--push-tip <sha>" pairs
+python scripts/secret_audit_scan.py $tips || status=$?
 
 # 扫描器把报告写进工作树里那个被版本控制的文件。推送前后工作树必须保持干净，
 # 否则紧接着的「按 exact SHA 部署 + 活树逐字节比对」会踩到这个脏文件。
@@ -31,7 +51,8 @@ git checkout -- secret-audit-report.json 2>/dev/null || true
 
 if [ "$status" -ne 0 ]; then
   echo "pre-push: secret gate FAILED (exit $status). Push blocked." >&2
-  echo "          Scope is 'git rev-list --all': the hit may come from a local branch you never pushed." >&2
+  echo "          Scope is the commits being pushed that origin does not have yet." >&2
+  echo "          Full-history sweep still runs in CI (secret-audit.yml) after every main push." >&2
   exit 1
 fi
 

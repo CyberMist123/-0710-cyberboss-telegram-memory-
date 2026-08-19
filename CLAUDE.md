@@ -144,7 +144,9 @@ Node ≥ 22。**没有 `npm test`**，测试按 `npm run test:*` 分组，见 `p
 
 `main` 是唯一主干。默认在一条批次分支上连续做完一批相关功能，验证通过后 ff 进 `main` 直推（D36）；`audit/*` 只加报告、不改被审代码。分支用完即删。
 
-**推 `main` 之前必须过本机密钥闸。** `pwsh scripts/install-git-hooks.ps1` 装一次，之后 `git push` 自动跑（约 2 分钟）。公开仓库，用 `--no-verify` 绕过它等于把密钥直接公开，且历史不许重写、撤不回来。
+**默认不开 PR。** 直推 `main` 是本仓库的正常流程（D36），GitHub ruleset 只禁删除与强推，不要求 PR。不要出于"流程感"或求稳自发开 PR——只有多人协作、高风险重构、需要隔离审查或 Owner 点名时才开。
+
+**推 `main` 之前必须过本机密钥闸。** `pwsh scripts/install-git-hooks.ps1` 装一次，之后 `git push` 自动跑。闸是增量的（D51）：只扫这次推送里 origin 还没有的对象，小改动几秒过闸；全量扫描由 CI 的 secret-audit 事后兜底。公开仓库，用 `--no-verify` 绕过它等于把密钥直接公开，且历史不许重写、撤不回来。
 
 **进 `main` ≠ 批准部署**（`DECISIONS.md` D3）。新流程下部署发生在推送**之前**，这条反而更要记住：进 main 只是同步进度，放行判据仍见 `CURRENT_STATUS.md` 第五节。
 

@@ -106,8 +106,21 @@ def credential_in_url_result(url: str) -> tuple[str, str]:
     return "blocked", "credential_in_url detected"
 
 
-def scan_repository() -> int:
-    object_rows = run("git", "rev-list", "--objects", "--all").splitlines()
+def scan_repository(push_tips: list[str] | None = None) -> int:
+    # Two scopes, one scanner:
+    # - Full scan (no tips): every object reachable from any ref. CI's post-push
+    #   backstop (secret-audit.yml) runs this; it is the safety net that keeps
+    #   the incremental mode honest.
+    # - Incremental scan (--push-tip, from .githooks/pre-push): only objects
+    #   reachable from the tips being pushed that origin does not already have.
+    #   Anything reachable from a remote-tracking ref is already public -- on a
+    #   public repository re-scanning it on every push buys nothing (D51).
+    if push_tips:
+        object_rows = run(
+            "git", "rev-list", "--objects", *push_tips, "--not", "--remotes=origin"
+        ).splitlines()
+    else:
+        object_rows = run("git", "rev-list", "--objects", "--all").splitlines()
     paths_by_sha: dict[str, set[str]] = defaultdict(set)
     shas: list[str] = []
     for row in object_rows:
@@ -116,13 +129,19 @@ def scan_repository() -> int:
         if rest and rest[0]:
             paths_by_sha[sha].add(rest[0])
 
-    batch_input = "\n".join(dict.fromkeys(shas)) + "\n"
-    object_info = run(
-        "git",
-        "cat-file",
-        "--batch-check=%(objectname) %(objecttype) %(objectsize)",
-        input_text=batch_input,
-    ).splitlines()
+    if shas:
+        batch_input = "\n".join(dict.fromkeys(shas)) + "\n"
+        object_info = run(
+            "git",
+            "cat-file",
+            "--batch-check=%(objectname) %(objecttype) %(objectsize)",
+            input_text=batch_input,
+        ).splitlines()
+    else:
+        # Incremental scope can legitimately be empty (everything being pushed
+        # is already on origin). An empty batch line would make cat-file report
+        # a bogus "missing" object, so short-circuit instead.
+        object_info = []
 
     suspicious_names: set[str] = set()
     findings: set[tuple[str, str, int, str]] = set()
@@ -226,11 +245,18 @@ def check_urls(urls: list[str]) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the public readiness secret audit scanner.")
     parser.add_argument("--check-url", action="append", default=[], help="Check one or more credential-in-url samples.")
+    parser.add_argument(
+        "--push-tip",
+        action="append",
+        default=[],
+        metavar="SHA",
+        help="Scan only objects reachable from this commit that origin does not already have. Repeatable; used by .githooks/pre-push.",
+    )
     args = parser.parse_args()
 
     if args.check_url:
         return check_urls(args.check_url)
-    return scan_repository()
+    return scan_repository(args.push_tip)
 
 
 if __name__ == "__main__":

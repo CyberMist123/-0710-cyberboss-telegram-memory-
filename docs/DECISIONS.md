@@ -1042,3 +1042,16 @@ Decision date: 2026-08-19
 - 默认关（第六节第 5 条）：挂显式 env 闸 `CYBERBOSS_HEALTH_ENABLED`（envFlagEnabled，=1/true/yes/on），未开时工具不注册、目录形状逐字节不变（感知计数 8，开时才 9）。与 `route1_*`/`route2_escalate`/`memory_candidate_submit` 同法在 `registeredProjectTools()` 门控。**不给别名**（`health_now`/`health_detail`）——`buildManifest` 要求别名目标恒为已注册工具，会 fail-closed，故两条读路径经 `command` 枚举到达，不经别名。
 - 公开仓无 secret：Python 路径 / server dir / 数据目录全走 env/config 缺省安全值，`.env.example` 只放占位注释。
 - 测试与生产：目录注册/主题/风险/schema 有 `test:catalog-metering`（阻塞 CI）钉住；Python 桥仅本机 stdio 冒烟（`now`/`detail` 取到真实数据）。分支 `feat/health-catalog` 未部署，生产接线 `NOT_WIRED`，待 Owner 部署 + 配 env + Telegram 真机验。
+
+## D51 · 本机密钥闸改为增量扫描；全量扫描职责移交 CI 兜底
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-19
+```
+
+- 背景：`.githooks/pre-push` 原本每次推送全量扫 `rev-list --all`（约 2 分钟，4.5k 对象）。立项期每天推 1–2 次可接受（D36 当时按此定的"不要为提速改扫描器"），进入高频加功能阶段后这是每次 push 的固定税。Owner 裁定：降频前提已失效，改。
+- 形状：`scripts/secret_audit_scan.py` 增加 `--push-tip <sha>`（可重复）。给了 tip 就只扫「tip 可达且 origin 没有」的对象（`rev-list --objects <tips> --not --remotes=origin`）——origin 已有的内容在公开仓库上本来就是公开的，重扫无收益。不给参数行为不变。
+- 钩子从 pre-push 的 stdin 取本次推送的 local sha；纯删除推送直接放行。fail-closed 语义不变：python 不在 == 不许推。
+- **安全性不降级**：全量扫描（`--all`）由 `.github/workflows/secret-audit.yml` 在每次 main push 后照跑，作为增量模式的诚实性兜底。增量范围偏保守的失效方向是「remote-tracking 过期 → 多扫」，不是少扫。
+- 测试：`test:secret-gate`（阻塞 CI，phase1-offline）用 git 夹具仓钉住四条：增量抓到新秘密、跳过 origin 已有对象、全量兜底不变、全推空范围放行。顺带把原孤儿测试 `secret-audit-credential-in-url.test.js` 接进同组。

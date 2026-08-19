@@ -99,6 +99,12 @@ jobs:
         id: memory_services
         run: ./scripts/ci/run-annotated.ps1 -Name memory-services -Command 'npm run test:memory-services'
 
+      # 密钥闸扫描器（scripts/secret_audit_scan.py）：--check-url 白名单 + D51
+      # 增量范围语义（--push-tip 只扫 origin 没有的对象，全量兜底不变）。
+      - name: Secret gate scanner tests
+        id: secret_gate
+        run: ./scripts/ci/run-annotated.ps1 -Name secret-gate -Command 'npm run test:secret-gate'
+
       - name: Weekly reflect tests
         id: reflect
         run: ./scripts/ci/run-annotated.ps1 -Name reflect -Command 'npm run test:reflect'
@@ -154,7 +160,7 @@ jobs:
             "p2=${{ steps.p2.outcome }}", "p3=${{ steps.p3.outcome }}",
             "p4=${{ steps.p4.outcome }}", "p5a=${{ steps.p5a.outcome }}",
             "p0_liveness=${{ steps.p0_liveness.outcome }}",
-            "memory_services=${{ steps.memory_services.outcome }}", "reflect=${{ steps.reflect.outcome }}", "weather=${{ steps.weather.outcome }}",
+            "memory_services=${{ steps.memory_services.outcome }}", "secret_gate=${{ steps.secret_gate.outcome }}", "reflect=${{ steps.reflect.outcome }}", "weather=${{ steps.weather.outcome }}",
             "dash520=${{ steps.dash520.outcome }}", "ccpanel=${{ steps.ccpanel.outcome }}",
             "route_lanes=${{ steps.route_lanes.outcome }}", "catalog_metering=${{ steps.catalog_metering.outcome }}", "telegram_media=${{ steps.telegram_media.outcome }}",
             "orch=${{ steps.orch.outcome }}", "diff=${{ steps.diff.outcome }}"
