@@ -1,6 +1,7 @@
 "use strict";
 
 const path = require("path");
+const fs = require("fs");
 
 const { ConversationRecorder } = require("./conversation-recorder");
 const { LocalWhisperTranscriber } = require("./local-whisper-transcriber");
@@ -30,6 +31,16 @@ class VoiceService {
     // have to be handed a file path. Exposing paths to the model would put
     // them in the prompt and in every conversation log that follows.
     this.lastInbound = null;
+    // In-memory alone is not enough: processInboundVoice runs in the main app
+    // process, but the retranscribe tool runs in the SEPARATE tool-MCP-server
+    // process (index.js runToolMcpServer), which never handles inbound voice —
+    // so its this.lastInbound is forever null and every retranscribe returned
+    // no_recent_voice. Persist a server-only pointer both processes can read.
+    // The path still never reaches the model (only this service reads the file),
+    // and only processInboundVoice writes it, so the single-writer rule holds.
+    this.lastInboundFile = normalizeText(this.config.stateDir)
+      ? path.join(this.config.stateDir, "voice-last-inbound.json")
+      : null;
   }
 
   describe() {
@@ -66,6 +77,7 @@ class VoiceService {
       mimeType: voice.mimeType || "audio/ogg",
       at: new Date().toISOString(),
     };
+    this.rememberLastInbound(this.lastInbound);
     let result;
     try {
       result = this.kit?.sttEnabled()
@@ -85,16 +97,49 @@ class VoiceService {
       const degraded = Boolean(engine) && /whisper/i.test(engine);
       const body = degraded ? `语音转写（降级到 ${engine}，可能不准）` : "语音转写";
       normalized.text = `${normalizeText(normalized.text) || VOICE_PLACEHOLDER}\n[${body}: ${result.text}]`;
+      // The observer's one-liner (语速/停顿/气声/背景) rides on its own line after
+      // the transcript, so the chat AI reads how it was said next to what was
+      // said. Empty for a plain transcript; then nothing is appended.
+      const voiceNote = normalizeText(result.voiceNote);
+      if (voiceNote) {
+        normalized.text = `${normalized.text}\n${voiceNote}`;
+      }
       normalized.voiceTranscription = {
         provider: result.provider,
         model: engine,
         engine,
         degraded,
+        voiceNote,
         elapsedMs: result.elapsedMs,
       };
     } else {
       normalized.text = `${normalizeText(normalized.text) || VOICE_PLACEHOLDER}（转写失败）`;
       normalized.voiceTranscription = { error: result.error, provider: result.provider };
+    }
+  }
+
+  /**
+   * Persist the most-recent-inbound pointer for the other process to read.
+   * Single writer (only processInboundVoice calls this) and fail-open: a lost
+   * pointer costs one retranscribe, never the message flow. The path lives only
+   * in this file and this service, never in the model's prompt.
+   */
+  rememberLastInbound(entry) {
+    if (!this.lastInboundFile || !entry) return;
+    try {
+      fs.mkdirSync(path.dirname(this.lastInboundFile), { recursive: true });
+      fs.writeFileSync(this.lastInboundFile, JSON.stringify(entry), "utf8");
+    } catch {}
+  }
+
+  /** Read the persisted pointer; null when absent or unreadable. */
+  readLastInbound() {
+    if (!this.lastInboundFile) return null;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(this.lastInboundFile, "utf8"));
+      return parsed && normalizeText(parsed.filePath) ? parsed : null;
+    } catch {
+      return null;
     }
   }
 
@@ -113,13 +158,16 @@ class VoiceService {
     if (!this.kit || !this.kit.sttEnabled()) {
       throw new Error("stt_not_configured: retranscribe needs the CMX voice provider");
     }
-    const target = normalizeText(filePath) || normalizeText(this.lastInbound?.filePath);
+    // this.lastInbound is null in the tool-server process; the persisted pointer
+    // is the cross-process fallback that makes retranscribe actually reachable.
+    const recent = this.lastInbound || this.readLastInbound();
+    const target = normalizeText(filePath) || normalizeText(recent?.filePath);
     if (!target) {
       throw new Error("no_recent_voice: nothing has been transcribed in this session yet");
     }
     const result = await this.kit.transcribe({
       filePath: target,
-      mimeType: normalizeText(this.lastInbound?.mimeType) || "audio/ogg",
+      mimeType: normalizeText(recent?.mimeType) || "audio/ogg",
       language: normalizeText(this.config.voiceSttLanguage),
       engine: normalizeText(engine) || "cloud",
     });
@@ -131,6 +179,8 @@ class VoiceService {
       engine: normalizeText(result.model),
       detectedLanguage: normalizeText(result.detectedLanguage),
       emotion: normalizeText(result.emotion),
+      // The observer's closed-vocabulary one-liner, when CMX ran it.
+      voiceNote: normalizeText(result.voiceNote),
       // Present only when the cloud engine was asked for and could not run;
       // the text above then came from the local chain after all.
       cloudError: normalizeText(result.cloudError),

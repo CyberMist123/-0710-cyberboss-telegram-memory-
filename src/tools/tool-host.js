@@ -1039,8 +1039,11 @@ const PROJECT_TOOLS = [
         // model from reading an unchanged local transcript as confirmation.
         notes.push(`cloud unavailable (${result.cloudError}), this is the local result`);
       }
+      // The observer's one-liner (how it was said: 语速/停顿/气声/背景) on its own
+      // line after the words; absent when CMX produced no observation.
+      const observation = result.voiceNote ? `\n${result.voiceNote}` : "";
       return {
-        text: `Retranscription [${notes.join("; ")}]: ${result.text}`,
+        text: `Retranscription [${notes.join("; ")}]: ${result.text}${observation}`,
         data: result,
       };
     },
