@@ -297,7 +297,7 @@ test("B2/B4 signing gate on keeps the model schema narrow; synthetic stdio only 
   ], { CYBERBOSS_TOOL_CATALOG_ENABLED: "true", CYBERBOSS_SUBJECT_SIGNING_ENABLED: "true" });
   assert.equal(rpc[0].result.isError, undefined); assert.match(rpc[0].result.content[0].text, /Memory candidate created/);
   assert.equal(rpc[1].result.isError, true); assert.match(rpc[1].result.content[0].text, /^capability_expired:/);
-  assert.deepEqual(Object.keys(PROJECT_TOOLS.find((tool) => tool.name === "memory_candidate_submit").inputSchema.properties).sort(), ["body", "material_pack", "material_pack_id", "origin", "type"]);
+  assert.deepEqual(Object.keys(PROJECT_TOOLS.find((tool) => tool.name === "memory_candidate_submit").inputSchema.properties).sort(), ["body", "material_pack", "material_pack_id", "origin", "rewrite_handoff_id", "rewrite_of_decision_id", "supersedes_candidate_id", "type"]);
   assert.equal(PROJECT_TOOLS.find((tool) => tool.name === "memory_candidate_submit").inputSchema.additionalProperties, false);
   // A child that still tries to assert its own provenance is rejected by the
   // schema rather than having the field quietly ignored.

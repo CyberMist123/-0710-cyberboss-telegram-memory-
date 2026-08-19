@@ -386,6 +386,22 @@ test("route2_escalate is gated by the route 2 flag and relays the grant verdict"
   }
 });
 
+test("memory_candidate_submit schema carries the subject_rewrite lineage fields", () => {
+  const previous = process.env.CYBERBOSS_SUBJECT_SIGNING_ENABLED;
+  process.env.CYBERBOSS_SUBJECT_SIGNING_ENABLED = "true";
+  try {
+    const submit = registeredProjectTools().find((tool) => tool.name === "memory_candidate_submit");
+    // additionalProperties:false 会把 schema 外的字段拦在闸门之前；
+    // 三个 rewrite 字段掉出 schema 时，subject_rewrite 恒报 candidate_predecessor_missing。
+    for (const field of ["supersedes_candidate_id", "rewrite_handoff_id", "rewrite_of_decision_id"]) {
+      assert.equal(submit.inputSchema.properties[field]?.type, "string", `${field} missing from schema`);
+    }
+  } finally {
+    if (previous === undefined) delete process.env.CYBERBOSS_SUBJECT_SIGNING_ENABLED;
+    else process.env.CYBERBOSS_SUBJECT_SIGNING_ENABLED = previous;
+  }
+});
+
 test("chat self-escalation reports out-of-toolset tools as authorized (D27-1: chat lane has no hard tool ceiling)", () => {
   const previous = process.env.CYBERBOSS_SUBJECT_SIGNING_ENABLED;
   process.env.CYBERBOSS_SUBJECT_SIGNING_ENABLED = "true"; // so memory_candidate_submit registers

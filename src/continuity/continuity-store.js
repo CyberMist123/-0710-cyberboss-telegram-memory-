@@ -5,7 +5,8 @@ const { writeJsonAtomic } = require("../orchestration/atomic-json");
 
 function readJsonl(filePath) {
   try {
-    return fs.readFileSync(filePath, "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+    // Legacy exporters wrote a UTF-8 BOM; JSON.parse rejects it on line one.
+    return fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/u, "").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
   } catch (error) {
     if (error.code === "ENOENT") return [];
     throw error;
