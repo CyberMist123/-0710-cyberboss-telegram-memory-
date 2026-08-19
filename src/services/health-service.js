@@ -67,6 +67,18 @@ function createHealthService({ config } = {}) {
 function runHealthProcess({ command, args, cwd, dataDir, timeoutMs }) {
   return new Promise((resolve, reject) => {
     const env = { ...process.env };
+    // health_store needs the IANA tz db (tzdata) for ZoneInfo("Australia/Sydney").
+    // On Windows tzdata is typically a per-user install under %APPDATA%\Python\...,
+    // and Python derives the user site-packages path from APPDATA. Some parent
+    // runtimes spawn this tool host with APPDATA stripped (unset) and/or
+    // PYTHONNOUSERSITE set; the child Python then computes the wrong user-site path,
+    // fails to import tzdata, and ZoneInfo throws -> the whole bridge exits non-zero.
+    // Restore APPDATA from the profile dir and keep user site-packages enabled.
+    delete env.PYTHONNOUSERSITE;
+    if (!env.APPDATA) {
+      const home = env.USERPROFILE || ((env.HOMEDRIVE || "") + (env.HOMEPATH || ""));
+      if (home) env.APPDATA = `${home}\\AppData\\Roaming`;
+    }
     if (dataDir) env.HEALTH_DATA_DIR = dataDir;
     // Python must be able to `import health_store` from the Collar_watch server
     // dir. cwd is the primary seam; also seed PYTHONPATH so it works even if a
