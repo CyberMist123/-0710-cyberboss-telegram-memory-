@@ -1,0 +1,236 @@
+# CURRENT_STATUS 全文快照（2026-08-20 瘦身前）
+
+```text
+Status: historical
+Date: 2026-08-20
+Base SHA: 901d8fb
+Current authority: docs/CURRENT_STATUS.md
+```
+
+2026-08-20 对 `docs/CURRENT_STATUS.md` 做结构瘦身：历史叙事移出、说明列压缩为「结论 + 指针」，结论与状态词本身不变。本文件是瘦身前的全文照录（下方原文头部的 `Status: active` 以本头部为准）。交付过程叙事的正本在 `docs/audit/`，决定在 `docs/DECISIONS.md`；查当前状态一律回 `docs/CURRENT_STATUS.md`。
+
+---
+
+# Current Status
+
+```text
+Status: active
+Authority: current project status
+Last verified: 2026-08-15
+Verified against: 5ab4482
+```
+
+- `Status: active` —— 这份文件当前有效。
+- `Authority: current project status` —— 它是当前进度的**唯一**权威来源。README、`CLAUDE.md`、架构文档都不重复这里的结论，只链接过来。
+- `Last verified` —— 最后一次依据源码和运行证据核对的日期。
+- `Verified against` —— 这些结论对应哪个 main commit。
+
+历史过程见 `docs/archive/`；已定与已翻转的决定见 `docs/DECISIONS.md`。
+
+---
+
+## 一、Gate 总表
+
+这张表只在本文件维护，其他文档一律链接过来，不复制。
+
+| Gate | 状态 | 中文含义 |
+|---|---|---|
+| G1 Telegram 核心读取路径 | `PARTIAL` | 代码通路与 Trace 验收结构已接通；真机取证在 Phase 2-5A 期间被启动预检硬禁（`src/core/startup-preflight.js` `validateLegacyMemoryGates`：四个 legacy 记忆开关（`CYBERBOSS_MEMORY_RETRIEVAL` 等）任一为 true 即拒绝启动，无配置绕过；2026-08-04 真机实证，env=1 启动即被拒 pid 秒死）——代码通路真实存在、被阶段设计有意封存，非缺陷降级也非单纯"缺证据"。解锁属设计决策，候选路径（推进出 Phase 2-5A ／ 给预检开受控例外〔不推荐〕／ 重定义判据对准现行核心读取路径）见 `DECISIONS.md` Candidates C7 |
+| G2 后台记忆写入边界 | `PARTIAL` | 候选权限闸门、nightly 登记、#73 effective decision 与 G2-3 Review artifact 已闭环；G2-4/G2-6 已把 publication intent/outbox 与 candidate rewrite lineage 同步接入 Review→History：decision/candidate 两层 supersede 拆名，History 只消费唯一有效叶子的 accepted head，以 lineage publication key 保证 Review 重跑、History 崩溃、state 重放与 decision ID 变化后的整链 exactly-once；stale/digest/fork/cycle/已发布 predecessor 均 fail-closed，发布后 decision 翻转只记冲突、不改 canon（与 artifact 共用显式默认关闭开关，阻塞 CI 覆盖）。G2-5 已闭环 dispatcher/一次性注入/ack 回路（D26：严格实时、window_gone 作废不递继任者、补投一次即止、失败递送只读聚合视图、注入块确定性组装；独立开关默认关闭）。G2-2 此前只有同进程合成测试，生产 `tool-mcp-server` 实际落到 null stub、不可签署；现已改为窄鉴权 IPC broker：capability 圈禁主进程，主 bridge 是 `SubjectCandidateService` 唯一可写 owner，child 保留 schema/hard-ceiling/lease/self-escalation 后经 capability-free 请求交主进程按权威 turn/session/profile/route 独立复核。真实 `bin/cyberboss.js tool-mcp-server` 跨进程正例、work 双拒、turn 终结、鉴权/超时/重放与并发幂等均进入三个阻断组；**2026-08-07 生产闭环首次真机全链通过**（第二十至二十三次交付，留证 `docs/audit/G2_PRODUCTION_CLOSURE_20260807.md`）：签署入口此前在生产恒空——D35 的服务端取证只写在 `handleIncomingMessage`（微信入口），而生产走 `handleTelegramMessage`，取证从未发生，err.log 每条消息打一次 `subject_source_entry_id_missing`，她一条候选都签不出来（第五处接线债，同族第五次）。取证移进 `recordInboundMessage`（两个入口唯一共用的一步）后，Owner 真机写出 128 条候选里**第一条 `live_subject`、也是第一条带 `content_sha256`** 的候选，`source_ref_located=true`，Review `accepted`，History 发布进 `episodes.jsonl`。同批修两处：登记时序竞态（`sendTurn()` 在 write **之后**才返回，而 capability 与 active context 是它返回后才登记，模型可能已在调工具——现由 `process-client` 的 before-write seam 在身份已定、stdin 未写时登记；新会话 threadId 未知时弃权而非半登记）；exactly-once 冷启动缺口（已发布判据只认 `publication_key`，看不见更老机制写的正档行，导致开关首次打开时两条 7 月 episode 与一条 self-note 被重发，数据已修复并加守卫）。**生产 Review 模型已配（`deepseek-v4-flash`）**，不再是 `model_review_disabled`。仍缺：G2-7 真实存量执行、G2-8 睡眠兜底、nightly 仍为 evidence 档（不跑 Review/History，需手动入口），故 G2 保持 `PARTIAL`。G2-7 已落离线只读分类器与 companion binding（零升级/零猜路由/可重跑，默认关、未接消费者、未在真实存量上运行）；剩余：真机留证、生产启用（开关默认 false）、G2-7 真实存量执行、G2-8 睡眠兜底（D28 只读 lookup 消费者已随 #125 实施，旧候选按 route 作用域经 `memory_lookup` 只读可查——详见下方能力表 G2-7 行） |
+| G3 Chat 成本与 profile 隔离 | `PARTIAL` | T03 preflight、T04 双 profile 身份/permission/MCP ceiling 与 T05 同窗口 mutable override/Context Trace 离线闭环已落地；T05 挂 `CYBERBOSS_CLAUDE_WINDOW_OVERRIDE_ENABLED` 且默认关闭，model/effort/effective toolset/effective MCP set 与非人格 overlay 不进入 slot 身份，persona/permission identity 变化仍换窗，chat 非成员工具自助升格不走审批且无硬 ceiling；2026-08-05 契约语义按 D32 纠偏：persona 文件整体经 `--system-prompt` 成为系统层（首轮 role card 注入退役、wechat instructions 不回流）、fable-chat 权限映射 CLI `bypassPermissions`（隔离改由 configRoot/session slot/env allowlist/strict MCP 承担）、`chat-ceiling@2` 放行部署配置的外部 MCP 基集（override 子集校验不变）；本地 profile 资产目录已备（cyberlink `fable-chat-profile\`，manifest.csv 为装配真相，粘贴件在 workdesk）；2026-08-05 启动链按 **D33** 修复恒等式——G3 preflight 构造的 launch 即 spawn 的 launch（raw `extraArgs`、route-scoped MCP 路径、window override、两个部署审批全部进 gate，spawn 前重算比对不等即 `launch_drift` fail-closed），`agentCwd` 由 profile `cwd` 派生使 `cwd_lock_mismatch` 退化为恒真保险带；chat 档去 `--bare` 改订阅鉴权（`harnessMode: chat-subscription`，persona 下发与 bare 解绑）、内建工具面默认收窄 + route2 lease 升格全功能、profile 移入独立文件（`CYBERBOSS_CLAUDE_LAUNCH_PROFILES_FILE`，与 `..._JSON` 互斥 fail-closed）、`tool-mcp-server` 补转发 `CYBERBOSS_ENV_FILE`（此前 G3 剥 env 后该 server 启动即退，两个常驻工具永不注册）；以上均为离线 CI 覆盖（`test:route-lanes`）；2026-08-05 第六次交付已把该代码与 profile 绑定送上活体（`telegram.env` 改走 `CYBERBOSS_CLAUDE_LAUNCH_PROFILES_FILE`，两个 route2 开关按 D33 首轮保持关闭，留证 `docs/audit/G4_PRODUCTION_DELIVERY_20260805.md`）——2026-08-05 16:36 **chat 链首次真机 launch 成功**（Owner 发消息触发）：活体 argv 实测无 `--bare`、persona 经 `--system-prompt`、`--tools Read,Glob,Grep,WebFetch,WebSearch`、`--model claude-fable-5 --effort medium`、`bypassPermissions`，每个 flag 恰好一次（gate 与 spawn 同一份），cwd 落在 profile 的隔离工作区，且 **`tool-mcp-server` 第一次持续存活**（11.1 修复），err.log 零新增、无任何 fail-closed 触发——故该能力行生产接线由 `DISABLED` 改 `WIRED`。2026-08-06 **升格三档与 Route 1 派活链首次真机闭环**（`e60bba3`，7 次代码上机 + 1 次配置重启，留证 `docs/audit/G3_ROUTE_ESCALATION_LIVE_20260806.md`）：D33 的升格回路此前**从未成功过一次**——并非默认关，而是通路上 11 层缺陷，任何窗口调用都必挂（IPC 处理器缺 import；从子进程 context 读它从不提供的 lane/launchProfile；lease 只活一轮且回收即杀进程；升格当场重启杀掉提出请求的那一轮；relaunch 反向撤销自己承载的 lease；作废 lease 丢身份致 `poll failed`；故意关进程被报成假故障）。修完取到 argv 实证：Route 2 = `--tools default` + `--system-prompt`，Route 3（**本批新增**，D37）= `--tools default` + `--append-system-prompt`（CC 自带 coding harness 保留、人格附加其上，需 profile 声明 `escalatedHarness`），两档均 `--resume` 同一 session、slot 未轮换，TTL 回落实测两次。lease 寿命按 D37 解绑 turn（TTL/主动交还/strong interrupt 三者之一才回收，缺省 20 分钟上限 60 分钟），回收不再腰斩正在跑的命令。Route 1 同批闭环：补 `work-engineering` profile 与工程车 workspace（此前取产品树根，**那不是 git 仓库**），实测「派活 → base_sha worktree → 执行 → 验收 → 胶囊 → accept → 自动清理」，主工作副本未被动、结果经 `route1_task_result` 主动领取、`origin_state=origin_current`。**本批已知不修的缺口**：`route2_escalate` 无 `plan` 故成本门控空转（Owner 2026-08-06 裁定放行，门控是成本路由器不是权限闸）、`assertCapabilityLease` 非白名单、Route 1 查询无持久化、失败任务不清理 worktree。2026-08-06 **移除 timeline-for-agent 工具包**（Owner 裁定，`fa59679`）：8 个 `cyberboss_timeline_*` 工具、5 个 `timeline.*` 命令、截图队列与轮询、服务/集成/队列存储、config 四字段、`vendor/` 拷贝与其 `file:` 依赖、以及指挥她使用该能力的两处提示词一并删除；目录主题由八个减为七个。该能力**从未产生过数据**（state 目录自 2026-07-12 起为空），此前不可见只是因为 D34 目录调用通路 2026-08-05 才修好。`relationship_timeline.md`（她的记忆时间线）与 520 的 `/api/timeline` 属不同事物，未受影响。同批修 `listCommandGroups` 误把 filter 的下标当 env 读，导致所有 feature 闸恒判关闭——**Route 1 两个中断命令因此一直不可见**。**仍缺**：fable/work 差分隔离与 Owner 侧观感项（persona 复述、工具清单自述、G2 签署、Re-entry），未到 `VERIFIED`，**T11 那一场仍欠** |
+| G4 Windows 生产验证 | `PARTIAL` | 2026-07-30 首次真机交付成功并已留证（`docs/audit/G4_PRODUCTION_DELIVERY_20260730.md`）；2026-07-31 监督链已修复并经真实停机事故验证（BOM 去除 + `deployed_sha` 改真话 + watchdog 判活恢复，留证 `docs/audit/G4_WATCHDOG_RECOVERY_20260731.md`）；2026-08-01 第二次交付成功（main `6fb078e` 上机，首次监督链在位热交付，留证 `docs/audit/G4_PRODUCTION_DELIVERY_20260801.md`）；2026-08-03 第三次交付成功（main `91dd0d5` 上机，停机 58 秒，**首次归档预交付全量测试完整输出** `docs/audit/G4_PREDEPLOY_TEST_OUTPUT_20260803.log`，并用对照实验证明两个红组为无 `.git` 的环境因素，留证 `docs/audit/G4_PRODUCTION_DELIVERY_20260803.md`）；2026-08-04 第四次交付成功（main `bf31e62` 上机，停机约 10 分钟，预交付测试移回 git 源真相仓库 13/13 全绿——8-03 两红组在真 git 环境如预期转绿，反向印证环境因素定性；坑 3 junction 断裂第三次复现同法修复；停机窗口内含一次 G1 env 实验被启动预检 fail-closed 拦截的实录，已回退、交 fable 审，留证 `docs/audit/G4_PRODUCTION_DELIVERY_20260804.md`）；2026-08-04 第五次交付成功（main `a4c5b54` 上机，停机约 5 分钟，**首次带 G2 主体签署 IPC 代码上机**，预交付源真相 13/13 全绿——两红组经 PowerShell 对照证为 Git Bash tar 环境噪声，坑 3 第四次复现同法修复，留证 `docs/audit/G4_PRODUCTION_DELIVERY_20260804_2.md`）；2026-08-05 第六次交付成功（main `29d22e5` 上机，**停机 1 分 22 秒，历次最短**，首次带 G3 chat 启动链恒等式代码与**首次由工程窗代改 `telegram.env`**（profile 改走 `..._FILE`，非 secret 行，Owner 授权、备份先行、BOM 原样保留）；预交付源真相 13/13 全绿 + portability，坑 3 第五次复现同法修复；**再次实证 descriptor 元数据说谎**——交付前 `deployed_sha` 写 `b0d8b68`、活代码树实测为 `000960d`，判部署真相只能比对活树，留证 `docs/audit/G4_PRODUCTION_DELIVERY_20260805.md`）；2026-08-05 第八次交付成功（main `3447ffd` 上机，停机 4 分 55 秒——含一次失败启动：**robocopy `/MOVE` 顺着 `node_modules` 的 junction 把 `vendor\` 两个 `file:` 依赖搬空**，补回后二次启动成功；本次同批改了三处生产配置：profile 两份资产剥六键、`telegram.env` **首次打开目录开关**；留证 `docs/audit/G4_PRODUCTION_DELIVERY_20260805_3.md`）；2026-08-05 第九次交付成功（main `01810c5` 上机，停机约 2 分 20 秒——含一次失败启动：暂存树 npm ci 给 `file:` vendor 依赖建的**绝对路径 junction 在换名后悬空**（坑 3 新变体），重建两条 junction 后二次启动成功；纯代码树交付无配置变更，预交付源真相 13/13 全绿 + portability，活树 EOL 归一比对与 commit 逐字节一致，留证 `docs/audit/G4_PRODUCTION_DELIVERY_20260805_4.md`）；部署身份其余两套真相与正规发布包机制仍未处理（#77）；监督链此前失岗根因已明并于 2026-08-03 修复（电源策略：`DisallowStartIfOnBatteries`/`StopIfGoingOnBatteries` 两开关 + 电池供电致静默失岗，留证 `docs/audit/G4_WATCHDOG_BATTERY_POLICY_20260803.md`），起于电池已证、跨电池→市电已扛，跨夜与切回电池方向的持续性仍在累积 |
+| G5 备份与回滚验证 | `PARTIAL` | 2026-08-03 真机 memory 备份恢复演练已完成并留证（`docs/audit/G5_MEMORY_RESTORE_DRILL_20260803.md`）：真档快照 155/155 → 隔离副本破坏后确被检出 → 恢复逐字节还原 → 真档原地恢复后独立复核一致；缺口明确——**release 回滚（`phase1-rollback.ps1`）未真机演练**，`runtime`/`settings`/`releases` 的备份恢复不在本次范围 |
+
+**是否允许切生产：否。** 判据见第五节。
+
+---
+
+## 二、状态词典
+
+能力表的每一列只允许使用下列状态词。**不要自造近义词**，也不要用 ✅ / ❌ / “可用” / “部分” 这类自由文本 —— 它们在多轮 PR 之后会各自漂移。
+
+| 维度 | 允许状态 | 中文解释 |
+|---|---|---|
+| 代码 | `WIRED` | 已进入目标主运行链，真实调用可达 |
+| 代码 | `PARTIAL` | 只有部分 provider、lane 或路径可达 |
+| 代码 | `ORPHAN` | 代码存在，但目标主路径不可达或无人调用 |
+| 代码 | `ABSENT` | 没有对应实现 |
+| 测试 | `COVERED` | 有针对真实目标通路的验收测试 |
+| 测试 | `UNIT_ONLY` | 只有函数或组件单测，没有真实主路径测试 |
+| 测试 | `PARTIAL` | 部分行为有测试，关键边界仍未覆盖 |
+| 测试 | `NONE` | 无对应测试 |
+| 主 CI | `BLOCKING` | 已进入阻塞合并的主 CI |
+| 主 CI | `NONBLOCKING` | 有自动化信号，但不阻塞合并 |
+| 主 CI | `NONE` | 无自动化 CI 信号 |
+| 生产接线 | `VERIFIED` | 已在真实生产 Windows 上验证 |
+| 生产接线 | `WIRED` | 已接生产入口，但尚无真机验证证据 |
+| 生产接线 | `DISABLED` | 已有生产接线，但默认或当前关闭 |
+| 生产接线 | `NOT_WIRED` | 没有生产接线 |
+| 生产接线 | `UNKNOWN` | 仓库无法判断真机实际状态 |
+| 总体结论 | `PASS` | 当前范围已满足 |
+| 总体结论 | `PARTIAL` | 部分满足，但仍有明确缺口 |
+| 总体结论 | `FAIL` | 当前关键目标未满足 |
+| 总体结论 | `DEFERRED` | 明确不在当前阶段施工 |
+| 总体结论 | `NOT_VERIFIED` | 可能已具备，但缺少所需证据 |
+
+两条使用纪律：
+
+1. **`BLOCKING` 是对"这条能力的目标通路"说的，不是对"某个相关单测"说的。** 一个 resolver 单测进了 CI 分组，不代表它覆盖的完整通路有 CI 信号。
+2. **仓库证明不了的一律 `UNKNOWN`**，不要写成 `NOT_WIRED` 或 `DISABLED`。生产机的环境变量与计划任务状态不在版本控制内。
+
+---
+
+## 三、能力表
+
+| 能力 | 代码 | 测试 | 主 CI | 生产接线 | 说明 / 当前结论 |
+|---|---|---|---|---|---|
+| Telegram 主链（poller / adapter / envelope） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 信封格式有 CI 测试钉住；真机运行状态未核 |
+| Telegram route lanes v2 / profile router | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | `test:route-lanes` 已接进主 CI |
+| G2 recorder route snapshot / `subject_route` schema | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | **`PARTIAL`** —— recorder 真实写入路径冻结 canonical route/session/window 快照，closeout 与主体签署材料包按 source entry ID/hash 取证，envelope 只收权威 EXACT schema；缺身份保持 PARTIAL/ambiguous。G2-4 publication intent/outbox 已闭环并进入 `test:phase3`，Review artifact/outbox 共用开关继续默认关闭；G2-5 dispatcher/注入/ack 已闭环（独立开关默认关）；G2-2 的 `memory_candidate_submit` 已从此前生产不可用的 null-stub 路径改接窄鉴权 IPC，离线跨进程阻断验收通过，真机 canary 仍缺 |
+| G2 存量候选分类 / companion binding（G2-7） | `WIRED` | `COVERED` | `BLOCKING` | `NOT_WIRED` | **`PARTIAL`** —— 离线 CLI 默认只读，显式 `--apply` 才以 migration 单 writer 幂等追加 companion；严格 route/source 合取、零升级、零猜路由，迁移开关默认关闭，未在真实存量上运行。§10-3 已由 **D28** 裁定并落地只读消费者：`EXACTLY_RECOVERABLE` 旧候选仅在 companion binding 同时匹配当前 `routeToken` / `laneKey` 时，经主体自拉的既有 `memory_lookup` 返回；缺失、损坏、不可判、跨 route 或 `LEGACY_DEFERRED` 均零命中且不影响其它来源；不进任何注入通路，命中明示旧后台存量、非主体笔迹，永不自动升格。生产 companion 数据面仍为空，故当前无可观察行为变化 |
+| G2 Review publication intent / History outbox | `WIRED` | `COVERED` | `BLOCKING` | `VERIFIED` | Review 在 decision 与必需 artifact 完成后以稳定 ID append-only 写 intent；candidate rewrite 用 `supersedes_candidate_id`，canon correction 输入用 `canon_supersedes`，两层不混。History 只消费唯一有效 lineage leaf 的 effective accepted head，并在独立 writer state 记录 consumption、publication key 与 lineage root，守住 Review 重跑、History 崩溃、state 重放及 decision ID 变化后的整链 exactly-once。fork/cycle/缺前驱/跨类型/已发布 predecessor、stale decision 与 digest 不符均不发布；发布后 decision 翻转只记 `post_publish_decision_conflict`，canon 不删不改。与 Review artifact 共用 `CYBERBOSS_REVIEW_ARTIFACTS_ENABLED`，仓库默认关闭 |
+| G2 handoff dispatcher / 一次性注入 / ack（G2-5） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 挂 `CYBERBOSS_HANDOFF_DISPATCH_ENABLED`，仓库默认关闭（关闭时零副作用、payload 逐字节不变）。开启时：EXACT canonical fingerprint 匹配原窗口才注入一次性 `<subject_memory_handoff>` 块；同稳定 slot 但 native transcript 已换判 `window_gone` 作废不递继任者（D26-1）；补投一次即止 + 只读聚合视图（D26-2）；注入块确定性组装（D26-3）；delivery/ack 两账独立 writer + 独立 lease；purity 剥除 handoff/ack 块；Trace 只记解释字段。测试进 `test:phase2` / `test:phase3` / `test:route-lanes`（均阻塞主 CI）。ack 的同 turn 关联为进程内 map（崩溃丢 ack 不重放正文），跨重启补 ack 归后续单 |
+| G2 主体签署 capability / 材料包（G2-2） | `WIRED` | `COVERED` | `BLOCKING` | `VERIFIED` | 挂 `CYBERBOSS_SUBJECT_SIGNING_ENABLED`，仓库默认关闭。开启时：真实交互 fable subject turn 签发一次性 turn+route capability；原始值仅存主进程内存，不进 IPC/argv/env/runtime-context/磁盘/日志。`tool-mcp-server` 不持有可写 `SubjectCandidateService`，handler 先过既有 child 执法，再把模型字段与 turn/route 坐标交窄鉴权 IPC；主 bridge 以自身 active context、session/profile/route 与 capability registry 复核后由唯一 owner 落候选，回 child 不含 capability。缺 broker、超时、身份不符、重放或 turn 已终结只拒该工具调用，不中断聊天。真实跨进程 fixture 已进 `test:phase3` + `test:route-lanes` + `test:catalog-metering`。**补记（第二处接线债，2026-08-04）**：MCP 子进程是隔离 env，tool 注册门 `tool-host.js` `registeredProjectTools` 读子进程自身 env 的 `subjectSigningEnabled`；而 `project-settings.js` 此前只把 route2/catalog/override 转发进子进程 env、**漏了 `CYBERBOSS_SUBJECT_SIGNING_ENABLED`**，致真机上开关虽开、工具永不注册（离线 fixture 手搭子进程 env 未能捕获）。已修：adapter 按 fable-chat 作用域转发该开关 + 补 adapter 生成路径测试。**补记（第三处接线债，2026-08-05 首轮 canary 实证）**：转发到位之后工具**仍未注册**——生产 `telegram.env` 写的是 `=1`（仓库惯例），bridge 侧用宽松真值判定判开并转发字符串 `"true"`，而子进程侧 `tool-catalog-manifest.js` 用的是 `=== "true"`；子进程自本轮 `CYBERBOSS_ENV_FILE` 转发起真的会 `loadEnv(override)`，把 `"true"` 换回 `1`，于是同一个开关两侧结论相反。已把真值判定收进 `src/core/env-flag.js` 单一 helper，bridge / 子进程 / `catalogEnabled`（同一颗雷，只是恰好没被 env 文件覆盖过）/ route2 / window override 全部改用它；回归守卫按部署原形 `=1` 断言（含跨进程 MCP 目录），改回严格相等即红。**补记（第四处接线债，2026-08-06 Owner 真机实证）**：开关与注册都到位之后，工具**仍然写不进一条候选**。`memory_candidate_submit` 的 inputSchema 要求模型自填 `source_ref.content_sha256`（无 description，语言模型算不出），Owner 实测 fable 读完 schema 即卡住；而该字段在 `live_subject` 下只验 64 位十六进制格式、无任何交叉比对，模型若编一个就是**伪造 provenance 直接落档**。同一处 `additionalProperties: false` 还挡掉了 `source_entry_hashes`，致 Review 的 `locateSourceRef` 恒判不可定位，**每条 live 候选恒 `deferred / source_ref_missing`**，closeout origin 同理撞 `material_pack_invalid`；离线 e2e fixture 在 service 层手搭 source_ref 绕过真实 MCP schema，与前两处是同一失效模式。已按 D35 修：`source_ref` 整体退出模型输入面，provenance 改由 `ConversationRecorder` 随记随取证（文件 + 行摘要）、经 capability 记录交 broker，broker 丢弃调用方自报的 source_ref，无取证则 fail closed。回归 `test/subject-provenance-server-side.test.js` 已进 `test:phase3`（含「Review 现在能定位」这一条）。真机 canary 仍未做，生产保持默认关闭 |
+| Telegram 媒体入站（media inbox） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | `test:telegram-media` 已接进主 CI |
+| Telegram 图片识别 / OCR（CMX recognize） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 默认关闭；显式 `caption + cmx-recognize` 后，已落盘 photo 才上传到当前 CMX 部署的 `/files/recognize`。识别结果以信封外 untrusted 附件块进入该次 turn，用户正文逐字不变，purity 阶段剥除，provider 失败不阻断原图/原文。依赖 CMX 部署实际包含该端点；尚无真实 Windows + Telegram 图片 canary |
+| Hard context · Re-entry | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | **`PARTIAL`** —— 由运行时适配器的 opening context 注入；2026-07-30 生产实测 `memory/reentry.md` 954 非空白字 > 300 预算，注入实际为零（err.log 连记 `reentry skipped reason=over_budget`）。#76 已加 last-known-good 降级、发布前预算硬闸门与 trace 的 configured/effective 分离；**正文压缩归聊天窗主体 AI，尚未做**，且生产机上没有可用副本，所以首次仍会是空注入 |
+| 主体节拍调度 E2（consolidation / reflect 触发） | `WIRED` | `COVERED` | `BLOCKING` | `VERIFIED` | D42：subject-beat-scheduler 与 reentry 层无关、走既有系统消息队列与 trigger-prompts 机制；consolidation 并入八维唤醒菜单（desire_checkin 文本加整理一句），每日专用闹钟默认关生产不开；reflect 专用敲门每 `CYBERBOSS_REFLECT_INTERVAL_DAYS` 天（生产 =3，时点默认 20:30 automationTimezone），两类均受 `/pause_heartbeat` 总闩。2026-08-09 d28/d29 交付：真机实证暂停闩拦截（8-07 起的 paused 拦住首敲）与恢复即敲（/continue_heartbeat 后 10 秒 reflect turn 开窗，E1 portrait 同场注入）；忙转缺陷当日发现当日修（过期重排垫 60s，回归钉住）。测试进 `test:phase1`（阻塞）。2026-08-15 补 next_wake 自主唤醒节奏（她在 checkin 自填 `next_wake_minutes` 定下次唤醒，**替换**默认 cadence，非叠加，详见 Desire 行与 `DECISIONS.md` D48） |
+| E5 发布链常态调度 / 回执 / 空档目录 | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | D44：`CYBERBOSS_PIPELINE_SCHEDULE_ENABLED` 与 `CYBERBOSS_MEMORY_RECEIPT_ENABLED` 均默认关。调度器只调用既有 Review→History、经既有 writer lease 互斥；无候选只幂等种空目录。终态回执合并、pending 去重并受 `/pause_heartbeat` 拦截。未部署、未作真机验证。 |
+| timeline 候选发布通路（E3） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | D43：候选 type `timeline` 走完整 签署→Review→History 链，`publishTimeline()` append-only 写 `relationship_timeline.md`（双 marker 幂等、共享 lease/state，日期缺失拒发布）。工具/权限门/发布分支离线闭环进 `test:phase3`（阻塞）；生产接线随主体签署开关可达，尚无真机发布过一条 timeline 候选的留证。portrait 观察池与 details producer 为提示词治理（资产区），repo 零代码，不占能力行 |
+| 慢层注入面 E1（agreements / portrait / wandering） | `WIRED` | `COVERED` | `BLOCKING` | `VERIFIED` | D41：与 reentry 同层开窗缝入，三项独立开关（`CYBERBOSS_INJECT_AGREEMENTS` / `_PORTRAIT` / `_WANDERING`）默认关，合计预算默认 1000 非空白字（`CYBERBOSS_SLOW_LAYER_TOTAL_BUDGET` 可设 800–4000），逐项 admit、超限整项跳过不截断，缺失/空/全注释静默跳过（fail-open，只读）。测试进 `test:phase2`（阻塞主 CI）。2026-08-09 d27 交付（f83697c，活树字节比对一致）后三开关在生产打开，真机开窗 trace 留证：`reason=context_changed`，portrait 注入 467 非空白字，agreements/wandering 因全注释按设计 `missing` 静默跳过；err.log 零新增异常。注入内容的生产方（E2 consolidation 触发、E3 Reflect 升格）未开工，agreements/wandering 长出正文后的注入形态自动生效 |
+| 账本（details）外置存储 | `PARTIAL` | `COVERED` | `BLOCKING` | `NOT_WIRED` | #76 目标 1：`details.jsonl` 存储、`type: details` 权限门、History writer 发布与 `memory_lookup` 读通路已闭环并有边界测试（第三档完全按需，永不注入）。**写侧没有 producer** —— 主体 AI 产出账本候选的入口未接，也不做自动提取；生产无数据 |
+| 聊天资产按类分根外置存储 | `WIRED` | `COVERED` | `BLOCKING` | `NOT_WIRED` | D38（逻辑分层，续批次 B）：聊天原文 / 媒体 / 表情包三类各得独立根 env（`CYBERBOSS_CONVERSATIONS_DIR` / `..._MEDIA_DIR` / `..._STICKERS_DIR`），缺省逐字节回落到 `chatAssetsDir` 现派生；表情库 assets/index/tags 由钉死 `stateDir` 改为跟随 `stickersDir` 同根（修播种闸分家致「瘸」的潜伏裂缝）。`test/chat-assets-dir.test.js` 钉住不设逐字节兼容 + 各设一行只搬那一类 + 表情库四路径同根，在 `test:phase1`（阻塞）。**生产未设这三个 env**（活配置仅 `MEMORY_DIR`/`CONTINUITY_DIR` 迁 04-memory），故生产接线 `NOT_WIRED`；Owner 侧建目标目录 + 设 env + 停机搬文件 + 真机验（读历史/媒体/表情）后方可升 `VERIFIED`。diary 无需改码（既有 `CYBERBOSS_DIARY_DIR`），reentry 选 A 下留 `04-memory\reentry.md` |
+| Hard context · Current State | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 同上；与 memory_context 不是同一条通路 |
+| **Telegram memory_context** | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 逻辑经 `buildRuntimeTurn()` Telegram 分支可达，信封外 `<memory_context>` 块，fail-open；生产接线因 `CYBERBOSS_MEMORY_RETRIEVAL=0` 默认关闭（`.env.example:58`；`app.js:1175` 在 flag 为 false 时直接返回 `mode:"disabled"`），真机执行证据缺失 |
+| Context Trace 覆盖 memory_context | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | trace blocks / skipped 已解释 memory_context（所有 provider 的 turn 路径）；生产接线随 `CYBERBOSS_MEMORY_RETRIEVAL=0` 默认关闭而不执行，真机证据缺失 |
+| `memory_lookup`（Phase 5A，仅 user_pull） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 受控翻档；真机使用情况未核 |
+| 工具按需取用（weather / diary / sticker） | `WIRED` | `PARTIAL` | `NONE` | `WIRED` | 工具存在且注册，边界测试不全；sticker 组件测试已接入主 CI 的 `test:phase1`，但按第二节纪律 1 不代表整条工具通路为 `BLOCKING`。Windows CI 中 sticker 仅执行 5 条平台无关用例，依赖 macOS `sips` 的 3 条 PNG → GIF 用例恒 skip，因此仍是部分覆盖。**补记（第四处接线债，2026-08-05 fable-chat 真机实证）**：`sticker_tags` / `sticker_pick` 通，`sticker_send` 恒报 `No saved WeChat account was found` —— MCP 子进程的 `createProjectTooling` 不传 adapter，而 `create-project-tooling.js` 的缺省值**硬编码微信**，于是 Telegram 部署下所有经 MCP 的通道类工具（sticker 发送、channel file 发送、sticker 保存回执）都从微信出口出去；主 App 因显式传 `this.channelAdapter` 而不暴露此坑。已改为按 `config.channel` 选出口（子进程经 `CYBERBOSS_ENV_FILE` 拿得到 `CYBERBOSS_CHANNEL=telegram`）。同时补第二层：表情库统一存 `.gif`，原 Telegram 出口走 `sendDocument` 只会发成文件附件，现新增 adapter `sendAnimation`，由 `ChannelFileService` 按能力择优、无内联形态的通道自动回落 `sendFile`。回归 `test/tg-sticker-outlet.test.js` 已接进 `test:phase1`（去掉修复即红）；真机 canary 未做 |
+| MCP 工具分组隐藏（省 schema token） | `WIRED` | `COVERED` | `BLOCKING` | `VERIFIED` | T02/T02.5 目录化已落地：单一 manifest（`src/tools/tool-catalog-manifest.js`）为唯一分组与主题 authority，tool-host / MCP resources / CLI / 计量四个消费方共用。挂 `CYBERBOSS_TOOL_CATALOG_ENABLED` 默认关闭（关闭时 tools/resources/route config 与基线逐字兼容）；开启时按八个意图主题分级，常驻面恰好 3 项（单一 `cyberboss_catalog` + `cyberboss_system_send`/`cyberboss_time`，常驻工具 schema 15,810 → 373 chars，只证明 MCP 出牌字符面，不声称模型侧 token 节省），一级计数与二级清单剔除 alias/hidden，完整 schema 可按 handle 跳级加载；目录可见 ≠ 调用权（toolset 白名单 fail-closed，`chat-core@1` 已定义；授权边界仍归 G3/T04）；hidden/deprecated 条目仍可查询打标。**非常驻工具的调用经 catalog invoke**（D34，2026-08-05 补 C8 缺环）：`cyberboss_catalog` 增 `arguments` 用法，`{handle, arguments}` 解析出 canonical 名后重入现有 `invokeTool`，authorizationCeiling / lease / toolset 白名单 / 自助升格记录 / 参数校验 / `max_result_bytes` 全部沿用（invoke 吃 `g3_call_not_authorized` 而非 schema 码），结果原样透传；`listTools()` 与 `listChanged:false` 不动，广播面恒定 3 项。resources 后门同步收窄；测试进 `test:catalog-metering` + `test:route-lanes`（阻塞主 CI），full/resident 计量 fixture 钉住，目录开/关摆动（373 vs 15,810 chars）兼任 D34 回归判据。**2026-08-05 第八次交付首次在生产打开该开关**（此前 `CYBERBOSS_TOOL_CATALOG_ENABLED` 在生产 env 里根本不存在，目录相关代码在活体上一直休眠）：生产机 / 生产树 / 生产 env 下实测广播面由 31 工具 13,811 字节收到 **3 工具 798 字节**，**catalog invoke 真调通一个从未广播过的工具**（`memory/memory_lookup`，`isError=false`），调用前后 `tools/list` 逐字节相同；留证 `docs/audit/G4_PRODUCTION_DELIVERY_20260805_3.md`。**2026-08-05 21:17 行为面亦已真机通过**（Owner 在场，三项，全程未提示使用 catalog）：写日记（`cyberboss_diary_append` → `state\diary6-08-05.md` 实文件落盘）、额外发一条 Telegram（`cyberboss_telegram_send`，Owner 侧真实收到）、翻档查「测试」（`memory_lookup` → `memory
+ecall_log.jsonl` 记 `hit_ids:["ep003","ep009"]`、lookup 预算 4→3→2 单调递减）。三个工具**都不在常驻 3 项里**，只能经 catalog invoke 到达；期间 `cyberboss.err.log` 零新增、watchdog 持续 healthy。故生产接线由 `DISABLED` 直升 `VERIFIED`。**2026-08-15 修 catalog `authorized` 显示回归**（`tool-host.js` `catalogState`）：window override 激活时 chat 档同时带 `--toolset chat-core@1` 与 `--chat-self-escalation`，但 `authorized` 只看 toolset 成员、**漏算自助升格**，致 `memory_candidate_submit` 等目录外工具显示 `authorized:false`——调用其实会自助升格通过，但主体据此以为被拦、停止提交 episode 候选（8-12 线程恢复开始带 override 后回归，8-9 无 override 时正常）。按 D27-1「chat 永不挂硬工具闸」修为「自助升格开启即 `authorized:true`」，work-engineering 档（无自助升格）不受影响仍按 toolset 受限；测试进 `test:catalog-metering`（阻塞，45/45 绿）；单文件热部署+重启已上机（备份 `tool-host.js.bak-20260815-authfix`，重启后单 poller、模型/ effort/ resume 正确、err.log 零异常），**行为端（她提交一条 → 落 `episodes.jsonl`）待她下次聊天验证** |
+| Memory 目录化（注入目录而非命中行） | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | D25-A 已解除 `DEFERRED` —— memory/tool/MCP/skill 统一走分类目录方向获批；实施尚未开工 |
+| 子代理结果胶囊化 / Route 1 task-session core（T09） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | D14 胶囊契约与独立 `runTaskSession()` core 已实现；T10-A 在新增 `CYBERBOSS_ROUTE1_CHAT_DISPATCH_ENABLED`（默认关闭且要求 T09 开关同时开启）后补齐离线预防边界：worker 由编排器供给独立 git worktree 以隔离锁域，建卡时 fail-closed 拒绝与活 memory/continuity/state/settings-secrets/profile-configRoot 重叠的 workspace/allowed_paths，并把这些绝对根并入 forbidden_paths；work profile 加 Write/Edit deny，完成后由编排器自跑 git 取证再验胶囊。T10-B 已接主 Chat 的异步单飞派活控制器（turn 内仅建卡入队）、5/15/60 双上限与本窗口自确认、软停小轮边界/硬停杀进程两级中断、立即「收到」与 Context Trace；T10-C 已接独立 `state/route1/task-results.jsonl` 单 writer 结果留存、origin current/pending/expired 三态、一次性确定性通知、主动状态/领取工具及已终结窗口来源标记；全套默认关闭，未做真机。保护对象仅为活运行时数据，不按名称封锁源码；无 OS 沙箱，Bash 绝对路径逃逸仍是明确残余风险 |
+| 记忆服务层（validator / resolver） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | **9 个**测试文件已接 `test:memory-services`（note-service / resolver / service-cleanup / service-formal / validator / command-router / memory-command / seven-day-cleanup / validator-integration）。**extractor 一侧已按 `DECISIONS.md` D23 整条退役** —— 正则分桶抽取器与 post-response 自动写入 pipeline 已删除，系统不再替主体 AI 决定该记什么；退役由 `test/phase1-offline-config.test.js` 的守卫钉住。#91 修绿的 `memory-command` / `memory-seven-day-cleanup` / `memory-validator-integration` 三个已接进 `test:memory-services`，本行不再有无 CI 信号的测试。本行剩余的 validator / resolver 仍是 memory_context 读取通路与 `/memory` 命令的实现方，读取侧改造归 #42（见 D21。**另**：`memory_note` 的 Self-note 写入通路（#74）已与 History writer 收敛到同一把 writer lease、改为只追加，回归测试进 `test:phase3`（阻塞主 CI）|
+| Closeout liveness | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | 调度器已接入 `app.js`；`test:p0-closeout-liveness` 已接进主 CI；生产机开关状态仓库无法判断 |
+| nightly closeout | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | **`PARTIAL`** —— D18 业务日、时区统一及空结果重试/封存语义已实现，五类边界测试进入 `test:phase3`；仓库默认关闭，生产机实际状态未核 |
+| Reflect / 低频重读（rereadings） | `ORPHAN` | `UNIT_ONLY` | `BLOCKING` | `NOT_WIRED` | **`DEFERRED`** —— `weekly-reflect.js` 的 runtime.reflect 后台批处理方向已被 D42 主体自做的 reflect 节拍取代（见上方 E2 行），本模块按纪律保留不拆；`test:reflect` 仅提供孤儿回归信号。rereadings 文件本身将来由她在 reflect 轮里自写，不再需要这个批处理器 |
+| `/effort` | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 2026-08-05 与 `/model` 一并修复切换不生效：根因是 window override 只存 slot 级、线程轮换连坐清除后静默回退（`clearSlotThreadId` 删整个 slot），修复为 window override 与 workspace runtime params 双写（slot 清空后选择可恢复）；同批把 claudecode 目录扩为与 Claude Code 选单一致的 8 现役型号 + 别名（fable/opus/sonnet/haiku 5 系与 4.x 系），目录非空时未知型号拒绝并回列表；用例进 `test:phase1` + `test:route-lanes`（阻塞主 CI）；已随 2026-08-05 第九次交付上机（`01810c5`，见 `docs/audit/G4_PRODUCTION_DELIVERY_20260805_4.md`），Owner 行为面验证（切换后 argv 实测 + 轮换幸存）待做。**2026-08-07 补一处真相源分歧（Owner 真机报）**：`/model` 显示正确而 `/status` 显示 `claude-fable-5`（活体 argv 实测为 `claude-opus-4-6`）——`/model` 走「window override → 该 workspace 存值」阶梯，`/status` 却直接打 `describe().model`（profile 配置缺省值，恒非空故永远盖掉后两级）。已把阶梯收进单一 `resolveWindowScopedRuntimeParam`，`/model` / `/effort` / `/status` 三个调用方共用；同批 `/status` 增 `effort` 行（同一阶梯）、状态 token 配中文注解与状态图标、删去恒为 `(default)` 的 `provider` 行。回归 10 条进 `test:route-lanes`（阻塞主 CI），fixture 挂真原型而非各自 stub 该阶梯。已随 2026-08-07 第十九次交付上机（`2cee7c3`）并经 Owner 真机 `/status` 验证 model/effort 两行正确 |
+| `/pause_heartbeat` / `/continue_heartbeat` | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 单 writer 持久态、三类 poller/tick 与来源定向队列暂停均已接主链；窗口聊天和用户 reminder 明确不受影响。已随 `6fb078e` 上生产（2026-08-01），暂停态经文件预置生效。2026-08-04 前端 token 由 `/pause activity` `/continue activity` 改名为单 token `/pause_heartbeat` `/continue_heartbeat`（归入 Autonomy 组）；生产仍跑旧两词形态，改名形态待部署。`/pause` `/continue` 的命令级真机证据仍缺 |
+| Desire（八维状态 + hourly poller） | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | 最小闭环代码与生产落盘形态集成测试已进仓库；挂 `CYBERBOSS_DESIRE_LOOP_MINIMAL_ENABLED`，默认关闭，生产机实际开关状态由不入库的 secrets 决定。**2026-08-15 补**：cadence 现可配 15–240 分钟（`desire-schedule.js` 两端解锁 + 520 面板 UI）；新增 next_wake 自主节奏（她在 checkin 自填 `next_wake_minutes` 5–240，**替换**默认 cadence，poller 60s 分片读 `desire-wake-override.json`，见 `DECISIONS.md` D48）；checkin 主动态放开（发消息 / agent-browser 刷论坛 / 整理）；desire_checkin 提示词外置 `Fluffy-SelfHood/prompts/desire_checkin.md`（即时生效不重启，见 `DECISIONS.md` D46） |
+| `/probe`（手动激发 checkin） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 2026-08-15 新增 `system.desire_probe`：Telegram `/probe` 手动激发一次 desire checkin（菜单第 15 条），不改 cadence、不影响自主节奏；用于当场验证八维链路 |
+| 520 · 只读视图与健康度 | `WIRED` | `COVERED` | `BLOCKING` | `UNKNOWN` | 面板由独立计划任务拉起，真机状态未核 |
+| 520 · 活跃写端点（提示词 / 分层 / 门控 / 调度） | `WIRED` | `PARTIAL` | `BLOCKING` | `UNKNOWN` | 改生产行为的端点覆盖仍不全（故测试记 `PARTIAL`）；`test:520-endpoints` 已接主 CI，覆盖提示词写路径的保存/恢复、50 路由总账、18 个黑盒读端点契约、sleep-window 读写与 Node 同进程即时重读、DeepSeek 密钥处理；`reentry` 保存分支已与 Node History writer 共用同一把跨语言 writer lease，撞锁显式返回 409 |
+| 520 · 安全冻结写端点（5 个） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 按设计冻结，见 `DECISIONS.md` D5 |
+| 520 · 关怀页写路径（care config / cycle） | `PARTIAL` | `PARTIAL` | `NONE` | `NOT_WIRED` | 后端在、前端未接完；不是安全边界 |
+| 520 · 剧场页（theater scripts） | `WIRED` | `NONE` | `NONE` | `UNKNOWN` | 纯展示只读 |
+| Claude Code 工作站 MCP/skill 开关面板（7822） | `WIRED` | `COVERED` | `BLOCKING` | `NOT_WIRED` | `tools/claude-config-panel/` 零依赖 stdlib 面板，Owner 本机手动起（`--root` 必填，D8 姿态）：网页开关 Claude Code 的 skill（`settings.json` `skillOverrides`）、项目级 MCP（官方 `disabledMcpjsonServers`）与用户级 MCP（`~\.claude\mcp-parked.json` 停车文件搬移，Claude Code 无用户级禁用清单）；写前自动备份到 `backup\claude-config-edits\`，开关只对新开窗口生效。工作站工具，不进 bot 生产链，生产接线一列按定义记 `NOT_WIRED`。`test:claude-config-panel`（12 条，含 HTTP 黑盒与无损往返）已接主 CI |
+| Windows release / watchdog 控制平面 | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | **`PARTIAL`** —— 2026-07-30 首次真机交付留证已归档（`docs/audit/G4_PRODUCTION_DELIVERY_20260730.md`：方案 A 只搬代码，bot 存活并真实应答 Telegram）。**监督链已于 2026-07-31 修复**：描述文件去 BOM、`deployed_sha` 改为运行树真实来源（48660a9），watchdog 判活恢复 `healthy`，重启自愈链路闭合；修复前发生过一次真实停机（~2.5 小时，机器重启后无人拉起），事故与修复过程留证 `docs/audit/G4_WATCHDOG_RECOVERY_20260731.md`。2026-08-01 第二次交付（`6fb078e`，监督链在位热交付 + junction 断裂坑 3 留证）见 `docs/audit/G4_PRODUCTION_DELIVERY_20260801.md`。**仍未处理**：`deployment/current.json` 旧真相、`start-telegram.ps1` 硬编码、正规发布包机制（`install-descriptor` + 候选启动器）从未启用 —— 归 issue #77。2026-08-04 起 watchdog 存活可经 Telegram `/status` 只读回看（读 `CYBERBOSS_WATCHDOG_LOG` 指向的 `watchdog.log` 最近 `healthy` 心跳新鲜度，>180s=`LOST`；env 未设时显示 `unconfigured`，fail-open 不谎报）——诊断面，不改本行判据；生产机需设该 env 才显示真数据。**2026-08-07 该 env 已在生产配好并验证**（`telegram.env` 加 `CYBERBOSS_WATCHDOG_LOG` 指向活 descriptor 的 `watchdog_owner_dir\watchdog.log`；此前 65 行里没有这一行，故 `/status` 一直显示 `unconfigured` 而 watchdog 本身是活的），Owner 真机 `/status` 实测 `🐕 watchdog: alive`；同批把健康时的 `last healthy Xs ago` 收掉（心跳年龄仅保留在 `LOST` 分支，那里才是诊断价值所在）。仍为诊断面，不改本行判据。**2026-08-15 补**：`start-telegram.ps1` 的 `MEMORY_DIR` 硬编码已修（指向 `Fluffy-SelfHood\04-memory`，`start-dashboard.ps1` 同款）；发现 **watchdog 判活只认 helper（`start-telegram.ps1`）启动的 poller——用 `Start-Process` 直起会被它当"没跑"复活成双 poller**，故重启统一走 `start-telegram.ps1` 即单份稳定；watchdog 判活逻辑本身仍待评估（issue 候选）。正规发布包机制仍归 #77 |
+| 备份与回滚演练 | `WIRED` | `PARTIAL` | `NONBLOCKING` | `UNKNOWN` | **`PARTIAL`** —— memory 备份/恢复：工具 `scripts/memory-backup.js` 已落地，11 条用例进 `test:memory-services`（阻塞 CI），2026-08-03 完成真机演练留证并含真档原地恢复（`docs/audit/G5_MEMORY_RESTORE_DRILL_20260803.md`）；release 回滚：`phase1-rollback.ps1` 无真机演练证据。**四个列词按整行口径保守取值**——本行同时覆盖这两件事，回滚那半既无测试也无真机证据，故不随 memory 那半升格 |
+| G3 CLI preflight / 独立 config root（T03） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 挂 `CYBERBOSS_CLAUDE_G3_PREFLIGHT_ENABLED`，仓库默认关闭（关闭时 launch 与基线逐字兼容）。开启时：`configRoot` 经 env `CLAUDE_CONFIG_DIR` 归一进 profile fingerprint / slot 身份；八个 required CLI flag、env allowlist、auth 探针、cwd 与 lock key 同源任一失败均在切换前 fail-closed，旧进程继续服务。测试进 `test:route-lanes`（阻塞主 CI）。**离线硬边界证据**，不证明 fable/work 真隔离——差分 canary 与真机验收属 T04/T11 |
+| `fable-chat` profile 绑定 / per-lane active window pointer | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | 挂 `CYBERBOSS_CLAUDE_G3_PROFILE_CONTRACT_ENABLED` 且强依赖 T03 preflight 开关，均默认关闭。schema v3 固化 `fable-chat` / `work-engineering`：persona/configRoot/cwd/permission identity/authorization ceiling 进入 slot 指纹；fable 走 `chat-subscription`（**不发 `--bare`**——该模式下 CLI 只认 API key，订阅登录永不被读；鉴权即 `configRoot` 里的 `claude login`，D33）+ skills disabled + isolated user source，persona 文件整体经 `--system-prompt` 成为系统层（D32：role card 首轮注入退役、wechat instructions 两路不回流、`systemPrompt`/`outputStyle` 字段双拒），CLI 权限映射 `bypassPermissions`、外部 MCP 走 `chat-ceiling@2` 部署基集（隔离由 configRoot/slot/env allowlist/strict MCP 承担，不再靠权限降级）；内建工具面按 D33 分两档：`builtInTools` 默认面（chat 档必填，缺失 fail-closed）+ `escalatedBuiltInTools` 经 route2 lease 升格（升格是 launch 变更，子进程重启并 `--resume` 续会话）；**2026-08-05 默认面按 Owner 口径加入 `Write`/`Edit`**（省 token 省的是工具 schema 字数，不是行动能力；写入是轻量操作且是她保存东西的唯一出口），升格因此只对应真正贵的那类（`Bash`/子代理/全功能 coding）——加入前后 `launchFingerprint` 逐字节相同、slot 未轮换，活体 argv 已实测；上机按 D33 分两轮，**首轮两个 route2 开关保持默认关**——默认面即唯一面属预期，重活走 route1，升格回路留第二轮单独验；fable 目录与发送/时间核显式启用但不挂硬 toolset ceiling，work 工程能力不减且关系记忆 schema/call 双拒。T06 在同一开关下增加进程内 per-lane active profile 指针与 `/profile`：完整 profile 切换走各自 fingerprint slot，切回只 resume 该 profile 自己的 native session；指针不保存 threadId、不改变 continuity binding，unknown profile 原子失败，退稿仍只在 origin window 再次成为当前窗口时 EXACT 投递，origin transcript 终结则 `WINDOW_GONE` 作废。route-scoped MCP server ceiling 与目录发现独立，关闭时 launch/profile/slot/MCP config、命令/help 与基线逐字兼容；测试进 `test:route-lanes` + `test:catalog-metering`（阻塞主 CI）。2026-08-05 契约形状收窄六个字段（`residentToolSchemas` / `mcpServerCeiling` / `toolsetCeiling` / `envPolicy` / `defaultToolset` / `defaultMcpServerSet`）——它们本就被契约强制等于 `profileId` 决定的常量，改为代码派生，语义与 `launchFingerprint` 均不变（有指纹不变量测试钉住，session slot 不因此轮换）；该剥键已随 2026-08-05 第八次交付在生产完成（profile 与 schema 两份资产同批改，剥键前后 argv/env 键集/`launchFingerprint` 逐字节相同，slot 未轮换）；真实 local profile/mapping 与差分 canary 归 T11，未声称真机隔离通过 |
+| G3 Route 2 gate / 单次操作 lease（T07/T08） | `WIRED` | `COVERED` | `BLOCKING` | `DISABLED` | 挂 `CYBERBOSS_ROUTE2_GATE_ENABLED` 且默认关闭；A/B 成本门与结构硬门只产出“留 Route 2 / 转 Route 1”，不削减 chat 能力。单次 lease 复用既有 session slot 与 window override 指纹，以同一 `storedThreadId --resume` 接管 tool/MCP/带标签非人格 overlay；完成、失败、TTL、cancel、强中断与 restart 均回收，过期成员 schema/call 双拒而目录仍可浏览。真实 `tool.use`、逐工具 `max_result_bytes`、server 截断与成本 Context Trace 已接通；测试进 `test:route-lanes`、`test:catalog-metering`、`test:phase2`（阻塞主 CI）。**2026-08-05 真机 canary 实证：升格此前无触发方**——`grantRoute2Lease` 生产零调用点、`decideRoute2` 零调用点，且闸门的 `no_tools` 硬理由恰好挡住"不点名 MCP 工具"的内建面升格，两者叠加使 `escalatedBuiltInTools` 永不生效（她实测只有只读五件套）。已补：触发方工具 `route2_escalate`（经既有 route1 IPC 通道到 bridge，随 `CYBERBOSS_ROUTE2_GATE_ENABLED` 注册）+ **删掉闸门的 `no_tools` 硬理由**——按 Owner 口径澄清，闸门是省 token 的成本路由器、不是权限闸（D13 / 不变量 3），空计划留在 chat；结构性硬理由（repositoryWork / subagent / parallel / longLoop / fullEngineeringHarness / 上下文硬顶 / 无界结果）一条不减。**修复后的升格回路尚未真机验收**，T-D 第二轮 canary 仍欠 |
+| Codex 作为子代理运行时 | `PARTIAL` | `COVERED` | `BLOCKING` | `NOT_WIRED` | 有界委派协议与离线闭环已实现；2026-07-28 用真实 Codex 跑通一次 canary（只改 `test/`，边界成立，验收测试通过，判定 accept）。**仓库内没有把 Codex adapter 绑进委派 runner 的代码**，运行时由调用方注入，离线测试用 fake；主 Chat 未接 |
+| 语音（voice-service） | `PARTIAL` | `PARTIAL` | `NONE` | `UNKNOWN` | 已注册为工具；能力口径待裁决（P1-4） |
+| 天气（weather-service） | `WIRED` | `COVERED` | `NONE` | `WIRED` | 2026-08-18：加 Open-Meteo provider（与 AMap 并存，`CYBERBOSS_WEATHER_PROVIDER` 切换，默认仍 amap）+ 日简报（今日预警 rain/temp-swing、今明各自逐小时降雨窗口、7 天实测/7 天预报）。`test:weather` 组接进 `phase1-offline.yml`（纯 mock 无网络）。生产配 Waterloo 坐标 + `open_meteo` 已部署（`c459546`，deploy D5 逐字节校验 + 真 API 冒烟通过）；行为面见下方「天气注入八维 checkin」行 |
+| 天气注入八维 checkin（预警日缝一行） | `WIRED` | `COVERED` | `NONE` | `WIRED` | 2026-08-18：hourly-desire-poller 那跳按需取 `getDailyBrief()`（fail-open，不炸 checkin），网关「当天 + 首次 + 今明任一 notable」→ 往 `desire_checkin` 文本缝一行事实（今明逐小时雨窗 / 温度），单 writer 守卫 `weather-inject-state.json` 保每日一次；`/probe` 也带（传空守卫，预警日每次显示，便于测）。挂 `CYBERBOSS_WEATHER_INJECT_ENABLED` 默认关（生产已开）；关闭 / 无 notable / 已投递时 checkin 文本逐字节不变。只给事实 + 「可提醒她」姿态提示，不写台词（北极星）。`test/weather-inject.test.js` 进 `test:weather`。真机行为 canary 待 Owner 确认 |
+| embedding-service | `PARTIAL` | `PARTIAL` | `NONBLOCKING` | `UNKNOWN` | 由 `app.js` 调用；与 D6 的边界待裁决 |
+| Phase 5B 自动 Soft Retrieval / BM25 / reranker | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | `DEFERRED` |
+| Apple Watch 健康（read-only `health` 目录工具，感知） | `WIRED` | `PARTIAL` | `BLOCKING` | `NOT_WIRED` | 2026-08-19（分支 `feat/health-catalog`，未部署）：把 Apple Watch 健康数据作为**只读**目录工具 `health` 接进 `cyberboss_catalog` 的「感知」主题（D50）。经 Python 桥（`src/services/health-service.js`，spawn 复用 whisper 风格）调 Collar_watch `health_store` 的两条读路径——`now`→`health_now`、`detail`→`execute_health_detail`；**不暴露 `measure_heart_rate`**（它写 command.json，单 writer 硬约束，禁入）。默认关，挂显式 env 闸 `CYBERBOSS_HEALTH_ENABLED`（=1/true 开），关闭时目录形状逐字节不变（感知 8→9 仅在开时）。工具描述强制：值自带新鲜度（如「97 bpm, 9 min ago」），永不把陈旧读数当作实时/当前测量，也非医疗诊断。路径全走 env/config 缺省安全值，公开仓无 secret。目录注册/主题/风险（read）/schema 加载有 `test:catalog-metering`（阻塞 CI）钉住（含开/关 +1 焦点断言，46/46 绿）；**Python 桥本身（spawn/超时/错误码/HEALTH_DATA_DIR 转发）仅本机 stdio 冒烟验证**（`now` 与 `detail` 均取到真实数据：heart_rate 带新鲜度、sleep、stress_signal），无 CI 单测，故测试 `PARTIAL`。**未部署、未接生产 env、未真机验证**，故生产接线 `NOT_WIRED`；Owner 部署 + 配 `CYBERBOSS_HEALTH_ENABLED`/`_PYTHON`/`_SERVER_DIR` + `HEALTH_DATA_DIR` + Telegram 真机验后方可升 `WIRED`/`VERIFIED`。取代旧「Apple Watch bridge / `DEFERRED` 仅 5 份规格」行 |
+
+### 证据锚点
+
+- **Telegram→CMX 图片识别 / OCR**：`MediaInboxService` 在 photo 原子落盘后、recorder/runtime 前调用 `src/services/cmx-image-recognizer.js`；仅向配置的 CMX `POST /files/recognize` 上传字节。结果以信封外 `<attachment_vision_context trust="untrusted">` 进入该次 turn，用户正文逐字不变，输出转义且总长有界；`conversation-purity` 在记忆材料化前剥除。CMX 不可用时原文与 `<media>` 引用继续。契约和主路径回归位于 `test/telegram-media-v2.test.js`，属于阻塞 `test:telegram-media`。
+- **G1（Telegram memory_context）**：`src/core/app.js` 的 `buildRuntimeTurn()` Telegram 分支调用 `resolveMemoryContextFailOpen()`（对 `resolveMemoryContextForPrepared()` 的 fail-open 包装，解析失败降级为空记忆），memory_context 作为独立 `<memory_context>` 块拼在 `formatTelegramRuntimeText()` 产出的 `<channel>` 信封外侧上方；无记忆时不出块，payload 与旧格式逐字节一致。格式裁定见 `DECISIONS.md` D15。
+- **为什么测试记 `COVERED`**：`test/telegram-runtime-payload.test.js` 新增 4 条钉住新 payload 格式（有记忆 / 无记忆 / 转义 / 信封不变），在 `test:phase1` 分组内，阻塞主 CI。
+- **仍缺什么**：真机 Telegram 上 memory_context 实际执行并被 trace 记录的留证，因此 G1 记 `PARTIAL` 而非 `PASS`。**取证目前被 `CYBERBOSS_MEMORY_RETRIEVAL=0` 阻断**：仓库默认姿态（`.env.example:58`）下 `app.js:1175` 直接返回 `mode:"disabled"`、memory_context 不执行，故判据 0 的证据在默认姿态下取不到。停摆时间线取证与默认开关姿态属产品裁定（`NEEDS_FABLE-1` / fable W9 裁定一.3、一.4），**G1 定义不改**。
+- **为什么 Re-entry / Current State 仍是 `WIRED`**：它们不走 `buildRuntimeTurn`，而是由运行时适配器调 `prepareOpeningContext()`（`claudecode/index.js:895`、`codex/index.js:245/276`）注入。两条独立通路，不能合记一行。
+- **Context Trace 覆盖 memory_context**：`recordContextTrace()` 新增 memoryContext 参数，有记忆行时在 `blocks` 记 `{type:"memory_context", loaded:true, reason:<mode>, chars}`，无记忆时在 `skipped` 记 `{type:"memory_context", reason:<mode|empty>}`；`dispatchPreparedTurn` 的调用点已接入，对所有 provider 的 turn 路径生效（opening refresh 调用点行结构不变）。由 `test/phase2-hard-context.test.js` 钉住，在 `test:phase2` 分组内，阻塞主 CI。
+- **为什么 nightly 的生产接线记 `UNKNOWN`**：仓库只能证明 `.env.example` 里 `CYBERBOSS_NIGHTLY_CLOSEOUT_ENABLED=false`、`CYBERBOSS_NIGHTLY_MODE=evidence`，以及 `src/core/config.js` 对应的默认值为 `false` 与 `evidence`；`scripts/windows/continuity-nightly.ps1` 的计划任务路径显式允许未设置 / `evidence`，而 `shadow` / `auto` 必须另有 `config_dir/nightly-mode.confirm` 标记。生产机实际环境变量在 `settings/secrets/*.local.json`，不入库；计划任务状态与确认标记状态也不在版本控制内。**因此仓库无法对生产机的历史启用情况作出任何结论 —— 这一格只能记 `UNKNOWN`。**
+- **#74 Self-note 单锁域**：`ai_self_notes.md` 的两个 writer —— History writer（`src/continuity/continuity-pipeline.js:412` `publishSelfNote()`）与主体 AI 的 `memory_note` 工具（`src/services/memory-note-service.js`，生产接线 `src/tools/create-project-tooling.js:61` → `src/tools/tool-host.js:228`）—— 现在从 `src/orchestration/memory-writer-lease.js` 同一处解析 lease 路径，两边锁域合一；`memory_note` 的写入改为只追加（`memory-note-service.js:82` `appendNoteLine()`），不再整读整写回。回归测试 `test/phase3-selfnote-writer-lease.test.js` 在 `test:phase3` 分组内，含一条**双进程真并发**用例（父进程先占锁，保证子进程第一次写入必然撞锁，竞态窗口是构造出来的）。fail-open 不变：拿不到锁返回 `note_unavailable`，不阻断聊天。
+- **CI 覆盖**：主 CI 只执行 `.github/workflows/phase1-offline.yml` 里列出的**十四个** `npm run test:*` 分组 —— 原九组，加上 issue #78 收编的 `test:p0-closeout-liveness` 与第 2 批接线的 `test:memory-services` / `test:reflect` / `test:520-endpoints`，以及工作站配置面板的 `test:claude-config-panel`。红孤儿修理第 2 批的 6 个文件已接入既有分组：Claude/Codex approval 与 Codex RPC 进入 `test:route-lanes`，sticker 进入 `test:phase1`，tool-host 进入 `test:catalog-metering`；其中 Windows CI 对 sticker 只有 5 条执行、3 条 macOS `sips` 用例恒 skip，不能记为完整覆盖。其余未接线孤儿仍按「不许把红测试直接接进 CI」先修后接；另有若干与 P0/P1 目标通路无关的绿孤儿。
+
+---
+
+## 四、优先级
+
+```text
+（2026-08-03 truth-reset：原 NOW/NEXT/LATER 已严重滞后于执行链——所列多项已合入 main。
+ 下方按事实重列「已完成」与「剩余」；剩余项的前瞻排序（谁先谁后）待 fable 协调，本节不预设。）
+
+已完成（原 NOW/NEXT/LATER 中已落地并合入 main，默认关）
+- G2-2 主体签署 + G2-5 dispatcher/注入/ack：已闭环（离线全链 + 阻塞 CI）
+- 目录化 T01/T02 + G3 隔离 T03–T06 + Route 2 T07/T08 + Route 1 T09/T10-A/T10-B/T10-C：已实施合入
+- Closeout 业务日与 no_output 终态（D18）；#68 睡眠窗口 520 面板化（#122）
+- D28 存量候选只读 lookup 消费者（#125）
+
+剩余——分三栏（栏内排序待 fable 协调；Agent 不得把维护/重构自动升级成上线门）：
+
+RELEASE BLOCKERS（第五节切生产判据直接对应，缺一不可）
+- G1 真机取证：Telegram 实际加载 memory_context 并留 Trace
+- G2 生产闭环：打开开关跑完整 签署→Review→History→递送，并真机留证（让 G2 从 PARTIAL 走向 PASS）
+- G3 / T11：真实 fable-chat / work-engineering 隔离 + Route 1/2 真机差分 canary + 生产绑定
+- G5：memory 的「真实备份→破坏副本→恢复→核对数据」已于 2026-08-03 完成留证（含真档原地恢复）；**剩余：release 回滚（`phase1-rollback.ps1`）真机演练**（硬门，D20）
+- #77 中对应「启动入口 / descriptor 单一真相 / 正规 release 包」的剩余项（整理成剩余项，不照旧事故正文推进）
+
+PRODUCT-COMPLETE DECISION REQUIRED（是否属本次正式上线范围，由 Owner 明确裁，不由 Agent 自动算上线门）
+- G2-7 真实存量迁移执行
+- G2-8 睡眠兜底 / #65（#65 先按 D26 退稿严格实时、window_gone 作废不递继任重新收窄，再决定是否施工）
+
+POST-RELEASE / PARALLEL
+- 520 重构阶段 2 设计稿
+- R4 真 Windows 留证等其他增强项
+
+DEFERRED
+- Soft Retrieval / 多 Bot / Apple Watch
+```
+
+**POST-RELEASE / PARALLEL 栏可以与 RELEASE BLOCKERS 并行推进，但不能替代它们。** 直接去做增强项与外围留证、跳过 G1 真机取证与 G2 生产闭环，是本文件明确要防止的走法。
+
+### G1 修复的已知风险
+
+已消解：memory_context 的位置、无记忆兼容、fail-open 与钉格式测试原由 D15 裁定；D30 保留这些边界，只为显式开启的 CMX 图片识别增加信封外受控例外。通用 `resolveVisionContext()` 仍不回 Telegram 路径。
+
+---
+
+## 五、切生产判据
+
+同时满足下列全部条件才允许切生产，缺一不可：
+
+0. **G1 通过**：Telegram 上 memory_context 实际执行，且 Context Trace 能证明它执行了。当前 `PARTIAL`（缺真机证据）；
+1. **G2 通过**：Closeout 后的 owner、Review、History 与 nightly 边界闭环。当前 `PARTIAL`（离线全链已闭环并有阻塞 E2E，缺生产启用与真机证据，**未达 PASS**）—— 与第一节 Gate 表统一；此前本行写 `FAIL` 属 G2-2/G2-5/G2-4/G2-6/G2-7 落地前的旧口径；
+2. R4 翻盘清单第 3 条已补：真 Windows 生产机的 release/cutover 测试完整输出已归档进 `docs/audit/`——**已满足**（2026-08-03，`docs/audit/G4_PREDEPLOY_TEST_OUTPUT_20260803.log`，13 组完整 stdout+stderr；两红组经对照实验定性为无 `.git` 环境因素，fable W9 裁定三）；
+3. 生产机启动项已固化 `CYBERLINK_ROOT`（否则 `start-dashboard.ps1` / `start-telegram.ps1` fail-closed）；
+4. 启动 watchdog 的入口显式传 `--descriptor`；
+5. 能力表中「生产接线」列没有任何 `UNKNOWN` 的能力被计入放行范围；
+6. **G3 通过**（硬门，`DECISIONS.md` D20）：真实 `fable-chat` profile 绑定与隔离证据，Telegram 陪伴线与工程线互相独立。当前 `PARTIAL`；
+7. **G5 通过**（硬门，`DECISIONS.md` D20）：一次真实备份恢复演练留证。当前 `PARTIAL` —— memory 备份恢复演练已于 2026-08-03 在真机完成并留证（含真档原地恢复，`docs/audit/G5_MEMORY_RESTORE_DRILL_20260803.md`）；**尚缺 release 回滚的真机演练**，故本条仍未满足。
+
+**当前状态：条件 0、1、6、7 均未满足。不得切生产。**
+
+### 放行范围与显式排除项（Owner 裁定 2026-08-03）
+
+> **读到这里的 Agent 注意：下列能力被显式排除出本次放行范围，本次上线不做、不验、不阻塞。** 它们不是"忘了"，是裁定过的取舍；上线后按「补验队列」逐项补。判据 5（生产接线无 `UNKNOWN`）只对**放行范围内**的能力生效——排除项不触发判据 5。
+
+**本次放行范围** = 第四节 RELEASE BLOCKERS 五项对应的通路（G1 / G2 生产闭环 / G3·T11 / G5 / #77 启动入口与 descriptor），以及它们直接依赖的 Telegram 主链路。
+
+**显式排除（本次不做）**
+
+| 排除项 | 现状 | 为何不阻塞 | 何时补 |
+|---|---|---|---|
+| Closeout liveness、nightly closeout、Desire（八维 + hourly poller） | 生产接线 `UNKNOWN`（开关在不入库的 secrets，仓库判不了真机） | 均默认关、与 Telegram 主链路读写路径解耦；不开就不产生生产行为 | 上线后单独一轮真机核对开关状态，把 `UNKNOWN` 变已知态 |
+| 520 · 只读视图与健康度 / 活跃写端点 / 剧场页 | 生产接线 `UNKNOWN`；写端点测试 `PARTIAL`，`FROZEN_WRITE_ENDPOINTS` 7 个仍冻结 | 面板由独立计划任务拉起，不在放行链路上；写端点冻结未解，不构成绕过 Review 的风险 | 上线稳定后单列一轮 520 真机核 + 阶段 2 重构（POST-RELEASE） |
+| voice-service / weather-service / embedding-service | 生产接线 `UNKNOWN`，能力口径待裁（P1-4 / D6 边界） | 与记忆与人格连续性无关，属外围工具 | 口径裁定后再排 |
+| **G2-7 真实存量迁移执行** | D28 已裁只读封存方案并落地消费者（#125，默认关）；"对真实存量跑一遍分类"这个执行动作未做 | 旧候选按只读封存，零写入风险，随时可补跑 | 上线后择期补跑，不改方案 |
+| **G2-8 睡眠兜底 / #65** | **未做。**（已做的是 #122 睡眠窗口 520 面板化，与本项不是同一物，勿混） | D26 退稿严格实时、window_gone 作废不递继任已收窄语义；缺兜底只影响睡眠期递送时效，不产生错档 | 上线后按 D26 收窄后的语义重评是否施工 |
+| **TG 指令全量接通** | 现存指令有缺失/错乱、后端已有能力未接通（#131 两条症状即此类）；`/model` 多 provider（CC 任意模型 / Codex / DeepSeek）、`/effort` 属**新接能力，尚未实现** | 属人机接口完整度，不影响记忆正确性与单 writer 边界 | 已排队：先出全量普查对照表交 Owner，再定修理与新接清单；排在 #77 发布机制修复之前 |
+
+**补验队列（上线后按序）**：真机核对 `UNKNOWN` 开关三组 → TG 指令普查与修理 → G2-7 存量补跑 → G2-8/#65 重评 → 520 阶段 2。
+
+---
+
+## 六、维护规则
+
+- 一个交付批次收尾时，只改本文件对应的**那一行**（每个能力一行；一批动了几条能力就改几行，不是每个 commit 改一次）。不要同时改 README、`CLAUDE.md` 或架构文档 —— 它们里没有状态结论可改。
+- 改动本文件时更新 `Last verified` 与 `Verified against`。**没有重新核对就不要动这两行。**
+- 状态词只能取第二节词典里的值。需要新状态时先改词典并说明理由，不要就地造词。
+- 本文件只保留**当前**结论，旧结论移进 `docs/archive/`。
+- 补充材料（调研、实验、外部资料）发生变化**不要求**修改本文件。只有当补充材料导致当前结论变化时，才更新这里。
