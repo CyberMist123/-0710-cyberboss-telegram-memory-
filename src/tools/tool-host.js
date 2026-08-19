@@ -339,6 +339,7 @@ const PROJECT_TOOLS = [
         },
         timeout_ms: { type: "integer", minimum: 1, maximum: 3600000 },
         approval_policy: { type: "string", enum: ["never", "on-request", "untrusted"] },
+        workspace: { type: "string", description: "Named dispatch target from CYBERBOSS_ROUTE1_WORKSPACES (e.g. home = Fluffy-SelfHood). Omit for the engineering repo. base_sha may be omitted; the target repo's HEAD is used." },
         task_materials: { type: "array", items: { type: "object" } },
         confirm_token: { type: "string" },
       },

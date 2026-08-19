@@ -133,6 +133,9 @@ function readConfig() {
     // D51: profiles allowed to sign memory candidates. Empty = fable-chat only
     // (historical default); "*" = every TG chat window.
     subjectProfileIds: readListEnv("CYBERBOSS_SUBJECT_PROFILE_IDS"),
+    // D52: named route1 dispatch targets, JSON map name -> absolute repo path.
+    // Unset/malformed = {} (engineering repo only; historical behavior).
+    route1Workspaces: readJsonObjectEnv("CYBERBOSS_ROUTE1_WORKSPACES"),
     // `/new` opens a window she asked for; this decides whether the window
     // speaks first instead of waiting to be pulled. Off by default.
     windowOpenGreetingEnabled: readStrictBoolEnv("CYBERBOSS_WINDOW_OPEN_GREETING_ENABLED", false),
@@ -374,6 +377,25 @@ function readListEnv(name) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+// JSON object env: {"name":"C:\\abs\\path", ...}. Malformed input degrades to
+// {} (feature off) rather than killing startup over a typo; non-string values
+// are dropped.
+function readJsonObjectEnv(name) {
+  const raw = String(process.env[name] || "").trim();
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .filter(([, value]) => typeof value === "string" && value.trim())
+        .map(([key, value]) => [key.trim(), value.trim()]),
+    );
+  } catch {
+    return {};
+  }
 }
 
 function readTextEnv(name) {

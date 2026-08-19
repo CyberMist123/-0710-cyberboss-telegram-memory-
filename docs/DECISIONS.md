@@ -1056,3 +1056,17 @@ Decision date: 2026-08-19
 - 保真依据：`subject_route.session.profile_id` 逐条落在候选与 attestation 里，Review/审计随时可按窗口区分来源；撤销 = 改回 env，无迁移成本。
 - 测试：`subject-signing-ipc-broker.test.js` D51 用例钉住「默认拒外 profile、`*` 收外 profile 且候选记录真实 profile_id」（在 `test:route-lanes` / `test:catalog-metering`，阻塞 CI）。
 - 生产：`settings\secrets\telegram.env` 设 `CYBERBOSS_SUBJECT_PROFILE_IDS=*`。
+
+## D52 · route1 增加命名 workspace（home=Fluffy-SelfHood 立本地仓），车能进家门但记忆店仍是禁区
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-19
+```
+
+- 痛点：route1 的 workspace 钉死在工程仓（work-engineering profile cwd），`allowed_paths` 拒绝绝对路径与 `..`，Fluffy-SelfHood（她的家）在仓外——车进不去（Owner 2026-08-19 点名，SOP 预警过的坑）。
+- 决定：**不放弃 worktree/观察 diff 的安全机器，而是把它带到家门口**。(1) Fluffy-SelfHood `git init` 成**纯本地仓**（无 remote；`.gitignore` 排除 `04-memory/`、`06-raw/`、`07-media/`、`*.bak*`）。(2) route1 增加 env 配置的命名 workspace：`CYBERBOSS_ROUTE1_WORKSPACES`（JSON name→绝对路径；不设 = 只有工程仓，历史行为逐字节一致），dispatch 带 `workspace:"home"` 即切目标仓。(3) `base_sha` 可省略——dispatch 时自动解析目标仓 HEAD（`route1_base_sha_unresolved` fail-closed）。
+- **不放松的部分**：`04-memory`（记忆店）仍在 seam 的 protectedRoots 且被 .gitignore 排除——不进 worktree、车写不到活店，记忆只能走签名+Review 闸（不变量 4/6）。worktree 隔离、observed diff、路径边界、超时/确认梯全部原样适用于家仓。
+- 审计结论（Owner 问"为什么车不像聊天端一样 bypass"）：聊天端是**她本人在场**的会话，车是**无人值守 writer**——有界规格+事后 diff 验证是 route1 可信的根基，放开成 bypass 等于把无人车放进家里乱写。本次审计认定 route2 gate 是 token 成本路由器（D13/不变量 3，非权限闸）、protectedRoots/秘密目录合理；唯一不合理处就是"够不着家"，本条修掉。
+- 测试：`route1-dispatch-controller.test.js` D52 用例（命名解析、HEAD 自动解析、未知名 fail-closed、默认路径不变），在 `test:route-lanes`（阻塞 CI）。
+- 生产：`telegram.env` 设 `CYBERBOSS_ROUTE1_WORKSPACES={"home":…\Fluffy-SelfHood}`；家仓初始提交 9344d39。

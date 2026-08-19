@@ -82,6 +82,37 @@ function fixture() {
   return { calls, controller, flush, runtime, scheduled, traces, turn, waits };
 }
 
+test("D52: a named workspace routes dispatch to that repo and auto-resolves its HEAD; unknown names fail closed", () => {
+  const homeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "route1-home-"));
+  const homeSha = "b".repeat(40);
+  const resolved = [];
+  const controller = new Route1DispatchController({
+    runtimeAdapter: { runTaskSession: async () => result("x"), cancelTaskSession() {}, requestTaskSessionStrongInterrupt() {} },
+    idFactory: (() => { let n = 0; return () => `home-${++n}`; })(),
+    queueMicrotaskFn: () => {},
+    workspaces: { home: homeRoot },
+    resolveHeadSha: (workspace) => { resolved.push(workspace); return homeSha; },
+  });
+  controller.registerTurn({ turnId: "turn-h", workspaceRoot: ROOT, launchProfile: { schemaVersion: 3, profileId: "work-engineering" } });
+
+  const { base_sha: _omit, ...noSha } = taskArgs(60_000);
+  const queued = controller.dispatch({ ...noSha, workspace: "home" }, { turnId: "turn-h" });
+  assert.equal(queued.status, "queued");
+  const spec = controller.tasks.get(queued.task_id).spec;
+  assert.equal(spec.workspace, process.platform === "win32" ? path.resolve(homeRoot).toLowerCase() : path.resolve(homeRoot));
+  assert.equal(spec.base_sha, homeSha);
+  assert.deepEqual(resolved, [homeRoot], "HEAD is resolved against the named workspace, not the repo");
+
+  assert.throws(
+    () => controller.dispatch({ ...noSha, workspace: "no-such-place" }, { turnId: "turn-h" }),
+    { code: "route1_workspace_unknown" },
+  );
+  // Default dispatch (no workspace) keeps the historical repo target and an
+  // explicit base_sha is still honored verbatim.
+  const repoTask = controller.dispatch(taskArgs(60_000), { turnId: "turn-h" });
+  assert.equal(controller.tasks.get(repoTask.task_id).spec.base_sha, BASE_SHA);
+});
+
 test("A1-A5 dispatch is create+queue only, single-flight, and applies 5/15/60 policy", async () => {
   assert.equal(decideBand(5 * 60_000, false), "free");
   assert.equal(decideBand(5 * 60_000 + 1, false), "confirm");

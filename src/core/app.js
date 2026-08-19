@@ -198,6 +198,7 @@ class CyberbossApp {
           runtimeAdapter: this.runtimeAdapter,
           stateDir: config.stateDir,
           trace: (entry) => this.contextTraceRecorder.record({ route1_dispatch: entry }),
+          workspaces: config.route1Workspaces,
         })
       : null;
     this.runtimeAdapter.onRoute1DispatchRequest?.((args, context) => (
