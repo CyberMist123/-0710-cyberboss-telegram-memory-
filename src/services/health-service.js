@@ -75,7 +75,11 @@ function runHealthProcess({ command, args, cwd, dataDir, timeoutMs }) {
 
     let child;
     try {
-      child = spawn(command, args, { cwd, env, shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+      // NOTE: do NOT pass `cwd` to spawn. On Windows, setting cwd makes Node
+      // resolve a bare command ("python") against that dir and miss PATH,
+      // failing with ENOENT. We instead put the Collar_watch server dir on
+      // PYTHONPATH (above) so `import health_store` still works from anywhere.
+      child = spawn(command, args, { env, shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     } catch {
       reject(healthError("health_python_spawn_failed"));
       return;
