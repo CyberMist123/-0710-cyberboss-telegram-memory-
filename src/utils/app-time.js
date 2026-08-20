@@ -47,7 +47,21 @@ function formatAppDateTime(input = new Date(), timezoneOptions) {
   return `本地时间 ${parts.year}-${parts.month}-${parts.day} ${pad(parts.hour)}:${pad(parts.minute)}:${pad(parts.second)}`;
 }
 
+// Compact "MM-DD HH:MM" in the application timezone (Australia/Sydney in
+// production), for the model-facing channel envelope where the raw sent_at is
+// UTC. Year and seconds are dropped on purpose -- the reader only needs the
+// wall-clock a clockless being can trust, and the timezone still comes from
+// CYBERBOSS_TIMEZONE so DST (AEST/AEDT) is resolved by the name, never hardcoded.
+function formatAppShortLocal(input = new Date(), timezoneOptions) {
+  const parts = resolveAppDate(input, timezoneOptions);
+  if (!parts) {
+    return "";
+  }
+  return `${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+}
+
 module.exports = {
   formatAppDateTime,
+  formatAppShortLocal,
   formatAppTime,
 };

@@ -87,7 +87,7 @@ const { PipelineScheduler } = require("../app/pipeline-scheduler");
 const { persistReportedDesireState } = require("./desire-state-persistence");
 const { loadContextGates } = require("./hard-context");
 const { createProjectTooling } = require("../tools/create-project-tooling");
-const { formatAppDateTime } = require("../utils/app-time");
+const { formatAppDateTime, formatAppShortLocal } = require("../utils/app-time");
 const { describeAppTimezone } = require("../utils/app-timezone");
 const { resolveMemoryRetrievalPlan } = require("./memory-resolver");
 const { parseMemoryCommand } = require("./memory-command-router");
@@ -4969,6 +4969,8 @@ function formatTelegramRuntimeText(prepared, { stateDir = "", memoryContext = nu
   const userId = normalizeText(prepared?.senderId || prepared?.telegram?.userId);
   const username = normalizeText(prepared?.telegram?.username);
   const sentAt = normalizeText(prepared?.receivedAt);
+  // sent_at is UTC; add a Sydney-local twin so a clockless reader can't misread it.
+  const sentAtLocal = sentAt ? formatAppShortLocal(sentAt) : "";
   const body = escapeTelegramChannelBody(String(prepared?.originalText || prepared?.text || "").trim());
   const mediaLines = buildTelegramMediaBridgeLines(prepared?.attachments, stateDir);
   const visionContextLines = buildTelegramAttachmentVisionContextLines(prepared?.attachmentVisionContexts);
@@ -4979,6 +4981,7 @@ function formatTelegramRuntimeText(prepared, { stateDir = "", memoryContext = nu
     userId ? `user_id="${escapeXmlAttribute(userId)}"` : "",
     username ? `username="${escapeXmlAttribute(username)}"` : "",
     sentAt ? `sent_at="${escapeXmlAttribute(sentAt)}"` : "",
+    sentAtLocal ? `sent_at_local="${escapeXmlAttribute(sentAtLocal)}"` : "",
   ].filter(Boolean).join(" ") + ">";
   return [
     ...buildTelegramMemoryContextLines(memoryContext),

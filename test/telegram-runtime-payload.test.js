@@ -17,23 +17,36 @@ function buildTelegramTurn(prepared, stateDir = "") {
 }
 
 test("Telegram plain text uses the deployed channel envelope, field for field", async () => {
-  const runtimeTurn = await buildTelegramTurn({
-    chatId: "chat-1",
-    messageId: "message-2",
-    senderId: "user-3",
-    telegram: { username: "alice" },
-    receivedAt: "2026-07-27T10:11:12.000Z",
-    originalText: "明文消息",
-  });
+  // sent_at_local is timezone-derived, so pin the app timezone (production sets
+  // CYBERBOSS_TIMEZONE=Australia/Sydney) instead of inheriting the CI host's UTC.
+  const previousTimezone = process.env.CYBERBOSS_TIMEZONE;
+  process.env.CYBERBOSS_TIMEZONE = "Australia/Sydney";
+  try {
+    const runtimeTurn = await buildTelegramTurn({
+      chatId: "chat-1",
+      messageId: "message-2",
+      senderId: "user-3",
+      telegram: { username: "alice" },
+      receivedAt: "2026-07-27T10:11:12.000Z",
+      originalText: "明文消息",
+    });
 
-  assert.equal(runtimeTurn.text, [
-    '<channel source="telegram" chat_id="chat-1" message_id="message-2" user_id="user-3"'
-    + ' username="alice" sent_at="2026-07-27T10:11:12.000Z">',
-    "明文消息",
-    "</channel>",
-  ].join("\n"));
-  assert.doesNotMatch(runtimeTurn.text, /telegram-inbound|base64url/);
-  assert.deepEqual(runtimeTurn.attachments, []);
+    // 10:11:12Z is 20:11 in Sydney (AEST, UTC+10; July has no DST).
+    assert.equal(runtimeTurn.text, [
+      '<channel source="telegram" chat_id="chat-1" message_id="message-2" user_id="user-3"'
+      + ' username="alice" sent_at="2026-07-27T10:11:12.000Z" sent_at_local="07-27 20:11">',
+      "明文消息",
+      "</channel>",
+    ].join("\n"));
+    assert.doesNotMatch(runtimeTurn.text, /telegram-inbound|base64url/);
+    assert.deepEqual(runtimeTurn.attachments, []);
+  } finally {
+    if (previousTimezone === undefined) {
+      delete process.env.CYBERBOSS_TIMEZONE;
+    } else {
+      process.env.CYBERBOSS_TIMEZONE = previousTimezone;
+    }
+  }
 });
 
 test("envelope attributes are omitted rather than emitted empty", async () => {
