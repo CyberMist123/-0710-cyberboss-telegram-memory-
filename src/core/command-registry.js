@@ -303,6 +303,33 @@ const COMMAND_GROUPS = [
       },
     ],
   },
+  {
+    id: "sl",
+    label: "存档 / 读档 (SL)",
+    actions: [
+      {
+        action: "sl.save",
+        summary: "把一段对话存成回档点（/sl_save <档名> 末句：「原话」[ 首句：「原话」][ 备注：…][ 引导：…]）",
+        terminal: [],
+        weixin: ["/sl_save <档名> 末句：「…」"],
+        status: "active",
+      },
+      {
+        action: "sl.load",
+        summary: "读一个回档点，把那段注入当前对话（/sl_load <档名> [备注：这次为什么读]）",
+        terminal: [],
+        weixin: ["/sl_load <档名>"],
+        status: "active",
+      },
+      {
+        action: "sl.list",
+        summary: "列出所有回档点（存档目录）",
+        terminal: [],
+        weixin: ["/sl_list"],
+        status: "active",
+      },
+    ],
+  },
 ];
 
 function listCommandGroups() {
@@ -413,6 +440,7 @@ function groupEmoji(groupId) {
     case "approval": return "🔐";
     case "capabilities": return "⚡️";
     case "autonomy": return "🤖";
+    case "sl": return "💾";
     default: return "•";
   }
 }
