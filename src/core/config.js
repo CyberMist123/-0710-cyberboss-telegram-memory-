@@ -32,6 +32,10 @@ function readConfig() {
   const conversationsDir =
     resolveConfiguredPath(readTextEnv("CYBERBOSS_CONVERSATIONS_DIR")) || joinIfBase(chatAssetsDir, "conversations");
   const mediaDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_MEDIA_DIR")) || joinIfBase(chatAssetsDir, "media");
+  // SL（存档/读档 · save-state）归档目录。新能力默认关：不设 CYBERBOSS_SL_DIR 时为空串，
+  // /sl_save /sl_list 如实回「SL 未配置」而非落到某个派生路径。生产指向 Fluffy-SelfHood\08-sl
+  // （06-raw 的兄弟目录，不由 chatAssetsDir 猜测派生——它是 08 号资产，独立登记）。
+  const slDir = resolveConfiguredPath(readTextEnv("CYBERBOSS_SL_DIR"));
   // 表情包这一根同时管住素材/索引/标签（见下方 stickerAssetsDir 等）——出口与素材必须
   // 同根，否则播种闸（sticker-service `ensureStickerCatalogFilesSync` 以 stickersDir 是否
   // 存在为准）会在出口新建、素材留旧处时早退，表情库瘸掉。模板种子仍留仓库 templates\。
@@ -82,6 +86,10 @@ function readConfig() {
     checkinConfigFile: joinIfBase(stateDir, "checkin-config.json"),
     sleepWindowFile: joinIfBase(stateDir, "sleep-window.json"),
     conversationDir: conversationsDir,
+    slDir,
+    // 存档摘录里的说话人标签。默认「她」/「fable」，与既有 v0 存档一致；部署可覆盖。
+    slUserLabel: readTextEnv("CYBERBOSS_SL_USER_LABEL") || "她",
+    slAiLabel: readTextEnv("CYBERBOSS_SL_AI_LABEL") || "fable",
     telegramBotToken: readTextEnv("CYBERBOSS_TELEGRAM_BOT_TOKEN"),
     telegramAllowedUserIds: readListEnv("CYBERBOSS_TELEGRAM_ALLOWED_USER_IDS"),
     telegramStateFile: joinIfBase(stateDir, "telegram-state.json"),

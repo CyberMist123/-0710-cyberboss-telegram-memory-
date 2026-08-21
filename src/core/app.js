@@ -58,6 +58,7 @@ const { readWatchdogHealth, formatWatchdogStatusLine } = require("./watchdog-hea
 const { TurnGateStore } = require("./turn-gate-store");
 const { ReminderQueueStore } = require("../adapters/channel/weixin/reminder-queue-store");
 const { ConversationRecorder } = require("../services/conversation-recorder");
+const { saveArchive, listArchives, loadArchive, recordReentry, QUOTE_BEGIN, QUOTE_END } = require("../services/sl-archive");
 const { createSubjectRoute, windowIdFromNativeSessionId } = require("../continuity/subject-route");
 const {
   SubjectCapabilityRegistry,
@@ -2176,6 +2177,15 @@ class CyberbossApp {
       case "probe":
         await this.handleProbeCommand(normalized);
         return;
+      case "sl_save":
+        await this.handleSlSaveCommand(normalized, command);
+        return;
+      case "sl_load":
+        await this.handleSlLoadCommand(normalized, command);
+        return;
+      case "sl_list":
+        await this.handleSlListCommand(normalized);
+        return;
       case "chunk":
         await this.handleChunkCommand(normalized, command);
         return;
@@ -3144,6 +3154,138 @@ class CyberbossApp {
       contextToken: normalized.contextToken,
       ...outboundThreadIdField(normalized),
     });
+  }
+
+  async handleSlSaveCommand(normalized, command) {
+    const reply = (text) =>
+      this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text,
+        contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
+      });
+    if (!this.config.slDir) {
+      await reply("❌ SL 存档没配置（CYBERBOSS_SL_DIR 未设）。");
+      return;
+    }
+    const { name, fields } = parseSlSaveArgs(command.args);
+    if (!name || !fields.end) {
+      await reply(
+        "💡 用法：/sl_save <档名> 末句：「原话」\n" +
+          "可选：首句：「原话」 备注：<为什么存> 引导：<读档后怎么接>\n" +
+          "（末句是那段的最后一句，定位存档尾；不给首句就自动往前找到一次静默断点。）",
+      );
+      return;
+    }
+    let result;
+    try {
+      result = saveArchive({
+        slDir: this.config.slDir,
+        conversationsDir: this.config.conversationDir,
+        name,
+        note: fields.note || "",
+        guide: fields.guide || "",
+        endAnchor: fields.end,
+        startAnchor: fields.start || "",
+        timezone: this.config.automationTimezone,
+        labels: { user: this.config.slUserLabel, ai: this.config.slAiLabel },
+      });
+    } catch (error) {
+      await reply(`❌ 存档出错：${error?.message || String(error)}`);
+      return;
+    }
+    if (!result.ok) {
+      await reply(slSaveErrorText(result));
+      return;
+    }
+    const indexNote = result.indexUpdated ? "" : "\n⚠️ sl-index.md 没更到（缺文件或没有表格），存档文件已建好。";
+    await reply(
+      `💾 已存档 ${result.slId}\n` +
+        `剧情时间：${result.storyTime}\n` +
+        `收录 ${result.rowCount} 条对话（她 + fable，跳过工具流水）。${indexNote}`,
+    );
+  }
+
+  async handleSlLoadCommand(normalized, command) {
+    const reply = (text) =>
+      this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text,
+        contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
+      });
+    if (!this.config.slDir) {
+      await reply("❌ SL 存档没配置（CYBERBOSS_SL_DIR 未设）。");
+      return;
+    }
+    const { name, note } = parseSlLoadArgs(command.args);
+    if (!name) {
+      await reply("💡 用法：/sl_load <档名>（可加 备注：这次为什么读）。先 /sl_list 看有哪些档。");
+      return;
+    }
+    const loaded = loadArchive({ slDir: this.config.slDir, name });
+    if (!loaded.ok) {
+      await reply(slLoadErrorText(loaded));
+      return;
+    }
+    const targets = this.automationTargets;
+    if (!this.systemMessageQueue || !targets?.accountId || !targets?.senderId || !targets?.workspaceRoot) {
+      await reply("❌ 暂时读不了档：注入目标还没就绪（poller 可能刚起，稍等再试）。存档没动。");
+      return;
+    }
+    const nextRead = loaded.reads + 1;
+    // Inject via the system-message queue — the same path /probe uses. This turn
+    // is delivered to the runtime but is NEVER written to 06-raw, so the quoted
+    // history can't be re-ingested as a new event (防二次入账 · 不变量⑤). The
+    // quote is re-wrapped in SL-QUOTE markers as belt-and-suspenders.
+    this.systemMessageQueue.enqueue({
+      id: `sl_load:${crypto.randomUUID()}`,
+      accountId: targets.accountId,
+      senderId: targets.senderId,
+      workspaceRoot: targets.workspaceRoot,
+      text: buildSlLoadInjection(loaded, nextRead),
+      sourceType: "system",
+      createdAt: new Date().toISOString(),
+    });
+    const { localDateKey } = require("../utils/business-day");
+    const recorded = recordReentry({
+      slDir: this.config.slDir,
+      name: loaded.slId,
+      note,
+      dateKey: localDateKey(Date.now(), this.config.automationTimezone),
+    });
+    const countText = recorded.ok ? `第 ${recorded.reads} 次读档` : "读档（次数没写进档，稍后手动补）";
+    console.log(`[sl_load] injected ${loaded.slId} read=${recorded.reads || nextRead}`);
+    await reply(`📖 读档 ${loaded.slId}（${countText}）。那段已送进当前对话，稍等接话——按存档的引导指令走。`);
+  }
+
+  async handleSlListCommand(normalized) {
+    const reply = (text) =>
+      this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text,
+        contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
+      });
+    if (!this.config.slDir) {
+      await reply("❌ SL 存档没配置（CYBERBOSS_SL_DIR 未设）。");
+      return;
+    }
+    const result = listArchives(this.config.slDir);
+    if (!result.ok) {
+      await reply("❌ 读不到存档目录。");
+      return;
+    }
+    if (!result.rows.length) {
+      await reply("📂 还没有存档点。用 /sl_save 存第一段。");
+      return;
+    }
+    const lines = [`📂 存档点（共 ${result.rows.length} 个）：`];
+    for (const row of result.rows) {
+      lines.push(`• ${row.slId}｜${row.storyTime}｜读档 ${row.reads} 次`);
+      if (row.noteSummary) lines.push(`  ${row.noteSummary}`);
+    }
+    await reply(lines.join("\n"));
   }
 
   async handleActivityPauseCommand(normalized, command, paused) {
@@ -5219,6 +5361,118 @@ function parseChannelCommand(text) {
 
 function normalizeCommandName(value) {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+// Parse `/sl_save <档名> 末句：「…」 [首句：「…」] [备注：…] [引导：…]`.
+// `command.args` has already collapsed internal whitespace to single spaces, so
+// values are single-line; each labeled field runs from its `：` to the next
+// known label (or end). Chinese or ASCII colons and 「」/quote wrappers accepted.
+function parseSlSaveArgs(args) {
+  const text = String(args || "").trim();
+  const head = text.match(/^(\S+)\s*([\s\S]*)$/);
+  if (!head) return { name: "", fields: {} };
+  const name = head[1];
+  const rest = head[2];
+  const fields = {};
+  const labelRe = /(末句|首句|备注|引导|end|start|note|guide)\s*[：:]\s*/g;
+  const marks = [];
+  let match;
+  while ((match = labelRe.exec(rest)) !== null) {
+    marks.push({ key: canonicalSlField(match[1]), labelStart: match.index, valueStart: labelRe.lastIndex });
+  }
+  for (let i = 0; i < marks.length; i += 1) {
+    const stop = i + 1 < marks.length ? marks[i + 1].labelStart : rest.length;
+    const value = rest.slice(marks[i].valueStart, stop).trim().replace(/^[「"']|[」"']$/g, "").trim();
+    if (value && !fields[marks[i].key]) fields[marks[i].key] = value;
+  }
+  return { name, fields };
+}
+
+function canonicalSlField(label) {
+  switch (label) {
+    case "末句":
+    case "end":
+      return "end";
+    case "首句":
+    case "start":
+      return "start";
+    case "备注":
+    case "note":
+      return "note";
+    case "引导":
+    case "guide":
+      return "guide";
+    default:
+      return label;
+  }
+}
+
+// Parse `/sl_load <档名> [备注：…]`. First token is the archive name (sl_id, 短名,
+// or file stem); an optional 备注/note runs to the end.
+function parseSlLoadArgs(args) {
+  const text = String(args || "").trim();
+  const head = text.match(/^(\S+)\s*([\s\S]*)$/);
+  if (!head) return { name: "", note: "" };
+  const noteMatch = /(备注|note)\s*[：:]\s*([\s\S]*)$/.exec(head[2]);
+  return { name: head[1], note: noteMatch ? noteMatch[2].trim() : "" };
+}
+
+function buildSlLoadInjection(loaded, nextRead) {
+  const parts = [
+    `【SL 读档 · ${loaded.slId}（第 ${nextRead} 次读档）】`,
+    "这是一次回档：下面是一段被存起来的历史对话，不是此刻新发生的事。先读「给读档的你」，再看段落原文，然后按存档的引导指令接着走。",
+    "",
+    loaded.informedHeader,
+    "",
+    QUOTE_BEGIN,
+    loaded.quoteBlock,
+    QUOTE_END,
+  ];
+  const guide = loaded.frontmatter && loaded.frontmatter["引导指令"];
+  if (guide) parts.push("", `引导指令：${guide}`);
+  return parts.join("\n");
+}
+
+function slLoadErrorText(result) {
+  switch (result?.error) {
+    case "sl-dir-unset":
+      return "❌ SL 存档没配置（CYBERBOSS_SL_DIR 未设）。";
+    case "name-missing":
+      return "❌ 少了档名。/sl_load <档名>";
+    case "not-found":
+      return "❌ 没找到这个存档。/sl_list 看有哪些档。";
+    case "ambiguous-name":
+      return `❌ 档名不唯一，命中多个：${(result.matches || []).join("、")}。用完整 sl_id 再试。`;
+    case "read-failed":
+      return "❌ 存档文件读不出来。";
+    case "sl-dir-unreadable":
+      return "❌ 存档目录读不到。";
+    default:
+      return `❌ 读档失败：${result?.error || "未知原因"}。`;
+  }
+}
+
+function slSaveErrorText(result) {
+  switch (result?.error) {
+    case "sl-dir-unset":
+      return "❌ SL 存档没配置（CYBERBOSS_SL_DIR 未设）。";
+    case "conversations-dir-unset":
+      return "❌ 06-raw 目录没配置，定位不了对话。";
+    case "bad-name":
+      return "❌ 档名只能用中英文、数字、下划线（≤40 字）。";
+    case "end-anchor-missing":
+      return "❌ 少了末句。/sl_save <档名> 末句：「原话」";
+    case "no-rows":
+      return "❌ 最近几天没找到对话记录。";
+    case "end-anchor-not-found":
+      return "❌ 末句没在最近对话里找到。换成那句里更独特的几个字，或加「首句」缩小范围。";
+    case "start-anchor-not-found":
+      return "❌ 首句没在末句之前找到。检查一下首句原话。";
+    case "duplicate-id":
+      return `❌ 已经有同名存档 ${result.slId || ""} 了，换个档名。`;
+    default:
+      return `❌ 存档失败：${result?.error || "未知原因"}。`;
+  }
 }
 
 const MEMORY_CATEGORIES = new Set([
