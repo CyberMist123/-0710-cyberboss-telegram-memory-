@@ -238,6 +238,7 @@ class SessionSlotStore {
       return;
     }
     const current = this.state.slots[key] || {};
+    const descriptor = normalizeRouteDescriptor(route) || current.route || null;
     this.state.slots[key] = {
       threadId: normalizedThreadId,
       contextFingerprint: current.contextFingerprint || "",
@@ -245,10 +246,53 @@ class SessionSlotStore {
       ...(current.windowOverride ? { windowOverride: cloneJsonObject(current.windowOverride) } : {}),
       ...(current.route2Gate ? { route2Gate: cloneJsonObject(current.route2Gate) } : {}),
       updatedAt: new Date().toISOString(),
-      route: normalizeRouteDescriptor(route) || current.route || null,
+      route: descriptor,
     };
+    // A live thread for this persona/settings version supersedes the lane's older
+    // versions: their slots are dead (the fingerprint change retired their thread)
+    // but linger and pile up -- one chat lane was seen holding 20, starving the
+    // process-capacity budget. Retire the stale siblings now.
+    this.pruneStaleLaneSiblings(key, descriptor);
     this.evictIfNeeded();
     this.save();
+  }
+
+  // Drop slots for the same (workspace, lane, PROFILE) that carry a DIFFERENT
+  // profile fingerprint than `route` -- i.e. superseded persona/settings versions
+  // of the SAME profile on this lane. A different profileId is a legitimately
+  // separate window (a /profile switch keeps a slot per profile so /switch back
+  // can resume it), so it is never pruned; nor is the current slot, another lane,
+  // or a sibling still holding a Route 2/3 gate. Returns the count removed.
+  pruneStaleLaneSiblings(currentSlotKey, route) {
+    const keep = normalizeText(currentSlotKey);
+    const laneKey = normalizeText(route?.laneKey);
+    const workspaceRoot = normalizeText(route?.workspaceRoot);
+    const profileId = normalizeText(route?.profileId);
+    const fingerprint = normalizeText(route?.profileFingerprint) || "legacy";
+    // Without a profileId we cannot tell a persona edit from a profile switch, so
+    // we must not prune -- staying conservative keeps /switch-back correct.
+    if (!keep || !laneKey || !workspaceRoot || !profileId) {
+      return 0;
+    }
+    let pruned = 0;
+    for (const slotKey of Object.keys(this.state.slots)) {
+      if (slotKey === keep) {
+        continue;
+      }
+      const entry = this.state.slots[slotKey];
+      const sibling = entry?.route;
+      if (!sibling || entry.route2Gate) {
+        continue;
+      }
+      if (normalizeText(sibling.laneKey) === laneKey
+        && normalizeText(sibling.workspaceRoot) === workspaceRoot
+        && normalizeText(sibling.profileId) === profileId
+        && (normalizeText(sibling.profileFingerprint) || "legacy") !== fingerprint) {
+        delete this.state.slots[slotKey];
+        pruned += 1;
+      }
+    }
+    return pruned;
   }
 
   setContextFingerprint(slotKey, fingerprint, inputs = null) {

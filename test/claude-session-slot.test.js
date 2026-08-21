@@ -896,3 +896,71 @@ test("the slot store ignores polluting keys when loading state from disk", () =>
   assert.equal(store.getThreadId("real"), "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee");
   assert.equal({}.threadId, undefined);
 });
+
+test("setThreadId prunes stale same-lane slots from superseded profile fingerprints", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cb-prune-"));
+  const store = new SessionSlotStore({ filePath: path.join(root, "slots.json") });
+  const ws = path.join(root, "ws");
+  const lane = "v2|tg|8:telegram|10:555";
+  const other = "v2|tg|8:telegram|10:999";
+  const SID = "11111111-2222-4333-8444-555555555555";
+  const routeFor = (laneKey, fp) => ({ workspaceRoot: ws, laneKey, profileId: "fable-chat", profileFingerprint: fp });
+  const slot = (laneKey, fp) => buildSessionSlotKey({ workspaceRoot: ws, laneKey, profileFingerprint: fp });
+  try {
+    // Two older persona versions of the same lane, plus an unrelated lane.
+    store.setThreadId(slot(lane, "fp1"), SID, { route: routeFor(lane, "fp1") });
+    store.setThreadId(slot(lane, "fp2"), SID, { route: routeFor(lane, "fp2") });
+    store.setThreadId(slot(other, "fp1"), SID, { route: routeFor(other, "fp1") });
+
+    // A new persona version takes over the lane -> older versions are retired.
+    store.setThreadId(slot(lane, "fp3"), SID, { route: routeFor(lane, "fp3") });
+
+    assert.equal(store.getThreadId(slot(lane, "fp3")), SID, "current version kept");
+    assert.equal(store.getThreadId(slot(lane, "fp1")), "", "superseded fp1 pruned");
+    assert.equal(store.getThreadId(slot(lane, "fp2")), "", "superseded fp2 pruned");
+    assert.equal(store.getThreadId(slot(other, "fp1")), SID, "a different lane is never touched");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("pruning never retires a sibling that still holds a Route 2/3 gate", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cb-prune-gate-"));
+  const store = new SessionSlotStore({ filePath: path.join(root, "slots.json") });
+  const ws = path.join(root, "ws");
+  const lane = "v2|tg|8:telegram|10:777";
+  const SID = "11111111-2222-4333-8444-555555555555";
+  const routeFor = (fp) => ({ workspaceRoot: ws, laneKey: lane, profileId: "fable-chat", profileFingerprint: fp });
+  const slot = (fp) => buildSessionSlotKey({ workspaceRoot: ws, laneKey: lane, profileFingerprint: fp });
+  try {
+    store.setThreadId(slot("fp1"), SID, { route: routeFor("fp1") });
+    store.setRoute2Gate(slot("fp1"), { status: "active" });
+
+    store.setThreadId(slot("fp2"), SID, { route: routeFor("fp2") });
+
+    assert.equal(store.getThreadId(slot("fp2")), SID, "current kept");
+    assert.equal(store.getThreadId(slot("fp1")), SID, "gated sibling is NOT pruned");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("pruning keeps a different profile's slot on the same lane (a /profile switch is not a persona edit)", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cb-prune-profile-"));
+  const store = new SessionSlotStore({ filePath: path.join(root, "slots.json") });
+  const ws = path.join(root, "ws");
+  const lane = "v2|tg|8:telegram|10:888";
+  const SID = "11111111-2222-4333-8444-555555555555";
+  const slot = (pid, fp) => buildSessionSlotKey({ workspaceRoot: ws, laneKey: lane, profileFingerprint: fp });
+  const routeFor = (pid, fp) => ({ workspaceRoot: ws, laneKey: lane, profileId: pid, profileFingerprint: fp });
+  try {
+    // same lane, two different profiles (fable-chat and work-engineering)
+    store.setThreadId(slot("fable-chat", "fpA"), SID, { route: routeFor("fable-chat", "fpA") });
+    store.setThreadId(slot("work-engineering", "fpB"), SID, { route: routeFor("work-engineering", "fpB") });
+
+    assert.equal(store.getThreadId(slot("fable-chat", "fpA")), SID, "fable-chat slot survives");
+    assert.equal(store.getThreadId(slot("work-engineering", "fpB")), SID, "work-engineering slot survives (different profile, not pruned)");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
