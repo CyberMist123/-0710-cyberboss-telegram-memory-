@@ -2573,14 +2573,17 @@ class CyberbossApp {
     // itself opens on her next message, so there is no thread id or context usage
     // to report yet -- say so plainly rather than printing a stale one. Fail-open:
     // a failed status line must never cost her the /new.
-    const statusTail = this.describeFreshThreadSettingsFailOpen(normalized, {
+    // Optional-chained like enqueueWindowOpenGreetingFailOpen below: the command
+    // is also driven by bare fixtures that carry only the methods under test, and
+    // a hard `this.`-call would fail the whole /new instead of just dropping the
+    // status tail.
+    const statusTail = this.describeFreshThreadSettingsFailOpen?.(normalized, {
       bindingKey, workspaceRoot,
-    });
+    }) || [];
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
       text: [
-        "✅ Switched to a fresh thread draft",
-        `📁 workspace: ${workspaceRoot}`,
+        `✅ Switched to a fresh thread draft\nworkspace: ${workspaceRoot}`,
         ...statusTail,
       ].join("\n"),
       contextToken: normalized.contextToken,
