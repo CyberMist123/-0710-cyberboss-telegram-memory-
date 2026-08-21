@@ -165,6 +165,7 @@ class CyberbossApp {
       subjectCandidateService: this.projectServices.subjectCandidate,
       subjectCapabilityByRunKey: this.subjectCapabilityByRunKey,
       runtimeContextStore: this.runtimeContextStore,
+      subjectProfileIds: config.subjectProfileIds,
     });
     this.runtimeAdapter = createRuntimeAdapter(config);
     // Fail-closed: a malformed profile mapping throws here and startup stops.
@@ -197,6 +198,7 @@ class CyberbossApp {
           runtimeAdapter: this.runtimeAdapter,
           stateDir: config.stateDir,
           trace: (entry) => this.contextTraceRecorder.record({ route1_dispatch: entry }),
+          workspaces: config.route1Workspaces,
         })
       : null;
     this.runtimeAdapter.onRoute1DispatchRequest?.((args, context) => (

@@ -23,12 +23,22 @@ function route1DispatchEnabled(env = process.env) {
 }
 
 class Route1DispatchController {
-  constructor({ runtimeAdapter, trace = null, idFactory = () => crypto.randomUUID(), queueMicrotaskFn = queueMicrotask, stateDir = "", taskStore = null } = {}) {
+  constructor({ runtimeAdapter, trace = null, idFactory = () => crypto.randomUUID(), queueMicrotaskFn = queueMicrotask, stateDir = "", taskStore = null, workspaces = {}, resolveHeadSha = null } = {}) {
     if (!runtimeAdapter) throw dispatchError("route1_runtime_required");
     this.runtime = runtimeAdapter;
     this.trace = typeof trace === "function" ? trace : null;
     this.idFactory = idFactory;
     this.queueMicrotask = queueMicrotaskFn;
+    // D52: named dispatch targets beyond the engineering repo (e.g. "home" →
+    // Fluffy-SelfHood). Every target must itself be a git repo — the worktree /
+    // observed-diff safety machinery is what makes route1 trustworthy, so a
+    // target that cannot support it is unreachable rather than unpoliced.
+    this.workspaces = workspaces && typeof workspaces === "object" && !Array.isArray(workspaces)
+      ? { ...workspaces }
+      : {};
+    this.resolveHeadSha = typeof resolveHeadSha === "function"
+      ? resolveHeadSha
+      : (workspace) => require("./delegation/git-workspace").headSha({ workspace });
     this.tasks = new Map();
     this.turns = new Map();
     this.tokens = new Map();
@@ -79,7 +89,27 @@ class Route1DispatchController {
       this.recordTrace("escalate", { task_id: taskId, turn_id: turnId, explanation: "timeout_exceeds_60_minutes" });
       return this.reply("rejected", "这个活超过 60 分钟绝对上限，请先拆小。", taskId);
     }
-    const spec = buildSpec(args, { taskId, workspaceRoot: turn.workspaceRoot });
+    let workspaceRoot = turn.workspaceRoot;
+    const workspaceName = clean(args.workspace);
+    if (workspaceName) {
+      const named = clean(this.workspaces[workspaceName]);
+      if (!named) throw dispatchError("route1_workspace_unknown");
+      workspaceRoot = named;
+    }
+    let baseSha = clean(args.base_sha);
+    if (!baseSha) {
+      // The chat window rarely knows a repo's exact HEAD, and asking her to run
+      // git for it defeats the point of dispatch. Resolve it here; a target
+      // that is not a git repo fails with an explicit code instead of dying
+      // later at worktree provisioning.
+      try {
+        baseSha = clean(this.resolveHeadSha(workspaceRoot));
+      } catch {
+        throw dispatchError("route1_base_sha_unresolved");
+      }
+      if (!baseSha) throw dispatchError("route1_base_sha_unresolved");
+    }
+    const spec = buildSpec({ ...args, base_sha: baseSha }, { taskId, workspaceRoot });
     const queueBusy = Boolean(this.runningTaskId || this.queue.length);
     const band = decideBand(spec.timeout_ms, queueBusy);
     if (band === "consult") {

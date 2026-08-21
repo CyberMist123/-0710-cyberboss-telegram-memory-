@@ -339,6 +339,7 @@ const PROJECT_TOOLS = [
         },
         timeout_ms: { type: "integer", minimum: 1, maximum: 3600000 },
         approval_policy: { type: "string", enum: ["never", "on-request", "untrusted"] },
+        workspace: { type: "string", description: "Named dispatch target from CYBERBOSS_ROUTE1_WORKSPACES (e.g. home = Fluffy-SelfHood). Omit for the engineering repo. base_sha may be omitted; the target repo's HEAD is used." },
         task_materials: { type: "array", items: { type: "object" } },
         confirm_token: { type: "string" },
       },
@@ -564,6 +565,9 @@ const PROJECT_TOOLS = [
         origin: { type: "string", enum: ["live_subject", "closeout_materials_then_subject", "subject_rewrite"] },
         material_pack_id: { type: "string" },
         material_pack: { type: "object" },
+        supersedes_candidate_id: { type: "string", description: "subject_rewrite only: candidate_id of the registered predecessor this rewrite supersedes." },
+        rewrite_handoff_id: { type: "string", description: "subject_rewrite only: handoff id that carried the predecessor back to the subject; use legacy-backfill when the predecessor predates the review pipeline." },
+        rewrite_of_decision_id: { type: "string", description: "subject_rewrite only: decision id being rewritten; use decision-legacy-backfill when the predecessor has no review decision." },
       },
       additionalProperties: false,
     },
@@ -1036,8 +1040,11 @@ const PROJECT_TOOLS = [
         // model from reading an unchanged local transcript as confirmation.
         notes.push(`cloud unavailable (${result.cloudError}), this is the local result`);
       }
+      // The observer's one-liner (how it was said: 语速/停顿/气声/背景) on its own
+      // line after the words; absent when CMX produced no observation.
+      const observation = result.voiceNote ? `\n${result.voiceNote}` : "";
       return {
-        text: `Retranscription [${notes.join("; ")}]: ${result.text}`,
+        text: `Retranscription [${notes.join("; ")}]: ${result.text}${observation}`,
         data: result,
       };
     },

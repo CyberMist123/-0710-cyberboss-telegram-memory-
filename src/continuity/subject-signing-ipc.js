@@ -16,6 +16,7 @@ class SubjectSigningBroker {
     subjectCapabilityByRunKey = null,
     runtimeContextStore = null,
     maxReplayEntries = 2048,
+    subjectProfileIds = [],
   } = {}) {
     this.enabled = enabled === true;
     this.subjectCandidateService = subjectCandidateService;
@@ -23,6 +24,12 @@ class SubjectSigningBroker {
     this.runtimeContextStore = runtimeContextStore;
     this.maxReplayEntries = maxReplayEntries;
     this.seenRequestIds = new Set();
+    // D51: which chat-window profiles may sign candidates. Empty config keeps
+    // the historical single-subject default; "*" admits every TG chat window —
+    // provenance stays exact either way because the route records profile_id.
+    const configured = (Array.isArray(subjectProfileIds) ? subjectProfileIds : [])
+      .map(normalizeText).filter(Boolean);
+    this.subjectProfileIds = configured.length ? configured : [SUBJECT_PROFILE_ID];
   }
 
   submit({ requestId = "", args = {}, coordinates = {} } = {}) {
@@ -50,7 +57,9 @@ class SubjectSigningBroker {
     if (!subjectRoute || !capability) {
       throw signingIpcError("subject_signing_turn_unknown");
     }
-    assertAuthoritativeRoute({ active, routeToken, subjectRoute });
+    assertAuthoritativeRoute({
+      active, routeToken, subjectRoute, subjectProfileIds: this.subjectProfileIds,
+    });
 
     // Provenance is taken from the turn, never from the caller. The child used
     // to have to supply `source_ref.content_sha256` itself, which no language
@@ -171,9 +180,15 @@ function assertCoordinateMatches(coordinates, active) {
   }
 }
 
-function assertAuthoritativeRoute({ active, routeToken, subjectRoute }) {
+function assertAuthoritativeRoute({ active, routeToken, subjectRoute, subjectProfileIds }) {
+  const allowed = Array.isArray(subjectProfileIds) && subjectProfileIds.length
+    ? subjectProfileIds
+    : [SUBJECT_PROFILE_ID];
+  const profileId = normalizeText(subjectRoute.session?.profile_id);
+  const profileAllowed = Boolean(profileId)
+    && (allowed.includes("*") || allowed.includes(profileId));
   if (subjectRoute.provider !== "telegram"
-    || subjectRoute.session?.profile_id !== SUBJECT_PROFILE_ID
+    || !profileAllowed
     || subjectRoute.session?.runtime_id !== active.runtimeId
     || subjectRoute.session?.session_slot_key !== routeToken
     || subjectRoute.session?.runtime_thread_id !== active.threadId

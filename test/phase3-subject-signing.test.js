@@ -178,7 +178,8 @@ test("subject rewrite persists candidate lineage fields and refuses an already-p
   const root = temporaryRoot();
   const candidatesPath = path.join(root, "candidates", "episodes.candidates.jsonl");
   fs.mkdirSync(path.dirname(candidatesPath), { recursive: true });
-  fs.writeFileSync(candidatesPath, `${JSON.stringify({
+  // The predecessor file carries a UTF-8 BOM, like the legacy backfill exports.
+  fs.writeFileSync(candidatesPath, `\uFEFF${JSON.stringify({
     candidate_id: "cand-old",
     type: "episode",
     body: "old body",

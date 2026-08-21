@@ -1055,3 +1055,33 @@ Decision date: 2026-08-19
 - 钩子从 pre-push 的 stdin 取本次推送的 local sha；纯删除推送直接放行。fail-closed 语义不变：python 不在 == 不许推。
 - **安全性不降级**：全量扫描（`--all`）由 `.github/workflows/secret-audit.yml` 在每次 main push 后照跑，作为增量模式的诚实性兜底。增量范围偏保守的失效方向是「remote-tracking 过期 → 多扫」，不是少扫。
 - 测试：`test:secret-gate`（阻塞 CI，phase1-offline）用 git 夹具仓钉住四条：增量抓到新秘密、跳过 origin 已有对象、全量兜底不变、全推空范围放行。顺带把原孤儿测试 `secret-audit-credential-in-url.test.js` 接进同组。
+
+## D52 · route1 增加命名 workspace（home=Fluffy-SelfHood 立本地仓），车能进家门但记忆店仍是禁区
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-19
+```
+
+- 痛点：route1 的 workspace 钉死在工程仓（work-engineering profile cwd），`allowed_paths` 拒绝绝对路径与 `..`，Fluffy-SelfHood（她的家）在仓外——车进不去（Owner 2026-08-19 点名，SOP 预警过的坑）。
+- 决定：**不放弃 worktree/观察 diff 的安全机器，而是把它带到家门口**。(1) Fluffy-SelfHood `git init` 成**纯本地仓**（无 remote；`.gitignore` 排除 `04-memory/`、`06-raw/`、`07-media/`、`*.bak*`）。(2) route1 增加 env 配置的命名 workspace：`CYBERBOSS_ROUTE1_WORKSPACES`（JSON name→绝对路径；不设 = 只有工程仓，历史行为逐字节一致），dispatch 带 `workspace:"home"` 即切目标仓。(3) `base_sha` 可省略——dispatch 时自动解析目标仓 HEAD（`route1_base_sha_unresolved` fail-closed）。
+- **不放松的部分**：`04-memory`（记忆店）仍在 seam 的 protectedRoots 且被 .gitignore 排除——不进 worktree、车写不到活店，记忆只能走签名+Review 闸（不变量 4/6）。worktree 隔离、observed diff、路径边界、超时/确认梯全部原样适用于家仓。
+- 审计结论（Owner 问"为什么车不像聊天端一样 bypass"）：聊天端是**她本人在场**的会话，车是**无人值守 writer**——有界规格+事后 diff 验证是 route1 可信的根基，放开成 bypass 等于把无人车放进家里乱写。本次审计认定 route2 gate 是 token 成本路由器（D13/不变量 3，非权限闸）、protectedRoots/秘密目录合理；唯一不合理处就是"够不着家"，本条修掉。
+- 测试：`route1-dispatch-controller.test.js` D52 用例（命名解析、HEAD 自动解析、未知名 fail-closed、默认路径不变），在 `test:route-lanes`（阻塞 CI）。
+- 生产：`telegram.env` 设 `CYBERBOSS_ROUTE1_WORKSPACES={"home":…\Fluffy-SelfHood}`；家仓初始提交 9344d39。
+
+## D53 · 记忆候选签名放开到所有 TG 聊天窗（profile 允许清单，路由记录保真）
+
+```text
+Status: ACTIVE
+Decision date: 2026-08-19
+```
+
+（原以 D51 立项，与已入 main 的密钥闸 D51 编号撞车；2026-08-21 合并入 main 时按「编号留空缺、不重排」改列为 D53。）
+
+- Owner 拍板：不再只有主 Chat（`fable-chat` profile）能签署 `memory_candidate_submit`——**所有 TG 端聊天窗**都可以提交记忆候选。动机：backfill 亲笔重写与日常记忆沉淀不该被窗口身份卡死（20260819 backfill 批次的遗留项 5）。
+- 实现最小切口：能力签发本就覆盖全部 tg lane（`app.js issueSubjectCapabilityForTurnFailOpen` 只挡 system/legacy lane），唯一的硬闸是 broker 的 `profile_id === "fable-chat"` 断言（`subject-signing-ipc.js assertAuthoritativeRoute`）。改为 env 允许清单 `CYBERBOSS_SUBJECT_PROFILE_IDS`（逗号分隔；`*` = 全部；**空 = 仅 `fable-chat`，与历史行为逐字节一致**，守「新能力默认关」）。
+- 不放松的部分：turn 活性、坐标一致性、route 指纹、body hash、一次性 capability、单 writer、Review 管线全部原样——放开的只是「哪个窗口的真实 turn 有资格签」，冒充仍然签不进。
+- 保真依据：`subject_route.session.profile_id` 逐条落在候选与 attestation 里，Review/审计随时可按窗口区分来源；撤销 = 改回 env，无迁移成本。
+- 测试：`subject-signing-ipc-broker.test.js` 该用例钉住「默认拒外 profile、`*` 收外 profile 且候选记录真实 profile_id」（在 `test:route-lanes` / `test:catalog-metering`，阻塞 CI）。
+- 生产：`settings\secrets\telegram.env` 设 `CYBERBOSS_SUBJECT_PROFILE_IDS=*`。
