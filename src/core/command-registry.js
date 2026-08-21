@@ -316,9 +316,9 @@ const COMMAND_GROUPS = [
     actions: [
       {
         action: "sl.save",
-        summary: "把一段对话存成回档点（/sl_save <档名> 末句：「原话」[ 首句：「原话」][ 备注：…][ 引导：…]）",
+        summary: "把一段对话存成回档点（/sl_save 末句：「原话」；档名可省/可含空格，不写就自动取末句开头）",
         terminal: [],
-        weixin: ["/sl_save <档名> 末句：「…」"],
+        weixin: ["/sl_save 末句：「…」"],
         status: "active",
       },
       {

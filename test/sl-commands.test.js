@@ -90,6 +90,35 @@ test("/sl_save captures a segment, replies, and lands in /sl_list", async () => 
   }
 });
 
+test("/sl_save cleans a messy name (angle brackets/spaces) instead of rejecting it", async () => {
+  const root = tempRoot();
+  try {
+    const { convDir, slDir } = writeFixtures(root);
+    const { app, sent } = makeApp({ slDir, conversationDir: convDir, automationTimezone: "Australia/Sydney", slUserLabel: "她", slAiLabel: "fable" });
+    await app.handleSlSaveCommand(NORMALIZED, { name: "sl_save", args: "<藏歌 二> 末句：「the last line here」" });
+    assert.equal(sent.length, 1);
+    // "<藏歌 二>" -> stripped of brackets and space -> "藏歌二"
+    assert.match(sent[0].text, /已存档 SL-20260820-藏歌二/);
+    assert.ok(fs.existsSync(path.join(slDir, "SL-20260820-藏歌二.md")));
+  } finally {
+    cleanup(root);
+  }
+});
+
+test("/sl_save with no name derives one from the end anchor", async () => {
+  const root = tempRoot();
+  try {
+    const { convDir, slDir } = writeFixtures(root);
+    const { app, sent } = makeApp({ slDir, conversationDir: convDir, automationTimezone: "Australia/Sydney", slUserLabel: "她", slAiLabel: "fable" });
+    await app.handleSlSaveCommand(NORMALIZED, { name: "sl_save", args: "末句：「the last line here」" });
+    assert.equal(sent.length, 1);
+    // No name given -> derived from the anchor's first words (spaces stripped).
+    assert.match(sent[0].text, /已存档 SL-20260820-thelastlinehere/);
+  } finally {
+    cleanup(root);
+  }
+});
+
 test("/sl_save without an end anchor replies with usage, writes nothing", async () => {
   const root = tempRoot();
   try {

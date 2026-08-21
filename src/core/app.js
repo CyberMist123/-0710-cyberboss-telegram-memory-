@@ -3172,20 +3172,22 @@ class CyberbossApp {
       return;
     }
     const { name, fields } = parseSlSaveArgs(command.args);
-    if (!name || !fields.end) {
+    if (!fields.end) {
       await reply(
-        "💡 用法：/sl_save <档名> 末句：「原话」\n" +
-          "可选：首句：「原话」 备注：<为什么存> 引导：<读档后怎么接>\n" +
-          "（末句是那段的最后一句，定位存档尾；不给首句就自动往前找到一次静默断点。）",
+        "💡 用法：/sl_save 末句：「原话」\n" +
+          "档名可省（不写就自动取末句开头几个字；写了也行，空格/符号我会自己清）。\n" +
+          "可选：首句：「原话」 备注：为什么存 引导：读档后怎么接\n" +
+          "（末句是那段的最后一句，用来定位存到哪；不给首句就自动往前找到一次静默断点。）",
       );
       return;
     }
+    const slName = deriveSlName(name, fields.end);
     let result;
     try {
       result = saveArchive({
         slDir: this.config.slDir,
         conversationsDir: this.config.conversationDir,
-        name,
+        name: slName,
         note: fields.note || "",
         guide: fields.guide || "",
         endAnchor: fields.end,
@@ -5370,12 +5372,25 @@ function normalizeCommandName(value) {
 // `command.args` has already collapsed internal whitespace to single spaces, so
 // values are single-line; each labeled field runs from its `：` to the next
 // known label (or end). Chinese or ASCII colons and 「」/quote wrappers accepted.
+const SL_FIELD_LABEL = /(末句|首句|备注|引导|end|start|note|guide)\s*[：:]/;
+
 function parseSlSaveArgs(args) {
   const text = String(args || "").trim();
-  const head = text.match(/^(\S+)\s*([\s\S]*)$/);
-  if (!head) return { name: "", fields: {} };
-  const name = head[1];
-  const rest = head[2];
+  if (!text) return { name: "", fields: {} };
+  // The name is everything up to the first field label, so it may contain spaces
+  // and punctuation (deriveSlName sanitizes it later). When the text starts with a
+  // field label there is simply no name -- the name auto-derives from the anchor.
+  let name = "";
+  let rest = text;
+  const labelAt = text.search(SL_FIELD_LABEL);
+  if (labelAt > 0) {
+    name = text.slice(0, labelAt).trim();
+    rest = text.slice(labelAt);
+  } else if (labelAt < 0) {
+    // No field label at all: the whole thing is the name (end anchor missing).
+    name = text;
+    rest = "";
+  }
   const fields = {};
   const labelRe = /(末句|首句|备注|引导|end|start|note|guide)\s*[：:]\s*/g;
   const marks = [];
@@ -5389,6 +5404,16 @@ function parseSlSaveArgs(args) {
     if (value && !fields[marks[i].key]) fields[marks[i].key] = value;
   }
   return { name, fields };
+}
+
+// Turn whatever she typed for the archive name into one the filename layer will
+// accept (word chars + CJK, <=40), instead of rejecting her outright. Angle
+// brackets, quotes, spaces and punctuation are stripped rather than refused. When
+// nothing usable remains -- she gave no name, or only symbols -- the name derives
+// from the end anchor's first words, so /sl_save never fails on the name alone.
+function deriveSlName(rawName, endAnchor) {
+  const clean = (value) => String(value || "").replace(/[^\w一-鿿]+/gu, "").slice(0, 40);
+  return clean(rawName) || clean(endAnchor).slice(0, 16) || "存档";
 }
 
 function canonicalSlField(label) {
