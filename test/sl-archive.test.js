@@ -170,7 +170,8 @@ test("saveArchive refuses a duplicate id and a bad name", () => {
     assert.equal(saveArchive(args).ok, true);
     assert.equal(saveArchive(args).error, "duplicate-id");
     assert.equal(saveArchive({ ...args, name: "bad name with spaces" }).error, "bad-name");
-    assert.equal(saveArchive({ ...args, name: "夜", endAnchor: "" }).error, "end-anchor-missing");
+    // No end anchor is no longer an error -- it saves up to the latest line.
+    assert.equal(saveArchive({ ...args, name: "自动", endAnchor: "" }).ok, true);
   } finally {
     cleanup(root);
   }

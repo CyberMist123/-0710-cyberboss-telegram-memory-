@@ -323,9 +323,9 @@ const COMMAND_GROUPS = [
       },
       {
         action: "sl.load",
-        summary: "读一个回档点，把那段注入当前对话（/sl_load <档名> [备注：这次为什么读]）",
+        summary: "读一个回档点注入当前对话。/sl_load 不带名就列出编号，回数字（如 1）即可；也可 /sl_load 数字 或 /sl_load 档名",
         terminal: [],
-        weixin: ["/sl_load <档名>"],
+        weixin: ["/sl_load"],
         status: "active",
       },
       {

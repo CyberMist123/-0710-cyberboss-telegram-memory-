@@ -52,6 +52,7 @@ function makeApp(config) {
       sent.push(payload);
     },
   };
+  app.slLoadPending = new Map();
   return { app, sent };
 }
 
@@ -119,15 +120,16 @@ test("/sl_save with no name derives one from the end anchor", async () => {
   }
 });
 
-test("/sl_save without an end anchor replies with usage, writes nothing", async () => {
+test("/sl_save with no end anchor auto-saves up to the latest line", async () => {
   const root = tempRoot();
   try {
     const { convDir, slDir } = writeFixtures(root);
     const { app, sent } = makeApp({ slDir, conversationDir: convDir, automationTimezone: "Australia/Sydney", slUserLabel: "她", slAiLabel: "fable" });
 
+    // Just a name, no 末句 -> saves the recent conversation up to its last line.
     await app.handleSlSaveCommand(NORMALIZED, { name: "sl_save", args: "只有档名" });
-    assert.match(sent[0].text, /用法/);
-    assert.deepEqual(fs.readdirSync(slDir).filter((f) => f.startsWith("SL-")), []);
+    assert.match(sent[0].text, /已存档 SL-.*-只有档名/);
+    assert.ok(fs.readdirSync(slDir).some((f) => /^SL-.*-只有档名\.md$/.test(f)));
   } finally {
     cleanup(root);
   }
@@ -194,6 +196,72 @@ test("/sl_load injects the archived segment via the system queue (never into 06-
 
     const saved = fs.readFileSync(path.join(slDir, "SL-20260820-藏歌.md"), "utf8");
     assert.match(saved, /- 第1次 .*：第一次回档/);
+  } finally {
+    cleanup(root);
+  }
+});
+
+function makeLoadApp(root, convDir, slDir) {
+  const queued = [];
+  const { app, sent } = makeApp({ slDir, conversationDir: convDir, automationTimezone: "Australia/Sydney", slUserLabel: "她", slAiLabel: "fable" });
+  app.automationTargets = { accountId: "telegram", senderId: "user-1", workspaceRoot: root };
+  app.systemMessageQueue = { enqueue: (m) => queued.push(m) };
+  return { app, sent, queued };
+}
+
+test("/sl_load with no name shows a numbered roster and arms a bare-number selection", async () => {
+  const root = tempRoot();
+  try {
+    const { convDir, slDir } = writeFixtures(root);
+    saveArchive({ slDir, conversationsDir: convDir, name: "藏歌", endAnchor: "the last line here", timezone: "Australia/Sydney", now: new Date("2026-08-20T05:00:00Z") });
+    const { app, sent } = makeLoadApp(root, convDir, slDir);
+
+    await app.handleSlLoadCommand(NORMALIZED, { name: "sl_load", args: "" });
+    assert.match(sent[0].text, /1\. SL-20260820-藏歌/);
+    assert.match(sent[0].text, /回数字/);
+    assert.equal(app.slLoadPending.size, 1, "a selection is armed");
+  } finally {
+    cleanup(root);
+  }
+});
+
+test("a bare-number reply after /sl_load loads that archive; a non-number cancels", async () => {
+  const root = tempRoot();
+  try {
+    const { convDir, slDir } = writeFixtures(root);
+    saveArchive({ slDir, conversationsDir: convDir, name: "藏歌", endAnchor: "the last line here", timezone: "Australia/Sydney", now: new Date("2026-08-20T05:00:00Z") });
+    const { app, sent, queued } = makeLoadApp(root, convDir, slDir);
+
+    await app.handleSlLoadCommand(NORMALIZED, { name: "sl_load", args: "" });
+    // a non-number message cancels and is not consumed
+    const passed = await app.tryConsumeSlLoadSelection({ ...NORMALIZED, text: "在吗" });
+    assert.equal(passed, false, "a normal message is not consumed");
+    assert.equal(app.slLoadPending.size, 0, "pending cleared by the non-number");
+
+    // re-arm, then a bare number loads
+    await app.handleSlLoadCommand(NORMALIZED, { name: "sl_load", args: "" });
+    const consumed = await app.tryConsumeSlLoadSelection({ ...NORMALIZED, text: "1" });
+    assert.equal(consumed, true, "the number is consumed as a selection");
+    assert.equal(queued.length, 1, "the selected archive was injected");
+    assert.match(sent[sent.length - 1].text, /读档 SL-20260820-藏歌/);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test("/sl_load with a number loads by position", async () => {
+  const root = tempRoot();
+  try {
+    const { convDir, slDir } = writeFixtures(root);
+    saveArchive({ slDir, conversationsDir: convDir, name: "藏歌", endAnchor: "the last line here", timezone: "Australia/Sydney", now: new Date("2026-08-20T05:00:00Z") });
+    const { app, sent, queued } = makeLoadApp(root, convDir, slDir);
+
+    await app.handleSlLoadCommand(NORMALIZED, { name: "sl_load", args: "1" });
+    assert.equal(queued.length, 1);
+    assert.match(sent[0].text, /读档 SL-20260820-藏歌/);
+
+    await app.handleSlLoadCommand(NORMALIZED, { name: "sl_load", args: "9" });
+    assert.match(sent[sent.length - 1].text, /没有第 9 个/);
   } finally {
     cleanup(root);
   }

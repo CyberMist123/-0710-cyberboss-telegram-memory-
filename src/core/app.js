@@ -289,6 +289,9 @@ class CyberbossApp {
     // 进程的启动参数只有 announceProcessLaunch 拿得到，这里把它留住。
     // 内存态即可：bridge 重启会连子进程一起杀掉，记录跟着失效才是对的。
     this.liveLaunchByLane = new Map();
+    // After `/sl_load` with no name we show a numbered roster and remember it
+    // briefly, so she can pick with a bare number ("1") instead of typing a name.
+    this.slLoadPending = new Map();
     this.streamDelivery = new StreamDelivery({
       channelAdapter: this.channelAdapter,
       telegramChannelAdapter: this.telegramChannelAdapter,
@@ -882,6 +885,12 @@ class CyberbossApp {
     const command = parseChannelCommand(normalized.text);
     if (allowCommands && command) {
       await this.dispatchChannelCommand(normalized, command);
+      return;
+    }
+
+    // A bare-number reply right after `/sl_load` (no name) picks from the roster.
+    // Any other message clears the pending prompt and flows on as normal chat.
+    if (allowCommands && await this.tryConsumeSlLoadSelection(normalized)) {
       return;
     }
 
@@ -3172,16 +3181,10 @@ class CyberbossApp {
       return;
     }
     const { name, fields } = parseSlSaveArgs(command.args);
-    if (!fields.end) {
-      await reply(
-        "💡 用法：/sl_save 末句：「原话」\n" +
-          "档名可省（不写就自动取末句开头几个字；写了也行，空格/符号我会自己清）。\n" +
-          "可选：首句：「原话」 备注：为什么存 引导：读档后怎么接\n" +
-          "（末句是那段的最后一句，用来定位存到哪；不给首句就自动往前找到一次静默断点。）",
-      );
-      return;
-    }
-    const slName = deriveSlName(name, fields.end);
+    // No end anchor is fine now: /sl_save alone saves up to the latest line.
+    // A time-stamped fallback keeps unnamed auto-saves from colliding.
+    const hhmm = new Date().toISOString().slice(11, 16).replace(":", "");
+    const slName = deriveSlName(name, fields.end, `存档${hhmm}`);
     let result;
     try {
       result = saveArchive({
@@ -3224,25 +3227,111 @@ class CyberbossApp {
       return;
     }
     const { name, note } = parseSlLoadArgs(command.args);
+    // No name -> show a numbered roster and arm a brief pending selection, so she
+    // can pick with a bare number reply. She asked for exactly this ("回复 1 就行").
     if (!name) {
-      await reply("💡 用法：/sl_load <档名>（可加 备注：这次为什么读）。先 /sl_list 看有哪些档。");
+      const listed = listArchives(this.config.slDir);
+      if (!listed.ok || !listed.rows.length) {
+        await reply("📂 还没有存档点。用 /sl_save 存第一段。");
+        return;
+      }
+      this.armSlLoadSelection(normalized, listed.rows.map((row) => row.slId));
+      await reply(this.formatSlArchiveRoster(listed.rows, "读哪个？直接回数字（如 1）就行；也可以 /sl_load 档名。"));
       return;
     }
-    const loaded = loadArchive({ slDir: this.config.slDir, name });
+    // A bare number selects by position in the /sl_list order.
+    if (/^\d+$/u.test(name)) {
+      const listed = listArchives(this.config.slDir);
+      const row = listed.ok ? listed.rows[Number(name) - 1] : null;
+      if (!row) {
+        await reply(`❌ 没有第 ${name} 个存档点。先 /sl_list 看有几个。`);
+        return;
+      }
+      await this.executeSlLoad(normalized, row.slId, note);
+      return;
+    }
+    await this.executeSlLoad(normalized, name, note);
+  }
+
+  // The 08-sl key for a brief pending selection: per account + sender, so one
+  // chat's "1" never resolves another's roster.
+  slLoadSelectionKey(normalized) {
+    return `${normalizeText(normalized?.accountId)} ${normalizeText(normalized?.senderId)}`;
+  }
+
+  armSlLoadSelection(normalized, slIds) {
+    if (!Array.isArray(slIds) || !slIds.length) return;
+    this.slLoadPending.set(this.slLoadSelectionKey(normalized), {
+      slIds,
+      expiresAt: Date.now() + 10 * 60 * 1000,
+    });
+  }
+
+  // Called at the top of the inbound path. A bare number while a roster is armed
+  // loads that archive; anything else clears the pending selection and lets the
+  // message flow on as normal chat. Returns true only when it consumed the turn.
+  async tryConsumeSlLoadSelection(normalized) {
+    if (!(this.slLoadPending instanceof Map)) return false;
+    const key = this.slLoadSelectionKey(normalized);
+    const pending = this.slLoadPending.get(key);
+    if (!pending) return false;
+    if (Date.now() > pending.expiresAt) {
+      this.slLoadPending.delete(key);
+      return false;
+    }
+    const text = normalizeText(normalized?.text);
+    if (!/^\d+$/u.test(text)) {
+      // She moved on -- a normal message cancels the selection prompt.
+      this.slLoadPending.delete(key);
+      return false;
+    }
+    const index = Number(text);
+    if (index < 1 || index > pending.slIds.length) {
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: `❌ 只有 1–${pending.slIds.length}。回这个范围里的数字，或直接说话取消。`,
+        contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
+      });
+      return true;
+    }
+    this.slLoadPending.delete(key);
+    await this.executeSlLoad(normalized, pending.slIds[index - 1], "");
+    return true;
+  }
+
+  formatSlArchiveRoster(rows, tail = "") {
+    const lines = [`📂 存档点（共 ${rows.length} 个）：`];
+    rows.forEach((row, i) => {
+      lines.push(`${i + 1}. ${row.slId}｜${row.storyTime}｜读档 ${row.reads} 次`);
+      if (row.noteSummary) lines.push(`   ${row.noteSummary}`);
+    });
+    if (tail) lines.push("", tail);
+    return lines.join("\n");
+  }
+
+  // Shared load core: inject the archived segment via the system queue (never into
+  // 06-raw), bump the read count, and confirm. Used by /sl_load <name>, /sl_load
+  // <number>, and the bare-number selection.
+  async executeSlLoad(normalized, nameOrSlId, note = "") {
+    const reply = (text) =>
+      this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text,
+        contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
+      });
+    const loaded = loadArchive({ slDir: this.config.slDir, name: nameOrSlId });
     if (!loaded.ok) {
       await reply(slLoadErrorText(loaded));
-      return;
+      return false;
     }
     const targets = this.automationTargets;
     if (!this.systemMessageQueue || !targets?.accountId || !targets?.senderId || !targets?.workspaceRoot) {
       await reply("❌ 暂时读不了档：注入目标还没就绪（poller 可能刚起，稍等再试）。存档没动。");
-      return;
+      return false;
     }
     const nextRead = loaded.reads + 1;
-    // Inject via the system-message queue — the same path /probe uses. This turn
-    // is delivered to the runtime but is NEVER written to 06-raw, so the quoted
-    // history can't be re-ingested as a new event (防二次入账 · 不变量⑤). The
-    // quote is re-wrapped in SL-QUOTE markers as belt-and-suspenders.
     this.systemMessageQueue.enqueue({
       id: `sl_load:${crypto.randomUUID()}`,
       accountId: targets.accountId,
@@ -3262,6 +3351,7 @@ class CyberbossApp {
     const countText = recorded.ok ? `第 ${recorded.reads} 次读档` : "读档（次数没写进档，稍后手动补）";
     console.log(`[sl_load] injected ${loaded.slId} read=${recorded.reads || nextRead}`);
     await reply(`📖 读档 ${loaded.slId}（${countText}）。那段已送进当前对话，稍等接话——按存档的引导指令走。`);
+    return true;
   }
 
   async handleSlListCommand(normalized) {
@@ -3285,12 +3375,7 @@ class CyberbossApp {
       await reply("📂 还没有存档点。用 /sl_save 存第一段。");
       return;
     }
-    const lines = [`📂 存档点（共 ${result.rows.length} 个）：`];
-    for (const row of result.rows) {
-      lines.push(`• ${row.slId}｜${row.storyTime}｜读档 ${row.reads} 次`);
-      if (row.noteSummary) lines.push(`  ${row.noteSummary}`);
-    }
-    await reply(lines.join("\n"));
+    await reply(this.formatSlArchiveRoster(result.rows, "读档：/sl_load 数字（如 1）或 /sl_load 档名。"));
   }
 
   async handleActivityPauseCommand(normalized, command, paused) {
@@ -5411,9 +5496,9 @@ function parseSlSaveArgs(args) {
 // brackets, quotes, spaces and punctuation are stripped rather than refused. When
 // nothing usable remains -- she gave no name, or only symbols -- the name derives
 // from the end anchor's first words, so /sl_save never fails on the name alone.
-function deriveSlName(rawName, endAnchor) {
+function deriveSlName(rawName, endAnchor, fallback = "存档") {
   const clean = (value) => String(value || "").replace(/[^\w一-鿿]+/gu, "").slice(0, 40);
-  return clean(rawName) || clean(endAnchor).slice(0, 16) || "存档";
+  return clean(rawName) || clean(endAnchor).slice(0, 16) || clean(fallback) || "存档";
 }
 
 function canonicalSlField(label) {

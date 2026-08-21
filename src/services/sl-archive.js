@@ -52,8 +52,9 @@ function saveArchive({
   if (!conversationsDir) return { ok: false, error: "conversations-dir-unset" };
   const shortName = String(name || "").trim();
   if (!NAME_PATTERN.test(shortName)) return { ok: false, error: "bad-name" };
+  // No end anchor means "save up to the latest line" -- locateSegment falls back
+  // to the last row. An explicit anchor still pins a custom endpoint.
   const anchor = normalizeAnchor(endAnchor);
-  if (!anchor) return { ok: false, error: "end-anchor-missing" };
 
   const today = localDateKey(now, timezone);
   const dayKeys = recentDayKeys(today, scanDays);
@@ -71,6 +72,9 @@ function saveArchive({
   const segment = located.rows;
   const startRow = segment[0];
   const endRow = segment[segment.length - 1];
+  // When the save was unanchored, show the line it actually stopped at so the
+  // archive's source line stays meaningful.
+  const effectiveAnchor = anchor || String(endRow.text || "").trim().slice(0, 40);
   const startDay = localDateKey(Date.parse(startRow.timestamp), timezone);
   const endDay = localDateKey(Date.parse(endRow.timestamp), timezone);
   const slId = `SL-${endDay.replace(/-/g, "")}-${shortName}`;
@@ -78,7 +82,7 @@ function saveArchive({
   if (fs.existsSync(filePath)) return { ok: false, error: "duplicate-id", slId };
 
   const storyTime = formatStoryTime({ startRow, endRow, startDay, endDay, timezone });
-  const sourceLine = formatSourceLine({ startDay, endDay, endAnchor: anchor });
+  const sourceLine = formatSourceLine({ startDay, endDay, endAnchor: effectiveAnchor });
   const excerpt = formatExcerpt(segment, { timezone, labels, startDay, endDay });
   const markdown = buildArchiveMarkdown({
     slId,
@@ -317,10 +321,15 @@ function readConversationRows({ conversationsDir, dayKeys }) {
 
 function locateSegment(rows, { endAnchor, startAnchor, gapMinutes, maxRows }) {
   let endIdx = -1;
-  for (let i = rows.length - 1; i >= 0; i -= 1) {
-    if (textIncludes(rows[i].text, endAnchor)) {
-      endIdx = i;
-      break;
+  if (!endAnchor) {
+    // Unanchored save: stop at the most recent line.
+    endIdx = rows.length - 1;
+  } else {
+    for (let i = rows.length - 1; i >= 0; i -= 1) {
+      if (textIncludes(rows[i].text, endAnchor)) {
+        endIdx = i;
+        break;
+      }
     }
   }
   if (endIdx < 0) return { error: "end-anchor-not-found" };
