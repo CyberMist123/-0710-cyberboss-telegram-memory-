@@ -1597,6 +1597,25 @@ function createClaudeCodeRuntimeAdapter(config) {
     async sendTextTurn(args) {
       return this.sendTurn(args);
     },
+    // Retire this lane's child without touching its thread. The stored session id
+    // stays, so the next user message relaunches with --resume and the child comes
+    // back on the current model / effort / profile. Unlike refreshThreadInstructions
+    // this injects no refresh turn -- it is the explicit "/restart" the Owner drives
+    // when a model/effort change should take hold without a whole-bridge restart.
+    async restartLaneChild({
+      bindingKey = "", workspaceRoot = "", lane = null, launchProfile = null, senderId = "", model = "", effort = "",
+    } = {}) {
+      const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, model, effort, senderId });
+      // A pending Route 2/3 lease must not survive the restart.
+      route2GateState.revoke(route.sessionSlotKey, "restart");
+      const processKey = computeProcessKey(route);
+      let retired = false;
+      await processRegistry.withLock(processKey, async () => {
+        retired = Boolean(processRegistry.get(processKey)?.client?.usable);
+        await closeProcessKey(processKey);
+      });
+      return { retired, threadId: route.storedThreadId || "", sessionSlotKey: route.sessionSlotKey };
+    },
     getWindowOverride({ bindingKey = "", workspaceRoot = "", lane = null, launchProfile = null, senderId = "" } = {}) {
       const route = resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile, senderId });
       return {

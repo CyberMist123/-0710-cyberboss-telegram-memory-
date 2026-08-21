@@ -491,3 +491,132 @@ test("T05 A8 trace never echoes credentials, absolute paths or raw profile ident
     (error) => error.code === "window_override_invalid",
   );
 });
+
+
+// model/effort are a GLOBAL, per-workspace preference (the binding store), not a
+// per-window/per-fingerprint one: setting /model or /effort in one chat window
+// is inherited by the others and survives a persona edit that rotates the slot
+// key. These guard that contract so a future refactor cannot silently re-couple
+// the choice to the profile fingerprint (which would make it snap back to the
+// profile default every time the system prompt is edited).
+const G3_ENABLED = {
+  ...ENABLED,
+  CYBERBOSS_CLAUDE_G3_PROFILE_CONTRACT_ENABLED: "1",
+  CYBERBOSS_CLAUDE_G3_PREFLIGHT_ENABLED: "1",
+};
+
+test("global model/effort survive a persona edit that rotates the slot key", async () => {
+  const root = tempRoot();
+  const stateDir = path.join(root, "state");
+  fs.mkdirSync(stateDir, { recursive: true });
+  const profile = managedProfile(root);
+  const workspaceRoot = profile.cwd;
+  const adapter = createClaudeCodeRuntimeAdapter({
+    stateDir,
+    sessionsFile: path.join(root, "sessions.json"),
+    claudeSessionSlotsFile: path.join(stateDir, "claude-session-slots.json"),
+  });
+  const bindingKey = "default:telegram:800";
+  const senderId = "800";
+  const lane = buildTelegramRouteLane({ accountId: "telegram", chatId: 800 });
+  try {
+    await withEnv(G3_ENABLED, async () => {
+      const store = adapter.getSessionStore();
+      // /model + /effort (command mirrors: window override + global binding store)
+      adapter.setWindowOverride({
+        bindingKey, workspaceRoot, lane, launchProfile: profile, senderId,
+        patch: { model: "claude-opus-5", modelSource: "command", modelScope: "window", effort: "high", effortSource: "command", effortScope: "window" },
+      });
+      store.setRuntimeParamsForWorkspace(bindingKey, workspaceRoot, { model: "claude-opus-5", effort: "high" });
+
+      // Owner edits the system prompt -> persona digest changes -> slot rotates.
+      fs.writeFileSync(profile.personaSource, "PERSONA_EDITED", "utf8");
+
+      const tp = store.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
+      const after = adapter.__internals.resolveRouteContext({
+        bindingKey, workspaceRoot, lane, launchProfile: profile, senderId, model: tp.model, effort: tp.effort,
+      });
+      assert.equal(after.effort, "high", "effort must survive a persona edit");
+      assert.equal(after.model, "claude-opus-5", "model must survive a persona edit");
+    });
+  } finally {
+    await adapter.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a fresh chat window inherits the global model/effort set in another window", async () => {
+  const root = tempRoot();
+  const stateDir = path.join(root, "state");
+  fs.mkdirSync(stateDir, { recursive: true });
+  const profile = managedProfile(root);
+  const workspaceRoot = profile.cwd;
+  const adapter = createClaudeCodeRuntimeAdapter({
+    stateDir,
+    sessionsFile: path.join(root, "sessions.json"),
+    claudeSessionSlotsFile: path.join(stateDir, "claude-session-slots.json"),
+  });
+  const bindingKey = "default:telegram:700";
+  const senderId = "700";
+  const laneA = buildTelegramRouteLane({ accountId: "telegram", chatId: 700, messageThreadId: 1 });
+  const laneB = buildTelegramRouteLane({ accountId: "telegram", chatId: 700, messageThreadId: 2 });
+  try {
+    await withEnv(G3_ENABLED, async () => {
+      const store = adapter.getSessionStore();
+      adapter.setWindowOverride({ bindingKey, workspaceRoot, lane: laneA, launchProfile: profile, senderId, patch: { effort: "high", effortSource: "command", effortScope: "window" } });
+      store.setRuntimeParamsForWorkspace(bindingKey, workspaceRoot, { effort: "high" });
+
+      // window B has never run /effort -> it inherits the global choice.
+      const tp = store.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
+      const ctxB = adapter.__internals.resolveRouteContext({
+        bindingKey, workspaceRoot, lane: laneB, launchProfile: profile, senderId, effort: tp.effort,
+      });
+      assert.equal(ctxB.effort, "high", "a fresh window inherits the global effort");
+    });
+  } finally {
+    await adapter.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// /restart retires the lane's child but keeps the conversation: the stored thread
+// id survives so the next message relaunches with --resume on the current
+// model/effort/profile. This is the Owner-driven escape hatch for "my /model
+// change won't take effect without a restart".
+test("restartLaneChild retires the child but preserves the thread", async () => {
+  const root = tempRoot();
+  const stateDir = path.join(root, "state");
+  fs.mkdirSync(stateDir, { recursive: true });
+  const profile = managedProfile(root);
+  const workspaceRoot = profile.cwd;
+  const adapter = createClaudeCodeRuntimeAdapter({
+    stateDir,
+    sessionsFile: path.join(root, "sessions.json"),
+    claudeSessionSlotsFile: path.join(stateDir, "claude-session-slots.json"),
+  });
+  const bindingKey = "default:telegram:950";
+  const senderId = "950";
+  const lane = buildTelegramRouteLane({ accountId: "telegram", chatId: 950 });
+  try {
+    await withEnv(G3_ENABLED, async () => {
+      // Establish a live thread for this lane's slot.
+      const route = adapter.__internals.resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile: profile, senderId });
+      adapter.__internals.sessionSlotStore.setThreadId(route.sessionSlotKey, SESSION_ID, { route: route.routeDescriptor });
+      assert.equal(adapter.__internals.sessionSlotStore.getThreadId(route.sessionSlotKey), SESSION_ID);
+
+      const result = await adapter.restartLaneChild({ bindingKey, workspaceRoot, lane, launchProfile: profile, senderId });
+      // No real child was spawned, so nothing was retired -- but the call must be
+      // safe and, crucially, must NOT drop the conversation.
+      assert.equal(result.retired, false);
+      assert.equal(result.threadId, SESSION_ID, "the thread id is returned");
+      assert.equal(
+        adapter.__internals.sessionSlotStore.getThreadId(route.sessionSlotKey),
+        SESSION_ID,
+        "the conversation thread survives a /restart",
+      );
+    });
+  } finally {
+    await adapter.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

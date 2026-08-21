@@ -284,3 +284,22 @@ test("findModelByQuery preserves Codex id and model matching when aliases are ab
   assert.equal(findModelByQuery(models, "MODEL-ROW-2"), models[1]);
   assert.equal(findModelByQuery(models, "opus"), null);
 });
+
+test("/effort auto-restarts the lane child so the new level applies on the next message", async () => {
+  const { app, sent } = makeApp({ windowEnabled: true });
+  const restarts = [];
+  app.runtimeAdapter.restartLaneChild = async (req) => { restarts.push(req); return { retired: true, threadId: "t" }; };
+  await app.handleEffortCommand(INBOUND, { name: "effort", args: "high" });
+  assert.equal(restarts.length, 1, "restartLaneChild is invoked once");
+  assert.equal(restarts[0].effort, "high", "the restart carries the newly-set effort");
+  assert.match(sent[0].text, /Effort switched/);
+  assert.match(sent[0].text, /进程已重启/);
+});
+
+test("/effort still succeeds when the runtime cannot restart (fail-open)", async () => {
+  const { app, sent } = makeApp({ windowEnabled: true });
+  app.runtimeAdapter.restartLaneChild = async () => { throw new Error("boom"); };
+  await app.handleEffortCommand(INBOUND, { name: "effort", args: "high" });
+  assert.match(sent[0].text, /Effort switched/, "the command still reports success");
+  assert.doesNotMatch(sent[0].text, /进程已重启/, "no restart line when the restart failed");
+});
