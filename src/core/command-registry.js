@@ -335,6 +335,13 @@ const COMMAND_GROUPS = [
         weixin: ["/sl_list"],
         status: "active",
       },
+      {
+        action: "sl.return",
+        summary: "离开回档净房，回到主线常驻窗（/new 也会退出）",
+        terminal: [],
+        weixin: ["/return"],
+        status: "active",
+      },
     ],
   },
 ];

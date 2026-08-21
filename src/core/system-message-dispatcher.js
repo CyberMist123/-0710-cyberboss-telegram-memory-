@@ -80,6 +80,17 @@ function buildSystemInboundText(text, createdAt = "", sourceType = "system", ale
     ].join("\n").trim();
   }
 
+  // 回档净房: `/sl_load` is a revisit she asked for, delivered into a clean branch
+  // session. It must NOT wear the "SYSTEM ACTION MODE / not user chat" shell -- the
+  // body IS the archive (it carries its own「给读档的你」framing), and the branch
+  // should just read it and talk to her. No trigger wrapper, no八维 questionnaire.
+  if (normalizedType === "sl_load") {
+    return [
+      ...(localTime ? [`[${localTime}]`, ""] : []),
+      body,
+    ].join("\n").trim();
+  }
+
   if (normalizedType === "desire_checkin") {
     if (!normalizedOptions.desireLoopMinimalEnabled) {
       const sections = [

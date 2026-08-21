@@ -25,6 +25,13 @@ const LANE_VERSION = "v2";
 const LANE_KIND_TELEGRAM = "tg";
 const LANE_KIND_SYSTEM = "sys";
 const LANE_KIND_LEGACY = "legacy";
+// A回档净房 (SL branch). It carries the same Telegram (account, chat, topic) as
+// its base tg lane -- so profile selection resolves to the SAME persona -- but a
+// per-load `branchId` in the lane key forces a FRESH, isolated session slot. That
+// is what makes `/sl_load` a clean `/new`+archive room instead of injecting into
+// the live chat transcript. The base lane travels on `.baseLane` so profile
+// resolution keys off it, never off this branch key.
+const LANE_KIND_SL = "sl";
 
 // System lanes never inherit an interactive Telegram route. Each background
 // producer gets its own explicit lane so a closeout turn can never land in a
@@ -231,6 +238,41 @@ function buildSystemRouteLane(channel) {
 }
 
 /**
+ * SL 读档净房 (clean-room branch) lane.
+ *
+ * Same Telegram identity as the live chat lane (so its launch profile / persona
+ * resolves to the very same one), but a per-load `branchId` makes the lane key
+ * -- and therefore the session slot -- unique, so the archive lands in a fresh
+ * isolated session that carries none of today's context. `/return` (or `/new`)
+ * drops the pointer to it; the base lane rides on `.baseLane` so the caller can
+ * key profile selection off the chat lane rather than this branch key.
+ *
+ * @param {{accountId: string, chatId: string|number, messageThreadId?: string|number|null, branchId: string}} input
+ */
+function buildSlBranchLane({ accountId, chatId, messageThreadId = null, branchId } = {}) {
+  const base = buildTelegramRouteLane({ accountId, chatId, messageThreadId });
+  const normalizedBranchId = typeof branchId === "string" ? branchId.trim() : "";
+  if (!normalizedBranchId || normalizedBranchId.length > 128) {
+    throw new RouteLaneError("sl branch lane requires a branchId", "route_lane_invalid");
+  }
+  return Object.freeze({
+    kind: LANE_KIND_SL,
+    provider: "telegram",
+    accountId: base.accountId,
+    chatId: base.chatId,
+    messageThreadId: base.messageThreadId,
+    branchId: normalizedBranchId,
+    baseLane: base,
+    laneKey: buildLaneKey(LANE_KIND_SL, [
+      base.accountId,
+      base.chatId,
+      base.messageThreadId,
+      normalizedBranchId,
+    ]),
+  });
+}
+
+/**
  * Lane for a non-Telegram channel. Keeps the pre-v2 grouping (one lane per
  * continuity binding) so WeChat behaviour is byte-for-byte unchanged, while
  * still flowing through the lane-shaped plumbing.
@@ -361,6 +403,7 @@ function isSameLane(left, right) {
 
 module.exports = {
   LANE_KIND_LEGACY,
+  LANE_KIND_SL,
   LANE_KIND_SYSTEM,
   LANE_KIND_TELEGRAM,
   LANE_VERSION,
@@ -368,6 +411,7 @@ module.exports = {
   SYSTEM_LANE_CHANNELS,
   buildLaneScopeKey,
   buildLegacyRouteLane,
+  buildSlBranchLane,
   buildSystemRouteLane,
   buildTelegramRouteLane,
   canonicalTelegramChatId,

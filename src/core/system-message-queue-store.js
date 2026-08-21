@@ -116,6 +116,10 @@ function normalizeSystemMessage(message) {
     ...(normalizeText(message.alertKey) ? { alertKey: normalizeText(message.alertKey) } : {}),
     ...(normalizeText(message.fingerprint) ? { fingerprint: normalizeText(message.fingerprint) } : {}),
     ...(message.desireState && typeof message.desireState === "object" ? { desireState: message.desireState } : {}),
+    // 回档净房 descriptor for a `/sl_load` turn: everything the dispatcher needs to
+    // rebuild the clean-room branch lane it must land in (slId + branchId + the
+    // chat's Telegram route). Preserved verbatim; unknown for any other source.
+    ...(message.slBranch && typeof message.slBranch === "object" ? { slBranch: message.slBranch } : {}),
   };
 }
 

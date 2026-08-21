@@ -12,6 +12,7 @@ const {
 const {
   buildLaneScopeKey,
   buildLegacyRouteLane,
+  buildSlBranchLane,
   buildSystemRouteLane,
   rebuildLaneFromDescriptor,
   resolveInboundRouteLane,
@@ -292,6 +293,12 @@ class CyberbossApp {
     // After `/sl_load` with no name we show a numbered roster and remember it
     // briefly, so she can pick with a bare number ("1") instead of typing a name.
     this.slLoadPending = new Map();
+    // Active 回档净房 pointer, keyed by bindingKey. While set, this chat's inbound
+    // turns route into the clean SL branch session instead of the live mainline
+    // chat, so a load is a real revisit-in-isolation. `/return` or `/new` clears
+    // it. In-memory only: a bridge restart drops you back to the mainline, which
+    // is the safe default (a restarted process has no live branch child anyway).
+    this.slBranchByBinding = new Map();
     this.streamDelivery = new StreamDelivery({
       channelAdapter: this.channelAdapter,
       telegramChannelAdapter: this.telegramChannelAdapter,
@@ -819,13 +826,18 @@ class CyberbossApp {
    * are eligible; system, background and closeout lanes never reach here.
    */
   resolveLaunchProfileForLane(lane) {
-    if (!lane || lane.kind !== "tg" || !this.telegramProfileRouter?.isEnabled?.()) {
+    // A回档净房 (kind "sl") wears the SAME persona as the chat it branched from,
+    // so profile selection keys off its base tg lane -- never off the branch key,
+    // which the router does not know. Without this it would fall back to legacy
+    // and the branch would "wear the wrong skin".
+    const profileLane = lane?.kind === "sl" ? lane.baseLane : lane;
+    if (!profileLane || profileLane.kind !== "tg" || !this.telegramProfileRouter?.isEnabled?.()) {
       return null;
     }
     if (this.runtimeAdapter?.describe?.().id !== "claudecode") {
       return null;
     }
-    const selection = this.telegramProfileRouter.select(lane);
+    const selection = this.telegramProfileRouter.select(profileLane);
     this.recordRoutingTelemetry({
       event: "telegram_profile_select",
       outcome: selection.status,
@@ -873,7 +885,7 @@ class CyberbossApp {
       accountId: normalized.accountId,
       senderId: normalized.senderId,
     });
-    const lane = resolveRouteLaneFor(normalized, bindingKey);
+    let lane = resolveRouteLaneFor(normalized, bindingKey);
     if (normalized.provider !== "telegram") {
       this.streamDelivery.setReplyTarget(bindingKey, {
         userId: normalized.senderId,
@@ -883,6 +895,17 @@ class CyberbossApp {
     }
 
     const command = parseChannelCommand(normalized.text);
+
+    // 回档净房: while a load is active for this chat, her ordinary turns route into
+    // the clean branch session, not the live mainline chat. Commands are exempt --
+    // they parse below and run on the mainline (so /return, /status etc. always
+    // reach the real chat), but a non-command turn follows the pointer.
+    if (!command && normalized.provider === "telegram") {
+      const slBranchLane = this.resolveActiveSlBranchLane(bindingKey);
+      if (slBranchLane) {
+        lane = slBranchLane;
+      }
+    }
     if (allowCommands && command) {
       await this.dispatchChannelCommand(normalized, command);
       return;
@@ -2109,20 +2132,25 @@ class CyberbossApp {
     const desireLane = message?.sourceType === "desire_checkin"
       ? resolveTelegramLaneForSystemMessage(this, bindingKey, workspaceRoot)
       : null;
-    const lane = desireLane || systemLane;
+    // 回档净房: a `/sl_load` turn is delivered into the clean SL branch session
+    // (fresh, isolated, wearing the chat persona), NOT the background system lane.
+    // Its reply reaches her chat the same way desire's does, minus the shell.
+    const slBranchLane = message?.sourceType === "sl_load" && message.slBranch
+      ? this.safeBuildSlBranchLane(message.slBranch)
+      : null;
+    const lane = slBranchLane || desireLane || systemLane;
     // Queued system turns yield to any lane that is mid-turn in this workspace.
     if (this.isTurnDispatchBlocked(bindingKey, workspaceRoot, { anyLane: true })) {
       return false;
     }
-    // Explicit, independent identity: a system-message turn never inherits a
-    // Telegram lane's launch profile or Claude session. It serializes on the
-    // binding-level gate (gateLane: null) exactly as it did before v2.
-    return this.dispatchPreparedTurn({
+    // A回档净房 turn serializes on its own branch lane (an independent revisit),
+    // while background system turns keep the pre-v2 binding-level gate.
+    const dispatched = await this.dispatchPreparedTurn({
       bindingKey,
       workspaceRoot,
       prepared,
       lane,
-      gateLane: desireLane || null,
+      gateLane: slBranchLane ? undefined : (desireLane || null),
       pendingOperation: message?.sourceType === "desire_checkin"
         ? {
             kind: "desire_checkin",
@@ -2138,6 +2166,35 @@ class CyberbossApp {
           ? buildPendingSystemDesireOperation(this, message, message.desireState)
           : null),
     });
+    // Count a read only once the archive has actually been dispatched into the
+    // branch -- never at enqueue -- so a load that never lands is never tallied.
+    if (slBranchLane && dispatched && message?.slBranch?.slId) {
+      try {
+        const { localDateKey } = require("../utils/business-day");
+        const recorded = recordReentry({
+          slDir: this.config.slDir,
+          name: message.slBranch.slId,
+          note: normalizeText(message.slBranch.note),
+          dateKey: localDateKey(Date.now(), this.config.automationTimezone),
+        });
+        console.log(`[sl_load] delivered ${message.slBranch.branchId} read=${recorded.reads || "?"}`);
+      } catch (error) {
+        console.warn(`[sl_load] reentry count skipped: ${error?.message || String(error)}`);
+      }
+    }
+    return dispatched;
+  }
+
+  // A回档净房 lane rebuilt from a queued message's descriptor. Never throws into
+  // the dispatch path -- a malformed descriptor just declines the branch and the
+  // caller falls back to the ordinary system lane.
+  safeBuildSlBranchLane(descriptor) {
+    try {
+      return buildSlBranchLane(descriptor);
+    } catch (error) {
+      console.warn(`[sl_load] branch lane rebuild failed: ${error?.message || String(error)}`);
+      return null;
+    }
   }
 
   async dispatchChannelCommand(normalized, command) {
@@ -2194,6 +2251,10 @@ class CyberbossApp {
         return;
       case "sl_list":
         await this.handleSlListCommand(normalized);
+        return;
+      case "return":
+      case "exit_sl":
+        await this.handleReturnCommand(normalized);
         return;
       case "chunk":
         await this.handleChunkCommand(normalized, command);
@@ -2567,6 +2628,8 @@ class CyberbossApp {
       senderId: normalized.senderId,
     });
     const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
+    // `/new` means "back to a fresh mainline window", so it also leaves any回档净房.
+    const leftBranch = this.clearSlBranch?.(bindingKey);
     if (typeof this.runtimeAdapter.startFreshThreadDraft === "function") {
       await this.runtimeAdapter.startFreshThreadDraft({
         bindingKey,
@@ -2592,7 +2655,7 @@ class CyberbossApp {
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
       text: [
-        `✅ Switched to a fresh thread draft\nworkspace: ${workspaceRoot}`,
+        `✅ Switched to a fresh thread draft${leftBranch ? "（已退出回档净房，回到主线）" : ""}\nworkspace: ${workspaceRoot}`,
         ...statusTail,
       ].join("\n"),
       contextToken: normalized.contextToken,
@@ -3310,9 +3373,41 @@ class CyberbossApp {
     return lines.join("\n");
   }
 
-  // Shared load core: inject the archived segment via the system queue (never into
-  // 06-raw), bump the read count, and confirm. Used by /sl_load <name>, /sl_load
-  // <number>, and the bare-number selection.
+  // ---- 回档净房 pointer -----------------------------------------------------
+  //
+  // While a pointer is set for a binding, that chat's inbound turns route into
+  // the clean SL branch session. Set on `/sl_load`, cleared by `/return` (or
+  // `/new`). The stored descriptor is everything `buildSlBranchLane` needs to
+  // rebuild the exact same lane -- same branchId -> same fresh session -- for
+  // every subsequent turn until she leaves.
+
+  setSlBranch(bindingKey, descriptor) {
+    if (!bindingKey || !descriptor?.branchId) return;
+    this.slBranchByBinding.set(bindingKey, descriptor);
+  }
+
+  clearSlBranch(bindingKey) {
+    return this.slBranchByBinding.delete(bindingKey);
+  }
+
+  resolveActiveSlBranchLane(bindingKey) {
+    const descriptor = this.slBranchByBinding?.get?.(bindingKey);
+    if (!descriptor) return null;
+    try {
+      return buildSlBranchLane(descriptor);
+    } catch {
+      // A descriptor we can no longer turn into a lane is dead weight; drop it
+      // so she falls back to the mainline rather than getting stuck.
+      this.slBranchByBinding.delete(bindingKey);
+      return null;
+    }
+  }
+
+  // Shared load core: open a fresh clean-room branch session, inject ONLY the
+  // archive (no今天上下文, no八维, no SYSTEM ACTION MODE shell), point this chat at
+  // it, and confirm. The read count is bumped on dispatch (see dispatchSystemMessage),
+  // not here, so a load that never reaches the branch is never counted.
+  // Used by /sl_load <name>, /sl_load <number>, and the bare-number selection.
   async executeSlLoad(normalized, nameOrSlId, note = "") {
     const reply = (text) =>
       this.channelAdapter.sendText({
@@ -3331,27 +3426,71 @@ class CyberbossApp {
       await reply("❌ 暂时读不了档：注入目标还没就绪（poller 可能刚起，稍等再试）。存档没动。");
       return false;
     }
+    // The branch wears the SAME persona as the chat she typed from, so profile
+    // selection needs that chat's Telegram lane. A non-tg surface (WeChat, tests)
+    // has no clean-room lane -- fall back to the mainline chat lane there so the
+    // load still lands, just without isolation.
+    const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
+      workspaceId: normalized.workspaceId,
+      accountId: normalized.accountId,
+      senderId: normalized.senderId,
+    });
+    const chatLane = resolveRouteLaneFor(normalized, bindingKey);
+    if (chatLane?.kind !== "tg") {
+      await reply("❌ 读档净房目前只在 Telegram 端开（当前通道不支持）。存档没动。");
+      return false;
+    }
+    // Fresh branchId per load -> a brand-new isolated session every time (she
+    // asked for 每次全新, not 续读). The pointer keeps this chat on that branch
+    // until /return or /new.
     const nextRead = loaded.reads + 1;
+    const branchId = `${loaded.slId}#${crypto.randomUUID().slice(0, 8)}`;
+    const slBranch = {
+      slId: loaded.slId,
+      branchId,
+      note,
+      accountId: chatLane.accountId,
+      chatId: chatLane.chatId,
+      messageThreadId: chatLane.messageThreadId,
+    };
+    this.setSlBranch(bindingKey, slBranch);
     this.systemMessageQueue.enqueue({
       id: `sl_load:${crypto.randomUUID()}`,
       accountId: targets.accountId,
       senderId: targets.senderId,
       workspaceRoot: targets.workspaceRoot,
       text: buildSlLoadInjection(loaded, nextRead),
-      sourceType: "system",
+      sourceType: "sl_load",
+      slBranch,
       createdAt: new Date().toISOString(),
     });
-    const { localDateKey } = require("../utils/business-day");
-    const recorded = recordReentry({
-      slDir: this.config.slDir,
-      name: loaded.slId,
-      note,
-      dateKey: localDateKey(Date.now(), this.config.automationTimezone),
-    });
-    const countText = recorded.ok ? `第 ${recorded.reads} 次读档` : "读档（次数没写进档，稍后手动补）";
-    console.log(`[sl_load] injected ${loaded.slId} read=${recorded.reads || nextRead}`);
-    await reply(`📖 读档 ${loaded.slId}（${countText}）。那段已送进当前对话，稍等接话——按存档的引导指令走。`);
+    console.log(`[sl_load] armed clean-room branch ${branchId} read=${nextRead}`);
+    await reply(`📖 读档 ${loaded.slId}：已开一个干净的回档净房，只装这段存档、不带今天。稍等接话——按存档的引导指令走。聊完 /return 回来。`);
     return true;
+  }
+
+  // Leave a回档净房 and return to the mainline chat. A no-op (with a gentle note)
+  // when she is not in one, so /return is always safe to type.
+  async handleReturnCommand(normalized) {
+    const reply = (text) =>
+      this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text,
+        contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
+      });
+    const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
+      workspaceId: normalized.workspaceId,
+      accountId: normalized.accountId,
+      senderId: normalized.senderId,
+    });
+    const descriptor = this.slBranchByBinding?.get?.(bindingKey);
+    if (!descriptor) {
+      await reply("你现在就在主线，没有在读档净房里。");
+      return;
+    }
+    this.clearSlBranch(bindingKey);
+    await reply(`↩️ 回到主线（离开回档净房 ${descriptor.slId}）。刚才那段读档留在它自己的窗里，没并进主线。`);
   }
 
   async handleSlListCommand(normalized) {

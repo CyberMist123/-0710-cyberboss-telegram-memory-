@@ -70,6 +70,7 @@ test("handlePreparedMessage queues a normal inbound message while the scope is b
     },
     maybeRunLegacyMemoryBackgroundPipeline() {},
     isTurnDispatchBlocked: CyberbossApp.prototype.isTurnDispatchBlocked,
+    tryConsumeSlLoadSelection: async () => false,
     routePreparedInbound: CyberbossApp.prototype.routePreparedInbound,
   };
 
@@ -141,6 +142,7 @@ test("dispatchSystemMessage yields when a local pending turn already owns the wo
       handled = true;
     },
     isTurnDispatchBlocked: CyberbossApp.prototype.isTurnDispatchBlocked,
+    tryConsumeSlLoadSelection: async () => false,
   };
 
   const dispatched = await CyberbossApp.prototype.dispatchSystemMessage.call(appLike, {
@@ -214,6 +216,7 @@ test("handlePreparedMessage queues while the scope is in a turn-boundary handoff
     },
     maybeRunLegacyMemoryBackgroundPipeline() {},
     isTurnDispatchBlocked: CyberbossApp.prototype.isTurnDispatchBlocked,
+    tryConsumeSlLoadSelection: async () => false,
     routePreparedInbound: CyberbossApp.prototype.routePreparedInbound,
   };
 

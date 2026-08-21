@@ -53,10 +53,26 @@ function makeApp(config) {
     },
   };
   app.slLoadPending = new Map();
+  app.slBranchByBinding = new Map();
+  app.runtimeAdapter = {
+    getSessionStore: () => ({
+      buildBindingKey: ({ workspaceId = "default", accountId, senderId }) =>
+        `${workspaceId}:${accountId}:${senderId}`,
+    }),
+  };
   return { app, sent };
 }
 
-const NORMALIZED = { senderId: "user-1", contextToken: "telegram:user-1", messageThreadId: null };
+// A real Telegram inbound: /sl_load's clean-room branch needs a tg lane to wear
+// the chat persona and to isolate the session.
+const NORMALIZED = {
+  provider: "telegram",
+  accountId: "telegram",
+  chatId: "8120628778", // a canonical Telegram numeric id (required for a tg lane)
+  senderId: "user-1",
+  contextToken: "telegram:user-1",
+  messageThreadId: null,
+};
 
 test("/sl_save captures a segment, replies, and lands in /sl_list", async () => {
   const root = tempRoot();
@@ -156,10 +172,10 @@ test("/sl_save /sl_load /sl_list are registered and surface in the Telegram menu
 
   const group = listCommandGroups().find((g) => g.id === "sl");
   assert.ok(group, "expected an SL command group");
-  assert.deepEqual(group.actions.map((a) => a.action), ["sl.save", "sl.load", "sl.list"]);
+  assert.deepEqual(group.actions.map((a) => a.action), ["sl.save", "sl.load", "sl.list", "sl.return"]);
 });
 
-test("/sl_load injects the archived segment via the system queue (never into 06-raw) and bumps the read count", async () => {
+test("/sl_load opens a clean-room branch: enqueues an sl_load turn with the branch descriptor, arms the pointer, and does NOT count at load time", async () => {
   const root = tempRoot();
   try {
     const { convDir, slDir } = writeFixtures(root);
@@ -187,15 +203,46 @@ test("/sl_load injects the archived segment via the system queue (never into 06-
 
     await app.handleSlLoadCommand(NORMALIZED, { name: "sl_load", args: "藏歌 备注：第一次回档" });
 
-    assert.equal(queued.length, 1, "load must enqueue exactly one system turn");
-    assert.equal(queued[0].sourceType, "system");
+    assert.equal(queued.length, 1, "load must enqueue exactly one turn");
+    assert.equal(queued[0].sourceType, "sl_load", "routed as sl_load, not the background system lane");
+    assert.ok(queued[0].slBranch, "carries the clean-room branch descriptor");
+    assert.equal(queued[0].slBranch.slId, "SL-20260820-藏歌");
+    assert.match(queued[0].slBranch.branchId, /^SL-20260820-藏歌#/, "a per-load branchId isolates the session");
+    assert.equal(queued[0].slBranch.note, "第一次回档");
     assert.match(queued[0].text, /SL 读档 · SL-20260820-藏歌/);
     assert.match(queued[0].text, /SL-QUOTE-BEGIN/); // re-wrapped for the pipeline strip
     assert.match(queued[0].text, /the last line here/); // the archived excerpt is present
-    assert.match(sent[0].text, /读档 SL-20260820-藏歌（第 1 次读档）/);
+    assert.match(sent[0].text, /读档 SL-20260820-藏歌：已开一个干净的回档净房/);
 
+    // The pointer is armed so her next turns route into the branch.
+    assert.equal(app.slBranchByBinding.size, 1, "the branch pointer is set");
+
+    // Count is bumped on dispatch, not at load -- since dispatch is stubbed here,
+    // the index stays untouched (no fake account written).
     const saved = fs.readFileSync(path.join(slDir, "SL-20260820-藏歌.md"), "utf8");
-    assert.match(saved, /- 第1次 .*：第一次回档/);
+    assert.doesNotMatch(saved, /- 第1次/, "no read recorded until the turn actually dispatches");
+  } finally {
+    cleanup(root);
+  }
+});
+
+test("/return leaves the clean-room branch and clears the pointer; a no-op when not in one", async () => {
+  const root = tempRoot();
+  try {
+    const { convDir, slDir } = writeFixtures(root);
+    saveArchive({ slDir, conversationsDir: convDir, name: "藏歌", endAnchor: "the last line here", timezone: "Australia/Sydney", now: new Date("2026-08-20T05:00:00Z") });
+    const { app, sent } = makeLoadApp(root, convDir, slDir);
+
+    // Not in a branch yet: /return is a gentle no-op.
+    await app.handleReturnCommand(NORMALIZED);
+    assert.match(sent[sent.length - 1].text, /就在主线/);
+
+    // Enter a branch, then /return clears it.
+    await app.handleSlLoadCommand(NORMALIZED, { name: "sl_load", args: "藏歌" });
+    assert.equal(app.slBranchByBinding.size, 1);
+    await app.handleReturnCommand(NORMALIZED);
+    assert.equal(app.slBranchByBinding.size, 0, "pointer cleared");
+    assert.match(sent[sent.length - 1].text, /回到主线/);
   } finally {
     cleanup(root);
   }
