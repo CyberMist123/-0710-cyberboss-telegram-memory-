@@ -3312,6 +3312,9 @@ class CyberbossApp {
     // 同时写回 profile：窗口覆盖按 slot 存，slot 一轮换就没了（Owner 08-06 设的
     // opus-4-6 正是这样悄悄掉回缺省的）。profile 才是启动时的真相源。
     const persisted = this.persistProfileRuntimeParam(commandLane, { model: matched.model });
+    const restarted = await this.autoRestartLaneForRuntimeParam(commandLane, {
+      bindingKey, workspaceRoot, senderId: normalized.senderId,
+    });
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
       text: [
@@ -3319,10 +3322,37 @@ class CyberbossApp {
         windowResult?.applied ? "scope: window" : `workspace: ${workspaceRoot}`,
         `model: ${matched.model}`,
         ...describeProfilePersistence(persisted),
+        ...(restarted ? ["🔄 进程已重启，下一条消息即用新模型"] : []),
       ].join("\n"),
       contextToken: normalized.contextToken,
       ...outboundThreadIdField(normalized),
     });
+  }
+
+  // After /model or /effort, retire this lane's child so the change takes hold on
+  // her next message without a manual /restart. Fail-open: a failed restart must
+  // not fail the command -- the choice is already stored, and the normal
+  // relaunch-on-change path still applies it on the next turn.
+  async autoRestartLaneForRuntimeParam(commandLane, { bindingKey, workspaceRoot, senderId }) {
+    try {
+      if (typeof this.runtimeAdapter.restartLaneChild !== "function") {
+        return null;
+      }
+      const runtimeParams = this.runtimeAdapter.getSessionStore()
+        .getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
+      return await this.runtimeAdapter.restartLaneChild({
+        bindingKey,
+        workspaceRoot,
+        lane: commandLane,
+        launchProfile: this.resolveLaunchProfileForLane?.(commandLane) || null,
+        senderId: senderId || "",
+        model: runtimeParams.model,
+        effort: runtimeParams.effort,
+      });
+    } catch (error) {
+      console.warn(`[cyberboss] auto-restart after runtime param change skipped: ${error?.message || String(error)}`);
+      return null;
+    }
   }
 
   // 把 model/effort 落到该 lane 所属的 launch profile 上。失败只回报，不抛——
@@ -3474,6 +3504,9 @@ class CyberbossApp {
       effort: matched,
     });
     const persistedEffort = this.persistProfileRuntimeParam(commandLane, { effort: matched });
+    const restarted = await this.autoRestartLaneForRuntimeParam(commandLane, {
+      bindingKey, workspaceRoot, senderId: normalized.senderId,
+    });
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
       text: [
@@ -3481,6 +3514,7 @@ class CyberbossApp {
         windowResult?.applied ? "scope: window" : `workspace: ${workspaceRoot}`,
         `effort: ${matched}`,
         ...describeProfilePersistence(persistedEffort),
+        ...(restarted ? ["🔄 进程已重启，下一条消息即用新档位"] : []),
       ].join("\n"),
       contextToken: normalized.contextToken,
       ...outboundThreadIdField(normalized),
