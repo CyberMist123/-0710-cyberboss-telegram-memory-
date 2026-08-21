@@ -2558,9 +2558,21 @@ class CyberbossApp {
       });
     }
     this.runtimeAdapter.getSessionStore().clearThreadIdForWorkspace(bindingKey, workspaceRoot);
+    // Show what the fresh window will run (model / effort), the same way /status
+    // does, so she can confirm the settings without a second command. The thread
+    // itself opens on her next message, so there is no thread id or context usage
+    // to report yet -- say so plainly rather than printing a stale one. Fail-open:
+    // a failed status line must never cost her the /new.
+    const statusTail = this.describeFreshThreadSettingsFailOpen(normalized, {
+      bindingKey, workspaceRoot,
+    });
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
-      text: `✅ Switched to a fresh thread draft\nworkspace: ${workspaceRoot}`,
+      text: [
+        "✅ Switched to a fresh thread draft",
+        `📁 workspace: ${workspaceRoot}`,
+        ...statusTail,
+      ].join("\n"),
       contextToken: normalized.contextToken,
       ...outboundThreadIdField(normalized),
     });
@@ -2568,6 +2580,31 @@ class CyberbossApp {
     // plain object carrying only the prototype methods under test, and a hard
     // `this.`-call here fails the whole command rather than just the greeting.
     this.enqueueWindowOpenGreetingFailOpen?.(normalized, workspaceRoot);
+  }
+
+  // The model / effort the fresh window will launch with, plus a plain note that
+  // the thread and its context usage do not exist until her next message. Reuses
+  // the same runtime-param ladder /status reads, so /new and /status agree. Never
+  // throws: a status-tail failure returns nothing and the /new still lands.
+  describeFreshThreadSettingsFailOpen(normalized, { bindingKey, workspaceRoot }) {
+    try {
+      const commandLane = resolveRouteLaneFor(normalized, bindingKey);
+      const model = this.resolveWindowScopedRuntimeParam("model", {
+        bindingKey, workspaceRoot, lane: commandLane, senderId: normalized.senderId,
+      }).value || this.runtimeAdapter.describe?.().model || "";
+      const effort = resolveEffortLevel(this.resolveWindowScopedRuntimeParam("effort", {
+        bindingKey, workspaceRoot, lane: commandLane, senderId: normalized.senderId,
+      }).value);
+      return [
+        `🤖 model: ${normalizeText(model) || "(default)"}`,
+        `⚡ effort: ${effort}`,
+        "🧵 thread: (fresh · 你下一条消息开新线程)",
+        "📦 context: (fresh · 新线程还没有用量)",
+      ];
+    } catch (error) {
+      console.warn(`[cyberboss] /new status tail skipped: ${error?.message || String(error)}`);
+      return [];
+    }
   }
 
   /**
