@@ -2480,7 +2480,7 @@ class CyberbossApp {
       senderId: normalized.senderId,
     });
     const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
-    const commandLane = resolveRouteLaneFor(normalized, bindingKey);
+    const commandLane = this.resolveCommandLane(normalized, bindingKey);
     const threadId = resolveRouteSessionFor(this, { bindingKey, workspaceRoot, lane: commandLane, normalized }).threadId;
     const threadState = threadId ? this.threadStateStore.getThreadState(threadId) : null;
     const runtimeName = this.runtimeAdapter.describe().id || "runtime";
@@ -2783,7 +2783,7 @@ class CyberbossApp {
     });
     const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
     const sessionStore = this.runtimeAdapter.getSessionStore();
-    const commandLane = resolveRouteLaneFor(normalized, bindingKey);
+    const commandLane = this.resolveCommandLane(normalized, bindingKey);
     const threadId = resolveRouteSessionFor(this, { bindingKey, workspaceRoot, lane: commandLane, normalized }).threadId;
     if (!threadId) {
       await this.channelAdapter.sendText({
@@ -2838,7 +2838,7 @@ class CyberbossApp {
     });
     const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
     const sessionStore = this.runtimeAdapter.getSessionStore();
-    const commandLane = resolveRouteLaneFor(normalized, bindingKey);
+    const commandLane = this.resolveCommandLane(normalized, bindingKey);
     if (typeof this.runtimeAdapter.restartLaneChild !== "function") {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
@@ -2888,7 +2888,7 @@ class CyberbossApp {
     });
     const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
     const sessionStore = this.runtimeAdapter.getSessionStore();
-    const commandLane = resolveRouteLaneFor(normalized, bindingKey);
+    const commandLane = this.resolveCommandLane(normalized, bindingKey);
     const threadId = resolveRouteSessionFor(this, { bindingKey, workspaceRoot, lane: commandLane, normalized }).threadId;
     if (!threadId) {
       await this.channelAdapter.sendText({
@@ -3403,6 +3403,15 @@ class CyberbossApp {
     }
   }
 
+  // The lane a session-scoped command (/status, /restart, /compact, /reread,
+  // /model, /effort) acts on. While she is in a回档净房 that IS her current
+  // session, so those commands target it. /return and /new operate on the pointer
+  // itself and /sl_load establishes a branch from the chat, so they keep using the
+  // mainline lane directly rather than this helper.
+  resolveCommandLane(normalized, bindingKey) {
+    return this.resolveActiveSlBranchLane(bindingKey) || resolveRouteLaneFor(normalized, bindingKey);
+  }
+
   // Shared load core: open a fresh clean-room branch session, inject ONLY the
   // archive (no今天上下文, no八维, no SYSTEM ACTION MODE shell), point this chat at
   // it, and confirm. The read count is bumped on dispatch (see dispatchSystemMessage),
@@ -3645,7 +3654,7 @@ class CyberbossApp {
     const query = normalizeCommandArgument(command.args);
     const sessionStore = this.runtimeAdapter.getSessionStore();
     const catalog = sessionStore.getAvailableModelCatalog();
-    const commandLane = resolveRouteLaneFor(normalized, bindingKey);
+    const commandLane = this.resolveCommandLane(normalized, bindingKey);
     const currentModel = this.resolveWindowScopedRuntimeParam("model", {
       bindingKey, workspaceRoot, lane: commandLane, senderId: normalized.senderId,
     }).value;
@@ -3863,7 +3872,7 @@ class CyberbossApp {
     const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
     const sessionStore = this.runtimeAdapter.getSessionStore();
     const requested = normalizeCommandArgument(command.args);
-    const commandLane = resolveRouteLaneFor(normalized, bindingKey);
+    const commandLane = this.resolveCommandLane(normalized, bindingKey);
     const launchProfile = this.resolveLaunchProfileForLane?.(commandLane) || null;
 
     if (!requested) {
