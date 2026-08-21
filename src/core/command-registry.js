@@ -112,6 +112,13 @@ const COMMAND_GROUPS = [
         status: "active",
       },
       {
+        action: "thread.restart",
+        summary: "Restart this chat's process so a model/effort change takes effect (keeps the conversation)",
+        terminal: [],
+        weixin: ["/restart"],
+        status: "active",
+      },
+      {
         action: "thread.compact",
         summary: "Compact the current thread context",
         terminal: [],
@@ -423,6 +430,7 @@ function actionEmoji(action) {
     case "workspace.status": return "📊";
     case "thread.new": return "🆕";
     case "thread.reread": return "🔄";
+    case "thread.restart": return "♻️";
     case "thread.compact": return "🗜️";
     case "thread.switch": return "🔀";
     case "thread.stop": return "⏹️";

@@ -578,3 +578,45 @@ test("a fresh chat window inherits the global model/effort set in another window
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+// /restart retires the lane's child but keeps the conversation: the stored thread
+// id survives so the next message relaunches with --resume on the current
+// model/effort/profile. This is the Owner-driven escape hatch for "my /model
+// change won't take effect without a restart".
+test("restartLaneChild retires the child but preserves the thread", async () => {
+  const root = tempRoot();
+  const stateDir = path.join(root, "state");
+  fs.mkdirSync(stateDir, { recursive: true });
+  const profile = managedProfile(root);
+  const workspaceRoot = profile.cwd;
+  const adapter = createClaudeCodeRuntimeAdapter({
+    stateDir,
+    sessionsFile: path.join(root, "sessions.json"),
+    claudeSessionSlotsFile: path.join(stateDir, "claude-session-slots.json"),
+  });
+  const bindingKey = "default:telegram:950";
+  const senderId = "950";
+  const lane = buildTelegramRouteLane({ accountId: "telegram", chatId: 950 });
+  try {
+    await withEnv(G3_ENABLED, async () => {
+      // Establish a live thread for this lane's slot.
+      const route = adapter.__internals.resolveRouteContext({ bindingKey, workspaceRoot, lane, launchProfile: profile, senderId });
+      adapter.__internals.sessionSlotStore.setThreadId(route.sessionSlotKey, SESSION_ID, { route: route.routeDescriptor });
+      assert.equal(adapter.__internals.sessionSlotStore.getThreadId(route.sessionSlotKey), SESSION_ID);
+
+      const result = await adapter.restartLaneChild({ bindingKey, workspaceRoot, lane, launchProfile: profile, senderId });
+      // No real child was spawned, so nothing was retired -- but the call must be
+      // safe and, crucially, must NOT drop the conversation.
+      assert.equal(result.retired, false);
+      assert.equal(result.threadId, SESSION_ID, "the thread id is returned");
+      assert.equal(
+        adapter.__internals.sessionSlotStore.getThreadId(route.sessionSlotKey),
+        SESSION_ID,
+        "the conversation thread survives a /restart",
+      );
+    });
+  } finally {
+    await adapter.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -2156,6 +2156,9 @@ class CyberbossApp {
       case "reread":
         await this.handleRereadCommand(normalized);
         return;
+      case "restart":
+        await this.handleRestartCommand(normalized);
+        return;
       case "compact":
         await this.handleCompactCommand(normalized);
         return;
@@ -2693,6 +2696,60 @@ class CyberbossApp {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
         text: `❌ Reread failed\n${error instanceof Error ? error.message : String(error || "unknown error")}`,
+        contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
+      }).catch(() => {});
+    }
+  }
+
+  // Retire this chat's child process while keeping the conversation. The next
+  // message relaunches it with the current model / effort / profile, so a /model
+  // or /effort change she made takes hold without dropping the thread. Unlike
+  // /reread this injects no instruction-refresh turn.
+  async handleRestartCommand(normalized) {
+    const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
+      workspaceId: normalized.workspaceId,
+      accountId: normalized.accountId,
+      senderId: normalized.senderId,
+    });
+    const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
+    const sessionStore = this.runtimeAdapter.getSessionStore();
+    const commandLane = resolveRouteLaneFor(normalized, bindingKey);
+    if (typeof this.runtimeAdapter.restartLaneChild !== "function") {
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: "💡 This runtime does not support /restart.",
+        contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
+      });
+      return;
+    }
+    try {
+      const runtimeParams = sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
+      const result = await this.runtimeAdapter.restartLaneChild({
+        bindingKey,
+        workspaceRoot,
+        lane: commandLane,
+        launchProfile: this.resolveLaunchProfileForLane?.(commandLane) || null,
+        senderId: normalized.senderId || "",
+        model: runtimeParams.model,
+        effort: runtimeParams.effort,
+      });
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: [
+          result?.retired ? "🔄 已重启这条对话的进程" : "🔄 这条对话当前没有在跑的子进程",
+          "会话保留;下一条消息会用最新的 model / effort / profile。",
+          ...(runtimeParams.model ? [`model: ${runtimeParams.model}`] : []),
+          ...(runtimeParams.effort ? [`effort: ${resolveEffortLevel(runtimeParams.effort)}`] : []),
+        ].join("\n"),
+        contextToken: normalized.contextToken,
+        ...outboundThreadIdField(normalized),
+      });
+    } catch (error) {
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: `❌ Restart failed\n${error instanceof Error ? error.message : String(error || "unknown error")}`,
         contextToken: normalized.contextToken,
         ...outboundThreadIdField(normalized),
       }).catch(() => {});
