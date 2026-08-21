@@ -6375,6 +6375,12 @@ function resolveRouteSessionFor(app, { bindingKey, workspaceRoot, lane = null, n
 
 function resolveTelegramLaneForSystemMessage(app, bindingKey, workspaceRoot) {
   if (app.config?.channel !== "telegram") return null;
+  // 八维 follows the current progress, not the archived past. A回档净房 is a full
+  // peer of the mainline -- time keeps flowing in it, memory still writes, tasks
+  // still dispatch -- so while she is in one, that branch IS the live timeline
+  // surface and the desire tick lands there rather than the mainline chat.
+  const branch = app.resolveActiveSlBranchLane?.(bindingKey);
+  if (branch) return branch;
   try {
     const listed = typeof app.runtimeAdapter?.listRestorableSlots === "function"
       ? app.runtimeAdapter.listRestorableSlots()
