@@ -122,6 +122,10 @@ Owner 2026-08-04.
 - `/profile` / `/profile <profileId>`（仅 `CYBERBOSS_CLAUDE_G3_PROFILE_CONTRACT_ENABLED` 开启时）
 - `/pause_heartbeat`
 - `/continue_heartbeat`
+- `/sl_save` / `/sl_save 末句「原话」`
+- `/sl_list`
+- `/sl_load <名字或序号>`
+- `/return`
 - `/help`
 
 Hidden but still typeable (front-end invisible per the 2026-08-04 roster — removed
@@ -144,4 +148,7 @@ Notes:
 - `/profile` reports the lane's effective profile/source/scope; `/profile <profileId>` moves that lane to the selected full-profile window, and switching back resumes only that profile's own session slot
 - `/pause_heartbeat` pauses Desire hourly ticks, scheduled check-ins, closeout/liveness scheduling, and delivery of proactive messages queued by those sources; window chat and user-set reminders stay active
 - `/continue_heartbeat` resumes those ticks and delivers retained proactive messages using the existing queue order
+- `/sl_save` archives a slice of the current conversation as a re-visit save point (存档) under `CYBERBOSS_SL_DIR` (08-sl). With no argument it auto-saves from the recent turns; `/sl_save 末句「原话」` marks the end at that quoted line, and an optional name/note follows (name derived from the opening line when omitted). Only `user` + completed assistant turns are captured (tool traffic skipped); each archived line carries an `SL-QUOTE` marker so the memory-digest pipeline skips it (invariant ⑤)
+- `/sl_load <名字或序号>` opens an atomic `/new` + archive-only injection: a **clean-room revisit branch (净房)** that knows ONLY that archive — no today's context, no 八维, no `SYSTEM ACTION MODE` shell — wearing the same persona as the chat she typed from. This chat's inbound messages route into the净房 until she leaves; the read count is bumped only on successful delivery. `/sl_list` lists archives with their read counts. Telegram-only (a non-tg surface refuses with a note). Old hand-written v0 archives still load
+- `/return` leaves the回档净房 and returns to the mainline chat (a no-op with a gentle note when not in one); `/new` also exits. While in a净房 the 八维/desire tick follows her into it, since the branch is a full live peer of the mainline, not a hidden dark-room
 - file sending is still available, but no longer exposed as a Telegram command

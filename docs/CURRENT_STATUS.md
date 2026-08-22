@@ -121,6 +121,7 @@ Verified against: 5ab4482
 | embedding-service | `PARTIAL` | `PARTIAL` | `NONBLOCKING` | `UNKNOWN` | 由 `app.js` 调用；与 D6 的边界待裁决 |
 | Phase 5B 自动 Soft Retrieval / BM25 / reranker | `ABSENT` | `NONE` | `NONE` | `NOT_WIRED` | `DEFERRED` |
 | Apple Watch 健康（read-only `health` 目录工具，感知） | `WIRED` | `PARTIAL` | `BLOCKING` | `NOT_WIRED` | 2026-08-19（分支 `feat/health-catalog`，未部署）：只读目录工具接「感知」主题（D50），Python 桥调 Collar_watch `health_store` 两条读路径，**不暴露 `measure_heart_rate`**（写路径禁入）。挂 `CYBERBOSS_HEALTH_ENABLED` 默认关；目录测试进 `test:catalog-metering`，Python 桥仅本机冒烟（故测试 `PARTIAL`）。部署 + 配 env + 真机验后方可升格 |
+| 存档/读档 SL（`/sl_save` · `/sl_list` · `/sl_load` 净房 · `/return`） | `WIRED` | `COVERED` | `BLOCKING` | `WIRED` | v1 的 `/sl_load` 把存档灌进后台 system 会话（诊断闭环见 `workdesk\20260821-sl-load-clean-branch-spec.md`）已修为**净房分支**：原子 `/new` + 只灌存档（无今天上下文/无八维/无 SYSTEM ACTION MODE 壳）、指针改道、`/return`（`/new` 亦退）退出、八维跟进净房（非暗室）。存档收 `user`+完成 assistant 轮、带 `SL-QUOTE` 标记供消化管线跳过（不变量⑤）。`CYBERBOSS_SL_DIR`→`Fluffy-SelfHood\08-sl`，兼容 v0 手写档。`test:phase1`（sl-archive/sl-commands）+ `test:route-lanes`（system-inbound/净房路由/命令改道）进主 CI。2026-08-22 部署 `54404d7`（Tag=slclean，D5 逐字节核对 169 文件=0 差异，一条真机消息端到端回复正常）；**TG 真机验三命令待 Owner，绿后升 `VERIFIED`** |
 
 ### 证据锚点
 
