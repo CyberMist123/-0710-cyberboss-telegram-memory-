@@ -277,7 +277,7 @@ function readConfig() {
     nightlyCloseoutHour: readBoundedIntEnv("CYBERBOSS_NIGHTLY_CLOSEOUT_HOUR", 4, 0, 23),
     nightlyCloseoutMinute: readBoundedIntEnv("CYBERBOSS_NIGHTLY_CLOSEOUT_MINUTE", 30, 0, 59),
     automationTimezone: readTimezoneEnv("CYBERBOSS_AUTOMATION_TIMEZONE", "Australia/Sydney"),
-    slowLayerTotalBudget: readBoundedIntEnv("CYBERBOSS_SLOW_LAYER_TOTAL_BUDGET", 1_000, 800, 4_000),
+    slowLayerTotalBudget: readBoundedIntEnv("CYBERBOSS_SLOW_LAYER_TOTAL_BUDGET", 1_000, 800, 12_000),
     canonLivenessEnabled: readStrictBoolEnv("CYBERBOSS_CANON_LIVENESS_ENABLED", false),
     canonLivenessThresholdHours: readBoundedIntEnv("CYBERBOSS_CANON_LIVENESS_THRESHOLD_HOURS", 48, 0, 8_760),
     recallLivenessEnabled: readStrictBoolEnv("CYBERBOSS_RECALL_LIVENESS_ENABLED", false),

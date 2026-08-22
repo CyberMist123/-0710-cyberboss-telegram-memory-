@@ -18,7 +18,9 @@ const { countNonWhitespace } = require("./reentry-loader");
 // ≥ portrait（姿态背景）≥ wandering（悬置问题），装不下的整项跳过。
 const SLOW_LAYER_TOTAL_BUDGET = 800;
 const SLOW_LAYER_TOTAL_BUDGET_MIN = 800;
-const SLOW_LAYER_TOTAL_BUDGET_MAX = 4_000;
+// 2026-08-22 Owner 裁定：上限 4000 装不下亲笔画像（2630）+ agreements（4261）两份，
+// 任一超限都是整项无声消失。放到 12000——温度优先于开机省字。
+const SLOW_LAYER_TOTAL_BUDGET_MAX = 12_000;
 // wandering 只轻量点出最上面几条问号，不是把灰名单整个搬进来。
 const WANDERING_MAX_LINES = 3;
 const WANDERING_CHAR_BUDGET = 100;
