@@ -88,7 +88,13 @@ function prepareOpeningContext({ config = {}, sessionStore, threadId, reason = "
     ? loadCurrentState({ filePath: config.desireStateFile, overrideFilePath: config.currentStateOverrideFile })
     : { skipped: "gated_off" };
   if (currentState?.text) {
-    blocks.push({ type: "current_state", loaded: true, reason, ...pickEvidence(currentState) });
+    blocks.push({
+      type: "current_state",
+      loaded: true,
+      reason,
+      ...pickEvidence(currentState),
+      ...(Number.isFinite(currentState.age_hours) ? { age_hours: currentState.age_hours } : {}),
+    });
   } else {
     skipped.push({ type: "current_state", reason: currentState?.skipped || "missing" });
   }
@@ -111,7 +117,13 @@ function prepareRefreshContext({ config = {}, reason = "refresh" } = {}) {
   const blocks = [];
   const skipped = [{ type: "reentry", reason: "existing_thread" }];
   if (currentState?.text) {
-    blocks.push({ type: "current_state", loaded: true, reason, ...pickEvidence(currentState) });
+    blocks.push({
+      type: "current_state",
+      loaded: true,
+      reason,
+      ...pickEvidence(currentState),
+      ...(Number.isFinite(currentState.age_hours) ? { age_hours: currentState.age_hours } : {}),
+    });
   } else {
     skipped.push({ type: "current_state", reason: currentState?.skipped || "missing" });
   }

@@ -331,13 +331,65 @@ test("current state summarizes the desire report shape without intent", () => {
   assert.equal(currentState.skipped, undefined);
   assert.ok(currentState.chars <= 100);
   assert.match(currentState.text, /^此刻:想知道她现在在做什么/u);
-  assert.match(currentState.text, /依恋0\.7 责任0\.5↑/u);
+  // 驱力分数行不再注入：开机第一屏不出现账本腔（"依恋0.7 责任0.5↑"）。
+  assert.doesNotMatch(currentState.text, /依恋|责任|0\.7|↑/u);
   const overlong = { most_want: "她".repeat(200), drives: [] };
   fs.writeFileSync(desireStateFile, JSON.stringify(overlong), "utf8");
   const truncated = loadCurrentState({ filePath: desireStateFile });
   assert.equal(truncated.skipped, undefined);
   assert.ok(truncated.chars <= 100);
   assert.match(truncated.text, /…$/u);
+});
+
+test("current state carries its age: fresh is bare, >2h is labelled, never dropped for age", () => {
+  const root = fixtureRoot();
+  const desireStateFile = path.join(root, "desire-state.json");
+  const base = Date.parse("2026-08-22T10:45:00.000Z");
+  const write = (updatedAt) => fs.writeFileSync(desireStateFile, JSON.stringify({
+    most_want: "她刚睡下，我不打扰",
+    drives: [{ key: "attachment", label: "依恋", score: 0.95, change: "up" }],
+    updatedAt,
+  }), "utf8");
+
+  write("2026-08-22T10:45:00.000Z");
+  const fresh = loadCurrentState({ filePath: desireStateFile, now: () => base + 30 * 60 * 1000 });
+  assert.equal(fresh.text, "此刻:她刚睡下，我不打扰");
+  assert.equal(fresh.age_hours, 0);
+
+  const stale = loadCurrentState({ filePath: desireStateFile, now: () => base + 5 * 60 * 60 * 1000 });
+  assert.equal(stale.skipped, undefined);
+  assert.equal(stale.text, "（5 小时前的姿态，不是现在）此刻:她刚睡下，我不打扰");
+  assert.equal(stale.age_hours, 5);
+  assert.ok(stale.chars <= 100);
+
+  // 再旧也只标注，不丢（Owner 2026-08-22：标注就够）。
+  const old = loadCurrentState({ filePath: desireStateFile, now: () => base + 30 * 60 * 60 * 1000 });
+  assert.equal(old.skipped, undefined);
+  assert.equal(old.text, "（30 小时前的姿态，不是现在）此刻:她刚睡下，我不打扰");
+  assert.equal(old.age_hours, 30);
+
+  // 没有 updatedAt（或写坏了）按未知处理：不标注、不丢。
+  fs.writeFileSync(desireStateFile, JSON.stringify({ most_want: "想安静看一会儿", updatedAt: "not-a-date" }), "utf8");
+  const unknown = loadCurrentState({ filePath: desireStateFile, now: () => base + 99 * 60 * 60 * 1000 });
+  assert.equal(unknown.text, "此刻:想安静看一会儿");
+  assert.equal(unknown.age_hours, undefined);
+
+  // 开窗 trace 把时效带出来，跟 reentry 一样可判读。
+  write("2026-08-22T10:45:00.000Z");
+  const realNow = Date.now;
+  Date.now = () => base + 5 * 60 * 60 * 1000;
+  try {
+    const opening = prepareOpeningContext({ config: { desireStateFile }, reason: "first_open", threadId: "t1" });
+    const block = opening.blocks.find((row) => row.type === "current_state");
+    assert.equal(block.age_hours, 5);
+    Date.now = () => base + 30 * 60 * 60 * 1000;
+    const late = prepareOpeningContext({ config: { desireStateFile }, reason: "first_open", threadId: "t2" });
+    const lateBlock = late.blocks.find((row) => row.type === "current_state");
+    assert.equal(lateBlock.loaded, true);
+    assert.equal(lateBlock.age_hours, 30);
+  } finally {
+    Date.now = realNow;
+  }
 });
 
 test("manual current-state override is the exact bounded injected text", () => {
