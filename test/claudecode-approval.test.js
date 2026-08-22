@@ -929,6 +929,9 @@ test("handleCompactCommand invokes runtime compaction for the current thread", a
   const calls = [];
   const appLike = {
     pendingOperationByRunKey: new Map(),
+    resolveCommandLane() {
+      return null;
+    },
     resolveWorkspaceRoot() {
       return "/workspace";
     },
@@ -982,6 +985,9 @@ test("handleCompactCommand invokes runtime compaction for the current thread", a
 test("handleCompactCommand reports when there is no active thread", async () => {
   const calls = [];
   const appLike = {
+    resolveCommandLane() {
+      return null;
+    },
     resolveWorkspaceRoot() {
       return "/workspace";
     },
